@@ -25,20 +25,20 @@
 
 uMailServer is a **single-binary monolith** email server implementing:
 
-| Protocol | Port | Purpose |
-|----------|------|---------|
-| SMTP | 25 | Mail Transfer (MX) |
-| SMTP Submission | 587 | Mail Submission Agent (MSA) |
-| SMTP Submission (TLS) | 465 | Implicit TLS submission |
-| IMAP4rev1 | 143 | Mail Access |
-| IMAP4rev2 | 143 | Mail Access (newer variant) |
-| POP3 | 110 | Mail Access (legacy) |
-| POP3 (TLS) | 995 | Implicit TLS pop3 |
-| HTTP | 443 | REST API & Webmail |
-| HTTPS (Admin) | 8443 | Admin Panel only (localhost-only) |
-| MCP | 3000 | Model Context Protocol (AI) |
-| ManageSieve | 4190 | Sieve Script Management |
-| HTTP (Metrics) | 8080 | Prometheus metrics endpoint |
+| Protocol              | Port | Purpose                           |
+|-----------------------|------|-----------------------------------|
+| SMTP                  | 25   | Mail Transfer (MX)                |
+| SMTP Submission       | 587  | Mail Submission Agent (MSA)       |
+| SMTP Submission (TLS) | 465  | Implicit TLS submission           |
+| IMAP4rev1             | 143  | Mail Access                       |
+| IMAP4rev2             | 143  | Mail Access (newer variant)       |
+| POP3                  | 110  | Mail Access (legacy)              |
+| POP3 (TLS)            | 995  | Implicit TLS pop3                 |
+| HTTP                  | 443  | REST API & Webmail                |
+| HTTPS (Admin)         | 8443 | Admin Panel only (localhost-only) |
+| MCP                   | 3000 | Model Context Protocol (AI)       |
+| ManageSieve           | 4190 | Sieve Script Management           |
+| HTTP (Metrics)        | 8080 | Prometheus metrics endpoint       |
 
 ### Design Principles
 
@@ -213,22 +213,22 @@ type Server struct {
 ```
 
 **Stages:**
-| Stage | Purpose | RFC |
-|-------|---------|-----|
-| SPF | Verify sender IP authorization | RFC 7208 |
-| DKIM | Verify cryptographic signature | RFC 6376 |
-| DMARC | Policy alignment check | RFC 7489 |
-| ARC | Authentication chain preservation | RFC 8617 |
-| Rate Limit | Per-IP/user rate limiting | - |
-| Greylist | Delay first-time senders | RFC 6647 |
-| RBL | DNS blacklist checking | RFC 5782 |
-| Heuristic | Bayesian-style pattern scoring | - |
-| Bayesian | Per-user spam classification | - |
-| Score | Threshold-based delivery decision | - |
-| Sieve | Server-side mail filtering | RFC 5228 |
-| S/MIME | S/MIME decryption/verification | RFC 8551 |
-| OpenPGP | OpenPGP decryption/verification | RFC 3156 |
-| AV | ClamAV virus scanning | - |
+| Stage      | Purpose                           | RFC      |
+|------------|-----------------------------------|----------|
+| SPF        | Verify sender IP authorization    | RFC 7208 |
+| DKIM       | Verify cryptographic signature    | RFC 6376 |
+| DMARC      | Policy alignment check            | RFC 7489 |
+| ARC        | Authentication chain preservation | RFC 8617 |
+| Rate Limit | Per-IP/user rate limiting         | -        |
+| Greylist   | Delay first-time senders          | RFC 6647 |
+| RBL        | DNS blacklist checking            | RFC 5782 |
+| Heuristic  | Bayesian-style pattern scoring    | -        |
+| Bayesian   | Per-user spam classification      | -        |
+| Score      | Threshold-based delivery decision | -        |
+| Sieve      | Server-side mail filtering        | RFC 5228 |
+| S/MIME     | S/MIME decryption/verification    | RFC 8551 |
+| OpenPGP    | OpenPGP decryption/verification   | RFC 3156 |
+| AV         | ClamAV virus scanning             | -        |
 
 ### 3.3 IMAP Server (`internal/imap/`)
 
@@ -270,19 +270,19 @@ type Server struct {
 ```
 
 **Key IMAP Extensions Supported:**
-| Extension | RFC | Status |
-|-----------|-----|--------|
-| IDLE | RFC 2177 | ✅ Push notifications |
-| NAMESPACE | RFC 2342 | ✅ Personal/shared/public |
-| MOVE | RFC 6851 | ✅ Server-side move |
-| CONDSTORE | RFC 7162 | ✅ Efficient resync |
-| QRESYNC | RFC 7162 | ✅ Quick resync |
-| SORT | RFC 5256 | ✅ Server-side sorting |
-| THREAD | RFC 5256 | ✅ Message threading |
-| COMPRESS | RFC 4978 | ✅ DEFLATE compression |
-| SPECIAL-USE | RFC 6154 | ✅ \Sent, \Drafts, etc. |
-| UIDPLUS | RFC 4315 | ✅ UID expansion |
-| ENABLE | RFC 5161 | ✅ Capability enabling |
+| Extension   | RFC      | Status                   |
+|-------------|----------|--------------------------|
+| IDLE        | RFC 2177 | ✅ Push notifications     |
+| NAMESPACE   | RFC 2342 | ✅ Personal/shared/public |
+| MOVE        | RFC 6851 | ✅ Server-side move       |
+| CONDSTORE   | RFC 7162 | ✅ Efficient resync       |
+| QRESYNC     | RFC 7162 | ✅ Quick resync           |
+| SORT        | RFC 5256 | ✅ Server-side sorting    |
+| THREAD      | RFC 5256 | ✅ Message threading      |
+| COMPRESS    | RFC 4978 | ✅ DEFLATE compression    |
+| SPECIAL-USE | RFC 6154 | ✅ \Sent, \Drafts, etc.   |
+| UIDPLUS     | RFC 4315 | ✅ UID expansion          |
+| ENABLE      | RFC 5161 | ✅ Capability enabling    |
 
 ### 3.4 Storage Architecture (`internal/storage/`)
 
@@ -388,28 +388,28 @@ Example: ./data/mail/messages/demo@localhost/86/47/8647b19daae2bddfcf7352...
 
 **HTTP Servers:**
 
-| Server | Port | Purpose |
-|--------|------|---------|
-| `api.Server` | 443 | Webmail + REST API + Admin Panel |
+| Server            | Port | Purpose                           |
+|-------------------|------|-----------------------------------|
+| `api.Server`      | 443  | Webmail + REST API + Admin Panel  |
 | `api.AdminServer` | 8443 | Admin Panel only (localhost-only) |
-| Metrics server | 8080 | Prometheus metrics endpoint |
+| Metrics server    | 8080 | Prometheus metrics endpoint       |
 
 **API Endpoints:**
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/auth/login` | POST | Authenticate user |
-| `/api/v1/auth/refresh` | POST | Refresh JWT token |
-| `/api/v1/mail/{folder}` | GET | List emails in folder |
-| `/api/v1/mail/send` | POST | Send email |
-| `/api/v1/mail/delete` | DELETE | Delete email |
-| `/api/v1/domains` | GET/POST | List/create domains |
-| `/api/v1/accounts` | GET/POST | List/create accounts |
-| `/api/v1/queue` | GET | View outbound queue |
-| `/api/v1/filters` | GET/POST | Manage Sieve filters |
-| `/api/v1/vacation` | GET/POST | Auto-reply settings |
-| `/api/v1/search` | GET | Full-text search |
-| `/api/v1/push/*` | POST | WebPush subscriptions |
+| Endpoint                | Method   | Description           |
+|-------------------------|----------|-----------------------|
+| `/api/v1/auth/login`    | POST     | Authenticate user     |
+| `/api/v1/auth/refresh`  | POST     | Refresh JWT token     |
+| `/api/v1/mail/{folder}` | GET      | List emails in folder |
+| `/api/v1/mail/send`     | POST     | Send email            |
+| `/api/v1/mail/delete`   | DELETE   | Delete email          |
+| `/api/v1/domains`       | GET/POST | List/create domains   |
+| `/api/v1/accounts`      | GET/POST | List/create accounts  |
+| `/api/v1/queue`         | GET      | View outbound queue   |
+| `/api/v1/filters`       | GET/POST | Manage Sieve filters  |
+| `/api/v1/vacation`      | GET/POST | Auto-reply settings   |
+| `/api/v1/search`        | GET      | Full-text search      |
+| `/api/v1/push/*`        | POST     | WebPush subscriptions |
 
 ---
 
@@ -608,30 +608,30 @@ Example: ./data/mail/messages/demo@localhost/86/47/8647b19daae2bddfcf7352...
 
 **Two separate bbolt databases:**
 
-| Database | Path | Purpose |
-|----------|------|---------|
-| `db.DB` (accounts) | `./data/umailserver.db` | Domains, accounts, aliases |
-| `storage.Database` | `./data/mail/mail.db` | Search indexing, JMAP change journal |
+| Database           | Path                    | Purpose                              |
+|--------------------|-------------------------|--------------------------------------|
+| `db.DB` (accounts) | `./data/umailserver.db` | Domains, accounts, aliases           |
+| `storage.Database` | `./data/mail/mail.db`   | Search indexing, JMAP change journal |
 
 **Buckets (storage.Database — mail/mail.db):**
 
-| Bucket | Key Pattern | Value | Description |
-|--------|------------|-------|-------------|
-| `msgs:{user}:{mailbox}` | UID (uint32) | JSON | Message metadata |
-| `mailbox:{user}:{mailbox}` | - | JSON | Mailbox metadata (uidnext, uidvalidity) |
-| `filters` | `{user}` | JSON | Sieve scripts |
-| `vacation` | `{user}` | JSON | Auto-reply config |
-| `push_subs` | `{endpoint}` | JSON | WebPush subscriptions |
-| `changes:{user}` | sequence | JSON | JMAP change journal |
+| Bucket                     | Key Pattern  | Value | Description                             |
+|----------------------------|--------------|-------|-----------------------------------------|
+| `msgs:{user}:{mailbox}`    | UID (uint32) | JSON  | Message metadata                        |
+| `mailbox:{user}:{mailbox}` | -            | JSON  | Mailbox metadata (uidnext, uidvalidity) |
+| `filters`                  | `{user}`     | JSON  | Sieve scripts                           |
+| `vacation`                 | `{user}`     | JSON  | Auto-reply config                       |
+| `push_subs`                | `{endpoint}` | JSON  | WebPush subscriptions                   |
+| `changes:{user}`           | sequence     | JSON  | JMAP change journal                     |
 
 **Accounts Database (db.DB — umailserver.db):**
 
-| Bucket | Key Pattern | Value | Description |
-|--------|------------|-------|-------------|
-| `domains` | `{domainName}` | JSON | Domain config |
-| `accounts` | `{domain}/{localPart}` | JSON | Account data |
-| `aliases` | `{domain}/{localPart}` | String | Alias targets |
-| `queue` | `{messageID}` | JSON | Queue entries |
+| Bucket     | Key Pattern            | Value  | Description   |
+|------------|------------------------|--------|---------------|
+| `domains`  | `{domainName}`         | JSON   | Domain config |
+| `accounts` | `{domain}/{localPart}` | JSON   | Account data  |
+| `aliases`  | `{domain}/{localPart}` | String | Alias targets |
+| `queue`    | `{messageID}`          | JSON   | Queue entries |
 
 **Accounts Database (accounts.db):**
 ```
@@ -869,76 +869,76 @@ Hello World!
 
 ### 8.1 Core Protocols
 
-| RFC | Title | Status | Implementation |
-|-----|-------|--------|----------------|
-| RFC 5321 | SMTP | ✅ Full | `internal/smtp/` |
-| RFC 6409 | Message Submission | ✅ Full | Port 587 |
-| RFC 3207 | STARTTLS | ✅ Full | TLS upgrade |
-| RFC 4954 | SMTP AUTH | ✅ Full | PLAIN, LOGIN, SCRAM |
-| RFC 1939 | POP3 | ✅ Full | `internal/pop3/` |
-| RFC 2449 | POP3 CAPA | ✅ Full | Extension framework |
-| RFC 5034 | POP3 SASL | ✅ Full | Same as SMTP |
-| RFC 8314 | Implicit TLS | ✅ Full | Ports 465, 993, 995 |
-| RFC 3501 | IMAP4rev1 | ✅ Full | `internal/imap/` |
-| RFC 9051 | IMAP4rev2 | ✅ Full | Via ENABLE extension |
-| RFC 4791 | CalDAV | ✅ Full | `internal/caldav/` |
-| RFC 6352 | CardDAV | ✅ Full | `internal/carddav/` |
-| RFC 8620 | JMAP | ✅ Full | `internal/jmap/` |
+| RFC      | Title              | Status | Implementation       |
+|----------|--------------------|--------|----------------------|
+| RFC 5321 | SMTP               | ✅ Full | `internal/smtp/`     |
+| RFC 6409 | Message Submission | ✅ Full | Port 587             |
+| RFC 3207 | STARTTLS           | ✅ Full | TLS upgrade          |
+| RFC 4954 | SMTP AUTH          | ✅ Full | PLAIN, LOGIN, SCRAM  |
+| RFC 1939 | POP3               | ✅ Full | `internal/pop3/`     |
+| RFC 2449 | POP3 CAPA          | ✅ Full | Extension framework  |
+| RFC 5034 | POP3 SASL          | ✅ Full | Same as SMTP         |
+| RFC 8314 | Implicit TLS       | ✅ Full | Ports 465, 993, 995  |
+| RFC 3501 | IMAP4rev1          | ✅ Full | `internal/imap/`     |
+| RFC 9051 | IMAP4rev2          | ✅ Full | Via ENABLE extension |
+| RFC 4791 | CalDAV             | ✅ Full | `internal/caldav/`   |
+| RFC 6352 | CardDAV            | ✅ Full | `internal/carddav/`  |
+| RFC 8620 | JMAP               | ✅ Full | `internal/jmap/`     |
 
 ### 8.2 Authentication & Security
 
-| RFC | Title | Status | Implementation |
-|-----|-------|--------|----------------|
-| RFC 7208 | SPF | ✅ Full | `internal/auth/spf.go` |
-| RFC 6376 | DKIM | ✅ Full | `internal/auth/dkim.go` |
-| RFC 7489 | DMARC | ✅ Full | `internal/auth/dmarc.go` |
-| RFC 8617 | ARC | ✅ Full | `internal/auth/arc.go` |
-| RFC 6698 | DANE/TLSA | ✅ Full | `internal/auth/dane.go` |
-| RFC 7671 | DANE | ✅ Full | `internal/auth/dane.go` |
-| RFC 7672 | DANE for SMTP | ✅ Full | TLSA record verification |
-| RFC 6711 | MTA-STS | ✅ Full | SMTP TLS policy |
-| RFC 4422 | SASL | ✅ Full | PLAIN, LOGIN, SCRAM-SHA-256 |
-| RFC 7616 | SCRAM-SHA-256 | ✅ Full | Modern SASL mechanism |
+| RFC      | Title         | Status | Implementation              |
+|----------|---------------|--------|-----------------------------|
+| RFC 7208 | SPF           | ✅ Full | `internal/auth/spf.go`      |
+| RFC 6376 | DKIM          | ✅ Full | `internal/auth/dkim.go`     |
+| RFC 7489 | DMARC         | ✅ Full | `internal/auth/dmarc.go`    |
+| RFC 8617 | ARC           | ✅ Full | `internal/auth/arc.go`      |
+| RFC 6698 | DANE/TLSA     | ✅ Full | `internal/auth/dane.go`     |
+| RFC 7671 | DANE          | ✅ Full | `internal/auth/dane.go`     |
+| RFC 7672 | DANE for SMTP | ✅ Full | TLSA record verification    |
+| RFC 6711 | MTA-STS       | ✅ Full | SMTP TLS policy             |
+| RFC 4422 | SASL          | ✅ Full | PLAIN, LOGIN, SCRAM-SHA-256 |
+| RFC 7616 | SCRAM-SHA-256 | ✅ Full | Modern SASL mechanism       |
 
 ### 8.3 Anti-Spam & Filtering
 
-| RFC | Title | Status | Implementation |
-|-----|-------|--------|----------------|
-| RFC 5228 | Sieve | ✅ Full | `internal/sieve/` |
-| RFC 5804 | ManageSieve | ✅ Full | Port 4190 |
-| RFC 5782 | DNSBL/DNSWL | ✅ Full | RBL checker |
-| RFC 6647 | Greylisting | ✅ Full | Greylist stage |
-| RFC 2505 | Anti-Spam BCP | ✅ Full | SMTP pipeline |
+| RFC      | Title         | Status | Implementation    |
+|----------|---------------|--------|-------------------|
+| RFC 5228 | Sieve         | ✅ Full | `internal/sieve/` |
+| RFC 5804 | ManageSieve   | ✅ Full | Port 4190         |
+| RFC 5782 | DNSBL/DNSWL   | ✅ Full | RBL checker       |
+| RFC 6647 | Greylisting   | ✅ Full | Greylist stage    |
+| RFC 2505 | Anti-Spam BCP | ✅ Full | SMTP pipeline     |
 
 ### 8.4 Message Format & Extensions
 
-| RFC | Title | Status | Implementation |
-|-----|-------|--------|----------------|
-| RFC 5322 | Message Format | ✅ Full | Standard format |
-| RFC 2045-2049 | MIME | ✅ Full | Standard support |
-| RFC 3461 | DSN | ✅ Full | `internal/queue/` |
-| RFC 3798 | MDN | ✅ Full | Read receipts |
-| RFC 6154 | SPECIAL-USE | ✅ Full | \Sent, \Drafts, etc. |
-| RFC 6851 | IMAP MOVE | ✅ Full | MOVE command |
-| RFC 7888 | LITERAL+ | ✅ Full | Non-synchronizing literals |
-| RFC 8551 | S/MIME | ✅ Full | AES-256-GCM + RSA OAEP |
-| RFC 3156 | OpenPGP | ✅ Full | AES-256-GCM symmetric |
+| RFC           | Title          | Status | Implementation             |
+|---------------|----------------|--------|----------------------------|
+| RFC 5322      | Message Format | ✅ Full | Standard format            |
+| RFC 2045-2049 | MIME           | ✅ Full | Standard support           |
+| RFC 3461      | DSN            | ✅ Full | `internal/queue/`          |
+| RFC 3798      | MDN            | ✅ Full | Read receipts              |
+| RFC 6154      | SPECIAL-USE    | ✅ Full | \Sent, \Drafts, etc.       |
+| RFC 6851      | IMAP MOVE      | ✅ Full | MOVE command               |
+| RFC 7888      | LITERAL+       | ✅ Full | Non-synchronizing literals |
+| RFC 8551      | S/MIME         | ✅ Full | AES-256-GCM + RSA OAEP     |
+| RFC 3156      | OpenPGP        | ✅ Full | AES-256-GCM symmetric      |
 
 ### 8.5 Delivery & Notifications
 
-| RFC | Title | Status | Implementation |
-|-----|-------|--------|----------------|
-| RFC 3461 | DSN (Delivery Status) | ✅ Full | Delivery receipts |
-| RFC 3798 | MDN (Disposition) | ✅ Full | Read receipts |
-| RFC 5229 | Sieve Variables | ✅ Full | Vacation auto-reply |
-| RFC 5230 | Sieve Vacation | ✅ Full | Auto-responder |
+| RFC      | Title                 | Status | Implementation      |
+|----------|-----------------------|--------|---------------------|
+| RFC 3461 | DSN (Delivery Status) | ✅ Full | Delivery receipts   |
+| RFC 3798 | MDN (Disposition)     | ✅ Full | Read receipts       |
+| RFC 5229 | Sieve Variables       | ✅ Full | Vacation auto-reply |
+| RFC 5230 | Sieve Vacation        | ✅ Full | Auto-responder      |
 
 ### 8.6 Web & Auto-Configuration
 
-| Feature | Standard | Status | Implementation |
-|---------|----------|--------|----------------|
-| Autoconfig | Mozilla | ✅ Full | `/.well-known/autoconfig/` |
-| Autodiscover | Microsoft | ✅ Full | `/autodiscover/` |
+| Feature      | Standard  | Status | Implementation             |
+|--------------|-----------|--------|----------------------------|
+| Autoconfig   | Mozilla   | ✅ Full | `/.well-known/autoconfig/` |
+| Autodiscover | Microsoft | ✅ Full | `/autodiscover/`           |
 
 ---
 
@@ -1152,18 +1152,18 @@ func (s *Server) Stop() {
 
 ### Recent Commits (Chronological)
 
-| Commit | Description |
-|--------|-------------|
-| `8a07e4e` | fix: improve error handling in mail.go and queue manager |
-| `d9c07fb` | correct TestResourceMonitor_MemoryLimitCallback timing issue |
+| Commit    | Description                                                             |
+|-----------|-------------------------------------------------------------------------|
+| `8a07e4e` | fix: improve error handling in mail.go and queue manager                |
+| `d9c07fb` | correct TestResourceMonitor_MemoryLimitCallback timing issue            |
 | `d86a91a` | fix: resolve critical deadlock and improve error handling in server/API |
 | `b84a260` | feat: add production deployment manifests and IMAP subscription support |
-| `08859e8` | chore: add project documentation and pipeline benchmark |
-| `9f3dfc5` | fix: P0 security vulnerabilities and test coverage improvements |
-| `13c963f` | fix: P0 security vulnerabilities (auth/crypto) |
-| `8230248` | fix: format Go files |
-| `fc4f9b2` | test: fix TestHandleMailDelete tests |
-| `d7f5c30` | test: fix coverage_api_extra tests |
+| `08859e8` | chore: add project documentation and pipeline benchmark                 |
+| `9f3dfc5` | fix: P0 security vulnerabilities and test coverage improvements         |
+| `13c963f` | fix: P0 security vulnerabilities (auth/crypto)                          |
+| `8230248` | fix: format Go files                                                    |
+| `fc4f9b2` | test: fix TestHandleMailDelete tests                                    |
+| `d7f5c30` | test: fix coverage_api_extra tests                                      |
 
 ### Key Features Implemented
 
@@ -1258,13 +1258,13 @@ func (s *Server) Stop() {
 
 **Cache Metrics:**
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `umailserver_spf_cache_hits` | Counter | SPF cache hits |
-| `umailserver_spf_cache_misses` | Counter | SPF cache misses |
-| `umailserver_dkim_cache_hits` | Counter | DKIM cache hits |
-| `umailserver_dkim_cache_misses` | Counter | DKIM cache misses |
-| `umailserver_dmarc_cache_hits` | Counter | DMARC cache hits |
+| Metric                           | Type    | Description        |
+|----------------------------------|---------|--------------------|
+| `umailserver_spf_cache_hits`     | Counter | SPF cache hits     |
+| `umailserver_spf_cache_misses`   | Counter | SPF cache misses   |
+| `umailserver_dkim_cache_hits`    | Counter | DKIM cache hits    |
+| `umailserver_dkim_cache_misses`  | Counter | DKIM cache misses  |
+| `umailserver_dmarc_cache_hits`   | Counter | DMARC cache hits   |
 | `umailserver_dmarc_cache_misses` | Counter | DMARC cache misses |
 
 ### 12.2 Distributed Tracing (`internal/tracing/`)
@@ -1306,11 +1306,11 @@ func (s *Server) Stop() {
 
 **Supported Exporters:**
 
-| Exporter | Endpoint | Use Case |
-|----------|----------|----------|
-| `noop` | - | Development, disabled |
-| `stdout` | stdout | Debugging |
-| `otlp` | `localhost:4317` | Production (Jaeger, Tempo) |
+| Exporter | Endpoint         | Use Case                   |
+|----------|------------------|----------------------------|
+| `noop`   | -                | Development, disabled      |
+| `stdout` | stdout           | Debugging                  |
+| `otlp`   | `localhost:4317` | Production (Jaeger, Tempo) |
 
 **Configuration:**
 

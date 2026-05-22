@@ -546,14 +546,14 @@ All errors follow this format:
 
 ### Common Error Codes
 
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `unauthorized` | 401 | Invalid or missing token |
-| `forbidden` | 403 | Insufficient permissions |
-| `not_found` | 404 | Resource not found |
-| `invalid_request` | 400 | Invalid request parameters |
-| `rate_limited` | 429 | Too many requests |
-| `server_error` | 500 | Internal server error |
+| Code              | HTTP Status | Description                |
+|-------------------|-------------|----------------------------|
+| `unauthorized`    | 401         | Invalid or missing token   |
+| `forbidden`       | 403         | Insufficient permissions   |
+| `not_found`       | 404         | Resource not found         |
+| `invalid_request` | 400         | Invalid request parameters |
+| `rate_limited`    | 429         | Too many requests          |
+| `server_error`    | 500         | Internal server error      |
 
 ## Rate Limiting
 

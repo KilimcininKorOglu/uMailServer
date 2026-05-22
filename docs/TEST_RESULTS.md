@@ -6,31 +6,31 @@
 
 ## Summary
 
-| Category | Status |
-|----------|--------|
+| Category       | Status |
+|----------------|--------|
 | Server Startup | ✅ PASS |
-| API Endpoints | ✅ PASS |
-| Admin Panel | ✅ PASS |
-| Webmail | ✅ PASS |
+| API Endpoints  | ✅ PASS |
+| Admin Panel    | ✅ PASS |
+| Webmail        | ✅ PASS |
 | Authentication | ✅ PASS |
-| Rate Limiting | ✅ PASS |
-| SMTP Server | ✅ PASS |
-| IMAP Server | ✅ PASS |
-| MCP Server | ✅ PASS |
+| Rate Limiting  | ✅ PASS |
+| SMTP Server    | ✅ PASS |
+| IMAP Server    | ✅ PASS |
+| MCP Server     | ✅ PASS |
 
 ## Port Status
 
-| Port | Protocol | Status |
-|------|----------|--------|
-| 25 | SMTP | ✅ Listening |
-| 465 | SMTP (TLS) | ✅ Listening |
-| 587 | SMTP (Submission) | ✅ Listening |
-| 143 | IMAP (STARTTLS) | ✅ Listening |
-| 993 | IMAP (TLS) | ✅ Listening |
-| 443 | HTTP API | ✅ Listening |
-| 8443 | Admin Panel | ✅ Listening |
-| 3000 | MCP Server | ✅ Listening |
-| 4190 | ManageSieve | ✅ Listening |
+| Port | Protocol          | Status      |
+|------|-------------------|-------------|
+| 25   | SMTP              | ✅ Listening |
+| 465  | SMTP (TLS)        | ✅ Listening |
+| 587  | SMTP (Submission) | ✅ Listening |
+| 143  | IMAP (STARTTLS)   | ✅ Listening |
+| 993  | IMAP (TLS)        | ✅ Listening |
+| 443  | HTTP API          | ✅ Listening |
+| 8443 | Admin Panel       | ✅ Listening |
+| 3000 | MCP Server        | ✅ Listening |
+| 4190 | ManageSieve       | ✅ Listening |
 
 ## API Tests
 

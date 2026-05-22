@@ -110,13 +110,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance Benchmarks
 
-| Operation | Latency |
-|-----------|---------|
-| Maildir Deliver | ~646μs |
-| Maildir Fetch | ~40μs |
-| Account Lookup | ~4.4μs |
+| Operation       | Latency        |
+|-----------------|----------------|
+| Maildir Deliver | ~646μs         |
+| Maildir Fetch   | ~40μs          |
+| Account Lookup  | ~4.4μs         |
 | Password Verify | ~38ms (bcrypt) |
-| SMTP Parse | ~9ns |
+| SMTP Parse      | ~9ns           |
 
 ---
 

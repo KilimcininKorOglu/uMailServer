@@ -26,7 +26,7 @@ services:
       # HTTP API and Web UI
       - "443:443"
     volumes:
-      - umail_data:/data
+      - ./docker-data:/data
       - ./config:/etc/umailserver:ro
     environment:
       - TZ=UTC
@@ -78,7 +78,6 @@ services:
       - monitoring
 
 volumes:
-  umail_data:
   prometheus_data:
   grafana_data:
 

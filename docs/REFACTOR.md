@@ -356,17 +356,17 @@ type Storage interface {
 
 ## Test Coverage Hedef Matrisi
 
-| Modül | Mevcut | Hedef | Artış | Metod |
-|-------|--------|-------|-------|-------|
-| internal/api | 87.1% | 92% | +4.9% | Interface mock + embed.FS mock |
-| internal/config | 86.7% | 90% | +3.3% | Validation testleri |
-| internal/jmap | 86.7% | 90% | +3.3% | Method mock |
-| internal/vacation | 87.1% | 90% | +2.9% | Manager interface |
-| internal/carddav | 87.3% | 90% | +2.7% | Storage interface |
-| internal/webhook | 87.8% | 90% | +2.2% | HTTP client mock |
-| internal/auth | 88.0% | 90% | +2.0% | DNS mock |
-| internal/push | 88.7% | 90% | +1.3% | Service interface |
-| internal/circuitbreaker | 89.9% | 90% | +0.1% | State testleri |
+| Modül                   | Mevcut | Hedef | Artış | Metod                          |
+|-------------------------|--------|-------|-------|--------------------------------|
+| internal/api            | 87.1%  | 92%   | +4.9% | Interface mock + embed.FS mock |
+| internal/config         | 86.7%  | 90%   | +3.3% | Validation testleri            |
+| internal/jmap           | 86.7%  | 90%   | +3.3% | Method mock                    |
+| internal/vacation       | 87.1%  | 90%   | +2.9% | Manager interface              |
+| internal/carddav        | 87.3%  | 90%   | +2.7% | Storage interface              |
+| internal/webhook        | 87.8%  | 90%   | +2.2% | HTTP client mock               |
+| internal/auth           | 88.0%  | 90%   | +2.0% | DNS mock                       |
+| internal/push           | 88.7%  | 90%   | +1.3% | Service interface              |
+| internal/circuitbreaker | 89.9%  | 90%   | +0.1% | State testleri                 |
 
 ---
 

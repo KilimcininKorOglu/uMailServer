@@ -54,21 +54,21 @@ ldap:
 
 ## Configuration Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `enabled` | Enable LDAP authentication | `false` |
-| `url` | LDAP server URL | Required |
-| `bind_dn` | Service account DN for directory lookup | Optional |
-| `bind_password` | Service account password | Optional |
-| `base_dn` | Base DN for user search | Required |
-| `user_filter` | Filter to find user | `(uid=%s)` |
-| `email_attribute` | Attribute for email address | `mail` |
-| `name_attribute` | Attribute for display name | `cn` |
-| `group_attribute` | Attribute for group membership | `memberOf` |
-| `admin_groups` | Groups that grant admin access | `[]` |
-| `start_tls` | Use StartTLS (for ldap://) | `false` |
-| `skip_verify` | Skip TLS verification | `false` |
-| `timeout` | Connection timeout | `30s` |
+| Option            | Description                             | Default    |
+|-------------------|-----------------------------------------|------------|
+| `enabled`         | Enable LDAP authentication              | `false`    |
+| `url`             | LDAP server URL                         | Required   |
+| `bind_dn`         | Service account DN for directory lookup | Optional   |
+| `bind_password`   | Service account password                | Optional   |
+| `base_dn`         | Base DN for user search                 | Required   |
+| `user_filter`     | Filter to find user                     | `(uid=%s)` |
+| `email_attribute` | Attribute for email address             | `mail`     |
+| `name_attribute`  | Attribute for display name              | `cn`       |
+| `group_attribute` | Attribute for group membership          | `memberOf` |
+| `admin_groups`    | Groups that grant admin access          | `[]`       |
+| `start_tls`       | Use StartTLS (for ldap://)              | `false`    |
+| `skip_verify`     | Skip TLS verification                   | `false`    |
+| `timeout`         | Connection timeout                      | `30s`      |
 
 ## TLS Configuration
 
@@ -90,11 +90,11 @@ ldap:
 
 ## User Filter Examples
 
-| Directory | Filter |
-|-----------|--------|
-| OpenLDAP | `(uid=%s)` |
-| Active Directory | `(sAMAccountName=%s)` |
-| With email | `(&(uid=%s)(mail=*))` |
+| Directory         | Filter                                                         |
+|-------------------|----------------------------------------------------------------|
+| OpenLDAP          | `(uid=%s)`                                                     |
+| Active Directory  | `(sAMAccountName=%s)`                                          |
+| With email        | `(&(uid=%s)(mail=*))`                                          |
 | Only active users | `(&(uid=%s)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))` |
 
 ## Group Mapping

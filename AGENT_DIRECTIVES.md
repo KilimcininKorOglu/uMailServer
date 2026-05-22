@@ -50,16 +50,16 @@ Your internal tools mark file writes as successful even if the code does not com
 
 **Auto-detect and run the appropriate checks:**
 
-| Signal | Verification Commands |
-|--------|----------------------|
-| `go.mod` exists | `go build ./...` → `go vet ./...` → `go test ./... -count=1 -short` |
-| `tsconfig.json` exists | `npx tsc --noEmit` |
-| `package.json` has `lint` script | `npm run lint` or `yarn lint` |
-| `package.json` has `test` script | `npm test` or `yarn test` |
-| `.php` files | `php -l <changed files>` |
-| `Cargo.toml` exists | `cargo build` → `cargo clippy` → `cargo test` |
-| `pyproject.toml` or `setup.py` | `python -m py_compile <file>` → `mypy <file>` (if configured) |
-| `Makefile` has `check`/`lint`/`test` | Run those targets |
+| Signal                               | Verification Commands                                               |
+|--------------------------------------|---------------------------------------------------------------------|
+| `go.mod` exists                      | `go build ./...` → `go vet ./...` → `go test ./... -count=1 -short` |
+| `tsconfig.json` exists               | `npx tsc --noEmit`                                                  |
+| `package.json` has `lint` script     | `npm run lint` or `yarn lint`                                       |
+| `package.json` has `test` script     | `npm test` or `yarn test`                                           |
+| `.php` files                         | `php -l <changed files>`                                            |
+| `Cargo.toml` exists                  | `cargo build` → `cargo clippy` → `cargo test`                       |
+| `pyproject.toml` or `setup.py`       | `python -m py_compile <file>` → `mypy <file>` (if configured)       |
+| `Makefile` has `check`/`lint`/`test` | Run those targets                                                   |
 
 If no build/lint tool is detected, **state that explicitly** instead of claiming success.
 Fix ALL resulting errors before reporting completion.

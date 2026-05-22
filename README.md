@@ -105,19 +105,19 @@ docker run -d \
 
 ### Port Reference
 
-| Port | Protocol | Description |
-|------|----------|-------------|
-| 25 | SMTP | Inbound mail (MX) |
-| 587 | SMTP | Submission (STARTTLS) |
-| 465 | SMTP | Submission (Implicit TLS) |
-| 143 | IMAP | IMAP (STARTTLS) |
-| 993 | IMAP | IMAP (Implicit TLS) |
-| 995 | POP3 | POP3 (Implicit TLS) |
-| 4190 | ManageSieve | Sieve script management |
-| 443 | HTTPS | Webmail + Admin Panel + REST API |
-| 8443 | HTTPS | Admin Panel only (localhost:8443) |
-| 8080 | HTTP | Prometheus Metrics |
-| 3000 | HTTP | MCP Server (Model Context Protocol) |
+| Port | Protocol    | Description                         |
+|------|-------------|-------------------------------------|
+| 25   | SMTP        | Inbound mail (MX)                   |
+| 587  | SMTP        | Submission (STARTTLS)               |
+| 465  | SMTP        | Submission (Implicit TLS)           |
+| 143  | IMAP        | IMAP (STARTTLS)                     |
+| 993  | IMAP        | IMAP (Implicit TLS)                 |
+| 995  | POP3        | POP3 (Implicit TLS)                 |
+| 4190 | ManageSieve | Sieve script management             |
+| 443  | HTTPS       | Webmail + Admin Panel + REST API    |
+| 8443 | HTTPS       | Admin Panel only (localhost:8443)   |
+| 8080 | HTTP        | Prometheus Metrics                  |
+| 3000 | HTTP        | MCP Server (Model Context Protocol) |
 
 ## Configuration
 
@@ -182,16 +182,16 @@ Access the webmail at `https://mail.example.com/`
 
 **Keyboard shortcuts:**
 
-| Key | Action |
-|-----|--------|
-| `c` | Compose |
-| `r` | Reply |
+| Key | Action    |
+|-----|-----------|
+| `c` | Compose   |
+| `r` | Reply     |
 | `a` | Reply all |
-| `f` | Forward |
-| `e` | Archive |
-| `#` | Delete |
-| `s` | Star |
-| `?` | Help |
+| `f` | Forward   |
+| `e` | Archive   |
+| `#` | Delete    |
+| `s` | Star      |
+| `?` | Help      |
 
 ## Admin Panel
 
@@ -303,12 +303,12 @@ make docker
 
 ## Default Paths
 
-| Path | Linux/macOS | Windows |
-|------|-------------|---------|
-| **Config** | `/etc/umailserver/umailserver.yaml` | `C:\Program Files\umailserver\umailserver.yaml` |
-| **Data** | `/var/lib/umailserver` | `C:\ProgramData\umailserver` |
-| **Logs** | `/var/log/umailserver` | `C:\ProgramData\umailserver\logs` |
-| **Admin API** | `127.0.0.1:8443` | `127.0.0.1:8443` |
+| Path          | Linux/macOS                         | Windows                                         |
+|---------------|-------------------------------------|-------------------------------------------------|
+| **Config**    | `/etc/umailserver/umailserver.yaml` | `C:\Program Files\umailserver\umailserver.yaml` |
+| **Data**      | `/var/lib/umailserver`              | `C:\ProgramData\umailserver`                    |
+| **Logs**      | `/var/log/umailserver`              | `C:\ProgramData\umailserver\logs`               |
+| **Admin API** | `127.0.0.1:8443`                    | `127.0.0.1:8443`                                |
 
 ## Documentation
 

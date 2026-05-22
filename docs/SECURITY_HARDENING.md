@@ -205,14 +205,14 @@ The API implements CSRF protection through:
 
 The following security headers are automatically set by the API:
 
-| Header | Value | Purpose |
-|--------|-------|---------|
-| X-Frame-Options | DENY | Prevents clickjacking |
-| X-Content-Type-Options | nosniff | Prevents MIME sniffing |
-| X-XSS-Protection | 1; mode=block | Legacy XSS protection |
-| Referrer-Policy | strict-origin-when-cross-origin | Limits referrer info |
-| Content-Security-Policy | default-src 'self'... | Prevents XSS/injection |
-| Strict-Transport-Security | max-age=31536000... | Enforces HTTPS |
+| Header                    | Value                           | Purpose                |
+|---------------------------|---------------------------------|------------------------|
+| X-Frame-Options           | DENY                            | Prevents clickjacking  |
+| X-Content-Type-Options    | nosniff                         | Prevents MIME sniffing |
+| X-XSS-Protection          | 1; mode=block                   | Legacy XSS protection  |
+| Referrer-Policy           | strict-origin-when-cross-origin | Limits referrer info   |
+| Content-Security-Policy   | default-src 'self'...           | Prevents XSS/injection |
+| Strict-Transport-Security | max-age=31536000...             | Enforces HTTPS         |
 
 ## Input Validation
 

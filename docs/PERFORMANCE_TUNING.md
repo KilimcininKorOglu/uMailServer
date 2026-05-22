@@ -22,12 +22,12 @@ uMailServer is designed for high-performance email delivery with configurable re
 
 ### Performance Targets
 
-| Metric | Small (<1K users) | Medium (<10K users) | Large (>10K users) |
-|--------|-------------------|---------------------|-------------------|
-| SMTP msgs/sec | 100 | 1,000 | 5,000+ |
-| IMAP connections | 100 | 1,000 | 10,000+ |
-| Storage throughput | 10 MB/s | 100 MB/s | 500 MB/s+ |
-| Latency (p99) | <100ms | <50ms | <20ms |
+| Metric             | Small (<1K users) | Medium (<10K users) | Large (>10K users) |
+|--------------------|-------------------|---------------------|--------------------|
+| SMTP msgs/sec      | 100               | 1,000               | 5,000+             |
+| IMAP connections   | 100               | 1,000               | 10,000+            |
+| Storage throughput | 10 MB/s           | 100 MB/s            | 500 MB/s+          |
+| Latency (p99)      | <100ms            | <50ms               | <20ms              |
 
 ## System Requirements
 
@@ -413,14 +413,14 @@ iftop -i eth0
 
 ### Performance Targets
 
-| Check | Command | Target |
-|-------|---------|--------|
-| SMTP throughput | `swaks --rate 1000` | >1000 msg/s |
-| IMAP latency | `imapsync --dry` | <50ms |
-| Queue depth | API call | <1000 |
-| Memory usage | `ps aux` | <80% |
-| Disk I/O | `iostat -x 1` | <50% util |
-| Network | `iftop` | <80% bandwidth |
+| Check           | Command             | Target         |
+|-----------------|---------------------|----------------|
+| SMTP throughput | `swaks --rate 1000` | >1000 msg/s    |
+| IMAP latency    | `imapsync --dry`    | <50ms          |
+| Queue depth     | API call            | <1000          |
+| Memory usage    | `ps aux`            | <80%           |
+| Disk I/O        | `iostat -x 1`       | <50% util      |
+| Network         | `iftop`             | <80% bandwidth |
 
 ## See Also
 

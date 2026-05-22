@@ -2,80 +2,80 @@
 
 ## ✅ Core Functionality
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| SMTP (Port 25, 465, 587) | ✅ | Full STARTTLS/TLS support |
-| IMAP (Port 143, 993) | ✅ | Full STARTTLS/TLS support |
-| POP3 (Port 995) | ✅ | TLS support |
-| ManageSieve (Port 4190) | ✅ | Script management |
-| HTTP API (Port 443) | ✅ | REST API + Web UIs |
-| Admin Panel (Port 8443) | ✅ | Localhost-only by default |
-| MCP Server (Port 3000) | ✅ | AI assistant integration |
-| CalDAV/CardDAV | ✅ | Calendar/contacts sync |
-| JMAP | ✅ | Modern email API |
+| Component                | Status | Notes                     |
+|--------------------------|--------|---------------------------|
+| SMTP (Port 25, 465, 587) | ✅      | Full STARTTLS/TLS support |
+| IMAP (Port 143, 993)     | ✅      | Full STARTTLS/TLS support |
+| POP3 (Port 995)          | ✅      | TLS support               |
+| ManageSieve (Port 4190)  | ✅      | Script management         |
+| HTTP API (Port 443)      | ✅      | REST API + Web UIs        |
+| Admin Panel (Port 8443)  | ✅      | Localhost-only by default |
+| MCP Server (Port 3000)   | ✅      | AI assistant integration  |
+| CalDAV/CardDAV           | ✅      | Calendar/contacts sync    |
+| JMAP                     | ✅      | Modern email API          |
 
 ## ✅ Security
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Argon2id Password Hashing | ✅ | OWASP recommended |
-| TOTP 2FA | ✅ | Time-based OTP |
-| JWT Authentication | ✅ | Refresh tokens + blacklist |
-| Rate Limiting | ✅ | Per-IP and per-user |
-| SPF/DKIM/DMARC | ✅ | Full email auth stack |
-| ARC | ✅ | Authentication chain |
-| S/MIME & OpenPGP | ✅ | Email encryption |
-| Input Validation | ✅ | All endpoints validated |
-| Audit Logging | ✅ | Admin action logging |
-| TLS 1.2/1.3 | ✅ | Modern TLS only |
+| Feature                   | Status | Notes                      |
+|---------------------------|--------|----------------------------|
+| Argon2id Password Hashing | ✅      | OWASP recommended          |
+| TOTP 2FA                  | ✅      | Time-based OTP             |
+| JWT Authentication        | ✅      | Refresh tokens + blacklist |
+| Rate Limiting             | ✅      | Per-IP and per-user        |
+| SPF/DKIM/DMARC            | ✅      | Full email auth stack      |
+| ARC                       | ✅      | Authentication chain       |
+| S/MIME & OpenPGP          | ✅      | Email encryption           |
+| Input Validation          | ✅      | All endpoints validated    |
+| Audit Logging             | ✅      | Admin action logging       |
+| TLS 1.2/1.3               | ✅      | Modern TLS only            |
 
 ## ✅ Documentation
 
-| Document | Status |
-|----------|--------|
-| API Specification (OpenAPI 3.0.3) | ✅ |
-| Architecture Guide | ✅ |
-| Deployment Guide | ✅ |
-| Performance Tuning | ✅ |
-| Security Hardening | ✅ |
-| Distributed Tracing | ✅ |
-| Troubleshooting Guide | ✅ |
-| Windows Test Results | ✅ |
+| Document                          | Status |
+|-----------------------------------|--------|
+| API Specification (OpenAPI 3.0.3) | ✅      |
+| Architecture Guide                | ✅      |
+| Deployment Guide                  | ✅      |
+| Performance Tuning                | ✅      |
+| Security Hardening                | ✅      |
+| Distributed Tracing               | ✅      |
+| Troubleshooting Guide             | ✅      |
+| Windows Test Results              | ✅      |
 
 ## ✅ Testing
 
-| Test Type | Coverage | Status |
-|-----------|----------|--------|
-| Unit Tests | 36 packages | ✅ PASS |
-| Server Package | 73.6% | ✅ |
-| API Package | 72.8% | ✅ |
-| Auth Package | 70.5% | ✅ |
-| Integration Tests | Key flows | ✅ PASS |
-| Windows Local Test | Full stack | ✅ PASS |
-| Docker Build | Multi-stage | ✅ PASS |
+| Test Type          | Coverage    | Status |
+|--------------------|-------------|--------|
+| Unit Tests         | 36 packages | ✅ PASS |
+| Server Package     | 73.6%       | ✅      |
+| API Package        | 72.8%       | ✅      |
+| Auth Package       | 70.5%       | ✅      |
+| Integration Tests  | Key flows   | ✅ PASS |
+| Windows Local Test | Full stack  | ✅ PASS |
+| Docker Build       | Multi-stage | ✅ PASS |
 
 ## ✅ Operations
 
-| Feature | Status |
-|---------|--------|
-| Docker Support | ✅ Multi-stage Dockerfile |
-| Health Checks | ✅ /health endpoint |
-| Prometheus Metrics | ✅ /metrics endpoint |
-| OpenTelemetry Tracing | ✅ OTLP/stdout/noop |
-| Queue Management | ✅ Retry + backoff |
-| Backup/Restore | ✅ CLI commands |
-| Log Rotation | ✅ Built-in |
-| Graceful Shutdown | ✅ Signal handling |
+| Feature               | Status                   |
+|-----------------------|--------------------------|
+| Docker Support        | ✅ Multi-stage Dockerfile |
+| Health Checks         | ✅ /health endpoint       |
+| Prometheus Metrics    | ✅ /metrics endpoint      |
+| OpenTelemetry Tracing | ✅ OTLP/stdout/noop       |
+| Queue Management      | ✅ Retry + backoff        |
+| Backup/Restore        | ✅ CLI commands           |
+| Log Rotation          | ✅ Built-in               |
+| Graceful Shutdown     | ✅ Signal handling        |
 
 ## ✅ Performance
 
-| Feature | Status |
-|---------|--------|
-| Connection Pooling | ✅ SMTP/IMAP |
-| Cache Metrics | ✅ SPF/DKIM/DMARC |
-| Search Indexing | ✅ TF-IDF based |
-| Rate Limiting | ✅ Multiple levels |
-| Circuit Breaker | ✅ External services |
+| Feature            | Status              |
+|--------------------|---------------------|
+| Connection Pooling | ✅ SMTP/IMAP         |
+| Cache Metrics      | ✅ SPF/DKIM/DMARC    |
+| Search Indexing    | ✅ TF-IDF based      |
+| Rate Limiting      | ✅ Multiple levels   |
+| Circuit Breaker    | ✅ External services |
 
 ## 📋 Pre-Deployment Checklist
 
@@ -139,11 +139,11 @@ docker-compose up -d
 
 ## ✅ Sign-off
 
-| Person | Role | Date | Signature |
-|--------|------|------|-----------|
-| | Technical Lead | | |
-| | Security Officer | | |
-| | DevOps Lead | | |
+| Person | Role             | Date | Signature |
+|--------|------------------|------|-----------|
+|        | Technical Lead   |      |           |
+|        | Security Officer |      |           |
+|        | DevOps Lead      |      |           |
 
 ## Version Information
 

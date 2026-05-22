@@ -326,12 +326,12 @@ umailserver queue purge --status failed
 
 ### Severity Levels
 
-| Level | Response Time | Examples |
-|-------|---------------|----------|
-| **P1** | 15 min | Total outage, mail loss, security breach |
-| **P2** | 1 hour | Partial outage, queue stuck, authentication broken |
-| **P3** | 4 hours | Non-critical bugs, performance degradation |
-| **P4** | 24 hours | Minor issues, feature requests |
+| Level  | Response Time | Examples                                           |
+|--------|---------------|----------------------------------------------------|
+| **P1** | 15 min        | Total outage, mail loss, security breach           |
+| **P2** | 1 hour        | Partial outage, queue stuck, authentication broken |
+| **P3** | 4 hours       | Non-critical bugs, performance degradation         |
+| **P4** | 24 hours      | Minor issues, feature requests                     |
 
 ### Contacts
 
@@ -341,6 +341,6 @@ umailserver queue purge --status failed
 
 ### Runbook History
 
-| Date | Change | Author |
-|------|--------|--------|
+| Date       | Change          | Author           |
+|------------|-----------------|------------------|
 | 2026-04-10 | Initial runbook | uMailServer Team |

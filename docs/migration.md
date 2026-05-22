@@ -4,15 +4,15 @@ Migrate from existing mail servers to uMailServer.
 
 ## Supported Sources
 
-| Source | Method | Notes |
-|--------|--------|-------|
-| Dovecot | Maildir direct copy | Fast, preserves all metadata |
-| Postfix + Dovecot | Maildir copy | Standard setup |
-| cPanel | Backup restore | Use cPanel backup format |
-| Gmail | MBOX export | Via Google Takeout |
-| Any IMAP | IMAP sync | Universal migration |
-| Thunderbird | MBOX import | Export folders |
-| Outlook | PST export | Convert to MBOX first |
+| Source            | Method              | Notes                        |
+|-------------------|---------------------|------------------------------|
+| Dovecot           | Maildir direct copy | Fast, preserves all metadata |
+| Postfix + Dovecot | Maildir copy        | Standard setup               |
+| cPanel            | Backup restore      | Use cPanel backup format     |
+| Gmail             | MBOX export         | Via Google Takeout           |
+| Any IMAP          | IMAP sync           | Universal migration          |
+| Thunderbird       | MBOX import         | Export folders               |
+| Outlook           | PST export          | Convert to MBOX first        |
 
 ## Pre-Migration Checklist
 

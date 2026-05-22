@@ -8,13 +8,13 @@
 
 ## Executive Summary
 
-| Category | Critical | High | Medium | Low | Info |
-|----------|----------|------|--------|-----|------|
-| Authentication & Access Control | 2 | 6 | 7 | 1 | 0 |
-| Injection & RCE | 0 | 1 | 0 | 1 | 0 |
-| Data Exposure & Crypto | 0 | 0 | 2 | 7 | 1 |
-| Concurrency & Go-Specific | 2 | 10 | 13 | 6 | 0 |
-| **Total** | **4** | **17** | **22** | **15** | **1** |
+| Category                        | Critical | High   | Medium | Low    | Info  |
+|---------------------------------|----------|--------|--------|--------|-------|
+| Authentication & Access Control | 2        | 6      | 7      | 1      | 0     |
+| Injection & RCE                 | 0        | 1      | 0      | 1      | 0     |
+| Data Exposure & Crypto          | 0        | 0      | 2      | 7      | 1     |
+| Concurrency & Go-Specific       | 2        | 10     | 13     | 6      | 0     |
+| **Total**                       | **4**    | **17** | **22** | **15** | **1** |
 
 ### Top 10 Priorities (Fix First)
 
@@ -356,14 +356,14 @@
 
 ## Appendix B: Dependency Audit (go.mod)
 
-| Dependency | Purpose | Notes |
-|------------|---------|-------|
-| `go.etcd.io/bbolt` | Embedded KV | No known critical CVEs at scan time |
-| `github.com/golang-jwt/jwt/v5` | JWT | Keep updated; alg confusion is a common pitfall |
-| `golang.org/x/crypto` | bcrypt, argon2, autocert | Keep updated |
-| `github.com/miekg/dns` | DNS ops | Used for SPF/DKIM/DMARC/RBL |
-| `github.com/go-ldap/ldap/v3` | LDAP auth | Proper escape-filter usage observed |
-| `github.com/emersion/go-imap` | IMAP client | Used in tests/migrations only |
+| Dependency                     | Purpose                  | Notes                                           |
+|--------------------------------|--------------------------|-------------------------------------------------|
+| `go.etcd.io/bbolt`             | Embedded KV              | No known critical CVEs at scan time             |
+| `github.com/golang-jwt/jwt/v5` | JWT                      | Keep updated; alg confusion is a common pitfall |
+| `golang.org/x/crypto`          | bcrypt, argon2, autocert | Keep updated                                    |
+| `github.com/miekg/dns`         | DNS ops                  | Used for SPF/DKIM/DMARC/RBL                     |
+| `github.com/go-ldap/ldap/v3`   | LDAP auth                | Proper escape-filter usage observed             |
+| `github.com/emersion/go-imap`  | IMAP client              | Used in tests/migrations only                   |
 
 No supply-chain red flags identified.
 

@@ -7,21 +7,21 @@
 
 ## Güçlü Yanlar
 
-| Alan | Durum | Detay |
-|------|-------|-------|
-| Test Coverage | ✅ | Tüm paketlerde %77-99 arası coverage, 35+ paket test ediliyor |
-| Build | ✅ | `go build ./...` başarılı, tüm testler geçiyor |
-| Security | ✅ | P0 güvenlik açıkları giderilmiş (son iki commit), CORS wildcard yasak, CSRF koruması var |
-| Health Checks | ✅ | `/health`, `/health/live`, `/health/ready` endpoint'leri mevcut |
-| Backup/Restore | ✅ | Şifreli AES-256-GCM backup sistemi mevcut (`internal/cli/backup.go`) |
-| CI/CD | ✅ | 5 GitHub workflow var: CI, backup-restore, docker, fuzz, release |
-| Monitoring | ✅ | Prometheus metrics, OpenTelemetry tracing mevcut |
-| TLS | ✅ | ACME/Let's Encrypt otomatik yenileme |
-| Production Docker Compose | ✅ | `deploy/docker/production/docker-compose.yml` oluşturuldu |
-| Monitoring Dashboards | ✅ | Grafana dashboard tanımları eklendi |
-| IMAP SUBSCRIBE/UNSUBSCRIBE | ✅ | Implement edildi |
-| IMAP LSUB | ✅ | Doğru implementasyon - sadece subscribed mailbox'ları döndürüyor |
-| Kubernetes Helm Chart | ✅ | `deploy/helm/umailserver/` Helm chart oluşturuldu |
+| Alan                       | Durum | Detay                                                                                    |
+|----------------------------|-------|------------------------------------------------------------------------------------------|
+| Test Coverage              | ✅     | Tüm paketlerde %77-99 arası coverage, 35+ paket test ediliyor                            |
+| Build                      | ✅     | `go build ./...` başarılı, tüm testler geçiyor                                           |
+| Security                   | ✅     | P0 güvenlik açıkları giderilmiş (son iki commit), CORS wildcard yasak, CSRF koruması var |
+| Health Checks              | ✅     | `/health`, `/health/live`, `/health/ready` endpoint'leri mevcut                          |
+| Backup/Restore             | ✅     | Şifreli AES-256-GCM backup sistemi mevcut (`internal/cli/backup.go`)                     |
+| CI/CD                      | ✅     | 5 GitHub workflow var: CI, backup-restore, docker, fuzz, release                         |
+| Monitoring                 | ✅     | Prometheus metrics, OpenTelemetry tracing mevcut                                         |
+| TLS                        | ✅     | ACME/Let's Encrypt otomatik yenileme                                                     |
+| Production Docker Compose  | ✅     | `deploy/docker/production/docker-compose.yml` oluşturuldu                                |
+| Monitoring Dashboards      | ✅     | Grafana dashboard tanımları eklendi                                                      |
+| IMAP SUBSCRIBE/UNSUBSCRIBE | ✅     | Implement edildi                                                                         |
+| IMAP LSUB                  | ✅     | Doğru implementasyon - sadece subscribed mailbox'ları döndürüyor                         |
+| Kubernetes Helm Chart      | ✅     | `deploy/helm/umailserver/` Helm chart oluşturuldu                                        |
 
 ---
 
@@ -81,9 +81,9 @@ internal/imap/commands.go:
 
 ### Orta
 
-| Eksik | Öncelik | Dosya/Konum | Açıklama |
-|-------|---------|-------------|----------|
-| IMAP SCORE Extension | 🟡 Orta | - | SCORE extension desteklenmiyor |
+| Eksik                | Öncelik | Dosya/Konum | Açıklama                       |
+|----------------------|---------|-------------|--------------------------------|
+| IMAP SCORE Extension | 🟡 Orta | -           | SCORE extension desteklenmiyor |
 
 ---
 
