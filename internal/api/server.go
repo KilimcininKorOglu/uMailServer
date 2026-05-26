@@ -35,17 +35,18 @@ type HealthMonitor interface {
 
 // Server represents the admin API server
 type Server struct {
-	db         *db.DB
-	logger     *slog.Logger
-	config     Config
-	mcpServer  *mcp.Server
-	sseServer  *websocket.SSEServer
-	searchSvc  *search.Service
-	msgStore   *storage.MessageStore
-	mailDB     *storage.Database
-	queueMgr   *queue.Manager
-	httpServer *http.Server
-	healthMon  HealthMonitor
+	db              *db.DB
+	logger          *slog.Logger
+	config          Config
+	mcpServer       *mcp.Server
+	sseServer       *websocket.SSEServer
+	searchSvc       *search.Service
+	msgStore        *storage.MessageStore
+	mailDB          *storage.Database
+	queueMgr        *queue.Manager
+	httpServer      *http.Server
+	plainHTTPServer *http.Server
+	healthMon       HealthMonitor
 
 	// Tracing provider for OpenTelemetry
 	tracingProvider *tracing.Provider
@@ -75,6 +76,8 @@ type Server struct {
 
 	// HTTP router (cached)
 	router http.Handler
+
+	acmeChallengeHandler http.Handler
 
 	// HTTP server lifecycle guard (protects httpServer field)
 	serverMu sync.Mutex
@@ -126,10 +129,13 @@ type Server struct {
 // Config holds API server configuration
 type Config struct {
 	Addr              string
+	PlainAddr         string
 	JWTSecret         string            // Legacy single secret (used if JWTSecretVersions not set)
 	JWTSecretVersions map[string]string // kid -> secret, for key rotation
 	DisableLegacyJWT  bool              // When true, disables fallback to legacy JWTSecret after kid rotation
 	TokenExpiry       time.Duration
+	DrainTimeout      time.Duration
+	ShutdownTimeout   time.Duration
 	CorsOrigins       []string
 	TrustedProxies    []string // IPs that are allowed to set X-Forwarded-For
 	TOTPKey           string   // Separate encryption key for TOTP secrets (falls back to JWTSecret if empty)
@@ -157,6 +163,15 @@ func NewServer(database *db.DB, logger *slog.Logger, config Config) *Server {
 	}
 	if config.TokenExpiry == 0 {
 		config.TokenExpiry = 24 * time.Hour
+	}
+	if config.DrainTimeout <= 0 {
+		config.DrainTimeout = 30 * time.Second
+	}
+	if config.ShutdownTimeout <= 0 {
+		config.ShutdownTimeout = 60 * time.Second
+	}
+	if config.ShutdownTimeout < config.DrainTimeout {
+		config.ShutdownTimeout = config.DrainTimeout
 	}
 
 	// Initialize JWT secret versioning
@@ -265,6 +280,15 @@ func NewServerWithInterfaces(
 	}
 	if config.TokenExpiry == 0 {
 		config.TokenExpiry = 24 * time.Hour
+	}
+	if config.DrainTimeout <= 0 {
+		config.DrainTimeout = 30 * time.Second
+	}
+	if config.ShutdownTimeout <= 0 {
+		config.ShutdownTimeout = 60 * time.Second
+	}
+	if config.ShutdownTimeout < config.DrainTimeout {
+		config.ShutdownTimeout = config.DrainTimeout
 	}
 
 	// Initialize JWT secret versioning
@@ -376,6 +400,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // initRouter sets up the HTTP routes (called once on first request)
 func (s *Server) initRouter() {
 	mux := http.NewServeMux()
+
+	if s.acmeChallengeHandler != nil {
+		mux.Handle("/.well-known/acme-challenge/", s.acmeChallengeHandler)
+	}
 
 	// Webmail (static files) - user interface
 	mux.HandleFunc("/", s.handleWebmail)
@@ -523,7 +551,11 @@ func (s *Server) initRouter() {
 func (s *Server) limitBodyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, 4<<20) // 4 MB
+			limit := int64(4 << 20)
+			if r.URL.Path == "/api/v1/mail/send" {
+				limit = 32 << 20
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -581,6 +613,12 @@ func (s *Server) SetBackupManager(mgr *backup.Manager) {
 	s.backupMgr = mgr
 }
 
+// SetACMEChallengeHandler injects the ACME HTTP-01 challenge handler.
+func (s *Server) SetACMEChallengeHandler(handler http.Handler) {
+	s.acmeChallengeHandler = handler
+	s.router = nil
+}
+
 // AuditLogger exposes the underlying audit logger so other subsystems
 // (SMTP/IMAP/POP3) can record protocol-level auth events into the same sink.
 func (s *Server) AuditLogger() *audit.Logger {
@@ -591,8 +629,7 @@ func (s *Server) AuditLogger() *audit.Logger {
 func (s *Server) Start(addr string) error {
 	s.config.Addr = addr
 
-	s.serverMu.Lock()
-	s.httpServer = &http.Server{
+	primaryHTTPServer := &http.Server{
 		Addr:              addr,
 		Handler:           s,
 		ReadTimeout:       30 * time.Second,
@@ -600,13 +637,38 @@ func (s *Server) Start(addr string) error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+
+	var plainHTTPServer *http.Server
+	if s.config.PlainAddr != "" {
+		plainHTTPServer = &http.Server{
+			Addr:              s.config.PlainAddr,
+			Handler:           s,
+			ReadTimeout:       30 * time.Second,
+			ReadHeaderTimeout: 10 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
+	}
+
+	s.serverMu.Lock()
+	s.httpServer = primaryHTTPServer
+	s.plainHTTPServer = plainHTTPServer
 	s.serverMu.Unlock()
 
 	// Start background token blacklist cleanup
 	go s.tokenBlacklistCleanup()
 
+	if plainHTTPServer != nil {
+		go func() {
+			s.logger.Info("Plain API server starting", "addr", plainHTTPServer.Addr)
+			if err := plainHTTPServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				s.logger.Error("Plain API server error", "error", err, "addr", plainHTTPServer.Addr)
+			}
+		}()
+	}
+
 	s.logger.Info("Admin API server starting", "addr", addr)
-	return s.httpServer.ListenAndServe()
+	return primaryHTTPServer.ListenAndServe()
 }
 
 // tokenBlacklistCleanup periodically removes expired entries from the token blacklist
@@ -631,13 +693,28 @@ func (s *Server) Stop() error {
 		close(s.stopCh)
 	})
 
+	s.StartDrain()
+	s.DrainWait(s.config.DrainTimeout)
+
 	s.serverMu.Lock()
 	httpServer := s.httpServer
+	plainHTTPServer := s.plainHTTPServer
 	s.serverMu.Unlock()
-	if httpServer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+	shutdownServer := func(server *http.Server) error {
+		if server == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), s.config.ShutdownTimeout)
 		defer cancel()
-		return httpServer.Shutdown(ctx)
+		return server.Shutdown(ctx)
+	}
+
+	if err := shutdownServer(plainHTTPServer); err != nil {
+		return err
+	}
+	if err := shutdownServer(httpServer); err != nil {
+		return err
 	}
 	return nil
 }

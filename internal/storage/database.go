@@ -23,6 +23,11 @@ type Database struct {
 
 // OpenDatabase opens the bbolt database
 func OpenDatabase(path string) (*Database, error) {
+	return OpenDatabaseWithOptions(path, true)
+}
+
+// OpenDatabaseWithOptions opens the bbolt database with sync behavior control.
+func OpenDatabaseWithOptions(path string, syncWrites bool) (*Database, error) {
 	// Create parent directories if they don't exist
 	dir := filepath.Dir(path)
 	if dir != "" && dir != "." {
@@ -31,7 +36,7 @@ func OpenDatabase(path string) (*Database, error) {
 		}
 	}
 
-	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: 1})
+	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: 1, NoSync: !syncWrites})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database at %s: %w", path, err)
 	}

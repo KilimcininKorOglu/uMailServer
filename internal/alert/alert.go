@@ -5,6 +5,7 @@ package alert
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 )
 
@@ -259,9 +261,23 @@ func (m *Manager) sendWebhook(alert Alert) error {
 		return fmt.Errorf("webhook URL is not allowed: %s", m.config.WebhookURL)
 	}
 
-	payload, err := json.Marshal(alert)
-	if err != nil {
-		return fmt.Errorf("failed to marshal alert: %w", err)
+	var payload []byte
+	if m.config.WebhookTemplate != "" {
+		var body bytes.Buffer
+		tmpl, err := template.New("webhook").Parse(m.config.WebhookTemplate)
+		if err != nil {
+			return fmt.Errorf("failed to parse webhook template: %w", err)
+		}
+		if err := tmpl.Execute(&body, alert); err != nil {
+			return fmt.Errorf("failed to render webhook template: %w", err)
+		}
+		payload = body.Bytes()
+	} else {
+		var err error
+		payload, err = json.Marshal(alert)
+		if err != nil {
+			return fmt.Errorf("failed to marshal alert: %w", err)
+		}
 	}
 
 	req, err := http.NewRequestWithContext(
@@ -364,9 +380,52 @@ func (m *Manager) sendEmail(alert Alert) error {
 		auth = smtp.PlainAuth("", m.config.SMTPUsername, string(m.config.SMTPPassword), m.config.SMTPServer)
 	}
 
-	err := smtp.SendMail(addr, auth, m.config.FromAddress, m.config.ToAddresses, []byte(body.String()))
+	client, err := smtp.Dial(addr)
 	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
+		return fmt.Errorf("failed to connect to SMTP server: %w", err)
+	}
+	defer client.Close()
+
+	if m.config.UseTLS {
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return fmt.Errorf("SMTP server does not support STARTTLS")
+		}
+		if err := client.StartTLS(&tls.Config{ServerName: m.config.SMTPServer}); err != nil {
+			return fmt.Errorf("failed to start TLS: %w", err)
+		}
+	}
+
+	if auth != nil {
+		if ok, _ := client.Extension("AUTH"); !ok {
+			return fmt.Errorf("SMTP server does not support authentication")
+		}
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("failed to authenticate to SMTP server: %w", err)
+		}
+	}
+
+	if err := client.Mail(m.config.FromAddress); err != nil {
+		return fmt.Errorf("failed to set sender: %w", err)
+	}
+	for _, recipient := range m.config.ToAddresses {
+		if err := client.Rcpt(recipient); err != nil {
+			return fmt.Errorf("failed to set recipient %s: %w", recipient, err)
+		}
+	}
+
+	writer, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("failed to start message body: %w", err)
+	}
+	if _, err := writer.Write([]byte(body.String())); err != nil {
+		_ = writer.Close()
+		return fmt.Errorf("failed to write message body: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("failed to finalize message body: %w", err)
+	}
+	if err := client.Quit(); err != nil {
+		return fmt.Errorf("failed to close SMTP session: %w", err)
 	}
 
 	return nil

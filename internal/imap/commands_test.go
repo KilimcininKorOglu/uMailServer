@@ -98,6 +98,25 @@ func TestHandleCapabilityNotAuthenticated(t *testing.T) {
 	}
 }
 
+func TestHandleACLCommandDisabled(t *testing.T) {
+	mock := newMockConn("")
+	server := NewServer(&Config{Addr: ":1143"}, &mockMailstore{})
+	session := NewSession(mock, server)
+	session.tag = "A1"
+	session.state = StateAuthenticated
+	session.user = "test"
+
+	err := session.handleAuthenticated("GETACL", []string{"INBOX"}, "A1 GETACL INBOX")
+	if err != nil {
+		t.Errorf("handleAuthenticated failed: %v", err)
+	}
+
+	written := mock.Written()
+	if !strings.Contains(written, "A1 BAD Command not recognized") {
+		t.Errorf("expected disabled ACL command to be rejected, got: %s", written)
+	}
+}
+
 func TestHandleNoop(t *testing.T) {
 	mock := newMockConn("")
 	server := NewServer(&Config{Addr: ":1143"}, &mockMailstore{})

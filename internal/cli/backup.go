@@ -306,7 +306,7 @@ func (bm *BackupManager) backupConfig(tw *tar.Writer) error {
 
 // backupDatabase adds database files to the backup
 func (bm *BackupManager) backupDatabase(tw *tar.Writer) error {
-	dbPath := bm.config.Server.DataDir + "/umailserver.db"
+	dbPath := bm.config.DatabasePath()
 
 	info, err := os.Stat(dbPath)
 	if err != nil {
@@ -608,7 +608,7 @@ func (bm *BackupManager) Restore(backupFile string) error {
 	fmt.Println("To complete restore:")
 	fmt.Println("1. Stop uMailServer")
 	fmt.Println("2. Copy restore_temp/config/* to data directory")
-	fmt.Println("3. Copy restore_temp/database/* to data directory")
+	fmt.Printf("3. Copy restore_temp/database/umailserver.db to %s\n", bm.config.DatabasePath())
 	fmt.Println("4. Copy restore_temp/messages/* to data directory")
 	fmt.Println("5. Start uMailServer")
 

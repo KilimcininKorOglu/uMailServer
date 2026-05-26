@@ -40,6 +40,8 @@ type Config struct {
 	Domains           []string
 	ACMEEndpoint      string
 	UseStaging        bool
+	Challenge         string
+	DNSProvider       string
 	MinVersion        uint16 // TLS version (e.g., tls.VersionTLS12, tls.VersionTLS13). Default: TLS 1.2
 	ClientAuth        bool   // Enable client certificate authentication
 	RequireClientCert bool   // Require client certificate (mTLS)
@@ -77,6 +79,20 @@ func NewManager(config Config, logger *slog.Logger) (*Manager, error) {
 
 // setupAutocert configures the autocert manager for Let's Encrypt
 func (m *Manager) setupAutocert() error {
+	challenge := m.config.Challenge
+	if challenge == "" {
+		challenge = "http-01"
+	}
+	if challenge == "dns-01" {
+		if m.config.DNSProvider == "" {
+			return fmt.Errorf("dns-01 challenge requires tls.acme.dns_provider")
+		}
+		return fmt.Errorf("dns-01 challenge with provider %q is not implemented", m.config.DNSProvider)
+	}
+	if challenge != "http-01" {
+		return fmt.Errorf("unsupported ACME challenge %q", challenge)
+	}
+
 	// Use staging environment if configured
 	acmeEndpoint := acme.LetsEncryptURL
 	if m.config.UseStaging {
@@ -98,6 +114,7 @@ func (m *Manager) setupAutocert() error {
 		"email", m.config.Email,
 		"domains", m.config.Domains,
 		"endpoint", acmeEndpoint,
+		"challenge", challenge,
 	)
 
 	return nil
@@ -353,6 +370,10 @@ func parseCertificate(data []byte) (*x509.Certificate, error) {
 // HTTPChallengeHandler returns the handler for ACME HTTP challenges
 func (m *Manager) HTTPChallengeHandler() http.Handler {
 	if m.certManager == nil {
+		return nil
+	}
+	challenge := m.config.Challenge
+	if challenge != "" && challenge != "http-01" {
 		return nil
 	}
 	return m.certManager.HTTPHandler(nil)

@@ -9,11 +9,17 @@ import (
 
 // startIMAP creates and starts the IMAP server.
 func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
+	if !s.config.IMAP.Enabled {
+		s.logger.Info("IMAP server disabled")
+		return nil
+	}
+
 	imapAddr := fmt.Sprintf("%s:%d", s.config.IMAP.Bind, s.config.IMAP.Port)
 	imapCfg := &imap.Config{
-		Addr:      imapAddr,
-		TLSConfig: s.tlsManager.GetTLSConfig(),
-		Logger:    s.logger,
+		Addr:                 imapAddr,
+		TLSConfig:            s.tlsManager.GetTLSConfig(),
+		Logger:               s.logger,
+		SharedFoldersEnabled: s.config.Storage.SharedFolders,
 	}
 
 	imapServer := imap.NewServer(imapCfg, mailstore)
@@ -23,6 +29,7 @@ func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
 	imapServer.SetWriteTimeout(10 * time.Minute)
 	imapServer.SetIdleTimeout(time.Duration(s.config.IMAP.IdleTimeout))
 	imapServer.SetMaxConnections(s.config.IMAP.MaxConnections)
+	imapServer.SetMaxConnectionsPerIP(s.config.Security.RateLimit.IMAPConnections)
 	imapServer.SetTracingProvider(s.tracingProvider)
 	imapServer.SetLoginResultHandler(s.protoLoginHandler("imap"))
 	if s.config.IMAP.STARTTLSPort <= 0 {

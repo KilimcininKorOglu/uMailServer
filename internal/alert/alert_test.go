@@ -1,10 +1,13 @@
 package alert
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -221,6 +224,37 @@ func TestManager_sendWebhook(t *testing.T) {
 	}
 }
 
+func TestManager_sendWebhook_Template(t *testing.T) {
+	var receivedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.WebhookURL = server.URL
+	cfg.WebhookTemplate = `{"kind":"{{.Name}}","severity":"{{.Severity}}","message":"{{.Message}}"}`
+
+	mgr := NewManager(cfg, nil)
+	mgr.SetAllowPrivateIP(true)
+
+	alert := Alert{
+		Name:      "test_alert",
+		Severity:  SeverityWarning,
+		Message:   "templated message",
+		Timestamp: time.Now(),
+	}
+
+	if err := mgr.sendWebhook(alert); err != nil {
+		t.Fatalf("sendWebhook with template failed: %v", err)
+	}
+	if receivedBody != `{"kind":"test_alert","severity":"warning","message":"templated message"}` {
+		t.Fatalf("unexpected webhook body %q", receivedBody)
+	}
+}
+
 func TestManager_sendWebhook_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -242,6 +276,109 @@ func TestManager_sendWebhook_Error(t *testing.T) {
 	err := mgr.sendWebhook(alert)
 	if err == nil {
 		t.Error("expected error for 500 status, got nil")
+	}
+}
+
+func startPlainSMTPServer(t *testing.T) (string, int, func()) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to create SMTP listener: %v", err)
+	}
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		reader := bufio.NewReader(conn)
+		write := func(line string) {
+			_, _ = conn.Write([]byte(line))
+		}
+
+		write("220 localhost ESMTP\r\n")
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			command := strings.ToUpper(strings.TrimSpace(line))
+			switch {
+			case strings.HasPrefix(command, "EHLO"), strings.HasPrefix(command, "HELO"):
+				write("250-localhost\r\n250 OK\r\n")
+			case strings.HasPrefix(command, "MAIL FROM"):
+				write("250 OK\r\n")
+			case strings.HasPrefix(command, "RCPT TO"):
+				write("250 OK\r\n")
+			case strings.HasPrefix(command, "DATA"):
+				write("354 End data with <CR><LF>.<CR><LF>\r\n")
+				for {
+					dataLine, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if dataLine == ".\r\n" {
+						break
+					}
+				}
+				write("250 OK\r\n")
+			case strings.HasPrefix(command, "QUIT"):
+				write("221 Bye\r\n")
+				return
+			default:
+				write("250 OK\r\n")
+			}
+		}
+	}()
+
+	addr := listener.Addr().(*net.TCPAddr)
+	return addr.IP.String(), addr.Port, func() { _ = listener.Close() }
+}
+
+func TestManager_sendEmail_UseTLSToggle(t *testing.T) {
+	alert := Alert{
+		Name:      "test_alert",
+		Severity:  SeverityCritical,
+		Message:   "test message",
+		Timestamp: time.Now(),
+	}
+
+	tests := []struct {
+		name    string
+		useTLS  bool
+		wantErr bool
+	}{
+		{name: "plaintext allowed", useTLS: false, wantErr: false},
+		{name: "starttls required", useTLS: true, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port, cleanup := startPlainSMTPServer(t)
+			defer cleanup()
+
+			cfg := DefaultConfig()
+			cfg.SMTPServer = host
+			cfg.SMTPPort = port
+			cfg.FromAddress = "test@example.com"
+			cfg.ToAddresses = []string{"alert@example.com"}
+			cfg.UseTLS = tt.useTLS
+
+			mgr := NewManager(cfg, nil)
+			err := mgr.sendEmail(alert)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected STARTTLS-related error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected plaintext SMTP success, got %v", err)
+			}
+		})
 	}
 }
 

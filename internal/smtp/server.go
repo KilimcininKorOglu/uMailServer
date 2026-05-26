@@ -40,7 +40,7 @@ type Server struct {
 	onDeliver          func(from string, to []string, data []byte) error
 	onDeliverWithSieve func(from string, to []string, data []byte, sieveActions []string) error
 	onGetUserSecret    func(username string) (string, error) // Get user's shared secret for CRAM-MD5
-	onGetPassword      func(username string) (string, error)  // Get user's password for SCRAM-SHA-256
+	onGetPassword      func(username string) (string, error) // Get user's password for SCRAM-SHA-256
 	onLoginResult      func(username string, success bool, ip, reason string)
 	pipeline           *Pipeline
 
@@ -52,6 +52,13 @@ type Server struct {
 	lockoutDuration  time.Duration
 	authFailures     map[string][]time.Time // IP -> failure timestamps
 	authFailuresMu   sync.Mutex
+
+	legacyAuthPerMinute  int
+	legacyConnPerHour    int
+	legacyAuthAttempts   map[string][]time.Time
+	legacyConnAttempts   map[string][]time.Time
+	legacyAuthAttemptsMu sync.Mutex
+	legacyConnAttemptsMu sync.Mutex
 
 	// Tracing provider for OpenTelemetry
 	tracingProvider *tracing.Provider
@@ -71,6 +78,12 @@ func (s *Server) SetRateLimiter(rl ConnectionRateLimiter) {
 func (s *Server) SetAuthLimits(maxAttempts int, lockoutDuration time.Duration) {
 	s.maxLoginAttempts = maxAttempts
 	s.lockoutDuration = lockoutDuration
+}
+
+// SetLegacyRateLimits configures compatibility limits for legacy YAML keys.
+func (s *Server) SetLegacyRateLimits(authPerMinute, connPerHour int) {
+	s.legacyAuthPerMinute = authPerMinute
+	s.legacyConnPerHour = connPerHour
 }
 
 // isAuthLockedOut returns true if the given IP is temporarily locked out
@@ -133,6 +146,79 @@ func (s *Server) clearAuthFailures(ip string) {
 	delete(s.authFailures, ip)
 }
 
+func (s *Server) isLegacyAuthRateLimited(ip string) bool {
+	if s.legacyAuthPerMinute <= 0 {
+		return false
+	}
+
+	s.legacyAuthAttemptsMu.Lock()
+	defer s.legacyAuthAttemptsMu.Unlock()
+
+	if s.legacyAuthAttempts == nil {
+		s.legacyAuthAttempts = make(map[string][]time.Time)
+	}
+
+	cutoff := time.Now().Add(-time.Minute)
+	var recent []time.Time
+	for _, attempt := range s.legacyAuthAttempts[ip] {
+		if attempt.After(cutoff) {
+			recent = append(recent, attempt)
+		}
+	}
+	s.legacyAuthAttempts[ip] = recent
+	return len(recent) >= s.legacyAuthPerMinute
+}
+
+func (s *Server) recordLegacyAuthAttempt(ip string) {
+	if s.legacyAuthPerMinute <= 0 {
+		return
+	}
+
+	s.legacyAuthAttemptsMu.Lock()
+	defer s.legacyAuthAttemptsMu.Unlock()
+
+	if s.legacyAuthAttempts == nil {
+		s.legacyAuthAttempts = make(map[string][]time.Time)
+	}
+
+	cutoff := time.Now().Add(-time.Minute)
+	var recent []time.Time
+	for _, attempt := range s.legacyAuthAttempts[ip] {
+		if attempt.After(cutoff) {
+			recent = append(recent, attempt)
+		}
+	}
+	s.legacyAuthAttempts[ip] = append(recent, time.Now())
+}
+
+func (s *Server) allowLegacyConnection(ip string) bool {
+	if s.legacyConnPerHour <= 0 {
+		return true
+	}
+
+	s.legacyConnAttemptsMu.Lock()
+	defer s.legacyConnAttemptsMu.Unlock()
+
+	if s.legacyConnAttempts == nil {
+		s.legacyConnAttempts = make(map[string][]time.Time)
+	}
+
+	cutoff := time.Now().Add(-time.Hour)
+	var recent []time.Time
+	for _, attempt := range s.legacyConnAttempts[ip] {
+		if attempt.After(cutoff) {
+			recent = append(recent, attempt)
+		}
+	}
+	if len(recent) >= s.legacyConnPerHour {
+		s.legacyConnAttempts[ip] = recent
+		return false
+	}
+
+	s.legacyConnAttempts[ip] = append(recent, time.Now())
+	return true
+}
+
 // Config holds SMTP server configuration
 type Config struct {
 	Hostname       string
@@ -157,11 +243,13 @@ func NewServer(config *Config, logger *slog.Logger) *Server {
 	}
 
 	return &Server{
-		config:       config,
-		connections:  make(map[string]*Session),
-		shutdown:     make(chan struct{}),
-		logger:       logger,
-		authFailures: make(map[string][]time.Time),
+		config:             config,
+		connections:        make(map[string]*Session),
+		shutdown:           make(chan struct{}),
+		logger:             logger,
+		authFailures:       make(map[string][]time.Time),
+		legacyAuthAttempts: make(map[string][]time.Time),
+		legacyConnAttempts: make(map[string][]time.Time),
 	}
 }
 
@@ -292,8 +380,18 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	// Check rate limit
+	ip := getIPFromAddr(conn.RemoteAddr().String())
+	if !s.allowLegacyConnection(ip) {
+		s.logger.Warn("SMTP connection hourly rate limited",
+			slog.String("remote_addr", conn.RemoteAddr().String()),
+		)
+		if _, err := conn.Write([]byte("421 4.7.0 Too many SMTP connections from this IP, try again later\r\n")); err != nil {
+			s.logger.Debug("failed to write rate limit response", "error", err)
+		}
+		_ = conn.Close()
+		return
+	}
 	if s.rateLimiter != nil {
-		ip := getIPFromAddr(conn.RemoteAddr().String())
 		if !s.rateLimiter.Allow(ip, "smtp_connection") {
 			s.logger.Warn("SMTP connection rate limited",
 				slog.String("remote_addr", conn.RemoteAddr().String()),

@@ -486,6 +486,33 @@ func TestServerSetAuthLimits_ZeroMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestServerSetLegacyRateLimits(t *testing.T) {
+	server := NewServer(&Config{Hostname: "mail.example.com"}, nil)
+	server.SetLegacyRateLimits(30, 500)
+
+	if server.legacyAuthPerMinute != 30 {
+		t.Fatalf("expected legacyAuthPerMinute=30, got %d", server.legacyAuthPerMinute)
+	}
+	if server.legacyConnPerHour != 500 {
+		t.Fatalf("expected legacyConnPerHour=500, got %d", server.legacyConnPerHour)
+	}
+}
+
+func TestServerAllowLegacyConnection_HourLimit(t *testing.T) {
+	server := NewServer(&Config{Hostname: "mail.example.com"}, nil)
+	server.SetLegacyRateLimits(0, 2)
+
+	if !server.allowLegacyConnection("192.0.2.1") {
+		t.Fatal("expected first connection to be allowed")
+	}
+	if !server.allowLegacyConnection("192.0.2.1") {
+		t.Fatal("expected second connection to be allowed")
+	}
+	if server.allowLegacyConnection("192.0.2.1") {
+		t.Fatal("expected third connection to be rate limited")
+	}
+}
+
 func TestServerIsAuthLockedOut_WithFailures(t *testing.T) {
 	config := &Config{
 		Hostname:       "mail.example.com",

@@ -113,16 +113,8 @@ func (s *Session) handleAuthenticated(command string, args []string, line string
 		return s.handleEnable(args)
 	case "ID":
 		return s.handleID(args)
-	case "GETACL":
-		return s.handleGetACL(args)
-	case "SETACL":
-		return s.handleSetACL(args)
-	case "DELETEACL":
-		return s.handleDeleteACL(args)
-	case "MYRIGHTS":
-		return s.handleMyRights(args)
-	case "LISTRIGHTS":
-		return s.handleListRights(args)
+	case "GETACL", "SETACL", "DELETEACL", "MYRIGHTS", "LISTRIGHTS":
+		return s.handleACLCommand(command, args)
 	default:
 		s.WriteResponse(s.tag, "BAD Command not recognized")
 		return nil
@@ -190,16 +182,8 @@ func (s *Session) handleSelected(command string, args []string, line string) err
 		return s.handleIdle()
 	case "ID":
 		return s.handleID(args)
-	case "GETACL":
-		return s.handleGetACL(args)
-	case "SETACL":
-		return s.handleSetACL(args)
-	case "DELETEACL":
-		return s.handleDeleteACL(args)
-	case "MYRIGHTS":
-		return s.handleMyRights(args)
-	case "LISTRIGHTS":
-		return s.handleListRights(args)
+	case "GETACL", "SETACL", "DELETEACL", "MYRIGHTS", "LISTRIGHTS":
+		return s.handleACLCommand(command, args)
 	default:
 		s.WriteResponse(s.tag, "BAD Command not recognized")
 		return nil
@@ -215,6 +199,29 @@ func (s *Session) handleCapability() error {
 	s.WriteData(caps)
 	s.WriteResponse(s.tag, "OK CAPABILITY completed")
 	return nil
+}
+
+func (s *Session) handleACLCommand(command string, args []string) error {
+	if !s.server.sharedFoldersEnabled {
+		s.WriteResponse(s.tag, "BAD Command not recognized")
+		return nil
+	}
+
+	switch command {
+	case "GETACL":
+		return s.handleGetACL(args)
+	case "SETACL":
+		return s.handleSetACL(args)
+	case "DELETEACL":
+		return s.handleDeleteACL(args)
+	case "MYRIGHTS":
+		return s.handleMyRights(args)
+	case "LISTRIGHTS":
+		return s.handleListRights(args)
+	default:
+		s.WriteResponse(s.tag, "BAD Command not recognized")
+		return nil
+	}
 }
 
 // NOOP command
@@ -1031,11 +1038,6 @@ func (s *Session) handleAppend(args []string, line string) error {
 		return nil
 	}
 
-	if size == 0 {
-		s.WriteResponse(s.tag, "BAD Missing message data")
-		return nil
-	}
-
 	if size > maxAppendSize {
 		s.WriteResponse(s.tag, "NO Message too large (limit 50MB)")
 		if span != nil {
@@ -1082,21 +1084,37 @@ func (s *Session) handleAppend(args []string, line string) error {
 		}
 	}
 
-	// RFC 7889 MULTIAPPEND: Check for additional messages in the stream
-	// After reading one literal, there might be more synchronizing literals waiting
+	// RFC 7889 MULTIAPPEND: Check for additional messages already buffered in
+	// the connection after consuming the current literal.
 	for {
-		// Look ahead for another literal marker
-		rest, err := s.reader.Peek(256)
+		buffered := s.reader.Buffered()
+		if buffered == 0 {
+			break
+		}
+
+		rest, err := s.reader.Peek(buffered)
 		if err != nil || len(rest) == 0 {
 			break
 		}
+
 		restStr := string(rest)
+		trimmed := strings.TrimLeft(restStr, "\r\n")
+		consumed := len(restStr) - len(trimmed)
+		if consumed > 0 {
+			if _, err := s.reader.Discard(consumed); err != nil {
+				break
+			}
+			if trimmed == "" {
+				break
+			}
+			restStr = trimmed
+		}
+
 		litIdx := strings.Index(restStr, "{")
 		if litIdx < 0 {
 			break
 		}
 
-		// Found another literal - parse its size
 		litEnd := strings.Index(restStr[litIdx:], "}")
 		if litEnd < 0 {
 			break
@@ -1108,9 +1126,9 @@ func (s *Session) handleAppend(args []string, line string) error {
 			break
 		}
 
-		// Consume what we peeked (including the {size} part)
-		discard := make([]byte, litIdx+litEnd+1)
-		s.reader.Read(discard)
+		if _, err := s.reader.Discard(litIdx + litEnd + 1); err != nil {
+			break
+		}
 
 		if nextSize > maxAppendSize {
 			s.WriteResponse(s.tag, "NO Message too large (limit 50MB)")
@@ -1120,14 +1138,11 @@ func (s *Session) handleAppend(args []string, line string) error {
 			return nil
 		}
 
-		// Check if non-synchronizing (has + suffix)
 		hasPlus := strings.Contains(restStr[litIdx:litIdx+litEnd+1], "+")
-
 		if !hasPlus {
 			s.WriteContinuation(fmt.Sprintf("Ready for %d octets", nextSize))
 		}
 
-		// Read this message
 		data := make([]byte, nextSize)
 		_, err = io.ReadFull(s.reader, data)
 		if err != nil {
@@ -1135,7 +1150,6 @@ func (s *Session) handleAppend(args []string, line string) error {
 			return err
 		}
 
-		// Append message with default flags
 		if s.server.mailstore != nil {
 			err := s.server.mailstore.AppendMessage(s.user, mailboxName, nil, time.Now(), data)
 			if err != nil {
@@ -2341,6 +2355,10 @@ func (s *Session) handleListRights(args []string) error {
 
 // parseOwnerMailbox parses mailbox name which may be in owner:mailbox format for shared mailboxes
 func (s *Session) parseOwnerMailbox(mailbox string) (owner, name string, isShared bool) {
+	if !s.server.sharedFoldersEnabled {
+		return s.user, mailbox, false
+	}
+
 	parts := strings.SplitN(mailbox, ":", 2)
 	if len(parts) == 2 {
 		return parts[0], parts[1], true

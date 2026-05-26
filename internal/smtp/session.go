@@ -777,13 +777,22 @@ func (s *Session) handleAUTH(arg string) error {
 		return s.WriteResponse(503, "5.5.1 Already authenticated")
 	}
 
+	ip := getIPFromAddr(s.conn.RemoteAddr().String())
+
 	// Brute-force lockout check
-	if s.server.isAuthLockedOut(getIPFromAddr(s.conn.RemoteAddr().String())) {
+	if s.server.isAuthLockedOut(ip) {
 		if span != nil {
 			tracing.SetStatus(span, tracing.StatusError, "auth locked out")
 		}
 		return s.WriteResponse(535, "5.7.8 Too many failed authentication attempts")
 	}
+	if s.server.isLegacyAuthRateLimited(ip) {
+		if span != nil {
+			tracing.SetStatus(span, tracing.StatusError, "auth rate limited")
+		}
+		return s.WriteResponse(454, "4.7.0 Too many SMTP authentication attempts, try again later")
+	}
+	s.server.recordLegacyAuthAttempt(ip)
 
 	parts := strings.SplitN(arg, " ", 2)
 	mechanism := strings.ToUpper(parts[0])

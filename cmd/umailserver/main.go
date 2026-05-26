@@ -285,17 +285,13 @@ spam:
     enabled: true
     delay: 5m
 
-dkim:
-  enabled: true
-  selector: default
-  domain: %s
-  key_file: %s
-
 domains:
   - name: %s
     max_accounts: 100
     max_mailbox_size: 5368709120  # 5GB
-`, email, domain, dataDir, email, domain, dkimKeyPath, domain)
+    dkim:
+      selector: default
+`, email, domain, dataDir, email, domain)
 
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write config: %v\n", err)

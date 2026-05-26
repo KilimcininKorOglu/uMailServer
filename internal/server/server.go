@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -99,17 +100,12 @@ type Server struct {
 // New creates a new Server instance
 func New(cfg *config.Config) (*Server, error) {
 	// Setup log output
-	var logHandler slog.Handler
+	var logOutput io.Writer
 	if cfg.Logging.Output == "stdout" || cfg.Logging.Output == "" {
-		logHandler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: parseLogLevel(cfg.Logging.Level),
-		})
+		logOutput = os.Stdout
 	} else if cfg.Logging.Output == "stderr" {
-		logHandler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-			Level: parseLogLevel(cfg.Logging.Level),
-		})
+		logOutput = os.Stderr
 	} else {
-		// File output with rotation
 		writer, err := logging.NewRotatingWriter(
 			cfg.Logging.Output,
 			cfg.Logging.MaxSizeMB,
@@ -119,12 +115,10 @@ func New(cfg *config.Config) (*Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create log writer: %w", err)
 		}
-		logHandler = slog.NewJSONHandler(writer, &slog.HandlerOptions{
-			Level: parseLogLevel(cfg.Logging.Level),
-		})
+		logOutput = writer
 	}
 
-	logger := slog.New(logHandler)
+	logger := slog.New(newLogHandler(logOutput, cfg.Logging.Format, parseLogLevel(cfg.Logging.Level)))
 
 	// Initialize distributed tracing
 	tracingProvider, err := tracing.NewProvider(tracing.Config{
@@ -166,10 +160,14 @@ func New(cfg *config.Config) (*Server, error) {
 		_ = database.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
+	if err := syncConfiguredDomains(database, cfg.Domains); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("failed to sync configured domains: %w", err)
+	}
 
 	// Initialize message store (use same path as IMAP mailstore)
 	msgStorePath := s.config.Server.DataDir + "/mail/messages"
-	msgStore, err := storage.NewMessageStore(msgStorePath)
+	msgStore, err := storage.NewMessageStoreWithOptions(msgStorePath, cfg.Storage.Sync)
 	if err != nil {
 		_ = database.Close()
 		return nil, fmt.Errorf("failed to create message store: %w", err)
@@ -182,8 +180,11 @@ func New(cfg *config.Config) (*Server, error) {
 		Email:             cfg.TLS.ACME.Email,
 		Domains:           []string{cfg.Server.Hostname},
 		UseStaging:        cfg.TLS.ACME.Provider == "letsencrypt-staging",
+		Challenge:         cfg.TLS.ACME.Challenge,
+		DNSProvider:       cfg.TLS.ACME.DNSProvider,
 		CertFile:          cfg.TLS.CertFile,
 		KeyFile:           cfg.TLS.KeyFile,
+		MinVersion:        parseTLSMinVersion(cfg.TLS.MinVersion),
 		ClientAuth:        cfg.TLS.ClientAuth.Enabled,
 		RequireClientCert: cfg.TLS.ClientAuth.RequireCert,
 		ClientCAFile:      cfg.TLS.ClientAuth.CAFile,
@@ -276,7 +277,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize storage database for search
 	storageDBPath := s.config.Server.DataDir + "/mail/mail.db"
-	storageDB, err := storage.OpenDatabase(storageDBPath)
+	storageDB, err := storage.OpenDatabaseWithOptions(storageDBPath, cfg.Storage.Sync)
 	if err != nil {
 		_ = tlsManager.Close()
 		_ = msgStore.Close()
@@ -326,6 +327,54 @@ func parseLogLevel(level string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+func newLogHandler(output io.Writer, format string, level slog.Level) slog.Handler {
+	options := &slog.HandlerOptions{Level: level}
+	if strings.EqualFold(format, "text") {
+		return slog.NewTextHandler(output, options)
+	}
+	return slog.NewJSONHandler(output, options)
+}
+
+func parseTLSMinVersion(version string) uint16 {
+	switch version {
+	case "1.2":
+		return tls.VersionTLS12
+	case "1.3":
+		return tls.VersionTLS13
+	default:
+		return 0
+	}
+}
+
+func syncConfiguredDomains(database *db.DB, configuredDomains []config.DomainConfig) error {
+	for _, domain := range configuredDomains {
+		existingDomain, err := database.GetDomain(domain.Name)
+		if err != nil {
+			if !strings.HasPrefix(err.Error(), "key not found:") {
+				return err
+			}
+			if err := database.CreateDomain(&db.DomainData{
+				Name:           domain.Name,
+				MaxAccounts:    domain.MaxAccounts,
+				MaxMailboxSize: int64(domain.MaxMailboxSize),
+				DKIMSelector:   domain.DKIM.Selector,
+				IsActive:       true,
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		existingDomain.MaxAccounts = domain.MaxAccounts
+		existingDomain.MaxMailboxSize = int64(domain.MaxMailboxSize)
+		existingDomain.DKIMSelector = domain.DKIM.Selector
+		if err := database.UpdateDomain(existingDomain); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetDatabase returns the database instance

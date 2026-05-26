@@ -51,16 +51,22 @@ func isValidMessageID(messageID string) bool {
 
 // MessageStore handles storage of raw message data
 type MessageStore struct {
-	basePath string
+	basePath   string
+	syncWrites bool
 }
 
 // NewMessageStore creates a new message store
 func NewMessageStore(basePath string) (*MessageStore, error) {
+	return NewMessageStoreWithOptions(basePath, true)
+}
+
+// NewMessageStoreWithOptions creates a new message store with sync behavior control.
+func NewMessageStoreWithOptions(basePath string, syncWrites bool) (*MessageStore, error) {
 	if err := os.MkdirAll(basePath, 0o750); err != nil {
 		return nil, err
 	}
 
-	return &MessageStore{basePath: basePath}, nil
+	return &MessageStore{basePath: basePath, syncWrites: syncWrites}, nil
 }
 
 // Close closes the message store
@@ -112,8 +118,36 @@ func (s *MessageStore) StoreMessage(user string, data []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if s.syncWrites {
+		if err := syncMessageFile(msgPath); err != nil {
+			_ = os.Remove(msgPath)
+			return "", err
+		}
+		if err := syncMessageDir(filepath.Dir(msgPath)); err != nil {
+			_ = os.Remove(msgPath)
+			return "", err
+		}
+	}
 
 	return messageID, nil
+}
+
+func syncMessageFile(path string) error {
+	file, err := os.OpenFile(filepath.Clean(path), os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return file.Sync()
+}
+
+func syncMessageDir(path string) error {
+	dir, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 // ReadMessage reads a message by ID

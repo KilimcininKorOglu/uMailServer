@@ -158,6 +158,14 @@ func (p *Pipeline) AddStage(stage PipelineStage) {
 	p.stages = append(p.stages, stage)
 }
 
+func (p *Pipeline) StageNames() []string {
+	names := make([]string, 0, len(p.stages))
+	for _, stage := range p.stages {
+		names = append(names, stage.Name())
+	}
+	return names
+}
+
 // Process processes a message through all pipeline stages
 func (p *Pipeline) Process(ctx *MessageContext) (PipelineResult, error) {
 	p.logger.Info("Starting message pipeline",
@@ -441,7 +449,8 @@ type GreylistStage struct {
 	mu          sync.Mutex
 	greylist    map[string]*greylistEntry
 	lastCleanup time.Time
-	maxEntries  int // Maximum entries before emergency cleanup
+	maxEntries  int
+	delay       time.Duration
 }
 
 type greylistEntry struct {
@@ -449,12 +458,22 @@ type greylistEntry struct {
 	allowed   bool
 }
 
-// NewGreylistStage creates a new greylisting stage
+// NewGreylistStage creates a new greylisting stage.
 func NewGreylistStage() *GreylistStage {
+	return NewGreylistStageWithDelay(5 * time.Minute)
+}
+
+// NewGreylistStageWithDelay creates a new greylisting stage with a custom retry delay.
+func NewGreylistStageWithDelay(delay time.Duration) *GreylistStage {
+	if delay <= 0 {
+		delay = 5 * time.Minute
+	}
+
 	return &GreylistStage{
 		greylist:    make(map[string]*greylistEntry),
 		lastCleanup: time.Now(),
-		maxEntries:  50000, // Maximum entries before emergency cleanup
+		maxEntries:  50000,
+		delay:       delay,
 	}
 }
 
@@ -466,18 +485,15 @@ func (s *GreylistStage) Process(ctx *MessageContext) PipelineResult {
 
 	now := time.Now()
 
-	// Emergency cleanup if we've exceeded max entries
 	if len(s.greylist) >= s.maxEntries {
-		// Remove oldest 50% of entries
-		cutoff := now.Add(-5 * time.Minute) // Keep entries newer than 5 minutes
-		// Collect keys to delete first to avoid modifying map during iteration
+		cutoff := now.Add(-s.delay)
 		keysToDelete := make([]string, 0)
 		for key, entry := range s.greylist {
 			if entry.firstSeen.Before(cutoff) {
 				keysToDelete = append(keysToDelete, key)
 			}
 			if len(s.greylist)-len(keysToDelete) < s.maxEntries/2 {
-				break // Stop when we've removed enough
+				break
 			}
 		}
 		for _, key := range keysToDelete {
@@ -485,7 +501,6 @@ func (s *GreylistStage) Process(ctx *MessageContext) PipelineResult {
 		}
 	}
 
-	// Periodically clean up stale greylist entries to prevent unbounded growth
 	if now.Sub(s.lastCleanup) > 10*time.Minute {
 		keysToDelete := make([]string, 0)
 		for key, entry := range s.greylist {
@@ -499,13 +514,11 @@ func (s *GreylistStage) Process(ctx *MessageContext) PipelineResult {
 		s.lastCleanup = now
 	}
 
-	// Create triplet key: sender IP + sender email + recipient email
 	for _, recipient := range ctx.To {
 		key := fmt.Sprintf("%s:%s:%s", ctx.RemoteIP.String(), ctx.From, recipient)
 
 		entry, exists := s.greylist[key]
 		if !exists {
-			// First time seeing this triplet
 			s.greylist[key] = &greylistEntry{
 				firstSeen: now,
 				allowed:   false,
@@ -517,8 +530,7 @@ func (s *GreylistStage) Process(ctx *MessageContext) PipelineResult {
 		}
 
 		if !entry.allowed {
-			// Check if enough time has passed (5 minutes)
-			if now.Sub(entry.firstSeen) < 5*time.Minute {
+			if now.Sub(entry.firstSeen) < s.delay {
 				ctx.Rejected = true
 				ctx.RejectionCode = 451
 				ctx.RejectionMessage = "Greylisted, please try again later"
@@ -819,17 +831,28 @@ func (s *BayesianStage) Process(ctx *MessageContext) PipelineResult {
 	return ResultAccept
 }
 
-// ScoreStage determines final spam verdict
+// ScoreStage determines final spam verdict.
 type ScoreStage struct {
-	rejectThreshold float64
-	junkThreshold   float64
+	rejectThreshold     float64
+	quarantineThreshold float64
+	junkThreshold       float64
+	autoTrainer         *spam.Classifier
+	autoTrain           bool
 }
 
-// NewScoreStage creates a new scoring stage
+// NewScoreStage creates a new scoring stage.
 func NewScoreStage(rejectThreshold, junkThreshold float64) *ScoreStage {
+	return NewScoreStageWithOptions(rejectThreshold, rejectThreshold, junkThreshold, nil, false)
+}
+
+// NewScoreStageWithOptions creates a scoring stage with quarantine and Bayesian auto-train support.
+func NewScoreStageWithOptions(rejectThreshold, quarantineThreshold, junkThreshold float64, autoTrainer *spam.Classifier, autoTrain bool) *ScoreStage {
 	return &ScoreStage{
-		rejectThreshold: rejectThreshold,
-		junkThreshold:   junkThreshold,
+		rejectThreshold:     rejectThreshold,
+		quarantineThreshold: quarantineThreshold,
+		junkThreshold:       junkThreshold,
+		autoTrainer:         autoTrainer,
+		autoTrain:           autoTrain && autoTrainer != nil,
 	}
 }
 
@@ -845,14 +868,26 @@ func (s *ScoreStage) Process(ctx *MessageContext) PipelineResult {
 		ctx.Rejected = true
 		ctx.RejectionCode = 550
 		ctx.RejectionMessage = "Message rejected as spam"
+		s.autoTrainMessage(ctx, true)
 		if m != nil {
 			m.SpamDetected()
 		}
 		return ResultReject
 	}
 
+	if ctx.SpamScore >= s.quarantineThreshold {
+		ctx.SpamResult.Verdict = "quarantine"
+		ctx.Quarantine = true
+		s.autoTrainMessage(ctx, true)
+		if m != nil {
+			m.SpamDetected()
+		}
+		return ResultQuarantine
+	}
+
 	if ctx.SpamScore >= s.junkThreshold {
 		ctx.SpamResult.Verdict = "junk"
+		s.autoTrainMessage(ctx, true)
 		if m != nil {
 			m.SpamDetected()
 		}
@@ -860,10 +895,20 @@ func (s *ScoreStage) Process(ctx *MessageContext) PipelineResult {
 	}
 
 	ctx.SpamResult.Verdict = "inbox"
+	s.autoTrainMessage(ctx, false)
 	if m != nil {
 		m.HamDetected()
 	}
 	return ResultAccept
+}
+
+func (s *ScoreStage) autoTrainMessage(ctx *MessageContext, isSpam bool) {
+	if !s.autoTrain || s.autoTrainer == nil {
+		return
+	}
+	if err := s.autoTrainer.TrainFromEmail(isSpam, ctx.Headers, ctx.Data); err != nil {
+		ctx.SpamResult.Reasons = append(ctx.SpamResult.Reasons, "bayesian_train_error")
+	}
 }
 
 // AVStage scans messages for viruses using ClamAV

@@ -1,6 +1,7 @@
 package imap
 
 import (
+	"bufio"
 	"crypto/tls"
 	"log/slog"
 	"net"
@@ -153,6 +154,80 @@ func TestServerSetAuthFunc(t *testing.T) {
 	}
 }
 
+func TestServerSetMaxConnectionsPerIP(t *testing.T) {
+	server := NewServer(&Config{Addr: ":1143"}, &mockMailstore{})
+	server.SetMaxConnectionsPerIP(2)
+
+	if server.maxConnectionsPerIP != 2 {
+		t.Fatalf("expected maxConnectionsPerIP=2, got %d", server.maxConnectionsPerIP)
+	}
+}
+
+func TestHandleConnection_PerIPLimit(t *testing.T) {
+	server := NewServer(&Config{Addr: ":1143"}, &mockMailstore{})
+	server.SetMaxConnectionsPerIP(1)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer listener.Close()
+
+	clientConn1, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Failed to create first client connection: %v", err)
+	}
+	defer clientConn1.Close()
+
+	serverConn1, err := listener.Accept()
+	if err != nil {
+		t.Fatalf("Failed to accept first server connection: %v", err)
+	}
+	defer serverConn1.Close()
+
+	activeSession := NewSession(serverConn1, server)
+	server.sessionsMu.Lock()
+	server.sessions[activeSession.ID()] = activeSession
+	server.sessionsMu.Unlock()
+	defer func() {
+		server.sessionsMu.Lock()
+		delete(server.sessions, activeSession.ID())
+		server.sessionsMu.Unlock()
+	}()
+
+	clientConn2, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Failed to create second client connection: %v", err)
+	}
+	defer clientConn2.Close()
+
+	serverConn2, err := listener.Accept()
+	if err != nil {
+		t.Fatalf("Failed to accept second server connection: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		server.handleConnection(serverConn2)
+		close(done)
+	}()
+
+	clientConn2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	response, err := bufio.NewReader(clientConn2).ReadString('\n')
+	if err != nil {
+		t.Fatalf("Failed to read IMAP rejection: %v", err)
+	}
+	if !strings.Contains(response, "Too many connections from this IP") {
+		t.Fatalf("expected per-IP rejection, got %q", response)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Timeout waiting for handleConnection to return")
+	}
+}
+
 func TestServerNotStarted(t *testing.T) {
 	config := &Config{Addr: ":1143"}
 	mailstore := &mockMailstore{}
@@ -237,10 +312,10 @@ func TestSessionClose(t *testing.T) {
 }
 
 func TestDefaultCapabilities(t *testing.T) {
-	caps := defaultCapabilities()
+	caps := defaultCapabilities(true)
 
 	// Check some expected capabilities
-	expectedCaps := []string{"IMAP4rev1", "STARTTLS", "AUTH=PLAIN", "IDLE", "UIDPLUS"}
+	expectedCaps := []string{"IMAP4rev1", "STARTTLS", "AUTH=PLAIN", "IDLE", "UIDPLUS", "ACL"}
 	for _, cap := range expectedCaps {
 		found := false
 		for _, c := range caps {
@@ -844,7 +919,7 @@ func TestGenerateSessionIDUnique(t *testing.T) {
 }
 
 func TestDefaultCapabilitiesContent(t *testing.T) {
-	caps := defaultCapabilities()
+	caps := defaultCapabilities(false)
 
 	expectedCaps := []string{
 		"IMAP4rev1",
@@ -873,6 +948,12 @@ func TestDefaultCapabilitiesContent(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("expected capability %s not found in default capabilities", cap)
+		}
+	}
+
+	for _, cap := range caps {
+		if cap == "ACL" {
+			t.Fatal("expected ACL capability to be disabled")
 		}
 	}
 }

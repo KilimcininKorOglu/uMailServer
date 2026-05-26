@@ -51,10 +51,13 @@ type Server struct {
 	idleTimeout  time.Duration
 
 	// Connection limits
-	maxConnections int
+	maxConnections      int
+	maxConnectionsPerIP int
 
 	// Tracing provider for OpenTelemetry
 	tracingProvider *tracing.Provider
+
+	sharedFoldersEnabled bool
 
 	// allowPlainAuth permits LOGIN/AUTHENTICATE without TLS. Off by default.
 	// Intended for loopback integration tests where TLS handshake setup adds
@@ -107,9 +110,10 @@ type Mailstore interface {
 
 // Config holds server configuration
 type Config struct {
-	Addr      string
-	TLSConfig *tls.Config
-	Logger    *slog.Logger
+	Addr                 string
+	TLSConfig            *tls.Config
+	Logger               *slog.Logger
+	SharedFoldersEnabled bool
 }
 
 // NewServer creates a new IMAP server
@@ -119,13 +123,14 @@ func NewServer(config *Config, mailstore Mailstore) *Server {
 	}
 
 	return &Server{
-		addr:         config.Addr,
-		tlsConfig:    config.TLSConfig,
-		logger:       config.Logger,
-		sessions:     make(map[string]*Session),
-		shutdown:     make(chan struct{}),
-		mailstore:    mailstore,
-		authFailures: make(map[string][]time.Time),
+		addr:                 config.Addr,
+		tlsConfig:            config.TLSConfig,
+		logger:               config.Logger,
+		sessions:             make(map[string]*Session),
+		shutdown:             make(chan struct{}),
+		mailstore:            mailstore,
+		authFailures:         make(map[string][]time.Time),
+		sharedFoldersEnabled: config.SharedFoldersEnabled,
 	}
 }
 
@@ -169,6 +174,11 @@ func (s *Server) SetIdleTimeout(d time.Duration) {
 // SetMaxConnections sets the maximum number of concurrent IMAP connections.
 func (s *Server) SetMaxConnections(n int) {
 	s.maxConnections = n
+}
+
+// SetMaxConnectionsPerIP sets the maximum number of concurrent IMAP connections per IP.
+func (s *Server) SetMaxConnectionsPerIP(n int) {
+	s.maxConnectionsPerIP = n
 }
 
 // SetAllowPlainAuth permits LOGIN/AUTHENTICATE without an active TLS layer.
@@ -303,6 +313,16 @@ func (s *Server) acceptLoop(listener net.Listener) {
 	}
 }
 
+func (s *Server) connectionsForIPLocked(ip string) int {
+	count := 0
+	for _, session := range s.sessions {
+		if clientIP(session.conn) == ip {
+			count++
+		}
+	}
+	return count
+}
+
 // handleConnection handles a single IMAP connection
 func (s *Server) handleConnection(conn net.Conn) {
 	defer func() {
@@ -312,26 +332,32 @@ func (s *Server) handleConnection(conn net.Conn) {
 		}
 	}()
 
-	s.sessionsMu.RLock()
+	ip := clientIP(conn)
+
+	s.sessionsMu.Lock()
 	atLimit := s.maxConnections > 0 && len(s.sessions) >= s.maxConnections
-	s.sessionsMu.RUnlock()
-	if atLimit {
-		_, _ = conn.Write([]byte("* BYE Too many connections\r\n"))
+	ipAtLimit := s.maxConnectionsPerIP > 0 && s.connectionsForIPLocked(ip) >= s.maxConnectionsPerIP
+	if atLimit || ipAtLimit {
+		s.sessionsMu.Unlock()
+		if ipAtLimit {
+			_, _ = conn.Write([]byte("* BYE Too many connections from this IP\r\n"))
+		} else {
+			_, _ = conn.Write([]byte("* BYE Too many connections\r\n"))
+		}
 		_ = conn.Close()
 		return
 	}
 
 	session := NewSession(conn, s)
-	metrics.Get().IMAPConnection()
-
-	s.sessionsMu.Lock()
 	s.sessions[session.ID()] = session
 	s.sessionsMu.Unlock()
+
+	metrics.Get().IMAPConnection()
 
 	s.logger.Info("New IMAP session", "session", session.ID(), "remote", conn.RemoteAddr())
 
 	// Send greeting with capability advertisement
-	caps := defaultCapabilities()
+	caps := defaultCapabilities(s.sharedFoldersEnabled)
 	session.WriteResponse("*", "OK [CAPABILITY IMAP4rev2 IMAP4rev1 "+strings.Join(caps, " ")+"] uMailServer ready")
 
 	// Handle commands
@@ -399,7 +425,7 @@ func NewSession(conn net.Conn, server *Server) *Session {
 		writer:       bufio.NewWriter(conn),
 		server:       server,
 		state:        StateNotAuthenticated,
-		capabilities: defaultCapabilities(),
+		capabilities: defaultCapabilities(server.sharedFoldersEnabled),
 		enabledCaps:  make(map[string]bool),
 	}
 }
@@ -497,14 +523,25 @@ func (s *Session) WriteData(response string) {
 	_ = s.writer.Flush()              // Best-effort flush
 }
 
+var lastSessionID atomic.Int64
+
 // generateSessionID generates a unique session ID
 func generateSessionID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	for {
+		now := time.Now().UnixNano()
+		last := lastSessionID.Load()
+		if now <= last {
+			now = last + 1
+		}
+		if lastSessionID.CompareAndSwap(last, now) {
+			return fmt.Sprintf("%d", now)
+		}
+	}
 }
 
 // defaultCapabilities returns the default server capabilities
-func defaultCapabilities() []string {
-	return []string{
+func defaultCapabilities(sharedFoldersEnabled bool) []string {
+	caps := []string{
 		"IMAP4rev2",
 		"IMAP4rev1",
 		"STARTTLS",
@@ -522,13 +559,16 @@ func defaultCapabilities() []string {
 		"SASL-IR",
 		"ESEARCH",
 		"ID",
-		"ACL",
 		"COMPRESS=DEFLATE",
 		"SORT",
 		"THREAD=REFERENCES",
 		"THREAD=ORDEREDSUBJECT",
 		"MULTIAPPEND",
 	}
+	if sharedFoldersEnabled {
+		caps = append(caps, "ACL")
+	}
+	return caps
 }
 
 // truncateCommand truncates a command line for safe logging.

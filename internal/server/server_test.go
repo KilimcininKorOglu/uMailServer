@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"os"
@@ -36,6 +38,32 @@ func TestParseLogLevel(t *testing.T) {
 				t.Errorf("parseLogLevel(%q) = %d, want %d", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestNewLogHandlerTextFormat(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(newLogHandler(&buf, "text", slog.LevelInfo))
+	logger.Info("hello")
+
+	output := buf.String()
+	if !strings.Contains(output, "level=INFO") {
+		t.Fatalf("expected text handler output, got %q", output)
+	}
+	if !strings.Contains(output, "msg=hello") {
+		t.Fatalf("expected text handler message, got %q", output)
+	}
+}
+
+func TestParseTLSMinVersion(t *testing.T) {
+	if got := parseTLSMinVersion("1.2"); got != tls.VersionTLS12 {
+		t.Fatalf("expected TLS 1.2, got %d", got)
+	}
+	if got := parseTLSMinVersion("1.3"); got != tls.VersionTLS13 {
+		t.Fatalf("expected TLS 1.3, got %d", got)
+	}
+	if got := parseTLSMinVersion(""); got != 0 {
+		t.Fatalf("expected zero min version for empty config, got %d", got)
 	}
 }
 
@@ -118,6 +146,85 @@ func TestNew(t *testing.T) {
 
 	if server.msgStore == nil {
 		t.Error("Expected message store to be initialized")
+	}
+}
+
+func TestNewUsesConfiguredTLSMinVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Hostname: "test.example.com",
+			DataDir:  tmpDir,
+		},
+		Database: config.DatabaseConfig{
+			Path: tmpDir + "/test.db",
+		},
+		Logging: config.LoggingConfig{
+			Level: "info",
+		},
+		TLS: config.TLSConfig{
+			MinVersion: "1.3",
+			ACME: config.ACMEConfig{
+				Enabled: false,
+			},
+		},
+	}
+
+	server, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer func() { _ = server.Stop() }()
+
+	tlsConfig := server.tlsManager.GetTLSConfig()
+	if tlsConfig.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("expected TLS min version %d, got %d", tls.VersionTLS13, tlsConfig.MinVersion)
+	}
+}
+
+func TestNewSyncsConfiguredDomains(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Hostname: "test.example.com",
+			DataDir:  tmpDir,
+		},
+		Database: config.DatabaseConfig{
+			Path: tmpDir + "/test.db",
+		},
+		Logging: config.LoggingConfig{
+			Level: "info",
+		},
+		Domains: []config.DomainConfig{{
+			Name:           "example.com",
+			MaxAccounts:    42,
+			MaxMailboxSize: config.Size(5 * 1024 * 1024),
+			DKIM: config.DomainDKIMConfig{
+				Selector: "default",
+			},
+		}},
+	}
+
+	server, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer func() { _ = server.Stop() }()
+
+	domain, err := server.database.GetDomain("example.com")
+	if err != nil {
+		t.Fatalf("expected configured domain to be seeded, got error: %v", err)
+	}
+	if domain.MaxAccounts != 42 {
+		t.Fatalf("expected max accounts 42, got %d", domain.MaxAccounts)
+	}
+	if domain.MaxMailboxSize != int64(5*1024*1024) {
+		t.Fatalf("expected max mailbox size %d, got %d", 5*1024*1024, domain.MaxMailboxSize)
+	}
+	if domain.DKIMSelector != "default" {
+		t.Fatalf("expected DKIM selector default, got %q", domain.DKIMSelector)
 	}
 }
 
@@ -3127,4 +3234,74 @@ func TestNew_TLSManagerErrorWithAutoTLS(t *testing.T) {
 	}
 	srv.Stop()
 	t.Log("New() succeeded with AutoTLS - TLS manager may handle this gracefully")
+}
+
+func TestBuildSubmissionSMTPConfigRequireTLS(t *testing.T) {
+	srv := helperServer(t)
+
+	tests := []struct {
+		name              string
+		requireTLS        bool
+		wantAllowInsecure bool
+	}{
+		{name: "tls_required", requireTLS: true, wantAllowInsecure: false},
+		{name: "plaintext_allowed", requireTLS: false, wantAllowInsecure: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv.config.SMTP.Submission.RequireTLS = tt.requireTLS
+
+			cfg := srv.buildSubmissionSMTPConfig()
+			if cfg.RequireTLS != tt.requireTLS {
+				t.Fatalf("expected RequireTLS=%v, got %v", tt.requireTLS, cfg.RequireTLS)
+			}
+			if cfg.AllowInsecure != tt.wantAllowInsecure {
+				t.Fatalf("expected AllowInsecure=%v, got %v", tt.wantAllowInsecure, cfg.AllowInsecure)
+			}
+			if !cfg.IsSubmission {
+				t.Fatal("expected submission config to mark IsSubmission")
+			}
+		})
+	}
+}
+
+func TestBuildInboundSMTPPipelineSpamDisabledOmitsSpamStages(t *testing.T) {
+	srv := helperServer(t)
+	srv.config.Spam.Enabled = false
+	srv.config.Spam.Greylisting.Enabled = true
+	srv.config.Spam.RBLServers = []string{"zen.spamhaus.org"}
+	srv.config.Spam.Bayesian.Enabled = true
+
+	names := srv.buildInboundSMTPPipeline().StageNames()
+	for _, stageName := range []string{"Greylist", "RBL", "Heuristic", "Bayesian", "Score"} {
+		if hasStageName(names, stageName) {
+			t.Fatalf("did not expect spam stage %q when spam.enabled=false, got %v", stageName, names)
+		}
+	}
+}
+
+func TestBuildInboundSMTPPipelineSpamEnabledIncludesConfiguredStages(t *testing.T) {
+	srv := helperServer(t)
+	srv.config.Spam.Enabled = true
+	srv.config.Spam.Greylisting.Enabled = true
+	srv.config.Spam.RBLServers = []string{"zen.spamhaus.org"}
+	srv.config.Spam.Bayesian.Enabled = true
+
+	names := srv.buildInboundSMTPPipeline().StageNames()
+	for _, stageName := range []string{"Greylist", "RBL", "Heuristic", "Bayesian", "Score"} {
+		if !hasStageName(names, stageName) {
+			t.Fatalf("expected spam stage %q when spam.enabled=true, got %v", stageName, names)
+		}
+	}
+}
+
+func hasStageName(names []string, want string) bool {
+	for _, name := range names {
+		if name == want {
+			return true
+		}
+	}
+
+	return false
 }

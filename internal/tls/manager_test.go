@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -549,14 +550,18 @@ func TestManagerSetupAutocertWithStaging(t *testing.T) {
 
 func TestHTTPChallengeHandlerWithAutocert(t *testing.T) {
 	config := Config{
-		Enabled: true,
-		AutoTLS: true,
-		Email:   "admin@example.com",
-		Domains: []string{"example.com"},
+		Enabled:   true,
+		AutoTLS:   true,
+		Email:     "admin@example.com",
+		Domains:   []string{"example.com"},
+		Challenge: "http-01",
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	manager, _ := NewManager(config, logger)
+	manager, err := NewManager(config, logger)
+	if err != nil {
+		t.Fatalf("NewManager failed: %v", err)
+	}
 	defer manager.Close()
 
 	handler := manager.HTTPChallengeHandler()
@@ -564,6 +569,42 @@ func TestHTTPChallengeHandlerWithAutocert(t *testing.T) {
 	// With autocert enabled, handler should be non-nil
 	if handler == nil && manager.certManager != nil {
 		t.Error("expected non-nil handler when autocert is configured")
+	}
+}
+
+func TestNewManager_DNSChallengeErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		dnsProvider string
+		wantErr     string
+	}{
+		{name: "missing provider", wantErr: "dns-01 challenge requires tls.acme.dns_provider"},
+		{name: "unsupported provider", dnsProvider: "cloudflare", wantErr: "dns-01 challenge with provider \"cloudflare\" is not implemented"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Config{
+				Enabled:     true,
+				AutoTLS:     true,
+				Email:       "admin@example.com",
+				Domains:     []string{"example.com"},
+				Challenge:   "dns-01",
+				DNSProvider: tt.dnsProvider,
+			}
+
+			logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+			manager, err := NewManager(config, logger)
+			if err == nil {
+				if manager != nil {
+					defer manager.Close()
+				}
+				t.Fatalf("expected error for dns-01 challenge")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
 	}
 }
 

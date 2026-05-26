@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/backup"
@@ -9,12 +10,27 @@ import (
 
 // startAPI creates and starts the HTTP API server (webmail + admin).
 func (s *Server) startAPI() {
+	if !s.config.HTTP.Enabled {
+		s.logger.Info("API server disabled")
+		return
+	}
+
+	apiAddr := fmt.Sprintf("%s:%d", s.config.HTTP.Bind, s.config.HTTP.Port)
+	plainHTTPAddr := ""
+	if s.config.HTTP.HTTPPort > 0 && s.config.HTTP.HTTPPort != s.config.HTTP.Port {
+		plainHTTPAddr = fmt.Sprintf("%s:%d", s.config.HTTP.Bind, s.config.HTTP.HTTPPort)
+	}
+
 	apiCfg := api.Config{
-		Addr:             fmt.Sprintf("%s:%d", s.config.HTTP.Bind, s.config.HTTP.Port),
+		Addr:             apiAddr,
+		PlainAddr:        plainHTTPAddr,
 		JWTSecret:        s.config.Security.JWTSecret,
 		DisableLegacyJWT: s.config.Security.DisableLegacyJWT,
 		TOTPKey:          s.config.Security.TOTPKey,
 		CorsOrigins:      s.config.HTTP.CorsOrigins,
+		TrustedProxies:   s.config.HTTP.TrustedProxies,
+		DrainTimeout:     time.Duration(s.config.Server.GracefulTimeout) * time.Second,
+		ShutdownTimeout:  time.Duration(s.config.Server.ForceCloseAfter) * time.Second,
 		PasswordHasher:   "bcrypt", // or "argon2id" (OWASP recommended)
 		AuditLog: api.AuditLogConfig{
 			Path:       s.config.Security.AuditLog.Path,
@@ -25,6 +41,9 @@ func (s *Server) startAPI() {
 		DataDir: s.config.Server.DataDir,
 	}
 	s.apiServer = api.NewServer(s.database, s.logger, apiCfg)
+	if s.tlsManager != nil {
+		s.apiServer.SetACMEChallengeHandler(s.tlsManager.HTTPChallengeHandler())
+	}
 	s.apiServer.SetSearchService(s.searchSvc)
 	s.apiServer.SetTracingProvider(s.tracingProvider)
 	if s.queue != nil {
@@ -56,6 +75,9 @@ func (s *Server) startAPI() {
 		}
 	}()
 	s.logger.Info("API server started", "addr", apiCfg.Addr)
+	if apiCfg.PlainAddr != "" {
+		s.logger.Info("Plain HTTP API server started", "addr", apiCfg.PlainAddr)
+	}
 
 	// Start admin server on separate port (localhost only)
 	if s.config.Admin.Enabled {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"os"
@@ -1348,6 +1349,43 @@ func TestBackupManagerBackupWithDatabase(t *testing.T) {
 	}
 	if len(entries) == 0 {
 		t.Error("expected backup file to be created")
+	}
+}
+
+func TestBackupManagerBackupDatabaseUsesConfiguredPath(t *testing.T) {
+	dataDir := t.TempDir()
+	externalDir := t.TempDir()
+	dbPath := filepath.Join(externalDir, "custom.db")
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			DataDir:  dataDir,
+			Hostname: "test.example.com",
+		},
+		Database: config.DatabaseConfig{
+			Path: dbPath,
+		},
+	}
+
+	if err := os.WriteFile(dbPath, []byte("configured database content"), 0o644); err != nil {
+		t.Fatalf("failed to create configured database file: %v", err)
+	}
+
+	bm := NewBackupManager(cfg)
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+
+	if err := bm.backupDatabase(tw); err != nil {
+		t.Fatalf("backupDatabase failed: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("failed to close tar writer: %v", err)
+	}
+
+	if len(bm.hashes) != 1 {
+		t.Fatalf("expected configured database to be archived, got %d hashed files", len(bm.hashes))
+	}
+	if bm.hashes[0].Path != "database/umailserver.db" {
+		t.Fatalf("unexpected backup entry path %q", bm.hashes[0].Path)
 	}
 }
 

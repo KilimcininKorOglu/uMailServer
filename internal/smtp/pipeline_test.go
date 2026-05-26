@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/umailserver/umailserver/internal/spam"
 )
 
 func TestMessageContext(t *testing.T) {
@@ -369,6 +371,53 @@ func TestNewPipeline(t *testing.T) {
 			t.Error("Expected default logger to be set")
 		}
 	})
+}
+
+func TestGreylistStage_CustomDelay(t *testing.T) {
+	stage := NewGreylistStageWithDelay(10 * time.Minute)
+	ip := net.ParseIP("192.168.1.102")
+	key := fmt.Sprintf("%s:%s:%s", ip.String(), "s@example.com", "r@example.com")
+	stage.greylist[key] = &greylistEntry{
+		firstSeen: time.Now().Add(-6 * time.Minute),
+	}
+
+	ctx := NewMessageContext(ip, "s@example.com", []string{"r@example.com"}, []byte("data"))
+	result := stage.Process(ctx)
+	if result != ResultReject {
+		t.Errorf("Expected ResultReject while custom delay window is active, got %v", result)
+	}
+	if ctx.RejectionCode != 451 {
+		t.Errorf("Expected rejection code 451, got %d", ctx.RejectionCode)
+	}
+}
+
+func TestScoreStage_CustomQuarantineThreshold(t *testing.T) {
+	stage := NewScoreStageWithOptions(9.0, 6.0, 3.0, nil, false)
+	ctx := NewMessageContext(net.ParseIP("1.2.3.4"), "s@example.com", []string{"r@example.com"}, []byte("data"))
+	ctx.SpamScore = 7.0
+
+	result := stage.Process(ctx)
+	if result != ResultQuarantine {
+		t.Errorf("Expected ResultQuarantine, got %v", result)
+	}
+	if ctx.SpamResult.Verdict != "quarantine" {
+		t.Errorf("Expected verdict 'quarantine', got %q", ctx.SpamResult.Verdict)
+	}
+	if !ctx.Quarantine {
+		t.Error("Expected Quarantine flag to be set")
+	}
+}
+
+func TestNewScoreStageWithOptions_AutoTrainRequiresClassifier(t *testing.T) {
+	withoutClassifier := NewScoreStageWithOptions(9.0, 6.0, 3.0, nil, true)
+	if withoutClassifier.autoTrain {
+		t.Error("Expected autoTrain to stay disabled without classifier")
+	}
+
+	withClassifier := NewScoreStageWithOptions(9.0, 6.0, 3.0, &spam.Classifier{}, true)
+	if !withClassifier.autoTrain {
+		t.Error("Expected autoTrain to be enabled when classifier is configured")
+	}
 }
 
 func TestProcessStages(t *testing.T) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -58,13 +59,7 @@ func (s *Server) Stop() error {
 	}
 
 	// Stop MCP server
-	if s.mcpHTTPServer != nil {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := s.mcpHTTPServer.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("Failed to stop MCP server", "error", err)
-		}
-		shutdownCancel()
-	}
+	s.shutdownHTTPServer(s.mcpHTTPServer, "MCP server")
 
 	// Stop ManageSieve server
 	if s.manageSieveServer != nil {
@@ -74,32 +69,20 @@ func (s *Server) Stop() error {
 	}
 
 	// Stop CalDAV server
+	s.shutdownHTTPServer(s.caldavHTTPServer, "CalDAV server")
 	if s.caldavHTTPServer != nil {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := s.caldavHTTPServer.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("Failed to stop CalDAV server", "error", err)
-		}
-		shutdownCancel()
 		s.logger.Debug("CalDAV server stopped")
 	}
 
 	// Stop CardDAV server
+	s.shutdownHTTPServer(s.carddavHTTPServer, "CardDAV server")
 	if s.carddavHTTPServer != nil {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := s.carddavHTTPServer.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("Failed to stop CardDAV server", "error", err)
-		}
-		shutdownCancel()
 		s.logger.Debug("CardDAV server stopped")
 	}
 
 	// Stop JMAP server
+	s.shutdownHTTPServer(s.jmapHTTPServer, "JMAP server")
 	if s.jmapHTTPServer != nil {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := s.jmapHTTPServer.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("Failed to stop JMAP server", "error", err)
-		}
-		shutdownCancel()
 		s.logger.Debug("JMAP server stopped")
 	}
 
@@ -111,7 +94,7 @@ func (s *Server) Stop() error {
 	}
 
 	// Stop Prometheus metrics server
-	s.stopMetrics(context.Background())
+	s.shutdownHTTPServer(s.metricsHTTPServer, "metrics server")
 
 	// Stop admin server
 	if s.adminServer != nil {
@@ -155,7 +138,7 @@ func (s *Server) Stop() error {
 
 	// Stop tracing provider
 	if s.tracingProvider != nil {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), s.forceCloseAfter())
 		if err := s.tracingProvider.Stop(shutdownCtx); err != nil {
 			s.logger.Error("Failed to stop tracing provider", "error", err)
 		}
@@ -164,6 +147,24 @@ func (s *Server) Stop() error {
 
 	s.logger.Info("uMailServer stopped")
 	return nil
+}
+
+func (s *Server) forceCloseAfter() time.Duration {
+	if s.config.Server.ForceCloseAfter > 0 {
+		return time.Duration(s.config.Server.ForceCloseAfter) * time.Second
+	}
+	return 60 * time.Second
+}
+
+func (s *Server) shutdownHTTPServer(server *http.Server, name string) {
+	if server == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.forceCloseAfter())
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		s.logger.Error("Failed to stop "+name, "error", err)
+	}
 }
 
 // Wait waits for shutdown signal

@@ -57,6 +57,7 @@ type Manager struct {
 	maxRetries   int
 	maxQueueSize int
 	requireTLS   bool
+	syncWrites   bool
 	webhook      WebhookTrigger // optional webhook trigger for delivery events
 
 	// Worker pool settings
@@ -184,6 +185,7 @@ func NewManager(db *db.DB, store *store.MaildirStore, dataDir string, logger *sl
 		logger:          logger,
 		maxRetries:      len(retryDelays),
 		maxQueueSize:    10000,
+		syncWrites:      true,
 		workerCount:     10,
 		mxPoolSize:      10,
 		mxIdleTimeout:   5 * time.Minute,
@@ -192,6 +194,11 @@ func NewManager(db *db.DB, store *store.MaildirStore, dataDir string, logger *sl
 		daneValidator:   auth.NewDANEValidator(&realMTASTSDNSResolver{}),
 		mxBreaker:       circuitbreaker.New(circuitbreaker.DefaultConfig()),
 	}
+}
+
+// SetDiskSync configures whether queue message files are fsync'd before commit.
+func (m *Manager) SetDiskSync(enabled bool) {
+	m.syncWrites = enabled
 }
 
 // Start starts the queue manager
@@ -252,7 +259,7 @@ func (m *Manager) Enqueue(from string, to []string, message []byte) (string, err
 	}
 
 	messagePath := filepath.Join(queueDir, id+".msg")
-	if err := writeFile(messagePath, message); err != nil {
+	if err := writeFileWithSync(messagePath, message, m.syncWrites); err != nil {
 		return "", fmt.Errorf("failed to store message: %w", err)
 	}
 
@@ -1094,6 +1101,10 @@ func extractDomain(email string) string {
 }
 
 func writeFile(path string, data []byte) error {
+	return writeFileWithSync(path, data, true)
+}
+
+func writeFileWithSync(path string, data []byte, syncWrites bool) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
@@ -1105,22 +1116,27 @@ func writeFile(path string, data []byte) error {
 		return err
 	}
 
-	// Sync temp file before rename to ensure data durability
-	f, err := os.OpenFile(filepath.Clean(tmpPath), os.O_RDWR, 0)
-	if err != nil {
-		_ = os.Remove(tmpPath)
-		return err
+	if syncWrites {
+		f, err := os.OpenFile(filepath.Clean(tmpPath), os.O_RDWR, 0)
+		if err != nil {
+			_ = os.Remove(tmpPath)
+			return err
+		}
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmpPath)
+			return err
+		}
+		_ = f.Close()
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close() // Best-effort
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	_ = f.Close()
 
 	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
+	}
+
+	if !syncWrites {
+		return nil
 	}
 
 	// Sync parent directory to ensure the rename is durable.

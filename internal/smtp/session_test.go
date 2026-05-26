@@ -1312,6 +1312,35 @@ func TestHandleAUTH_BadSequenceNewState(t *testing.T) {
 	}
 }
 
+func TestHandleAUTH_LegacyRateLimit(t *testing.T) {
+	session, clientConn := newBDATTestSession(t)
+	defer session.Close()
+	defer clientConn.Close()
+
+	session.server.config.AllowInsecure = true
+	session.server.config.IsSubmission = true
+	session.server.SetLegacyRateLimits(1, 0)
+	ip := getIPFromAddr(session.conn.RemoteAddr().String())
+	session.server.recordLegacyAuthAttempt(ip)
+	session.mutex.Lock()
+	session.state = StateGreeted
+	session.mutex.Unlock()
+
+	err := session.handleAUTH("PLAIN credentials")
+	if err != nil {
+		t.Fatalf("handleAUTH returned error: %v", err)
+	}
+
+	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 256)
+	n, _ := clientConn.Read(buf)
+	response := string(buf[:n])
+
+	if !strings.Contains(response, "454") {
+		t.Errorf("Expected 454 legacy auth rate limit response, got: %q", response)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Session.Read tests
 // ---------------------------------------------------------------------------
