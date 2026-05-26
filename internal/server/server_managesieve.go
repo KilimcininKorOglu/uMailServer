@@ -16,6 +16,7 @@ func (s *Server) startManageSieve() {
 	tlsCfg := s.tlsManager.GetTLSConfig()
 
 	sieveServer := sieve.NewManageSieveServer(s.sieveManager, tlsCfg)
+	sieveServer.SetListenAddr(addr)
 	// Set auth handler for ManageSieve (uses same auth as submission SMTP)
 	sieveServer.SetAuthHandler(func(user, pass string) bool {
 		ok, _ := s.authenticate(user, pass)

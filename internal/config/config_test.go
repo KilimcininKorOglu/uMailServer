@@ -328,11 +328,16 @@ func TestLoadNonExistentConfig(t *testing.T) {
 
 func TestDatabasePath(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Database.Path = "/var/lib/umailserver/db"
+	cfg.Database.Path = "/var/lib/umailserver/custom.db"
 
-	path := cfg.DatabasePath()
-	if !strings.HasSuffix(path, ".db") {
-		t.Errorf("expected database path to end with .db, got %s", path)
+	if path := cfg.DatabasePath(); path != "/var/lib/umailserver/custom.db" {
+		t.Errorf("expected configured database path, got %s", path)
+	}
+
+	cfg.Database.Path = ""
+	cfg.Server.DataDir = "/var/lib/umailserver"
+	if path := cfg.DatabasePath(); path != "/var/lib/umailserver/umailserver.db" {
+		t.Errorf("expected fallback database path, got %s", path)
 	}
 }
 

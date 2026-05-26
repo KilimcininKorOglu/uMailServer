@@ -141,8 +141,8 @@ func (s *Server) startSMTP() {
 			ReadTimeout:    s.config.SMTP.Inbound.ReadTimeout.ToDuration(),
 			WriteTimeout:   s.config.SMTP.Inbound.WriteTimeout.ToDuration(),
 			TLSConfig:      s.tlsManager.GetTLSConfig(),
-			RequireAuth:    true,
-			RequireTLS:     true,
+			RequireAuth:    s.config.SMTP.Submission.RequireAuth,
+			RequireTLS:     s.config.SMTP.Submission.RequireTLS,
 			IsSubmission:   true,
 		}
 
@@ -174,7 +174,7 @@ func (s *Server) startSMTP() {
 			ReadTimeout:    s.config.SMTP.Inbound.ReadTimeout.ToDuration(),
 			WriteTimeout:   s.config.SMTP.Inbound.WriteTimeout.ToDuration(),
 			TLSConfig:      s.tlsManager.GetTLSConfig(),
-			RequireAuth:    true,
+			RequireAuth:    s.config.SMTP.SubmissionTLS.RequireAuth,
 			RequireTLS:     false, // Already on TLS
 			IsSubmission:   true,
 		}

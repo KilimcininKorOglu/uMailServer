@@ -18,3 +18,4 @@ coverage.out
 coverage.html
 security-report/
 .claude/
+docker-data/

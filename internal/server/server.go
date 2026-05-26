@@ -155,12 +155,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize database
-	dbPath := cfg.Database.Path
-	if dbPath == "" {
-		dbPath = cfg.Server.DataDir + "/umailserver.db"
-	}
-
-	database, err := db.Open(dbPath)
+	database, err := db.Open(cfg.DatabasePath())
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

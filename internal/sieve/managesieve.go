@@ -26,15 +26,16 @@ const ManageSieveTLSListenAddr = "0.0.0.0:4191"
 
 // ManageSieveServer implements RFC 5804 - Protocol for Managing Sieve Scripts
 type ManageSieveServer struct {
-	ln          net.Listener
-	tlsLn       net.Listener
-	tlsCfg      *tls.Config
-	manager     *Manager
-	done        chan struct{}
-	wg          sync.WaitGroup
-	mu          sync.Mutex
-	running     bool
-	authHandler func(user, pass string) bool // Auth validation function
+	ln             net.Listener
+	tlsLn          net.Listener
+	tlsCfg         *tls.Config
+	manager        *Manager
+	listenAddr     string
+	done           chan struct{}
+	wg             sync.WaitGroup
+	mu             sync.Mutex
+	running        bool
+	authHandler    func(user, pass string) bool // Auth validation function
 
 	// tracingProvider wraps every command in a `managesieve.<COMMAND>`
 	// server-kind span when set.
@@ -44,9 +45,16 @@ type ManageSieveServer struct {
 // NewManageSieveServer creates a new ManageSieve server
 func NewManageSieveServer(manager *Manager, tlsCfg *tls.Config) *ManageSieveServer {
 	return &ManageSieveServer{
-		manager: manager,
-		tlsCfg:  tlsCfg,
-		done:    make(chan struct{}),
+		manager:    manager,
+		tlsCfg:     tlsCfg,
+		listenAddr: ManageSieveListenAddr,
+		done:       make(chan struct{}),
+	}
+}
+
+func (s *ManageSieveServer) SetListenAddr(addr string) {
+	if addr != "" {
+		s.listenAddr = addr
 	}
 }
 
@@ -73,7 +81,7 @@ func (s *ManageSieveServer) Listen() error {
 
 	// Start plain TCP listener
 	// #nosec G102 -- Bind address is a configurable default constant
-	ln, err := net.Listen("tcp", ManageSieveListenAddr)
+	ln, err := net.Listen("tcp", s.listenAddr)
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
 	}

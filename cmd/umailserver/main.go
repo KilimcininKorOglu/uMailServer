@@ -457,27 +457,56 @@ func readPassword() string {
 	return password
 }
 
-// getDataDir returns the data directory from config file, or default
+func cliConfigPaths() []string {
+	paths := []string{}
+	if envPath := os.Getenv("UMAILSERVER_CONFIG"); envPath != "" {
+		paths = append(paths, envPath)
+	}
+	paths = append(paths,
+		"./umailserver.yaml",
+		"./umailserver.yml",
+		"./demo.yaml",
+		"/etc/umailserver/umailserver.yaml",
+		"/etc/umailserver.yaml",
+	)
+	return paths
+}
+
+func loadCLIConfig() (*config.Config, error) {
+	for _, path := range cliConfigPaths() {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+
+		cfg, err := config.Load(path)
+		if err != nil {
+			return nil, err
+		}
+		return cfg, nil
+	}
+
+	return config.Load("")
+}
+
 func getDataDir() string {
-	// Try to load config to get data_dir
-	configPaths := []string{"./umailserver.yaml", "./umailserver.yml", "./demo.yaml"}
-	var cfg *config.Config
-	for _, p := range configPaths {
-		// Check if config file actually exists before trying to load
-		if _, err := os.Stat(p); os.IsNotExist(err) {
-			continue
-		}
-		var err error
-		cfg, err = config.Load(p)
-		if err == nil {
-			break
-		}
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
 	}
-	if cfg != nil && cfg.Server.DataDir != "" {
-		return cfg.Server.DataDir
+	return cfg.Server.DataDir
+}
+
+func getDatabasePath() string {
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
 	}
-	// Fallback to default
-	return config.GetDefaultDataDir()
+	return cfg.DatabasePath()
 }
 
 func cmdDomain(args []string) {
@@ -490,9 +519,7 @@ func cmdDomain(args []string) {
 	subcmd := args[0]
 
 	// Load database using config's data_dir
-	dataDir := getDataDir()
-	dbPath := filepath.Join(dataDir, "umailserver.db")
-	database, err := db.Open(dbPath)
+	database, err := db.Open(getDatabasePath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
 		os.Exit(1)
@@ -628,9 +655,7 @@ func cmdAccount(args []string) {
 	subcmd := args[0]
 
 	// Load database using config's data_dir
-	dataDir := getDataDir()
-	dbPath := filepath.Join(dataDir, "umailserver.db")
-	database, err := db.Open(dbPath)
+	database, err := db.Open(getDatabasePath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
 		os.Exit(1)
@@ -826,9 +851,7 @@ func cmdQueue(args []string) {
 	subcmd := args[0]
 
 	// Open database using config's data_dir
-	dataDir := getDataDir()
-	dbPath := filepath.Join(dataDir, "umailserver.db")
-	database, err := db.Open(dbPath)
+	database, err := db.Open(getDatabasePath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
 		os.Exit(1)
@@ -915,17 +938,10 @@ func cmdCheck(args []string) {
 	checkType := args[0]
 
 	// Load config
-	dataDir := "./data"
-	configPath := "./umailserver.yaml"
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig()
 	if err != nil {
-		// Try loading from default data dir
-		cfg = &config.Config{
-			Server: config.ServerConfig{
-				Hostname: "localhost",
-				DataDir:  dataDir,
-			},
-		}
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
 	}
 
 	diagnostics := cli.NewDiagnostics(cfg)
@@ -1013,8 +1029,7 @@ func cmdBackup(args []string) {
 	backupPath := args[0]
 
 	// Load config
-	configPath := "./umailserver.yaml"
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
@@ -1036,8 +1051,7 @@ func cmdRestore(args []string) {
 	backupFile := args[0]
 
 	// Load config
-	configPath := "./umailserver.yaml"
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
@@ -1073,16 +1087,13 @@ func cmdMigrate(args []string) {
 	}
 
 	// Load config and database
-	configPath := "./umailserver.yaml"
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
 
-	dataDir := cfg.Server.DataDir
-	dbPath := filepath.Join(dataDir, "umailserver.db")
-	database, err := db.Open(dbPath)
+	database, err := db.Open(cfg.DatabasePath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
 		os.Exit(1)
@@ -1154,12 +1165,10 @@ func cmdDB(args []string) {
 }
 
 func cmdDBStatus(args []string) {
-	dataDir := config.GetDefaultDataDir()
+	dbPath := getDatabasePath()
 	if len(args) > 0 {
-		dataDir = args[0]
+		dbPath = filepath.Join(args[0], "umailserver.db")
 	}
-
-	dbPath := filepath.Join(dataDir, "umailserver.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
@@ -1188,12 +1197,10 @@ func cmdDBStatus(args []string) {
 }
 
 func cmdDBMigrate(args []string) {
-	dataDir := config.GetDefaultDataDir()
+	dbPath := getDatabasePath()
 	if len(args) > 0 {
-		dataDir = args[0]
+		dbPath = filepath.Join(args[0], "umailserver.db")
 	}
-
-	dbPath := filepath.Join(dataDir, "umailserver.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
@@ -1217,12 +1224,10 @@ func cmdDBMigrate(args []string) {
 }
 
 func cmdDBRollback(args []string) {
-	dataDir := config.GetDefaultDataDir()
+	dbPath := getDatabasePath()
 	if len(args) > 0 {
-		dataDir = args[0]
+		dbPath = filepath.Join(args[0], "umailserver.db")
 	}
-
-	dbPath := filepath.Join(dataDir, "umailserver.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
@@ -1245,7 +1250,7 @@ func cmdDBRollback(args []string) {
 }
 
 func cmdStatus(args []string) {
-	dataDir := config.GetDefaultDataDir()
+	dataDir := getDataDir()
 	if len(args) > 0 {
 		dataDir = args[0]
 	}
@@ -1266,7 +1271,7 @@ func cmdStatus(args []string) {
 }
 
 func cmdStop(args []string) {
-	dataDir := config.GetDefaultDataDir()
+	dataDir := getDataDir()
 	if len(args) > 0 {
 		dataDir = args[0]
 	}
@@ -1296,7 +1301,7 @@ func cmdStop(args []string) {
 }
 
 func cmdRestart(args []string) {
-	dataDir := config.GetDefaultDataDir()
+	dataDir := getDataDir()
 	if len(args) > 0 {
 		dataDir = args[0]
 	}

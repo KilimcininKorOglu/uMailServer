@@ -1,37 +1,25 @@
-version: '3.8'
-
 services:
   umailserver:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/umailserver/umailserver:latest
     container_name: umailserver
     restart: unless-stopped
     ports:
-      # SMTP (inbound mail)
-      - "25:25"
-      # SMTP Submission (STARTTLS)
-      - "587:587"
-      # SMTP Submission (Implicit TLS)
-      - "465:465"
-      # IMAP (STARTTLS)
-      - "143:143"
-      # IMAPS
-      - "993:993"
-      # POP3S (Implicit TLS)
-      - "995:995"
-      # ManageSieve
+      # Local development HTTP API and Web UI
+      - "8088:8080"
+      # Local development mail testing ports
+      - "2525:2525"
+      - "2587:2587"
+      - "2143:2143"
       - "4190:4190"
-      # HTTP API and Web UI
-      - "443:443"
     volumes:
       - ./docker-data:/data
       - ./config:/etc/umailserver:ro
     environment:
       - TZ=UTC
       - UMAILSERVER_SERVER_DATA_DIR=/data
-      - UMAILSERVER_SERVER_HOSTNAME=${HOSTNAME:-mail.example.com}
+      - UMAILSERVER_SERVER_HOSTNAME=mail.local.test
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -39,7 +27,7 @@ services:
     networks:
       - mailnet
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:443/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3

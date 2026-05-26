@@ -931,7 +931,13 @@ func (c *Config) EnsureDataDir() error {
 	return nil
 }
 
-// DatabasePath returns the full path to the database file
+// DatabasePath returns the configured database file path.
 func (c *Config) DatabasePath() string {
-	return filepath.Join(c.Database.Path, "umailserver.db")
+	if c.Database.Path != "" {
+		return c.Database.Path
+	}
+	if c.Server.DataDir != "" {
+		return filepath.Join(c.Server.DataDir, "umailserver.db")
+	}
+	return filepath.Join(GetDefaultDataDir(), "umailserver.db")
 }

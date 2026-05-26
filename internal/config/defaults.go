@@ -178,9 +178,7 @@ func DefaultConfig() *Config {
 			Attributes:   map[string]string{},
 			SampleRate:   1.0,
 		},
-		Database: DatabaseConfig{
-			Path: "/var/lib/umailserver/db",
-		},
+		Database: DatabaseConfig{},
 		Storage: StorageConfig{
 			Sync:          true,
 			SharedFolders: false,
