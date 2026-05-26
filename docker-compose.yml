@@ -8,11 +8,22 @@ services:
     ports:
       # Local development HTTP API and Web UI
       - "8088:8080"
-      # Local development mail testing ports
-      - "2525:2525"
-      - "2587:2587"
+      # SMTP (inbound mail)
+      - "2525:25"
+      # SMTP Submission (STARTTLS)
+      - "2587:587"
+      # IMAP (STARTTLS)
       - "2143:2143"
+      # ManageSieve
       - "4190:4190"
+      # SMTP Submission (Implicit TLS)
+      #- "2465:465"
+      # IMAPS
+      #- "2993:993"
+      # POP3S (Implicit TLS)
+      #- "2995:995"
+      # HTTP API and Web UI
+      #- "2443:443"
     volumes:
       - ./docker-data:/data
       - ./config:/etc/umailserver:ro
