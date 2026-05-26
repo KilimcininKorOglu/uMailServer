@@ -123,12 +123,12 @@ Gateway’in client-facing protokol kapsamı aşamalı ilerlemelidir. İlk hedef
 
 #### 3.1.1 Desteklenecek client-facing protokoller
 
-| Protokol       | Aşama       | Karar           | Gerekçe                                                                              |
-| -------------- | ----------- | --------------- | ------------------------------------------------------------------------------------ |
-| Autodiscover   | MVP         | Desteklenecek   | Outlook hesap kurulumu ve endpoint keşfi için gerekir.                               |
-| EWS            | MVP         | Desteklenecek   | Mail, folder, sync, calendar, contacts ve rules operasyonlarının ilk API yüzeyidir.  |
-| MAPI/HTTP      | İleri faz   | Desteklenecek   | Modern Outlook için Exchange mailbox deneyimine en yakın bağlantı türüdür.           |
-| RPC/HTTP       | İleri faz   | Desteklenecek   | Eski Outlook Anywhere istemcileri için MAPI transport alternatifi sağlar.            |
+| Protokol     | Aşama     | Karar         | Gerekçe                                                                             |
+|--------------|-----------|---------------|-------------------------------------------------------------------------------------|
+| Autodiscover | MVP       | Desteklenecek | Outlook hesap kurulumu ve endpoint keşfi için gerekir.                              |
+| EWS          | MVP       | Desteklenecek | Mail, folder, sync, calendar, contacts ve rules operasyonlarının ilk API yüzeyidir. |
+| MAPI/HTTP    | İleri faz | Desteklenecek | Modern Outlook için Exchange mailbox deneyimine en yakın bağlantı türüdür.          |
+| RPC/HTTP     | İleri faz | Desteklenecek | Eski Outlook Anywhere istemcileri için MAPI transport alternatifi sağlar.           |
 
 İlk sürümde Outlook’a doğrudan sunulacak protokoller şunlardır:
 
@@ -185,10 +185,10 @@ NotificationStore
 
 Internal MAPI-like Store API kapsamı şu şekilde tanımlanır:
 
-| Bileşen                           | Karar             | Açıklama                                                                  |
-| --------------------------------- | ----------------- | ------------------------------------------------------------------------- |
-| Internal MAPI-like Store API      | Desteklenecek     | EWS, MAPI/HTTP ve RPC/HTTP için ortak mailbox modelini sağlar.            |
-| Client-facing MAPI protocol       | Desteklenmeyecek  | Outlook bağlantısı MAPI/HTTP veya RPC/HTTP transport üzerinden yapılır.   |
+| Bileşen                      | Karar            | Açıklama                                                                |
+|------------------------------|------------------|-------------------------------------------------------------------------|
+| Internal MAPI-like Store API | Desteklenecek    | EWS, MAPI/HTTP ve RPC/HTTP için ortak mailbox modelini sağlar.          |
+| Client-facing MAPI protocol  | Desteklenmeyecek | Outlook bağlantısı MAPI/HTTP veya RPC/HTTP transport üzerinden yapılır. |
 
 #### 3.1.3 Exchange compatibility layer zorunluluğu
 
@@ -344,19 +344,19 @@ Boş başarılı response yalnızca Outlook’un açıkça tolere ettiği fixtur
 
 Her operasyon için desteklenen request alanları, yok sayılan alanlar ve response alanları test fixture’larıyla belgelenmelidir.
 
-| Operasyon             | İlk desteklenen request alanları                   | İlk response alanları                                        | Backend                   | Fixture hedefi   |
-| --------------------- | -------------------------------------------------- | ------------------------------------------------------------ | ------------------------- | ---------------- |
-| GetServerTimeZones    | RequestServerVersion                               | TimeZoneDefinition                                           | Config / Go timezone      | Var              |
-| GetFolder             | FolderShape, DistinguishedFolderId, FolderId       | FolderId, ChangeKey, DisplayName, TotalCount, UnreadCount    | IMAP STATUS / state       | Var              |
-| FindFolder            | FolderShape, ParentFolderIds                       | RootFolder, Folder list                                      | IMAP LIST / SPECIAL-USE   | Var              |
-| FindItem              | ItemShape, ParentFolderIds, IndexedPageItemView    | ItemId, ChangeKey, Subject, From, DateTimeReceived, IsRead   | IMAP SEARCH / FETCH       | Var              |
-| GetItem               | ItemShape, ItemIds, AdditionalProperties           | Message body, headers, attachment metadata                   | IMAP FETCH / MIME         | Var              |
-| SyncFolderItems       | SyncState, MaxChangesReturned, ItemShape           | Create, Update, Delete, new SyncState                        | IMAP UID / MODSEQ         | Var              |
-| CreateItem            | MessageDisposition, SavedItemFolderId, Items       | ItemId, ChangeKey veya send result                           | SMTP / IMAP APPEND        | Var              |
-| SendItem              | ItemId, SavedItemFolderId                          | Success veya EWS error                                       | SMTP / IMAP APPEND        | Var              |
-| DeleteItem            | ItemIds, DeleteType                                | Success veya item error                                      | IMAP MOVE / STORE         | Var              |
-| MoveItem              | ItemIds, ToFolderId                                | New ItemId / ChangeKey                                       | IMAP MOVE                 | Var              |
-| UpdateItem            | ItemChanges                                        | Updated ItemId / ChangeKey                                   | IMAP flags                | Var              |
+| Operasyon          | İlk desteklenen request alanları                | İlk response alanları                                      | Backend                 | Fixture hedefi |
+|--------------------|-------------------------------------------------|------------------------------------------------------------|-------------------------|----------------|
+| GetServerTimeZones | RequestServerVersion                            | TimeZoneDefinition                                         | Config / Go timezone    | Var            |
+| GetFolder          | FolderShape, DistinguishedFolderId, FolderId    | FolderId, ChangeKey, DisplayName, TotalCount, UnreadCount  | IMAP STATUS / state     | Var            |
+| FindFolder         | FolderShape, ParentFolderIds                    | RootFolder, Folder list                                    | IMAP LIST / SPECIAL-USE | Var            |
+| FindItem           | ItemShape, ParentFolderIds, IndexedPageItemView | ItemId, ChangeKey, Subject, From, DateTimeReceived, IsRead | IMAP SEARCH / FETCH     | Var            |
+| GetItem            | ItemShape, ItemIds, AdditionalProperties        | Message body, headers, attachment metadata                 | IMAP FETCH / MIME       | Var            |
+| SyncFolderItems    | SyncState, MaxChangesReturned, ItemShape        | Create, Update, Delete, new SyncState                      | IMAP UID / MODSEQ       | Var            |
+| CreateItem         | MessageDisposition, SavedItemFolderId, Items    | ItemId, ChangeKey veya send result                         | SMTP / IMAP APPEND      | Var            |
+| SendItem           | ItemId, SavedItemFolderId                       | Success veya EWS error                                     | SMTP / IMAP APPEND      | Var            |
+| DeleteItem         | ItemIds, DeleteType                             | Success veya item error                                    | IMAP MOVE / STORE       | Var            |
+| MoveItem           | ItemIds, ToFolderId                             | New ItemId / ChangeKey                                     | IMAP MOVE               | Var            |
+| UpdateItem         | ItemChanges                                     | Updated ItemId / ChangeKey                                 | IMAP flags              | Var            |
 
 Bu tablo geliştirme sırasında genişletilmeli; fixture ile doğrulanmayan alanlar desteklenmiş kabul edilmemelidir.
 
@@ -438,49 +438,49 @@ Bu bilgiler config üzerinden üretilmeli; request host değeri tek başına gü
 
 ## 5. Backend Mapping
 
-| EWS tarafı               | iRedMail tarafı                           |
-| ------------------------ | ----------------------------------------- |
-| Authentication           | Dovecot auth / SQL / LDAP                 |
-| Inbox                    | Dovecot IMAP `INBOX`                      |
-| Sent Items               | Dovecot IMAP `Sent`                       |
-| Drafts                   | Dovecot IMAP `Drafts`                     |
-| Deleted Items            | Dovecot IMAP `Trash`                      |
-| Junk Email               | Dovecot IMAP `Junk`                       |
-| FindFolder / GetFolder   | IMAP `LIST`, `STATUS`                     |
-| FindItem                 | IMAP `SEARCH`, `SORT`, `FETCH`            |
-| GetItem                  | IMAP `FETCH BODY`, `BODYSTRUCTURE`        |
-| CreateItem draft         | IMAP `APPEND Drafts`                      |
-| SendItem                 | SMTP submission                           |
-| DeleteItem               | IMAP `MOVE Trash` veya `STORE \Deleted`   |
-| MoveItem                 | IMAP `MOVE`                               |
-| UpdateItem read/unread   | IMAP flags                                |
-| Attachments              | IMAP MIME parser                          |
-| Calendar                 | SOGo CalDAV                               |
-| Contacts                 | SOGo CardDAV                              |
-| Inbox Rules              | Dovecot Sieve / ManageSieve               |
-| Out of Office            | Sieve vacation                            |
-| ResolveNames             | LDAP / SQL address book                   |
-| FreeBusy                 | SOGo CalDAV freebusy                      |
+| EWS tarafı             | iRedMail tarafı                         |
+|------------------------|-----------------------------------------|
+| Authentication         | Dovecot auth / SQL / LDAP               |
+| Inbox                  | Dovecot IMAP `INBOX`                    |
+| Sent Items             | Dovecot IMAP `Sent`                     |
+| Drafts                 | Dovecot IMAP `Drafts`                   |
+| Deleted Items          | Dovecot IMAP `Trash`                    |
+| Junk Email             | Dovecot IMAP `Junk`                     |
+| FindFolder / GetFolder | IMAP `LIST`, `STATUS`                   |
+| FindItem               | IMAP `SEARCH`, `SORT`, `FETCH`          |
+| GetItem                | IMAP `FETCH BODY`, `BODYSTRUCTURE`      |
+| CreateItem draft       | IMAP `APPEND Drafts`                    |
+| SendItem               | SMTP submission                         |
+| DeleteItem             | IMAP `MOVE Trash` veya `STORE \Deleted` |
+| MoveItem               | IMAP `MOVE`                             |
+| UpdateItem read/unread | IMAP flags                              |
+| Attachments            | IMAP MIME parser                        |
+| Calendar               | SOGo CalDAV                             |
+| Contacts               | SOGo CardDAV                            |
+| Inbox Rules            | Dovecot Sieve / ManageSieve             |
+| Out of Office          | Sieve vacation                          |
+| ResolveNames           | LDAP / SQL address book                 |
+| FreeBusy               | SOGo CalDAV freebusy                    |
 
 
 ### 5.1 MAPI model mapping
 
 MAPI/HTTP ve RPC/HTTP desteğinde backend servisleri aynı kalır, ancak veriler MAPI property modeline çevrilir.
 
-| MAPI tarafı                | iRedMail backend karşılığı                         |
-| -------------------------- | -------------------------------------------------- |
-| Mailbox                    | Kullanıcı mailbox kimliği / auth user              |
-| EntryId                    | Gateway opaque id + backend object map             |
-| Folder hierarchy table     | IMAP LIST / SPECIAL-USE / config folder mapping    |
-| Folder contents table      | IMAP SEARCH / FETCH / UID / FLAGS                  |
-| Message property bag       | MIME headers, MIME body, IMAP flags, gateway map   |
-| Recipient table            | MIME To/Cc/Bcc headers                             |
-| Attachment table           | MIME parts                                         |
-| Appointment item           | SOGo CalDAV VEVENT                                 |
-| Contact item               | SOGo CardDAV VCARD                                 |
-| Rules table                | Dovecot Sieve / gateway rule map                   |
-| Address book / NSPI        | SQL / LDAP / CardDAV contacts                      |
-| Notifications              | IMAP IDLE / polling / gateway event store          |
+| MAPI tarafı            | iRedMail backend karşılığı                       |
+|------------------------|--------------------------------------------------|
+| Mailbox                | Kullanıcı mailbox kimliği / auth user            |
+| EntryId                | Gateway opaque id + backend object map           |
+| Folder hierarchy table | IMAP LIST / SPECIAL-USE / config folder mapping  |
+| Folder contents table  | IMAP SEARCH / FETCH / UID / FLAGS                |
+| Message property bag   | MIME headers, MIME body, IMAP flags, gateway map |
+| Recipient table        | MIME To/Cc/Bcc headers                           |
+| Attachment table       | MIME parts                                       |
+| Appointment item       | SOGo CalDAV VEVENT                               |
+| Contact item           | SOGo CardDAV VCARD                               |
+| Rules table            | Dovecot Sieve / gateway rule map                 |
+| Address book / NSPI    | SQL / LDAP / CardDAV contacts                    |
+| Notifications          | IMAP IDLE / polling / gateway event store        |
 
 MAPI mapping, EWS mapping’den daha geniştir. Bu yüzden MAPI tarafı doğrudan backend adapter’larına değil, internal MAPI-like Store API’ye bağlanmalıdır.
 
@@ -502,14 +502,14 @@ SPECIAL-USE
 
 Davranış kararları:
 
-| Capability    | Varsa                                               | Yoksa                                            |
-| ------------- | --------------------------------------------------- | ------------------------------------------------ |
-| MOVE          | `UID MOVE` kullanılır                               | `COPY + STORE \Deleted + EXPUNGE` fallback       |
-| UIDPLUS       | APPEND/COPY sonrası yeni UID güvenilir alınır       | Yeni UID eşlemesi header/message-id ile aranır   |
-| CONDSTORE     | MODSEQ tabanlı ChangeKey üretilebilir               | ChangeKey flags ve UID state üzerinden üretilir  |
-| QRESYNC       | Daha verimli değişiklik takibi yapılabilir          | Snapshot tabanlı sync kullanılır                 |
-| SORT          | IMAP server-side sort kullanılabilir                | Uygulama tarafında sıralama yapılır              |
-| SPECIAL-USE   | Sent/Drafts/Trash/Junk otomatik tespit edilebilir   | Config folder mapping kullanılır                 |
+| Capability  | Varsa                                             | Yoksa                                           |
+|-------------|---------------------------------------------------|-------------------------------------------------|
+| MOVE        | `UID MOVE` kullanılır                             | `COPY + STORE \Deleted + EXPUNGE` fallback      |
+| UIDPLUS     | APPEND/COPY sonrası yeni UID güvenilir alınır     | Yeni UID eşlemesi header/message-id ile aranır  |
+| CONDSTORE   | MODSEQ tabanlı ChangeKey üretilebilir             | ChangeKey flags ve UID state üzerinden üretilir |
+| QRESYNC     | Daha verimli değişiklik takibi yapılabilir        | Snapshot tabanlı sync kullanılır                |
+| SORT        | IMAP server-side sort kullanılabilir              | Uygulama tarafında sıralama yapılır             |
+| SPECIAL-USE | Sent/Drafts/Trash/Junk otomatik tespit edilebilir | Config folder mapping kullanılır                |
 
 Capability sonucu request bazlı değil, kullanıcı oturumu veya kısa süreli cache içinde tutulabilir.
 
@@ -1368,20 +1368,20 @@ Desteklenmeyen rule koşulları sessizce düşürülmemeli; response içinde des
 
 Outlook EWS calendar item’ları SOGo CalDAV item’larına map edilir.
 
-| EWS                 | CalDAV / iCalendar   |
-| ------------------- | -------------------- |
-| CalendarItem        | VEVENT               |
-| Subject             | SUMMARY              |
-| Body                | DESCRIPTION          |
-| Location            | LOCATION             |
-| Start               | DTSTART              |
-| End                 | DTEND                |
-| RequiredAttendees   | ATTENDEE             |
-| Organizer           | ORGANIZER            |
-| Recurrence          | RRULE                |
-| Reminder            | VALARM               |
-| UID                 | UID                  |
-| ChangeKey           | ETag                 |
+| EWS               | CalDAV / iCalendar |
+|-------------------|--------------------|
+| CalendarItem      | VEVENT             |
+| Subject           | SUMMARY            |
+| Body              | DESCRIPTION        |
+| Location          | LOCATION           |
+| Start             | DTSTART            |
+| End               | DTEND              |
+| RequiredAttendees | ATTENDEE           |
+| Organizer         | ORGANIZER          |
+| Recurrence        | RRULE              |
+| Reminder          | VALARM             |
+| UID               | UID                |
+| ChangeKey         | ETag               |
 
 İlk calendar scope:
 
@@ -1398,19 +1398,19 @@ SyncFolderItems calendar
 
 Outlook EWS contacts SOGo CardDAV item’larına map edilir.
 
-| EWS                 | vCard   |
-| ------------------- | ------- |
-| Contact             | VCARD   |
-| GivenName           | N       |
-| Surname             | N       |
-| DisplayName         | FN      |
-| EmailAddresses      | EMAIL   |
-| PhoneNumbers        | TEL     |
-| PhysicalAddresses   | ADR     |
-| CompanyName         | ORG     |
-| JobTitle            | TITLE   |
-| Notes               | NOTE    |
-| ChangeKey           | ETag    |
+| EWS               | vCard |
+|-------------------|-------|
+| Contact           | VCARD |
+| GivenName         | N     |
+| Surname           | N     |
+| DisplayName       | FN    |
+| EmailAddresses    | EMAIL |
+| PhoneNumbers      | TEL   |
+| PhysicalAddresses | ADR   |
+| CompanyName       | ORG   |
+| JobTitle          | TITLE |
+| Notes             | NOTE  |
+| ChangeKey         | ETag  |
 
 İlk contacts scope:
 
@@ -1537,10 +1537,10 @@ Request logger Outlook uyumluluğu için gereklidir, ancak production ortamında
 
 Log modları:
 
-| Mod          | Davranış                                                                        |
-| ------------ | ------------------------------------------------------------------------------- |
-| production   | Authorization, password, cookie, token, body ve attachment içeriği maskelenir   |
-| debug        | Body loglama açıkça etkinleştirilebilir; attachment content yine loglanmaz      |
+| Mod        | Davranış                                                                      |
+|------------|-------------------------------------------------------------------------------|
+| production | Authorization, password, cookie, token, body ve attachment içeriği maskelenir |
+| debug      | Body loglama açıkça etkinleştirilebilir; attachment content yine loglanmaz    |
 
 Ek kurallar:
 
@@ -1640,14 +1640,14 @@ Gateway, backend hatalarını EWS hata kodlarına map eder.
 
 Örnek:
 
-| Backend hatası            | EWS hatası                 |
-| ------------------------- | -------------------------- |
-| IMAP auth failed          | ErrorInvalidCredentials    |
-| IMAP folder not found     | ErrorFolderNotFound        |
-| IMAP UID not found        | ErrorItemNotFound          |
-| SMTP send failed          | ErrorInternalServerError   |
-| CalDAV 404                | ErrorItemNotFound          |
-| ManageSieve auth failed   | ErrorAccessDenied          |
+| Backend hatası          | EWS hatası               |
+|-------------------------|--------------------------|
+| IMAP auth failed        | ErrorInvalidCredentials  |
+| IMAP folder not found   | ErrorFolderNotFound      |
+| IMAP UID not found      | ErrorItemNotFound        |
+| SMTP send failed        | ErrorInternalServerError |
+| CalDAV 404              | ErrorItemNotFound        |
+| ManageSieve auth failed | ErrorAccessDenied        |
 
 ## 24. Güvenlik
 

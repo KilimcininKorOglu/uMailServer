@@ -163,19 +163,19 @@ docker-compose down -v
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SMTP_SERVER` | `localhost:25` | SMTP server address |
-| `SMTP_USER` | `test@example.com` | SMTP username |
-| `SMTP_PASS` | `test123` | SMTP password |
-| `IMAP_SERVER` | `localhost:993` | IMAP server address |
-| `IMAP_USER` | `test@example.com` | IMAP username |
-| `IMAP_PASS` | `test123` | IMAP password |
-| `API_URL` | `http://localhost:8080` | API base URL |
-| `API_USER` | `admin@example.com` | API admin user |
-| `API_PASS` | `admin123` | API admin password |
-| `WS_URL` | `ws://localhost:8080/ws` | WebSocket URL |
-| `BASE_URL` | `http://localhost:8080` | Base URL for stress tests |
+| Variable      | Default                  | Description               |
+|---------------|--------------------------|---------------------------|
+| `SMTP_SERVER` | `localhost:25`           | SMTP server address       |
+| `SMTP_USER`   | `test@example.com`       | SMTP username             |
+| `SMTP_PASS`   | `test123`                | SMTP password             |
+| `IMAP_SERVER` | `localhost:993`          | IMAP server address       |
+| `IMAP_USER`   | `test@example.com`       | IMAP username             |
+| `IMAP_PASS`   | `test123`                | IMAP password             |
+| `API_URL`     | `http://localhost:8080`  | API base URL              |
+| `API_USER`    | `admin@example.com`      | API admin user            |
+| `API_PASS`    | `admin123`               | API admin password        |
+| `WS_URL`      | `ws://localhost:8080/ws` | WebSocket URL             |
+| `BASE_URL`    | `http://localhost:8080`  | Base URL for stress tests |
 
 ## Test Results
 
