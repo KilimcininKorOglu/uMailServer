@@ -1558,6 +1558,73 @@ func TestAuthMiddlewareValidToken(t *testing.T) {
 	}
 }
 
+func TestSeparateAdminListenerHidesAdminRoutesOnMainPort(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer database.Close()
+
+	domain := &db.DomainData{
+		Name:        "split.test",
+		MaxAccounts: 10,
+		IsActive:    true,
+	}
+	if err := database.CreateDomain(domain); err != nil {
+		t.Fatalf("failed to create domain: %v", err)
+	}
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	account := &db.AccountData{
+		Email:        "admin@split.test",
+		LocalPart:    "admin",
+		Domain:       "split.test",
+		PasswordHash: string(hash),
+		IsActive:     true,
+		IsAdmin:      true,
+	}
+	if err := database.CreateAccount(account); err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+
+	server := NewServer(database, nil, Config{
+		JWTSecret:             "test-secret",
+		TokenExpiry:           time.Hour,
+		SeparateAdminListener: true,
+	})
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	adminRec := httptest.NewRecorder()
+	server.ServeHTTP(adminRec, adminReq)
+
+	if adminRec.Code != http.StatusNotFound {
+		t.Fatalf("expected /admin/ to be hidden on main port, got %d", adminRec.Code)
+	}
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"email":    "admin@split.test",
+		"password": "password123",
+	})
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
+	loginRec := httptest.NewRecorder()
+	server.ServeHTTP(loginRec, loginReq)
+
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("expected login to succeed, got %d", loginRec.Code)
+	}
+
+	accountsReq := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
+	for _, cookie := range loginRec.Result().Cookies() {
+		accountsReq.AddCookie(cookie)
+	}
+	accountsRec := httptest.NewRecorder()
+	server.ServeHTTP(accountsRec, accountsReq)
+
+	if accountsRec.Code != http.StatusNotFound {
+		t.Fatalf("expected main port admin API to be hidden, got %d", accountsRec.Code)
+	}
+}
+
 // Test updateAccount
 func TestUpdateAccount(t *testing.T) {
 	database, err := db.Open(t.TempDir() + "/test.db")

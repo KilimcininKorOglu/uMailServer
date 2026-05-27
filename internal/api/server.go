@@ -128,20 +128,21 @@ type Server struct {
 
 // Config holds API server configuration
 type Config struct {
-	Addr              string
-	PlainAddr         string
-	JWTSecret         string            // Legacy single secret (used if JWTSecretVersions not set)
-	JWTSecretVersions map[string]string // kid -> secret, for key rotation
-	DisableLegacyJWT  bool              // When true, disables fallback to legacy JWTSecret after kid rotation
-	TokenExpiry       time.Duration
-	DrainTimeout      time.Duration
-	ShutdownTimeout   time.Duration
-	CorsOrigins       []string
-	TrustedProxies    []string // IPs that are allowed to set X-Forwarded-For
-	TOTPKey           string   // Separate encryption key for TOTP secrets (falls back to JWTSecret if empty)
-	AuditLog          AuditLogConfig
-	PasswordHasher    string // "bcrypt" (default) or "argon2id"
-	DataDir           string // Path to data directory for backups
+	Addr                  string
+	PlainAddr             string
+	JWTSecret             string            // Legacy single secret (used if JWTSecretVersions not set)
+	JWTSecretVersions     map[string]string // kid -> secret, for key rotation
+	DisableLegacyJWT      bool              // When true, disables fallback to legacy JWTSecret after kid rotation
+	TokenExpiry           time.Duration
+	DrainTimeout          time.Duration
+	ShutdownTimeout       time.Duration
+	CorsOrigins           []string
+	TrustedProxies        []string // IPs that are allowed to set X-Forwarded-For
+	TOTPKey               string   // Separate encryption key for TOTP secrets (falls back to JWTSecret if empty)
+	AuditLog              AuditLogConfig
+	PasswordHasher        string // "bcrypt" (default) or "argon2id"
+	DataDir               string // Path to data directory for backups
+	SeparateAdminListener bool
 }
 
 // AuditLogConfig holds audit logging configuration
@@ -426,7 +427,13 @@ func (s *Server) initRouter() {
 	mux.HandleFunc("/webmail/", s.handleWebmail)
 
 	// Admin panel (static files) - admin interface
-	mux.HandleFunc("/admin/", s.handleAdmin)
+	if s.config.SeparateAdminListener {
+		mux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
+	} else {
+		mux.HandleFunc("/admin/", s.handleAdmin)
+	}
 
 	// Mozilla-style autoconfig
 	mux.HandleFunc("/.well-known/autoconfig/mail/config-v1.1.xml", s.handleAutoconfig)
@@ -465,32 +472,9 @@ func (s *Server) initRouter() {
 	// Refresh token (requires auth)
 	api.HandleFunc("/api/v1/auth/refresh", s.handleRefresh)
 
-	// Domains (admin only)
-	api.HandleFunc("/api/v1/domains", s.adminMiddleware(http.HandlerFunc(s.handleDomains)).ServeHTTP)
-	api.HandleFunc("/api/v1/domains/", s.adminMiddleware(http.HandlerFunc(s.handleDomainDetail)).ServeHTTP)
-
-	// Accounts (admin only)
-	api.HandleFunc("/api/v1/accounts", s.adminMiddleware(http.HandlerFunc(s.handleAccounts)).ServeHTTP)
-	api.HandleFunc("/api/v1/accounts/", s.adminMiddleware(http.HandlerFunc(s.handleAccountDetail)).ServeHTTP)
-
-	// Aliases (admin only)
-	api.HandleFunc("/api/v1/aliases", s.adminMiddleware(http.HandlerFunc(s.handleAliases)).ServeHTTP)
-	api.HandleFunc("/api/v1/aliases/", s.adminMiddleware(http.HandlerFunc(s.handleAliasDetail)).ServeHTTP)
-
-	// Queue (admin only)
-	api.HandleFunc("/api/v1/queue", s.adminMiddleware(http.HandlerFunc(s.handleQueue)).ServeHTTP)
-	api.HandleFunc("/api/v1/queue/", s.adminMiddleware(http.HandlerFunc(s.handleQueueDetail)).ServeHTTP)
-
-	// Metrics (admin only)
-	api.HandleFunc("/api/v1/metrics", s.adminMiddleware(http.HandlerFunc(s.handleMetrics)).ServeHTTP)
-
-	// Stats (admin only)
-	api.HandleFunc("/api/v1/stats", s.adminMiddleware(http.HandlerFunc(s.handleStats)).ServeHTTP)
-
-	// Rate limits (admin only)
-	api.HandleFunc("/api/v1/admin/ratelimits/config", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitConfig)).ServeHTTP)
-	api.HandleFunc("/api/v1/admin/ratelimits/ip/", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitIPStats)).ServeHTTP)
-	api.HandleFunc("/api/v1/admin/ratelimits/user/", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitUserStats)).ServeHTTP)
+	if !s.config.SeparateAdminListener {
+		s.registerAdminAPIRoutes(api)
+	}
 
 	// Search
 	api.HandleFunc("/api/v1/search", s.handleSearch)
@@ -503,29 +487,17 @@ func (s *Server) initRouter() {
 	// Vacation auto-reply
 	api.HandleFunc("/api/v1/vacation", s.handleVacation)
 
-	// Admin routes
-	api.HandleFunc("/api/v1/admin/vacations", s.adminMiddleware(http.HandlerFunc(s.handleAdminVacations)).ServeHTTP)
-
 	// Push notifications
 	api.HandleFunc("/api/v1/push/vapid-public-key", s.handlePushVAPID)
 	api.HandleFunc("/api/v1/push/subscribe", s.handlePushSubscribe)
 	api.HandleFunc("/api/v1/push/unsubscribe", s.handlePushUnsubscribe)
 	api.HandleFunc("/api/v1/push/subscriptions", s.handlePushSubscriptions)
 	api.HandleFunc("/api/v1/push/test", s.handlePushTest)
-	api.HandleFunc("/api/v1/admin/push/stats", s.adminMiddleware(http.HandlerFunc(s.handleAdminPushStats)).ServeHTTP)
-
-	// JWT secret rotation
-	api.HandleFunc("/api/v1/admin/jwt/rotate", s.adminMiddleware(http.HandlerFunc(s.handleJWTRotate)).ServeHTTP)
-	api.HandleFunc("/api/v1/admin/jwt/status", s.adminMiddleware(http.HandlerFunc(s.handleJWTStatus)).ServeHTTP)
 
 	// Email filters
 	api.HandleFunc("/api/v1/filters", s.handleFilters)
 	api.HandleFunc("/api/v1/filters/reorder", s.handleFilterReorder)
 	api.HandleFunc("/api/v1/filters/", s.handleFilterPath)
-
-	// Queue admin routes
-	api.HandleFunc("/api/v1/admin/queue", s.adminMiddleware(http.HandlerFunc(s.handleQueue)).ServeHTTP)
-	api.HandleFunc("/api/v1/admin/queue/", s.adminMiddleware(http.HandlerFunc(s.handleQueueDetail)).ServeHTTP)
 
 	// Mail (user-facing, uses same auth as API)
 	// Ensure mailHandler is initialized
@@ -561,6 +533,28 @@ func (s *Server) initRouter() {
 	mux.Handle("/api/v1/", apiHandler)
 
 	s.router = mux
+}
+
+func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
+	api.HandleFunc("/api/v1/domains", s.adminMiddleware(http.HandlerFunc(s.handleDomains)).ServeHTTP)
+	api.HandleFunc("/api/v1/domains/", s.adminMiddleware(http.HandlerFunc(s.handleDomainDetail)).ServeHTTP)
+	api.HandleFunc("/api/v1/accounts", s.adminMiddleware(http.HandlerFunc(s.handleAccounts)).ServeHTTP)
+	api.HandleFunc("/api/v1/accounts/", s.adminMiddleware(http.HandlerFunc(s.handleAccountDetail)).ServeHTTP)
+	api.HandleFunc("/api/v1/aliases", s.adminMiddleware(http.HandlerFunc(s.handleAliases)).ServeHTTP)
+	api.HandleFunc("/api/v1/aliases/", s.adminMiddleware(http.HandlerFunc(s.handleAliasDetail)).ServeHTTP)
+	api.HandleFunc("/api/v1/queue", s.adminMiddleware(http.HandlerFunc(s.handleQueue)).ServeHTTP)
+	api.HandleFunc("/api/v1/queue/", s.adminMiddleware(http.HandlerFunc(s.handleQueueDetail)).ServeHTTP)
+	api.HandleFunc("/api/v1/metrics", s.adminMiddleware(http.HandlerFunc(s.handleMetrics)).ServeHTTP)
+	api.HandleFunc("/api/v1/stats", s.adminMiddleware(http.HandlerFunc(s.handleStats)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/ratelimits/config", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitConfig)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/ratelimits/ip/", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitIPStats)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/ratelimits/user/", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitUserStats)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/vacations", s.adminMiddleware(http.HandlerFunc(s.handleAdminVacations)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/push/stats", s.adminMiddleware(http.HandlerFunc(s.handleAdminPushStats)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/jwt/rotate", s.adminMiddleware(http.HandlerFunc(s.handleJWTRotate)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/jwt/status", s.adminMiddleware(http.HandlerFunc(s.handleJWTStatus)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/queue", s.adminMiddleware(http.HandlerFunc(s.handleQueue)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/queue/", s.adminMiddleware(http.HandlerFunc(s.handleQueueDetail)).ServeHTTP)
 }
 
 // limitBodyMiddleware restricts request body size to prevent DoS.

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/umailserver/umailserver/internal/db"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // setupAdminTestServer creates a test server with database for admin tests
@@ -196,6 +198,48 @@ func TestAdminServer_withAuth_ValidTokenWithKID(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status %d, got %d", http.StatusOK, w.Code)
+	}
+}
+
+func TestAdminServer_RouterSupportsCookieAuthFlow(t *testing.T) {
+	adminServer, database, cleanup := setupAdminTestServer(t)
+	defer cleanup()
+
+	account, err := database.GetAccount("example.com", "admin")
+	if err != nil {
+		t.Fatalf("failed to load admin account: %v", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+	account.PasswordHash = string(hash)
+	if err := database.UpdateAccount(account); err != nil {
+		t.Fatalf("failed to update admin password hash: %v", err)
+	}
+
+	router := adminServer.router()
+	loginBody := bytes.NewReader([]byte(`{"email":"admin@example.com","password":"password123"}`))
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRec := httptest.NewRecorder()
+
+	router.ServeHTTP(loginRec, loginReq)
+
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("expected login to succeed, got %d", loginRec.Code)
+	}
+
+	accountsReq := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
+	for _, cookie := range loginRec.Result().Cookies() {
+		accountsReq.AddCookie(cookie)
+	}
+	accountsRec := httptest.NewRecorder()
+
+	router.ServeHTTP(accountsRec, accountsReq)
+
+	if accountsRec.Code != http.StatusOK {
+		t.Fatalf("expected cookie-authenticated admin request to succeed, got %d", accountsRec.Code)
 	}
 }
 

@@ -68,6 +68,14 @@ func (s *AdminServer) Stop() error {
 func (s *AdminServer) router() http.Handler {
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/admin/", http.StatusTemporaryRedirect)
+	})
+
 	// Admin panel static files
 	mux.HandleFunc("/admin/", s.handleAdmin)
 
@@ -75,44 +83,19 @@ func (s *AdminServer) router() http.Handler {
 	mux.HandleFunc("/health", s.Server.handleHealth)
 
 	// Metrics - delegate to embedded server's handler
-	mux.HandleFunc("/metrics", s.Server.handleMetrics)
+	mux.Handle("/metrics", s.Server.authMiddleware(s.Server.adminMiddleware(http.HandlerFunc(s.Server.handleMetrics))))
+
+	// Admin auth/session routes for the SPA
+	mux.Handle("/api/v1/auth/login", s.Server.limitBodyMiddleware(http.HandlerFunc(s.Server.handleLogin)))
+	mux.Handle("/api/v1/auth/logout", s.Server.rateLimitMiddleware(s.Server.authMiddleware(http.HandlerFunc(s.Server.handleLogout))))
+	mux.Handle("/api/v1/auth/refresh", s.Server.rateLimitMiddleware(s.Server.authMiddleware(http.HandlerFunc(s.Server.handleRefresh))))
+	mux.Handle("/api/v1/events", s.Server.authMiddleware(s.Server.sseServer.Handler()))
 
 	// Admin API routes (all require admin auth)
 	api := http.NewServeMux()
-
-	// Domains (admin only)
-	api.HandleFunc("/api/v1/domains", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleDomains))))
-	api.HandleFunc("/api/v1/domains/", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleDomainDetail))))
-
-	// Accounts (admin only)
-	api.HandleFunc("/api/v1/accounts", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleAccounts))))
-	api.HandleFunc("/api/v1/accounts/", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleAccountDetail))))
-
-	// Queue (admin only)
-	api.HandleFunc("/api/v1/admin/queue", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleQueue))))
-	api.HandleFunc("/api/v1/admin/queue/", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleQueueDetail))))
-
-	// Queue alias (no /admin prefix)
-	api.HandleFunc("/api/v1/queue", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleQueue))))
-	api.HandleFunc("/api/v1/queue/", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleQueueDetail))))
-
-	// Rate limits (admin only)
-	api.HandleFunc("/api/v1/admin/ratelimits/config", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleRateLimitConfig))))
-	api.HandleFunc("/api/v1/admin/ratelimits/ip/", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleRateLimitIPStats))))
-	api.HandleFunc("/api/v1/admin/ratelimits/user/", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleRateLimitUserStats))))
-
-	// Metrics (admin only)
-	api.HandleFunc("/api/v1/metrics", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleMetrics))))
-	api.HandleFunc("/api/v1/stats", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleStats))))
-
-	// Vacation (admin only)
-	api.HandleFunc("/api/v1/admin/vacations", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleAdminVacations))))
-
-	// Push stats (admin only)
-	api.HandleFunc("/api/v1/admin/push/stats", s.withAuth(s.adminMiddleware(http.HandlerFunc(s.handleAdminPushStats))))
-
-	// All API routes
-	mux.Handle("/api/v1/", api)
+	s.Server.registerAdminAPIRoutes(api)
+	apiHandler := s.Server.rateLimitMiddleware(s.Server.limitBodyMiddleware(s.Server.securityHeadersMiddleware(s.Server.csrfMiddleware(s.Server.corsMiddleware(s.Server.authMiddleware(api))))))
+	mux.Handle("/api/v1/", apiHandler)
 
 	return mux
 }

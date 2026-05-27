@@ -38,7 +38,8 @@ func (s *Server) startAPI() {
 			MaxBackups: s.config.Security.AuditLog.MaxBackups,
 			MaxAgeDays: s.config.Security.AuditLog.MaxAgeDays,
 		},
-		DataDir: s.config.Server.DataDir,
+		DataDir:               s.config.Server.DataDir,
+		SeparateAdminListener: s.config.Admin.Enabled,
 	}
 	s.apiServer = api.NewServer(s.database, s.logger, apiCfg)
 	if s.tlsManager != nil {
