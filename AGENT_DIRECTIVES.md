@@ -2,6 +2,7 @@
 
 > Hard rules that override default LLM coding behaviors.
 > Drop this file into any project root. Reference it from CLAUDE.md or CLAUDE_MODIFY.md.
+> Project-local guidance may strengthen these rules, but it must not weaken verification, edit safety, or commit discipline.
 > Violation of any rule is a blocking issue — do not proceed until resolved.
 
 ---
@@ -10,15 +11,15 @@
 
 ### 1.1 STEP 0 — CLEAN BEFORE YOU BUILD
 Before ANY structural refactor on a file >300 LOC:
-1. Remove all dead props, unused exports, unused imports, and debug logs
-2. Commit this cleanup separately before starting the real work
-3. This prevents context pollution and makes diffs reviewable
+1. Remove dead props, unused exports, unused imports, and debug logs that would otherwise obscure the upcoming change
+2. Keep that cleanup as a separate logical change; if commits are being created in the current task, make it a separate commit
+3. This prevents context pollution and keeps diffs reviewable
 
 ### 1.2 PHASED EXECUTION
-Never attempt multi-file refactors in a single response.
+Never attempt large multi-file refactors as one opaque step.
 - Break work into explicit phases and state the plan BEFORE starting
-- Complete Phase 1 → run verification → wait for explicit approval → Phase 2
-- Each phase touches **no more than 5 files**
+- Complete Phase 1 → run verification → continue unless a blocker, risky action, or unresolved user decision requires input
+- Each phase should touch **no more than 5 files** when practical
 
 ### 1.3 UNDERSTAND BEFORE YOU TOUCH
 Before writing any code:
@@ -50,19 +51,25 @@ Your internal tools mark file writes as successful even if the code does not com
 
 **Auto-detect and run the appropriate checks:**
 
-| Signal                               | Verification Commands                                               |
-|--------------------------------------|---------------------------------------------------------------------|
-| `go.mod` exists                      | `go build ./...` → `go vet ./...` → `go test ./... -count=1 -short` |
-| `tsconfig.json` exists               | `npx tsc --noEmit`                                                  |
-| `package.json` has `lint` script     | `npm run lint` or `yarn lint`                                       |
-| `package.json` has `test` script     | `npm test` or `yarn test`                                           |
-| `.php` files                         | `php -l <changed files>`                                            |
-| `Cargo.toml` exists                  | `cargo build` → `cargo clippy` → `cargo test`                       |
-| `pyproject.toml` or `setup.py`       | `python -m py_compile <file>` → `mypy <file>` (if configured)       |
-| `Makefile` has `check`/`lint`/`test` | Run those targets                                                   |
+| Signal                                         | Verification Commands                                               |
+|------------------------------------------------|---------------------------------------------------------------------|
+| `Makefile` has `fmt`/`lint`/`test`/`build`     | Run those targets first                                             |
+| `go.mod` exists and no stronger task runner applies | `go build ./...` → `go vet ./...` → `go test ./... -count=1 -short` |
+| `tsconfig.json` exists                         | `npx tsc --noEmit`                                                  |
+| `package.json` has `lint` script               | `npm run lint` or `yarn lint`                                       |
+| `package.json` has `test` script               | `npm test` or `yarn test`                                           |
+| `.php` files                                   | `php -l <changed files>`                                            |
+| `Cargo.toml` exists                            | `cargo build` → `cargo clippy` → `cargo test`                       |
+| `pyproject.toml` or `setup.py`                 | `python -m py_compile <file>` → `mypy <file>` (if configured)       |
 
 If no build/lint tool is detected, **state that explicitly** instead of claiming success.
 Fix ALL resulting errors before reporting completion.
+
+Additional rules:
+- When both repo-level task runners and raw language tools exist, the repo-level commands win.
+- In this repository, prefer documented `make` targets over raw `go` commands for local build, lint, vet, test, and release workflows.
+- If the repo provides a documented fallback path, use that fallback instead of skipping validation.
+- For runnable changes in this repository, Docker rebuild and smoke validation are part of completion and commit readiness.
 
 ### 2.3 TYPE SAFETY
 - Never use `any` in TypeScript — use `unknown` + type guards, generics, or discriminated unions
@@ -112,6 +119,7 @@ Before EVERY file edit:
 3. Read the file again to confirm the change applied correctly
 
 The Edit tool fails silently when `old_string` doesn't match due to stale context. Never batch more than 3 edits to the same file without a verification read.
+If an IDE, another tool, or another agent may have touched the file, re-read it immediately before editing even if you read it moments ago.
 
 ### 4.2 NO SEMANTIC SEARCH ASSUMPTION
 You have `grep`, not an AST. When renaming or changing any function/type/variable, search separately for:
@@ -131,6 +139,12 @@ After every edit session:
 - Remove unused imports
 - Verify no circular dependencies were introduced
 - Sort imports according to the project's convention
+
+### 4.4 CONFIG COMMENT PRESERVATION
+When editing YAML files or configuration examples:
+- Preserve useful explanatory comments unless the underlying behavior was intentionally removed
+- Update stale comments in the same change instead of leaving contradictory guidance
+- Avoid formatting churn that rewrites otherwise-correct config examples for no functional reason
 
 ---
 
@@ -152,6 +166,7 @@ Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`, `build`, `ci`
 
 ### 5.3 NO BROKEN COMMITS
 Never commit code that doesn't pass verification (§2.2). Every commit must compile and pass tests.
+For runnable changes in this repository, a commit is not ready until Docker rebuild and smoke validation also pass.
 
 ---
 
