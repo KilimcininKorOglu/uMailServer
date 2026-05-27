@@ -815,6 +815,126 @@ func TestHandleLoginUserNotFound(t *testing.T) {
 	}
 }
 
+func TestBootstrapAdminLoginRequiresPasswordChange(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer database.Close()
+
+	domain := &db.DomainData{
+		Name:        "boot.com",
+		MaxAccounts: 10,
+		IsActive:    true,
+	}
+	if err := database.CreateDomain(domain); err != nil {
+		t.Fatalf("failed to create domain: %v", err)
+	}
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(bootstrapAdminDefaultPassword), bcrypt.DefaultCost)
+	now := time.Now()
+	account := &db.AccountData{
+		Email:        "admin@boot.com",
+		LocalPart:    bootstrapAdminLocalPart,
+		Domain:       "boot.com",
+		PasswordHash: string(hash),
+		IsAdmin:      true,
+		IsActive:     true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := database.CreateAccount(account); err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+
+	server := NewServer(database, nil, Config{
+		JWTSecret:   "test-secret",
+		TokenExpiry: time.Hour,
+	})
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"email":    "admin@boot.com",
+		"password": bootstrapAdminDefaultPassword,
+	})
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
+	loginRec := httptest.NewRecorder()
+
+	server.handleLogin(loginRec, loginReq)
+
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("expected login to succeed, got %d", loginRec.Code)
+	}
+
+	var loginResult map[string]interface{}
+	if err := json.NewDecoder(loginRec.Body).Decode(&loginResult); err != nil {
+		t.Fatalf("failed to decode login response: %v", err)
+	}
+	if v, ok := loginResult["must_change_password"].(bool); !ok || !v {
+		t.Fatalf("expected must_change_password=true, got %v", loginResult["must_change_password"])
+	}
+	token, _ := loginResult["token"].(string)
+	if token == "" {
+		t.Fatal("expected login response to include token")
+	}
+
+	protected := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	blockedReq := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
+	blockedReq.Header.Set("Authorization", "Bearer "+token)
+	blockedRec := httptest.NewRecorder()
+	protected.ServeHTTP(blockedRec, blockedReq)
+
+	if blockedRec.Code != http.StatusForbidden {
+		t.Fatalf("expected protected route to be blocked, got %d", blockedRec.Code)
+	}
+
+	disallowedUpdateBody, _ := json.Marshal(map[string]interface{}{
+		"password":  "ChangedPass1!",
+		"is_active": false,
+	})
+	disallowedUpdateReq := httptest.NewRequest(http.MethodPut, "/api/v1/accounts/admin@boot.com", bytes.NewReader(disallowedUpdateBody))
+	disallowedUpdateReq.Header.Set("Authorization", "Bearer "+token)
+	disallowedUpdateRec := httptest.NewRecorder()
+	server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server.handleAccountDetail(w, r)
+	})).ServeHTTP(disallowedUpdateRec, disallowedUpdateReq)
+
+	if disallowedUpdateRec.Code != http.StatusForbidden {
+		t.Fatalf("expected non-password bootstrap update to be rejected, got %d", disallowedUpdateRec.Code)
+	}
+
+	allowedUpdateBody, _ := json.Marshal(map[string]interface{}{
+		"password": "ChangedPass1!",
+	})
+	allowedUpdateReq := httptest.NewRequest(http.MethodPut, "/api/v1/accounts/admin@boot.com", bytes.NewReader(allowedUpdateBody))
+	allowedUpdateReq.Header.Set("Authorization", "Bearer "+token)
+	allowedUpdateRec := httptest.NewRecorder()
+	server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server.handleAccountDetail(w, r)
+	})).ServeHTTP(allowedUpdateRec, allowedUpdateReq)
+
+	if allowedUpdateRec.Code != http.StatusOK {
+		t.Fatalf("expected password change to succeed, got %d", allowedUpdateRec.Code)
+	}
+
+	updated, err := database.GetAccount("boot.com", "admin")
+	if err != nil {
+		t.Fatalf("failed to reload updated bootstrap admin: %v", err)
+	}
+	if !updated.IsAdmin {
+		t.Fatal("expected bootstrap admin privileges to be preserved")
+	}
+	if !updated.IsActive {
+		t.Fatal("expected bootstrap admin to remain active")
+	}
+	matches, _ := server.verifyPassword("ChangedPass1!", updated.PasswordHash)
+	if !matches {
+		t.Fatal("expected bootstrap admin password hash to be updated")
+	}
+}
+
 func TestHandleRefreshMethodNotAllowed(t *testing.T) {
 	server := NewServer(nil, nil, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/refresh", nil)

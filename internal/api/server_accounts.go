@@ -247,14 +247,14 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 
 	// Parse request body first to check IsAdmin modification
 	var req struct {
-		Password             string `json:"password"`
-		IsAdmin              bool   `json:"is_admin"`
-		IsActive             bool   `json:"is_active"`
-		ForwardTo            string `json:"forward_to"`
-		ForwardKeepCopy      bool   `json:"forward_keep_copy"`
-		QuotaLimit           int64  `json:"quota_limit"`
-		VacationSettings     string `json:"vacation_settings"`
-		CurrentAdminPassword string `json:"current_admin_password"`
+		Password             *string `json:"password"`
+		IsAdmin              *bool   `json:"is_admin"`
+		IsActive             *bool   `json:"is_active"`
+		ForwardTo            *string `json:"forward_to"`
+		ForwardKeepCopy      *bool   `json:"forward_keep_copy"`
+		QuotaLimit           *int64  `json:"quota_limit"`
+		VacationSettings     *string `json:"vacation_settings"`
+		CurrentAdminPassword string  `json:"current_admin_password"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -262,25 +262,56 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		return
 	}
 
-	if req.QuotaLimit < 0 {
+	mustChangePassword, _ := r.Context().Value("mustChangePassword").(bool)
+	if mustChangePassword {
+		if authUser != email {
+			s.sendError(w, http.StatusForbidden, "password change required")
+			return
+		}
+		if req.Password == nil || *req.Password == "" {
+			s.sendError(w, http.StatusForbidden, "password change required")
+			return
+		}
+		if req.IsAdmin != nil || req.IsActive != nil || req.ForwardTo != nil ||
+			req.ForwardKeepCopy != nil || req.QuotaLimit != nil || req.VacationSettings != nil ||
+			req.CurrentAdminPassword != "" {
+			s.sendError(w, http.StatusForbidden, "only password updates are allowed until the bootstrap password is changed")
+			return
+		}
+		if err := validatePassword(*req.Password); err != nil {
+			s.sendError(w, http.StatusBadRequest, "password does not meet complexity requirements")
+			return
+		}
+		if *req.Password == bootstrapAdminDefaultPassword {
+			s.sendError(w, http.StatusBadRequest, "new password must differ from the bootstrap password")
+			return
+		}
+	}
+
+	if req.QuotaLimit != nil && *req.QuotaLimit < 0 {
 		s.sendError(w, http.StatusBadRequest, "quota_limit must be non-negative")
 		return
 	}
 
+	requestedIsAdmin := account.IsAdmin
+	if req.IsAdmin != nil {
+		requestedIsAdmin = *req.IsAdmin
+	}
+
 	// Non-admin cannot grant admin privileges
-	if !isAdmin && req.IsAdmin {
+	if !isAdmin && req.IsAdmin != nil && *req.IsAdmin {
 		s.sendError(w, http.StatusForbidden, "only admins can grant admin privileges")
 		return
 	}
 
 	// Admins can only promote other users (not themselves) to admin
-	if isAdmin && req.IsAdmin && authUser == email && account.IsAdmin != req.IsAdmin {
+	if isAdmin && req.IsAdmin != nil && authUser == email && account.IsAdmin != requestedIsAdmin {
 		s.sendError(w, http.StatusForbidden, "cannot modify your own admin status")
 		return
 	}
 
 	// Admin status changes require re-authentication (current admin password)
-	if isAdmin && account.IsAdmin != req.IsAdmin {
+	if isAdmin && req.IsAdmin != nil && account.IsAdmin != requestedIsAdmin {
 		if req.CurrentAdminPassword == "" {
 			s.sendError(w, http.StatusForbidden, "current_admin_password required for admin privilege changes")
 			return
@@ -300,28 +331,40 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		// Audit log the privilege change
 		ip := audit.ExtractIP(r)
 		action := "demoted"
-		if req.IsAdmin {
+		if requestedIsAdmin {
 			action = "promoted"
 		}
 		s.auditLogger.LogAccountUpdate(authUser, email, ip, []string{"admin_status_" + action})
 	}
 
-	if req.Password != "" {
+	if req.Password != nil && *req.Password != "" {
 		// Hash new password with configured hasher
-		hashedPassword, err := s.hashPassword(req.Password)
+		hashedPassword, err := s.hashPassword(*req.Password)
 		if err != nil {
 			s.sendError(w, http.StatusInternalServerError, "failed to hash password")
 			return
 		}
 		account.PasswordHash = hashedPassword
-		account.APOPHash = fmt.Sprintf("%x", sha256.Sum256([]byte(req.Password)))
+		account.APOPHash = fmt.Sprintf("%x", sha256.Sum256([]byte(*req.Password)))
 	}
-	account.IsAdmin = req.IsAdmin
-	account.IsActive = req.IsActive
-	account.ForwardTo = req.ForwardTo
-	account.ForwardKeepCopy = req.ForwardKeepCopy
-	account.QuotaLimit = req.QuotaLimit
-	account.VacationSettings = req.VacationSettings
+	if req.IsAdmin != nil {
+		account.IsAdmin = *req.IsAdmin
+	}
+	if req.IsActive != nil {
+		account.IsActive = *req.IsActive
+	}
+	if req.ForwardTo != nil {
+		account.ForwardTo = *req.ForwardTo
+	}
+	if req.ForwardKeepCopy != nil {
+		account.ForwardKeepCopy = *req.ForwardKeepCopy
+	}
+	if req.QuotaLimit != nil {
+		account.QuotaLimit = *req.QuotaLimit
+	}
+	if req.VacationSettings != nil {
+		account.VacationSettings = *req.VacationSettings
+	}
 	account.UpdatedAt = time.Now()
 
 	if err := s.db.UpdateAccount(account); err != nil {

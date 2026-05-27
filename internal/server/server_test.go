@@ -226,6 +226,23 @@ func TestNewSyncsConfiguredDomains(t *testing.T) {
 	if domain.DKIMSelector != "default" {
 		t.Fatalf("expected DKIM selector default, got %q", domain.DKIMSelector)
 	}
+
+	adminAccount, err := server.database.GetAccount("example.com", "admin")
+	if err != nil {
+		t.Fatalf("expected bootstrap admin account to be seeded, got error: %v", err)
+	}
+	if adminAccount.Email != "admin@example.com" {
+		t.Fatalf("expected bootstrap admin email admin@example.com, got %q", adminAccount.Email)
+	}
+	if !adminAccount.IsAdmin {
+		t.Fatal("expected bootstrap account to be admin")
+	}
+	if !adminAccount.IsActive {
+		t.Fatal("expected bootstrap account to be active")
+	}
+	if adminAccount.PasswordHash == "" || adminAccount.APOPHash == "" {
+		t.Fatal("expected bootstrap account to include password and APOP hashes")
+	}
 }
 
 func TestNewInvalidDatabasePath(t *testing.T) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import {
   Settings,
   Shield,
@@ -18,14 +18,137 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export function SettingsPage() {
+interface SettingsPageProps {
+  userEmail?: string;
+  requirePasswordChange?: boolean;
+  onPasswordChanged?: () => void;
+}
+
+export function SettingsPage({
+  userEmail = "",
+  requirePasswordChange = false,
+  onPasswordChanged,
+}: SettingsPageProps) {
   const [saved, setSaved] = useState(false);
-  const [error] = useState("");
+  const [error, setError] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   const handleSave = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
+
+  const handleRequiredPasswordChange = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+
+    if (!userEmail) {
+      setError("Unable to determine the current admin account");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New passwords do not match");
+      return;
+    }
+
+    setPasswordSaving(true);
+
+    try {
+      const response = await fetch(`/api/v1/accounts/${userEmail}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ password: newPassword }),
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to change password");
+      }
+
+      await fetch("/api/v1/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => undefined);
+
+      onPasswordChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to change password");
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
+  if (requirePasswordChange) {
+    return (
+      <div className="space-y-6 max-w-2xl">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Change Admin Password</h1>
+          <p className="text-muted-foreground mt-1">
+            The bootstrap admin account must set a new password before you can use the admin UI.
+          </p>
+        </div>
+
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Sign in with the temporary bootstrap password only once, then replace it with a strong password to continue.
+          </AlertDescription>
+        </Alert>
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Set a new password for {userEmail}</CardTitle>
+            <CardDescription>
+              Your new password must include uppercase, lowercase, number, and special characters.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleRequiredPasswordChange} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-password">New Password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  autoComplete="new-password"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password">Confirm New Password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  autoComplete="new-password"
+                  required
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit" disabled={passwordSaving}>
+                  {passwordSaving ? "Updating..." : "Update Password"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -13,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/umailserver/umailserver/internal/audit"
 	"github.com/umailserver/umailserver/internal/auth"
+	"github.com/umailserver/umailserver/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -59,6 +60,27 @@ type totpAttempt struct {
 
 const maxTOTPFailures = 5
 const totpLockoutDuration = 5 * time.Minute
+
+const bootstrapAdminLocalPart = "admin"
+const bootstrapAdminDefaultPassword = "password"
+const passwordChangeRequiredClaim = "must_change_password"
+
+func requiresBootstrapPasswordChange(account *db.AccountData, password string) bool {
+	if account == nil || !account.IsAdmin {
+		return false
+	}
+	if account.LocalPart != bootstrapAdminLocalPart || password != bootstrapAdminDefaultPassword {
+		return false
+	}
+	return account.CreatedAt.Equal(account.UpdatedAt)
+}
+
+func isPasswordChangeOnlyRoute(r *http.Request, user string) bool {
+	if r.URL.Path == "/api/v1/auth/logout" {
+		return true
+	}
+	return r.Method == http.MethodPut && r.URL.Path == "/api/v1/accounts/"+user
+}
 
 // isTOTPLockedOut returns true if the account has exceeded TOTP failure limits.
 func (s *Server) isTOTPLockedOut(email string) bool {
@@ -454,12 +476,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.clearTOTPFailures(req.Email)
 	}
 
+	mustChangePassword := requiresBootstrapPasswordChange(account, req.Password)
+
 	// Generate JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":   account.Email,
-		"admin": account.IsAdmin,
-		"exp":   time.Now().Add(s.config.TokenExpiry).Unix(),
-		"iat":   time.Now().Unix(),
+		"sub":                    account.Email,
+		"admin":                  account.IsAdmin,
+		passwordChangeRequiredClaim: mustChangePassword,
+		"exp":                    time.Now().Add(s.config.TokenExpiry).Unix(),
+		"iat":                    time.Now().Unix(),
 	})
 	// Set key ID header for secret rotation support
 	token.Header["kid"] = s.currentKid
@@ -490,18 +515,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		strings.Contains(userAgent, "Firefox/") || strings.Contains(userAgent, "Safari/") ||
 		strings.Contains(userAgent, "Edge/")
 
+	response := map[string]interface{}{
+		"expiresIn":            int(s.config.TokenExpiry.Seconds()),
+		"must_change_password": mustChangePassword,
+	}
 	if !isWebBrowser {
 		// Return token in JSON only for non-browser API clients
-		s.sendJSON(w, http.StatusOK, map[string]interface{}{
-			"token":     tokenString,
-			"expiresIn": int(s.config.TokenExpiry.Seconds()),
-		})
-	} else {
-		// For web browsers, don't expose token in JSON - rely on HttpOnly cookie
-		s.sendJSON(w, http.StatusOK, map[string]interface{}{
-			"expiresIn": int(s.config.TokenExpiry.Seconds()),
-		})
+		response["token"] = tokenString
 	}
+	s.sendJSON(w, http.StatusOK, response)
 
 	// Clear login failures on successful login
 	s.clearAccountLoginFailures(emailKey)

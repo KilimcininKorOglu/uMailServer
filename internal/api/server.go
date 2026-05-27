@@ -857,9 +857,22 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		user, _ := claims["sub"].(string)
+		isAdmin, _ := claims["admin"].(bool)
+		mustChangePassword, _ := claims[passwordChangeRequiredClaim].(bool)
+
 		// Add claims to context
-		ctx := context.WithValue(r.Context(), "user", claims["sub"])
-		ctx = context.WithValue(ctx, "isAdmin", claims["admin"])
+		ctx := context.WithValue(r.Context(), "user", user)
+		ctx = context.WithValue(ctx, "isAdmin", isAdmin)
+		ctx = context.WithValue(ctx, "mustChangePassword", mustChangePassword)
+
+		if mustChangePassword && !isPasswordChangeOnlyRoute(r, user) {
+			s.sendJSON(w, http.StatusForbidden, map[string]interface{}{
+				"error":                "password_change_required",
+				"must_change_password": true,
+			})
+			return
+		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

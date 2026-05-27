@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ import (
 	umailTLS "github.com/umailserver/umailserver/internal/tls"
 	"github.com/umailserver/umailserver/internal/tracing"
 	"github.com/umailserver/umailserver/internal/webhook"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Server is the main uMailServer instance
@@ -163,6 +165,10 @@ func New(cfg *config.Config) (*Server, error) {
 	if err := syncConfiguredDomains(database, cfg.Domains); err != nil {
 		_ = database.Close()
 		return nil, fmt.Errorf("failed to sync configured domains: %w", err)
+	}
+	if err := ensureBootstrapAdminAccounts(database, cfg.Domains, logger); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("failed to bootstrap admin accounts: %w", err)
 	}
 
 	// Initialize message store (use same path as IMAP mailstore)
@@ -374,6 +380,62 @@ func syncConfiguredDomains(database *db.DB, configuredDomains []config.DomainCon
 			return err
 		}
 	}
+	return nil
+}
+
+func ensureBootstrapAdminAccounts(database *db.DB, configuredDomains []config.DomainConfig, logger *slog.Logger) error {
+	for _, domain := range configuredDomains {
+		accounts, err := database.ListAccountsByDomain(domain.Name)
+		if err != nil {
+			return err
+		}
+
+		hasAdmin := false
+		hasBootstrapAddress := false
+		for _, account := range accounts {
+			if account.IsAdmin {
+				hasAdmin = true
+				break
+			}
+			if strings.EqualFold(account.LocalPart, "admin") {
+				hasBootstrapAddress = true
+			}
+		}
+		if hasAdmin {
+			continue
+		}
+		if hasBootstrapAddress {
+			logger.Warn("Skipping bootstrap admin creation because admin address already exists without admin privileges",
+				"domain", domain.Name,
+				"email", "admin@"+domain.Name,
+			)
+			continue
+		}
+
+		passwordHash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("failed to hash bootstrap admin password: %w", err)
+		}
+
+		now := time.Now()
+		email := "admin@" + domain.Name
+		if err := database.CreateAccount(&db.AccountData{
+			Email:        email,
+			LocalPart:    "admin",
+			Domain:       domain.Name,
+			PasswordHash: string(passwordHash),
+			APOPHash:     fmt.Sprintf("%x", sha256.Sum256([]byte("password"))),
+			IsAdmin:      true,
+			IsActive:     true,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}); err != nil {
+			return err
+		}
+
+		logger.Info("Created bootstrap admin account for configured domain", "email", email)
+	}
+
 	return nil
 }
 

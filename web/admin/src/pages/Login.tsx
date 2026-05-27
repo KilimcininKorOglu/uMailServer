@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface LoginProps {
-  onLogin: (user: { email: string }) => void;
+  onLogin: (user: { email: string; mustChangePassword: boolean }) => void;
 }
 
 export function Login({ onLogin }: LoginProps) {
@@ -38,7 +38,7 @@ export function Login({ onLogin }: LoginProps) {
         throw new Error(data.error || "Login failed");
       }
 
-      onLogin({ email });
+      onLogin({ email, mustChangePassword: Boolean(data.must_change_password) });
       navigate("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
