@@ -1,4 +1,34 @@
-# Build stage
+# Build webmail
+FROM node:20-alpine AS webmail-builder
+
+WORKDIR /app/webmail
+
+COPY webmail/package.json webmail/package-lock.json ./
+RUN npm ci --legacy-peer-deps
+COPY webmail/ ./
+RUN npm run build
+
+# Build admin panel
+FROM node:20-alpine AS admin-builder
+
+WORKDIR /app/web/admin
+
+COPY web/admin/package.json web/admin/package-lock.json ./
+RUN npm ci --legacy-peer-deps
+COPY web/admin/ ./
+RUN npm run build
+
+# Build account portal
+FROM node:20-alpine AS account-builder
+
+WORKDIR /app/web/account
+
+COPY web/account/package.json web/account/package-lock.json ./
+RUN npm install --legacy-peer-deps
+COPY web/account/ ./
+RUN npm run build
+
+# Build backend
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
@@ -6,6 +36,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=webmail-builder /app/webmail/dist ./webmail/dist
+COPY --from=admin-builder /app/web/admin/dist ./web/admin/dist
+COPY --from=account-builder /app/web/account/dist ./web/account/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o umailserver ./cmd/umailserver
 
 # Runtime stage
@@ -26,7 +59,7 @@ RUN chmod +x /usr/local/bin/umailserver
 WORKDIR /home/umailserver
 USER umailserver
 
-EXPOSE 25 465 587 143 993 995 4190 443 8443 8080 3000
+EXPOSE 25 465 587 143 993 995 4190 443 8443 8080 8081 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1

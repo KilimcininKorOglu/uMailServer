@@ -1,29 +1,17 @@
 services:
   umailserver:
+    image: umailserver:latest
     build:
       context: .
       dockerfile: Dockerfile
     container_name: umailserver
     restart: unless-stopped
     ports:
-      # Local development HTTP API and Web UI
       - "8088:8080"
-      # SMTP (inbound mail)
       - "2525:25"
-      # SMTP Submission (STARTTLS)
       - "2587:587"
-      # IMAP (STARTTLS)
       - "2143:143"
-      # ManageSieve
       - "4190:4190"
-      # SMTP Submission (Implicit TLS)
-      #- "2465:465"
-      # IMAPS
-      #- "2993:993"
-      # POP3S (Implicit TLS)
-      #- "2995:995"
-      # HTTP API and Web UI
-      #- "2443:443"
     volumes:
       - ./docker-data:/data
       - ./config:/etc/umailserver:ro
@@ -31,6 +19,9 @@ services:
       - TZ=UTC
       - UMAILSERVER_SERVER_DATA_DIR=/data
       - UMAILSERVER_SERVER_HOSTNAME=mail.local.test
+      - UMAILSERVER_METRICS_ENABLED=true
+      - UMAILSERVER_METRICS_BIND=0.0.0.0
+      - UMAILSERVER_METRICS_PORT=8081
     security_opt:
       - no-new-privileges:true
     cap_add:
@@ -46,11 +37,12 @@ services:
       retries: 3
       start_period: 40s
 
-  # Optional: Prometheus for metrics
   prometheus:
     image: prom/prometheus:latest
     container_name: umail-prometheus
     restart: unless-stopped
+    depends_on:
+      - umailserver
     ports:
       - "9090:9090"
     volumes:
@@ -58,25 +50,25 @@ services:
       - prometheus_data:/prometheus
     networks:
       - mailnet
-    profiles:
-      - monitoring
 
-  # Optional: Grafana for dashboards
   grafana:
     image: grafana/grafana:latest
     container_name: umail-grafana
     restart: unless-stopped
+    depends_on:
+      - prometheus
     ports:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./config/grafana:/etc/grafana/provisioning:ro
+      - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
+      - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
     networks:
       - mailnet
-    profiles:
-      - monitoring
 
 volumes:
   prometheus_data:

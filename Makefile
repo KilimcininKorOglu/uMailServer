@@ -4,7 +4,7 @@
 # Variables
 BINARY_NAME=umailserver
 BINARY_PATH=./cmd/umailserver
-DOCKER_IMAGE=ghcr.io/umailserver/umailserver
+DOCKER_IMAGE=umailserver
 VERSION=$(shell git describe --tags --always 2>/dev/null || echo "dev")
 BUILD_DATE=$(shell date -u +%Y-%m-%d)
 LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE) -X main.GitCommit=$(shell git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
