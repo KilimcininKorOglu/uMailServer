@@ -1277,6 +1277,52 @@ func TestAuthenticateSuccess(t *testing.T) {
 	}
 }
 
+func TestAuthenticateMustChangePasswordBlocked(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Hostname: "test.example.com",
+			DataDir:  tmpDir,
+		},
+		Database: config.DatabaseConfig{
+			Path: tmpDir + "/test.db",
+		},
+		Logging: config.LoggingConfig{
+			Level: "info",
+		},
+	}
+
+	server, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer func() { _ = server.Stop() }()
+
+	hashedPassword := "$2a$10$BXVavbSB/53WBHDuJlzIHeCsgSTgzrOqtbdPmrkPa68dA3jYmKux2"
+	account := &db.AccountData{
+		Email:              "testuser@test.example.com",
+		LocalPart:          "testuser",
+		Domain:             "test.example.com",
+		PasswordHash:       hashedPassword,
+		IsActive:           true,
+		MustChangePassword: true,
+		CreatedAt:          time.Now(),
+	}
+
+	if err := server.database.CreateAccount(account); err != nil {
+		t.Fatalf("Failed to create account: %v", err)
+	}
+
+	authenticated, err := server.authenticate("testuser@test.example.com", "testpass123")
+	if err == nil {
+		t.Fatal("expected authentication to be blocked when password change is required")
+	}
+	if authenticated {
+		t.Error("Expected authentication to fail when password change is required")
+	}
+}
+
 // TestAuthenticateInvalidPassword tests authentication with wrong password
 func TestAuthenticateInvalidPassword(t *testing.T) {
 	tmpDir := t.TempDir()

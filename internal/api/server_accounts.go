@@ -248,6 +248,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 	// Parse request body first to check IsAdmin modification
 	var req struct {
 		Password             *string `json:"password"`
+		MustChangePassword   *bool   `json:"must_change_password"`
 		IsAdmin              *bool   `json:"is_admin"`
 		IsActive             *bool   `json:"is_active"`
 		ForwardTo            *string `json:"forward_to"`
@@ -272,7 +273,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 			s.sendError(w, http.StatusForbidden, "password change required")
 			return
 		}
-		if req.IsAdmin != nil || req.IsActive != nil || req.ForwardTo != nil ||
+		if req.MustChangePassword != nil || req.IsAdmin != nil || req.IsActive != nil || req.ForwardTo != nil ||
 			req.ForwardKeepCopy != nil || req.QuotaLimit != nil || req.VacationSettings != nil ||
 			req.CurrentAdminPassword != "" {
 			s.sendError(w, http.StatusForbidden, "only password updates are allowed until the required password change is completed")
@@ -287,6 +288,11 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 	if req.QuotaLimit != nil && *req.QuotaLimit < 0 {
 		s.sendError(w, http.StatusBadRequest, "quota_limit must be non-negative")
 		return
+	}
+
+	canControlMustChangePassword := isAdmin && authUser != email && req.Password != nil && *req.Password != ""
+	if req.MustChangePassword != nil && !canControlMustChangePassword {
+		req.MustChangePassword = nil
 	}
 
 	requestedIsAdmin := account.IsAdmin
@@ -342,7 +348,15 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		}
 		account.PasswordHash = hashedPassword
 		account.APOPHash = fmt.Sprintf("%x", sha256.Sum256([]byte(*req.Password)))
-		account.MustChangePassword = false
+		if canControlMustChangePassword {
+			if req.MustChangePassword != nil {
+				account.MustChangePassword = *req.MustChangePassword
+			} else {
+				account.MustChangePassword = true
+			}
+		} else {
+			account.MustChangePassword = false
+		}
 	}
 	if req.IsAdmin != nil {
 		account.IsAdmin = *req.IsAdmin

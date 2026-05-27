@@ -67,6 +67,29 @@ func requiresPasswordChange(account *db.AccountData) bool {
 	return account != nil && account.MustChangePassword
 }
 
+func enforceAuthenticatedAccount(database *db.DB, user string, mustChangePasswordClaim bool) (bool, error) {
+	if user == "" {
+		return false, fmt.Errorf("missing subject")
+	}
+	if database == nil {
+		return mustChangePasswordClaim, nil
+	}
+
+	localPart, domain := parseEmail(user)
+	account, err := database.GetAccount(domain, localPart)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "key not found: ") {
+			return mustChangePasswordClaim, nil
+		}
+		return false, err
+	}
+	if !account.IsActive {
+		return false, fmt.Errorf("account is not active")
+	}
+
+	return account.MustChangePassword, nil
+}
+
 func isPasswordChangeOnlyRoute(r *http.Request, user string) bool {
 	if r.URL.Path == "/api/v1/auth/logout" {
 		return true
@@ -609,15 +632,29 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The auth middleware already validated the token
-	user := r.Context().Value("user")
-	isAdmin := r.Context().Value("isAdmin")
+	user, _ := r.Context().Value("user").(string)
+	isAdmin, _ := r.Context().Value("isAdmin").(bool)
+	mustChangePasswordClaim, _ := r.Context().Value("mustChangePassword").(bool)
+	mustChangePassword, err := enforceAuthenticatedAccount(s.db, user, mustChangePasswordClaim)
+	if err != nil {
+		s.sendError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	if mustChangePassword {
+		s.sendJSON(w, http.StatusForbidden, map[string]interface{}{
+			"error":                "password_change_required",
+			"must_change_password": true,
+		})
+		return
+	}
 
 	// Generate new token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":   user,
-		"admin": isAdmin,
-		"exp":   time.Now().Add(s.config.TokenExpiry).Unix(),
-		"iat":   time.Now().Unix(),
+		"sub":                       user,
+		"admin":                     isAdmin,
+		passwordChangeRequiredClaim: mustChangePassword,
+		"exp":                       time.Now().Add(s.config.TokenExpiry).Unix(),
+		"iat":                       time.Now().Unix(),
 	})
 	token.Header["kid"] = s.currentKid
 

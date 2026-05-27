@@ -43,9 +43,10 @@ func (s *Server) SetTracingProvider(provider *tracing.Provider) {
 
 // Config holds JMAP server configuration
 type Config struct {
-	JWTSecret   string
-	TokenExpiry time.Duration
-	CorsOrigins []string // Allowed CORS origins; if empty, allows all
+	JWTSecret     string
+	TokenExpiry   time.Duration
+	CorsOrigins   []string // Allowed CORS origins; if empty, allows all
+	AuthorizeUser func(string) error
 }
 
 // Session represents a JMAP session
@@ -517,6 +518,14 @@ func (s *Server) authenticate(r *http.Request) (string, bool) {
 	user, ok := claims["sub"].(string)
 	if !ok || user == "" {
 		return "", false
+	}
+	if mustChangePassword, _ := claims["must_change_password"].(bool); mustChangePassword {
+		return "", false
+	}
+	if s.config.AuthorizeUser != nil {
+		if err := s.config.AuthorizeUser(user); err != nil {
+			return "", false
+		}
 	}
 
 	return user, true

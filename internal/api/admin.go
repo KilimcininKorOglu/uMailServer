@@ -161,10 +161,20 @@ func (s *AdminServer) withAuth(next http.Handler) http.HandlerFunc {
 
 		user, _ := claims["sub"].(string)
 		isAdmin, _ := claims["admin"].(bool)
+		mustChangePasswordClaim, _ := claims[passwordChangeRequiredClaim].(bool)
 
 		// Validate that we got valid values
 		if user == "" {
 			writeError(w, "unauthorized", "Invalid token: missing subject", http.StatusUnauthorized)
+			return
+		}
+		mustChangePassword, err := enforceAuthenticatedAccount(s.Server.db, user, mustChangePasswordClaim)
+		if err != nil {
+			writeError(w, "unauthorized", "Invalid token", http.StatusUnauthorized)
+			return
+		}
+		if mustChangePassword {
+			writeError(w, "password_change_required", "Password change required", http.StatusForbidden)
 			return
 		}
 

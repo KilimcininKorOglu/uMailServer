@@ -26,6 +26,32 @@ func setupAdminTestServer(t *testing.T) (*AdminServer, *db.DB, func()) {
 	}
 
 	server := NewServer(database, nil, config)
+	if err := database.CreateDomain(&db.DomainData{
+		Name:        "example.com",
+		MaxAccounts: 10,
+		IsActive:    true,
+	}); err != nil {
+		t.Fatalf("failed to create domain: %v", err)
+	}
+	if err := database.CreateAccount(&db.AccountData{
+		Email:        "admin@example.com",
+		LocalPart:    "admin",
+		Domain:       "example.com",
+		PasswordHash: "hash",
+		IsActive:     true,
+		IsAdmin:      true,
+	}); err != nil {
+		t.Fatalf("failed to create admin account: %v", err)
+	}
+	if err := database.CreateAccount(&db.AccountData{
+		Email:        "user@example.com",
+		LocalPart:    "user",
+		Domain:       "example.com",
+		PasswordHash: "hash",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("failed to create user account: %v", err)
+	}
 
 	adminConfig := AdminConfig{
 		Addr:      "127.0.0.1:8443",
@@ -170,6 +196,37 @@ func TestAdminServer_withAuth_ValidTokenWithKID(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status %d, got %d", http.StatusOK, w.Code)
+	}
+}
+
+func TestAdminServer_withAuth_BlocksPasswordChangeRequired(t *testing.T) {
+	adminServer, database, cleanup := setupAdminTestServer(t)
+	defer cleanup()
+
+	account, err := database.GetAccount("example.com", "admin")
+	if err != nil {
+		t.Fatalf("failed to load admin account: %v", err)
+	}
+	account.MustChangePassword = true
+	if err := database.UpdateAccount(account); err != nil {
+		t.Fatalf("failed to update admin account: %v", err)
+	}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called when password change is required")
+	})
+
+	wrapped := adminServer.withAuth(handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	token := createAdminToken(adminServer.config.JWTSecret, "")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	wrapped(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, w.Code)
 	}
 }
 

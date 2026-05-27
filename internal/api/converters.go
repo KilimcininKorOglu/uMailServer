@@ -21,16 +21,17 @@ func domainToJSON(d *db.DomainData) map[string]interface{} {
 
 func accountToJSON(a *db.AccountData) map[string]interface{} {
 	result := map[string]interface{}{
-		"email":             a.Email,
-		"is_admin":          a.IsAdmin,
-		"is_active":         a.IsActive,
-		"quota_used":        a.QuotaUsed,
-		"quota_limit":       a.QuotaLimit,
-		"forward_to":        a.ForwardTo,
-		"forward_keep_copy": a.ForwardKeepCopy,
-		"created_at":        a.CreatedAt,
-		"updated_at":        a.UpdatedAt,
-		"last_login":        a.LastLoginAt,
+		"email":                a.Email,
+		"is_admin":             a.IsAdmin,
+		"is_active":            a.IsActive,
+		"must_change_password": a.MustChangePassword,
+		"quota_used":           a.QuotaUsed,
+		"quota_limit":          a.QuotaLimit,
+		"forward_to":           a.ForwardTo,
+		"forward_keep_copy":    a.ForwardKeepCopy,
+		"created_at":           a.CreatedAt,
+		"updated_at":           a.UpdatedAt,
+		"last_login":           a.LastLoginAt,
 	}
 	if a.VacationSettings != "" {
 		result["vacation_settings"] = a.VacationSettings

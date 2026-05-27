@@ -62,6 +62,26 @@ func TestGetUserSecret_InactiveUser(t *testing.T) {
 	}
 }
 
+func TestGetUserSecret_MustChangePassword(t *testing.T) {
+	srv := helperServer(t)
+	account := &db.AccountData{
+		Email:              "mustchange@test.example.com",
+		LocalPart:          "mustchange",
+		Domain:             "test.example.com",
+		PasswordHash:       "somehash",
+		IsActive:           true,
+		MustChangePassword: true,
+		CreatedAt:          time.Now(),
+	}
+	if err := srv.database.CreateAccount(account); err != nil {
+		t.Fatalf("Failed to create account: %v", err)
+	}
+	_, err := srv.getUserSecret("mustchange@test.example.com")
+	if err == nil {
+		t.Fatal("expected error when password change is required")
+	}
+}
+
 func TestGetUserSecret_NonexistentUser(t *testing.T) {
 	srv := helperServer(t)
 	_, err := srv.getUserSecret("nobody@test.example.com")

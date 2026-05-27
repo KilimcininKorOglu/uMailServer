@@ -230,6 +230,14 @@ func NewServer(database *db.DB, logger *slog.Logger, config Config) *Server {
 		}
 		user, _ = claims["sub"].(string)
 		isAdmin, _ = claims["admin"].(bool)
+		mustChangePasswordClaim, _ := claims[passwordChangeRequiredClaim].(bool)
+		mustChangePassword, err := enforceAuthenticatedAccount(database, user, mustChangePasswordClaim)
+		if err != nil {
+			return "", false, err
+		}
+		if mustChangePassword {
+			return "", false, fmt.Errorf("password change required")
+		}
 		return user, isAdmin, nil
 	})
 
@@ -341,6 +349,14 @@ func NewServerWithInterfaces(
 		}
 		user, _ = claims["sub"].(string)
 		isAdmin, _ = claims["admin"].(bool)
+		mustChangePasswordClaim, _ := claims[passwordChangeRequiredClaim].(bool)
+		mustChangePassword, err := enforceAuthenticatedAccount(database, user, mustChangePasswordClaim)
+		if err != nil {
+			return "", false, err
+		}
+		if mustChangePassword {
+			return "", false, fmt.Errorf("password change required")
+		}
 		return user, isAdmin, nil
 	})
 
@@ -859,7 +875,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		user, _ := claims["sub"].(string)
 		isAdmin, _ := claims["admin"].(bool)
-		mustChangePassword, _ := claims[passwordChangeRequiredClaim].(bool)
+		mustChangePasswordClaim, _ := claims[passwordChangeRequiredClaim].(bool)
+		mustChangePassword, err := enforceAuthenticatedAccount(s.db, user, mustChangePasswordClaim)
+		if err != nil {
+			s.sendError(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
 
 		// Add claims to context
 		ctx := context.WithValue(r.Context(), "user", user)

@@ -17,6 +17,7 @@ export interface Account {
   email: string;
   is_admin: boolean;
   is_active: boolean;
+  must_change_password?: boolean;
   quota_used: number;
   quota_limit: number;
   forward_to?: string;

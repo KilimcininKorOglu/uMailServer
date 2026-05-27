@@ -28,16 +28,8 @@ func TestHandleRefresh_NilContext(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.handleRefresh(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected 200 even with nil context values, got %d", rec.Code)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if result["token"] == nil {
-		t.Error("Expected token in response")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 with nil context values, got %d", rec.Code)
 	}
 }
 

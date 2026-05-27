@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/metrics"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
@@ -19,6 +20,29 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/crypto/bcrypt"
 )
+
+func isAccountLookupMiss(err error) bool {
+	return err != nil && strings.HasPrefix(err.Error(), "key not found: ")
+}
+
+func (s *Server) loadLocalAccount(email string) (user, domain string, account *db.AccountData, err error) {
+	user, domain = parseEmail(email)
+	account, err = s.database.GetAccount(domain, user)
+	if err != nil {
+		return user, domain, nil, err
+	}
+	return user, domain, account, nil
+}
+
+func validateAccountAuthentication(account *db.AccountData) error {
+	if !account.IsActive {
+		return fmt.Errorf("account is not active")
+	}
+	if account.MustChangePassword {
+		return fmt.Errorf("password change required")
+	}
+	return nil
+}
 
 // authenticate validates user credentials
 func (s *Server) authenticate(username, password string) (bool, error) {
@@ -35,6 +59,19 @@ func (s *Server) authenticate(username, password string) (bool, error) {
 	if s.ldapClient != nil {
 		ldapUser, err := s.ldapClient.Authenticate(username, password)
 		if err == nil {
+			_, _, localAccount, lookupErr := s.loadLocalAccount(ldapUser.Email)
+			if lookupErr == nil {
+				if err := validateAccountAuthentication(localAccount); err != nil {
+					s.logger.Debug("LDAP authentication blocked by local account state",
+						"username", username,
+						"email", ldapUser.Email,
+						"error", err,
+					)
+					return false, err
+				}
+			} else if !isAccountLookupMiss(lookupErr) {
+				return false, lookupErr
+			}
 			s.logger.Debug("LDAP authentication successful",
 				"username", username,
 				"email", ldapUser.Email,
@@ -48,19 +85,18 @@ func (s *Server) authenticate(username, password string) (bool, error) {
 	}
 
 	// Fall back to local database authentication
-	user, domain := parseEmail(username)
-
-	account, err := s.database.GetAccount(domain, user)
+	_, _, localAccount, err := s.loadLocalAccount(username)
 	if err != nil {
 		return false, err
 	}
+	account := localAccount
 
 	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(password)); err != nil {
 		return false, nil
 	}
 
-	if !account.IsActive {
-		return false, fmt.Errorf("account is not active")
+	if err := validateAccountAuthentication(account); err != nil {
+		return false, err
 	}
 
 	return true, nil
@@ -68,15 +104,14 @@ func (s *Server) authenticate(username, password string) (bool, error) {
 
 // getUserSecret returns the password hash for a user, used by CRAM-MD5 authentication
 func (s *Server) getUserSecret(username string) (string, error) {
-	user, domain := parseEmail(username)
-	account, err := s.database.GetAccount(domain, user)
+	_, _, localAccount, err := s.loadLocalAccount(username)
 	if err != nil {
 		return "", err
 	}
-	if account == nil || !account.IsActive {
-		return "", fmt.Errorf("user not found or inactive")
+	if err := validateAccountAuthentication(localAccount); err != nil {
+		return "", err
 	}
-	return account.PasswordHash, nil
+	return localAccount.PasswordHash, nil
 }
 
 // loginResult handles SMTP login success/failure events and triggers webhooks
@@ -493,15 +528,14 @@ func (s *Server) authenticateClientCert(cert *x509.Certificate) (string, bool) {
 	}
 
 	// Verify the account exists
-	user, domain := parseEmail(email)
-	account, err := s.database.GetAccount(domain, user)
+	_, _, localAccount, err := s.loadLocalAccount(email)
 	if err != nil {
 		s.logger.Debug("Account not found for client certificate", "email", email)
 		return "", false
 	}
 
-	if !account.IsActive {
-		s.logger.Debug("Account is not active", "email", email)
+	if err := validateAccountAuthentication(localAccount); err != nil {
+		s.logger.Debug("Client certificate blocked by account state", "email", email, "error", err)
 		return "", false
 	}
 

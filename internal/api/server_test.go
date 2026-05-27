@@ -58,10 +58,11 @@ func TestDomainToJSON(t *testing.T) {
 
 func TestAccountToJSON(t *testing.T) {
 	account := &db.AccountData{
-		Email:     "user@example.com",
-		IsAdmin:   true,
-		IsActive:  true,
-		QuotaUsed: 1024,
+		Email:              "user@example.com",
+		IsAdmin:            true,
+		IsActive:           true,
+		MustChangePassword: true,
+		QuotaUsed:          1024,
 	}
 
 	result := accountToJSON(account)
@@ -71,6 +72,9 @@ func TestAccountToJSON(t *testing.T) {
 	}
 	if v, ok := result["is_admin"].(bool); !ok || !v {
 		t.Errorf("Expected is_admin true, got %v", result["is_admin"])
+	}
+	if v, ok := result["must_change_password"].(bool); !ok || !v {
+		t.Errorf("Expected must_change_password true, got %v", result["must_change_password"])
 	}
 	if result["quota_used"] != int64(1024) {
 		t.Errorf("Expected quota_used 1024, got %v", result["quota_used"])
@@ -955,10 +959,79 @@ func TestHandleRefreshUnauthorized(t *testing.T) {
 
 	server.handleRefresh(rec, req)
 
-	// The function generates a token with nil values instead of returning 401
-	// This is the actual behavior - it returns 200 with a token
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", rec.Code)
+	}
+}
+
+func TestAuthMiddlewareUsesCurrentMustChangePasswordState(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer database.Close()
+
+	domain := &db.DomainData{
+		Name:        "stateful.com",
+		MaxAccounts: 10,
+		IsActive:    true,
+	}
+	if err := database.CreateDomain(domain); err != nil {
+		t.Fatalf("failed to create domain: %v", err)
+	}
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	account := &db.AccountData{
+		Email:        "user@stateful.com",
+		LocalPart:    "user",
+		Domain:       "stateful.com",
+		PasswordHash: string(hash),
+		IsActive:     true,
+	}
+	if err := database.CreateAccount(account); err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+
+	server := NewServer(database, nil, Config{JWTSecret: "test-secret", TokenExpiry: time.Hour})
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"email":    "user@stateful.com",
+		"password": "password123",
+	})
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
+	loginRec := httptest.NewRecorder()
+	server.handleLogin(loginRec, loginReq)
+
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("expected login to succeed, got %d", loginRec.Code)
+	}
+
+	var loginResult map[string]interface{}
+	if err := json.NewDecoder(loginRec.Body).Decode(&loginResult); err != nil {
+		t.Fatalf("failed to decode login response: %v", err)
+	}
+	token := loginResult["token"].(string)
+
+	account, err = database.GetAccount("stateful.com", "user")
+	if err != nil {
+		t.Fatalf("failed to reload account: %v", err)
+	}
+	account.MustChangePassword = true
+	if err := database.UpdateAccount(account); err != nil {
+		t.Fatalf("failed to update account: %v", err)
+	}
+
+	protected := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	protectedReq := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
+	protectedReq.Header.Set("Authorization", "Bearer "+token)
+	protectedRec := httptest.NewRecorder()
+	protected.ServeHTTP(protectedRec, protectedReq)
+
+	if protectedRec.Code != http.StatusForbidden {
+		t.Fatalf("expected protected route to be blocked, got %d", protectedRec.Code)
 	}
 }
 
@@ -2443,6 +2516,7 @@ func TestUpdateAccountWithPassword(t *testing.T) {
 
 	body := map[string]interface{}{
 		"password":               "newpassword123",
+		"must_change_password":   false,
 		"is_admin":               true,
 		"is_active":              true,
 		"current_admin_password": "adminpass",
@@ -2470,6 +2544,68 @@ func TestUpdateAccountWithPassword(t *testing.T) {
 	}
 	if !updated.IsAdmin {
 		t.Error("Expected is_admin to be true")
+	}
+	if updated.MustChangePassword {
+		t.Error("Expected must_change_password to be false")
+	}
+}
+
+func TestUpdateAccountWithPasswordDefaultsMustChangePasswordForAdminReset(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer database.Close()
+
+	server := NewServer(database, nil, Config{})
+
+	domain := &db.DomainData{Name: "updpassdefault.com", MaxAccounts: 10, IsActive: true}
+	if err := database.CreateDomain(domain); err != nil {
+		t.Fatalf("failed to create domain: %v", err)
+	}
+
+	account := &db.AccountData{
+		Email: "user@updpassdefault.com", LocalPart: "user", Domain: "updpassdefault.com",
+		PasswordHash: "oldhash", IsActive: true,
+	}
+	if err := database.CreateAccount(account); err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+
+	adminHash, _ := bcrypt.GenerateFromPassword([]byte("adminpass"), bcrypt.DefaultCost)
+	adminAccount := &db.AccountData{
+		Email: "admin@updpassdefault.com", LocalPart: "admin", Domain: "updpassdefault.com",
+		PasswordHash: string(adminHash), IsActive: true, IsAdmin: true,
+	}
+	if err := database.CreateAccount(adminAccount); err != nil {
+		t.Fatalf("failed to create admin account: %v", err)
+	}
+
+	body := map[string]interface{}{
+		"password":               "newpassword123",
+		"is_active":              true,
+		"current_admin_password": "adminpass",
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/accounts/user@updpassdefault.com", bytes.NewReader(jsonBody))
+	ctx := context.WithValue(req.Context(), "user", "admin@updpassdefault.com")
+	ctx = context.WithValue(ctx, "isAdmin", true)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	server.handleAccountDetail(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	updated, err := database.GetAccount("updpassdefault.com", "user")
+	if err != nil {
+		t.Fatalf("failed to get updated account: %v", err)
+	}
+	if !updated.MustChangePassword {
+		t.Error("Expected must_change_password to default to true for admin password resets")
 	}
 }
 

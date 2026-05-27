@@ -135,6 +135,38 @@ func TestAuthenticateClientCert_InactiveAccount(t *testing.T) {
 	}
 }
 
+func TestAuthenticateClientCert_MustChangePassword(t *testing.T) {
+	srv := helperServer(t)
+
+	helperCreateDomain(t, srv, "example.com", true)
+	helperCreateAccount(t, srv, "mustchange", "example.com", true, 1000000, 0)
+
+	account, err := srv.database.GetAccount("example.com", "mustchange")
+	if err != nil {
+		t.Fatalf("failed to load account: %v", err)
+	}
+	account.MustChangePassword = true
+	if err := srv.database.UpdateAccount(account); err != nil {
+		t.Fatalf("failed to update account: %v", err)
+	}
+
+	cert := &x509.Certificate{
+		Subject: pkix.Name{
+			CommonName: "mustchange@example.com",
+		},
+		EmailAddresses: []string{"mustchange@example.com"},
+	}
+
+	email, ok := srv.authenticateClientCert(cert)
+
+	if ok {
+		t.Error("expected not authenticated when password change is required")
+	}
+	if email != "" {
+		t.Error("expected empty email when password change is required")
+	}
+}
+
 // TestAuthenticateClientCert_MultipleEmailAddresses tests with multiple email addresses
 func TestAuthenticateClientCert_MultipleEmailAddresses(t *testing.T) {
 	srv := helperServer(t)

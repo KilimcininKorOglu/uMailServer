@@ -61,6 +61,7 @@ export function Accounts() {
   const [newAccountEmail, setNewAccountEmail] = useState("");
   const [newAccountPassword, setNewAccountPassword] = useState("");
   const [newAccountIsAdmin, setNewAccountIsAdmin] = useState(false);
+  const [requirePasswordChangeOnReset, setRequirePasswordChangeOnReset] = useState(true);
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
@@ -111,11 +112,13 @@ export function Accounts() {
       };
       if (newAccountPassword) {
         updates.password = newAccountPassword;
+        updates.must_change_password = requirePasswordChangeOnReset;
       }
       await updateAccount(selectedAccount.email, updates);
       setIsEditDialogOpen(false);
       setSelectedAccount(null);
       setNewAccountPassword("");
+      setRequirePasswordChangeOnReset(true);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to update account");
     }
@@ -259,6 +262,9 @@ export function Accounts() {
               account={account}
               onEdit={() => {
                 setSelectedAccount(account);
+                setNewAccountPassword("");
+                setRequirePasswordChangeOnReset(true);
+                setFormError("");
                 setIsEditDialogOpen(true);
               }}
               onDelete={() => {
@@ -318,10 +324,32 @@ export function Accounts() {
                   onChange={(e) => setNewAccountPassword(e.target.value)}
                 />
               </div>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="require-password-change">Require password change on next login</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Useful when an admin resets someone else&apos;s password.
+                  </p>
+                </div>
+                <Switch
+                  id="require-password-change"
+                  checked={requirePasswordChangeOnReset}
+                  disabled={!newAccountPassword}
+                  onCheckedChange={setRequirePasswordChangeOnReset}
+                />
+              </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsEditDialogOpen(false);
+                setNewAccountPassword("");
+                setRequirePasswordChangeOnReset(true);
+                setFormError("");
+              }}
+            >
               Cancel
             </Button>
             <Button onClick={handleUpdateAccount}>Save Changes</Button>

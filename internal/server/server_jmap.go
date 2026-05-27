@@ -20,6 +20,20 @@ func (s *Server) startJMAP() {
 		JWTSecret:   s.config.Security.JWTSecret,
 		TokenExpiry: 24 * time.Hour,
 		CorsOrigins: s.config.JMAP.CorsOrigins,
+		AuthorizeUser: func(email string) error {
+			user, domain := parseEmail(email)
+			account, err := s.database.GetAccount(domain, user)
+			if err != nil {
+				return err
+			}
+			if !account.IsActive {
+				return fmt.Errorf("account is not active")
+			}
+			if account.MustChangePassword {
+				return fmt.Errorf("password change required")
+			}
+			return nil
+		},
 	}
 
 	jmapServer := jmap.NewServer(s.storageDB, s.msgStore, s.logger, jmapConfig)

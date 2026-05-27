@@ -89,6 +89,50 @@ func TestAuthenticate_InvalidToken(t *testing.T) {
 	}
 }
 
+func TestAuthenticate_PasswordChangeRequiredClaim(t *testing.T) {
+	config := Config{JWTSecret: "test-secret"}
+	server := NewServer(nil, nil, nil, config)
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":                  "user@example.com",
+		"must_change_password": true,
+		"exp":                  time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, _ := token.SignedString([]byte("test-secret"))
+
+	req := httptest.NewRequest("GET", "/jmap/session", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenString)
+
+	_, ok := server.authenticate(req)
+	if ok {
+		t.Error("Authentication should fail when password change is required")
+	}
+}
+
+func TestAuthenticate_AuthorizeUserCallback(t *testing.T) {
+	config := Config{
+		JWTSecret: "test-secret",
+		AuthorizeUser: func(user string) error {
+			return fmt.Errorf("password change required")
+		},
+	}
+	server := NewServer(nil, nil, nil, config)
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "user@example.com",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, _ := token.SignedString([]byte("test-secret"))
+
+	req := httptest.NewRequest("GET", "/jmap/session", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenString)
+
+	_, ok := server.authenticate(req)
+	if ok {
+		t.Error("Authentication should fail when AuthorizeUser rejects the user")
+	}
+}
+
 func TestHandleWellKnown(t *testing.T) {
 	server := NewServer(nil, nil, nil, Config{})
 
