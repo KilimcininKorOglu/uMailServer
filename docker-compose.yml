@@ -14,10 +14,11 @@ services:
       - "2143:143"
       - "4190:4190"
     volumes:
+      - /usr/share/zoneinfo/Europe/Istanbul:/etc/localtime:ro
       - ./docker-data:/data
       - ./config:/etc/umailserver:ro
     environment:
-      - TZ=UTC
+      - TZ=:/etc/localtime
       - UMAILSERVER_SERVER_DATA_DIR=/data
       - UMAILSERVER_SERVER_HOSTNAME=mail.local.test
       - UMAILSERVER_METRICS_ENABLED=true
@@ -47,8 +48,11 @@ services:
     ports:
       - "9090:9090"
     volumes:
+      - /usr/share/zoneinfo/Europe/Istanbul:/etc/localtime:ro
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    environment:
+      - TZ=:/etc/localtime
     networks:
       - mailnet
 
@@ -61,11 +65,13 @@ services:
     ports:
       - "3000:3000"
     volumes:
+      - /usr/share/zoneinfo/Europe/Istanbul:/etc/localtime:ro
       - grafana_data:/var/lib/grafana
       - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
+      - TZ=:/etc/localtime
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
     networks:
