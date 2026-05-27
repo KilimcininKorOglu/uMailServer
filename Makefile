@@ -7,6 +7,9 @@ BINARY_PATH=./cmd/umailserver
 DOCKER_IMAGE=umailserver
 VERSION=$(shell git describe --tags --always 2>/dev/null || echo "dev")
 BUILD_DATE=$(shell date -u +%Y-%m-%d)
+GOLANGCI_LINT=golangci-lint
+GOLANGCI_LINT_VERSION=v2.11.4
+GOLANGCI_LINT_ARGS?=--new
 LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE) -X main.GitCommit=$(shell git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 
 # Go commands
@@ -62,8 +65,8 @@ coverage:
 # Run linter
 lint:
 	@echo "Running linter..."
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
+	@if command -v $(GOLANGCI_LINT) >/dev/null 2>&1; then \
+		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_ARGS); \
 	else \
 		echo "golangci-lint not installed, running go vet..."; \
 		go vet ./...; \
@@ -154,7 +157,7 @@ build-client:
 install-tools:
 	@echo "Installing development tools..."
 	go install github.com/cosmtrek/air@latest
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	go install golang.org/x/tools/cmd/goimports@latest
 
 # Setup development environment

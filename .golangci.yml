@@ -1,86 +1,29 @@
+version: "2"
 run:
-  timeout: 5m
   issues-exit-code: 1
   tests: true
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  gocyclo:
-    min-complexity: 15
-  dupl:
-    threshold: 100
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  misspell:
-    locale: US
-  lll:
-    line-length: 120
-  goimports:
-    local-prefixes: github.com/umailserver/umailserver
-  gocritic:
-    enabled-tags:
-      - performance
-      - style
-      - experimental
-    disabled-checks:
-      - wrapperFunc
-
 linters:
+  default: none
   enable:
     - bodyclose
-    - deadcode
-    - depguard
-    - dogsled
-    - dupl
     - errcheck
-    - gochecknoinits
-    - goconst
-    - gocritic
-    - gocyclo
-    - gofmt
-    - goimports
-    - golint
-    - gomnd
-    - goprintffuncname
-    - gosec
-    - gosimple
     - govet
     - ineffassign
-    - interfacer
-    - lll
     - misspell
-    - nakedret
-    - rowserrcheck
-    - scopelint
     - staticcheck
-    - structcheck
-    - stylecheck
-    - typecheck
-    - unconvert
-    - unparam
     - unused
-    - varcheck
-    - whitespace
-  disable:
-    - maligned  # deprecated
-    - prealloc  # can be noisy
-
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - unused
+        path: internal/homedir
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gomnd
-        - gocyclo
-        - errcheck
-        - dupl
-        - gosec
-        - lll
-    - path: internal/homedir
-      linters:
-        - unused
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
