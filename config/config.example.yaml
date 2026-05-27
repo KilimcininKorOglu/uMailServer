@@ -1,94 +1,119 @@
 # uMailServer Configuration Example
-# This is the modern configuration format
+# Canonical schema-aligned configuration for the current `internal/config/config.go`.
+# This file is intended to be the single comprehensive example.
+# Copy it to `umailserver.yaml` and customize it for your environment.
+# Full documentation: https://docs.umailserver.com/configuration
 
+# ============================================
+# SERVER
+# ============================================
 server:
   hostname: mail.example.com
   data_dir: /var/lib/umailserver
+  graceful_timeout: 30       # Seconds to drain existing connections on shutdown
+  force_close_after: 60      # Hard cutoff after graceful drain expires
 
-# TLS Configuration
+# ============================================
+# TLS
+# ============================================
 tls:
-  cert_file: ""               # Path to TLS certificate (leave empty for ACME)
-  key_file: ""                # Path to TLS key (leave empty for ACME)
-  min_version: "1.2"          # Minimum TLS version: "1.2" or "1.3"
+  # Manual certificate mode. Leave these empty when ACME should manage certificates.
+  cert_file: ""
+  key_file: ""
+  min_version: "1.2"         # Allowed values: "1.2" or "1.3"
+
+  # Optional client certificate authentication for admin/API environments.
+  client_auth:
+    enabled: false
+    require_cert: false
+    ca_file: ""
+    verify_mode: "verify_if_given"   # or "require_and_verify"
+
+  # ACME / Let's Encrypt automatic certificate management.
   acme:
     enabled: true
     email: admin@example.com
-    provider: letsencrypt     # letsencrypt or letsencrypt-staging
-    challenge: http-01        # http-01 or dns-01
+    provider: letsencrypt            # letsencrypt or letsencrypt-staging
+    challenge: http-01               # http-01 or dns-01
+    dns_provider: ""                 # cloudflare, route53, etc. for dns-01
 
-# SMTP Server Configuration
+# ============================================
+# SMTP
+# ============================================
 smtp:
+  # Inbound MX listener.
   inbound:
     enabled: true
-    port: 25
     bind: "0.0.0.0"
+    port: 25
     max_message_size: 50MB
     max_recipients: 100
-    max_connections: 10000    # Max concurrent connections (0 = unlimited)
+    max_connections: 10000    # 0 = unlimited
     read_timeout: 5m
     write_timeout: 5m
+
+  # Authenticated submission with STARTTLS.
   submission:
     enabled: true
-    port: 587
     bind: "0.0.0.0"
+    port: 587
     require_auth: true
     require_tls: true
-    max_connections: 10000
+    max_connections: 10000    # 0 = unlimited
+
+  # Authenticated submission with implicit TLS.
   submission_tls:
     enabled: true
-    port: 465
     bind: "0.0.0.0"
+    port: 465
     require_auth: true
-    max_connections: 10000
+    max_connections: 10000    # 0 = unlimited
 
-# IMAP Server Configuration
+# ============================================
+# IMAP / POP3 / MANAGESIEVE
+# ============================================
 imap:
   enabled: true
-  port: 993
   bind: "0.0.0.0"
-  starttls_port: 143
-  max_connections: 10000      # Max concurrent connections (0 = unlimited)
+  port: 993                   # IMAPS
+  starttls_port: 143          # STARTTLS IMAP
   idle_timeout: 30m
+  max_connections: 10000      # 0 = unlimited
 
-# POP3 Server Configuration
 pop3:
   enabled: false
-  port: 995
   bind: "0.0.0.0"
-  max_connections: 10000      # Max concurrent connections (0 = unlimited)
+  port: 995                   # POP3S
+  max_connections: 10000      # 0 = unlimited
 
-# HTTP API Configuration
+managesieve:
+  enabled: true
+  bind: "0.0.0.0"
+  port: 4190                  # ManageSieve
+
+# ============================================
+# HTTP / ADMIN
+# ============================================
 http:
   enabled: true
-  port: 443
-  http_port: 80               # Redirects to HTTPS
   bind: "0.0.0.0"
+  port: 443                   # Main HTTPS listener for web UI + API
+  http_port: 80               # Plain HTTP listener for redirects / ACME; set to 0 to disable it entirely
   cors_origins: []            # Allowed CORS origins
-                              # SECURITY: Empty array means NO cross-origin requests are allowed (secure default).
-                              # When empty, browsers will block cross-origin requests to protect against CSRF.
-                              # For production, set specific origins: ["https://mail.example.com"]
-  trusted_proxies: []         # IPs that are trusted for X-Forwarded-For header
-                              # SECURITY: Only trust IPs of your reverse proxy (e.g., nginx, cloudflare)
-                              # If empty, X-Forwarded-For is ignored (safer default)
+                              # SECURITY: Empty means no cross-origin browser access is allowed.
+                              # Set explicit origins such as ["https://mail.example.com"] when needed.
+  trusted_proxies: []         # Reverse proxy IPs allowed to set X-Forwarded-For
+                              # SECURITY: Only trust your own reverse proxy IPs (nginx, Traefik, Cloudflare, etc.).
+                              # If empty, X-Forwarded-For is ignored.
 
-# Admin Panel Configuration (legacy - admin panel is served by HTTP server)
 admin:
   enabled: true
-  # port: 8443  # Note: Not currently used
-  bind: "127.0.0.1"  # Note: Not currently used
+  bind: "127.0.0.1"          # Keep localhost-only unless you explicitly expose it
+  port: 8443
 
-# Security Configuration
-security:
-  max_login_attempts: 5
-  lockout_duration: 15m
-  jwt_secret: "change-me-to-a-32-character-secret-minimum"
-  rate_limit:
-    smtp_per_minute: 30       # SMTP auth attempts per minute per IP
-    smtp_per_hour: 500        # SMTP connections per hour per IP
-    imap_connections: 50      # Max concurrent IMAP connections per IP
-    http_requests_per_minute: 120  # API requests per minute per IP
-
-# Spam Filter Configuration
+# ============================================
+# SPAM / AV
+# ============================================
 spam:
   enabled: true
   reject_threshold: 9.0
@@ -96,7 +121,7 @@ spam:
   quarantine_threshold: 6.0
   bayesian:
     enabled: true
-    auto_train: true
+    auto_train: true          # Learn from classification feedback automatically
   greylisting:
     enabled: true
     delay: 5m
@@ -104,50 +129,189 @@ spam:
     - zen.spamhaus.org
     - b.barracudacentral.org
     - bl.spamcop.net
+    # Empty list disables the RBL stage entirely.
 
-# Antivirus Configuration
 av:
-  enabled: false
-  addr: "127.0.0.1:3310"      # ClamAV address
+  enabled: false              # Enable when ClamAV is available
+  addr: "127.0.0.1:3310"      # ClamAV TCP address
   timeout: 30s
   action: reject              # reject, quarantine, or tag
 
-# MCP Server (Model Context Protocol)
+# ============================================
+# SECURITY
+# ============================================
+security:
+  max_login_attempts: 5
+  lockout_duration: 15m
+  jwt_secret: ""              # Set a unique 32+ character secret for stable sessions; empty = generated at startup
+  disable_legacy_jwt: false   # Disable fallback to the legacy single JWT secret after key rotation
+  totp_key: ""                # Optional separate encryption key for TOTP secrets; falls back to jwt_secret if empty
+  spf_cache_ttl: 5m           # TTL for cached SPF lookups
+  audit_log:
+    path: /var/log/umailserver/audit.log
+    max_size_mb: 10
+    max_backups: 5
+    max_age_days: 30
+  rate_limit:
+    # Primary schema fields
+    ip_per_minute: 30
+    ip_per_hour: 500
+    ip_per_day: 5000
+    ip_connections: 10
+    user_per_minute: 60
+    user_per_hour: 1000
+    user_per_day: 5000
+    user_max_recipients: 100
+    global_per_minute: 10000
+    global_per_hour: 100000
+
+    # Legacy aliases are still used by some runtime paths.
+    smtp_per_minute: 30
+    smtp_per_hour: 500
+    imap_connections: 50
+    http_requests_per_minute: 120
+
+# ============================================
+# LDAP / ACTIVE DIRECTORY
+# ============================================
+ldap:
+  enabled: false
+  url: "ldaps://ldap.example.com:636"     # ldap:// or ldaps://
+  bind_dn: "cn=service,dc=example,dc=com" # Service account for searches
+  bind_password: ""                       # Service account password
+  base_dn: "ou=users,dc=example,dc=com"   # User search base
+  user_filter: "(uid=%s)"                 # %s is replaced with the username
+  email_attribute: "mail"
+  name_attribute: "cn"
+  group_attribute: "memberOf"
+  admin_groups: []                        # Group DNs that grant admin access
+  start_tls: false                        # Use StartTLS on port 389
+  skip_verify: false                      # Skip TLS verification (dev only)
+  root_ca: ""                             # Optional PEM-encoded root CA bundle
+  timeout: 30s
+
+# ============================================
+# MCP
+# ============================================
 mcp:
   enabled: true
-  port: 3000
   bind: "127.0.0.1"
-  auth_token: ""              # Set to enable authentication
+  port: 3000
+  auth_token: ""              # Set to enable authenticated MCP access
+  admin_auth_token: ""        # Optional separate admin token
 
-# Logging Configuration
+# ============================================
+# DOMAINS
+# ============================================
+domains:
+  - name: example.com
+    max_accounts: 1000
+    max_mailbox_size: 10GB
+    dkim:
+      selector: default
+
+# ============================================
+# LOGGING / METRICS / TRACING
+# ============================================
 logging:
   level: info                 # debug, info, warn, error
   format: json                # json or text
-  output: stdout              # stdout, stderr, or file path
-  max_size_mb: 100            # Max log file size before rotation
-  max_backups: 10             # Number of old log files to keep
-  max_age_days: 30            # Max age of old log files in days
+  output: stdout              # stdout, stderr, or a file path
+  max_size_mb: 100            # Rotation is only used when output is a file path
+  max_backups: 10
+  max_age_days: 30
 
-# Metrics Configuration
 metrics:
   enabled: true
+  bind: "127.0.0.1"           # Bind publicly only if external scraping is intended
   port: 8080
-  bind: "127.0.0.1"
   path: /metrics
 
-# Database Configuration
+tracing:
+  enabled: false
+  service_name: "umailserver"
+  exporter: "noop"            # noop, stdout, or otlp
+  otlp_endpoint: "localhost:4317"
+  environment: "production"   # production, staging, development
+  sample_rate: 1.0            # 0.0-1.0
+  attributes:
+    deployment: "primary"
+    region: "eu-central-1"
+
+# ============================================
+# DATABASE / STORAGE
+# ============================================
 database:
-  path: /var/lib/umailserver/db
+  path: ""                    # Leave empty to use <server.data_dir>/umailserver.db
 
-# Storage Configuration
 storage:
-  sync: true                  # Sync writes to disk
-  shared_folders: false       # Enable shared folders
+  sync: true                  # Fsync storage and queue writes for durability
+  shared_folders: false       # Enable IMAP shared folders support
 
-# Domain Configuration
-domains:
-  - name: example.com
-    max_accounts: 100
-    max_mailbox_size: 5GB
-    dkim:
-      selector: default
+# ============================================
+# CALDAV / CARDDAV / JMAP
+# ============================================
+caldav:
+  enabled: false
+  bind: "127.0.0.1"
+  port: 8081                  # CalDAV HTTP server port
+
+carddav:
+  enabled: false
+  bind: "127.0.0.1"
+  port: 8082                  # CardDAV HTTP server port
+
+jmap:
+  enabled: false
+  bind: "127.0.0.1"
+  port: 8083                  # JMAP HTTP server port
+  cors_origins: []            # Empty means no cross-origin browser access
+
+# ============================================
+# DMARC REPORTING
+# ============================================
+dmarc:
+  enabled: false
+  org_name: "uMailServer"     # Organization name shown in reports
+  from_email: "dmarc-reports@example.com"
+  report_email: "postmaster@example.com"
+  interval: "24h"
+
+# ============================================
+# ALERTING
+# ============================================
+# When enabled, the alert manager can send webhook and/or email notifications
+# for queue backlog, TLS certificate expiry, resource thresholds, and related
+# operational conditions.
+alert:
+  enabled: false
+  webhook_url: ""             # e.g. Slack, PagerDuty, or a custom collector
+  webhook_headers: {}
+  webhook_template: ""        # Optional Go-template body override
+  allow_private_ip: false     # Set true only for trusted internal webhook targets
+  smtp_server: ""             # Required for email delivery
+  smtp_port: 587              # Common values: 25, 465, 587
+  smtp_username: ""
+  smtp_password: ""
+  from_address: ""            # Required for email delivery
+  to_addresses: []            # e.g. ["oncall@example.com"]
+  use_tls: true               # STARTTLS for SMTP delivery
+  min_interval: 5m            # Minimum gap between alerts of the same name
+  max_alerts: 100             # Maximum alerts per hour across all names
+  disk_threshold: 85.0        # 0 disables this threshold
+  memory_threshold: 90.0      # 0 disables this threshold
+  error_threshold: 5.0        # 0 disables this threshold
+  tls_warning_days: 7         # Days before expiry to alert
+  queue_threshold: 1000       # Pending queue items that trigger a warning
+
+# ============================================
+# WEB PUSH
+# ============================================
+# VAPID keys are auto-generated and stored in `<data_dir>/push/vapid.json` on
+# first start. Paste them here only if you need them to survive data resets or
+# to share keys across replicas.
+push:
+  enabled: true
+  subject: "mailto:admin@example.com"   # mailto: or https:// URL identifying the operator
+  # vapid_public_key: ""
+  # vapid_private_key: ""
