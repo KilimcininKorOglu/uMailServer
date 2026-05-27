@@ -1,1134 +1,1174 @@
 openapi: 3.0.3
 info:
   title: uMailServer API
-  description: |
-    uMailServer REST API for email server administration and user account management.
-
-    ## Authentication
-    The API uses JWT (JSON Web Token) authentication. Obtain a token by calling
-    `/api/auth/login` with valid credentials, then include the token in the
-    `Authorization` header as `Bearer <token>`.
-
-    ## Rate Limiting
-    API requests are rate-limited to prevent abuse. Default limits:
-    - 100 requests per minute for authenticated users
-    - 20 requests per minute for unauthenticated endpoints
-
-    ## Error Handling
-    Errors follow RFC 7807 (Problem Details) format with additional context:
-    ```json
-    {
-      "error": "invalid_request",
-      "message": "Detailed error message",
-      "code": 400
-    }
-    ```
   version: 1.0.0
-  contact:
-    name: uMailServer Support
-    url: https://github.com/umailserver/umailserver/issues
-  license:
-    name: MIT
-    url: https://opensource.org/licenses/MIT
+  description: |
+    Current HTTP API surface for uMailServer.
 
+    Key behavior notes:
+
+    - The REST API lives under `/api/v1/*`.
+    - Browser logins receive the JWT via the `jwt` HttpOnly cookie.
+    - Non-browser API clients also receive a `token` field in the login response.
+    - Login and refresh responses may include `must_change_password`.
+    - When separate admin-listener mode is enabled, admin-only routes disappear from the main listener and are served only from the dedicated admin listener.
+    - `/metrics` returns Prometheus text output, while `/api/v1/metrics` returns authenticated JSON metrics.
 servers:
   - url: http://localhost:8080
-    description: Local development server
-  - url: https://{hostname}/api
-    description: Production server
-    variables:
-      hostname:
-        default: mail.example.com
-        description: Your uMailServer hostname
-
+    description: Direct local server
+  - url: http://localhost:8443
+    description: Example dedicated admin listener
+  - url: https://mail.example.com
+    description: Example production listener
 security:
   - BearerAuth: []
-
 tags:
   - name: Authentication
-    description: User authentication and session management
-  - name: Admin
-    description: Administrative operations (requires admin role)
-  - name: Domains
-    description: Domain management
-  - name: Accounts
-    description: Email account management
-  - name: Aliases
-    description: Email alias management
-  - name: Queue
-    description: Mail queue operations
   - name: Health
-    description: Health checks and monitoring
-  - name: Metrics
-    description: Prometheus-compatible metrics
-
+  - name: Realtime
+  - name: Search
+  - name: Threads
+  - name: Vacation
+  - name: Push
+  - name: Filters
+  - name: Mail
+  - name: Backups
+  - name: Cluster
+  - name: Domains
+  - name: Accounts
+  - name: Aliases
+  - name: Queue
+  - name: Admin
 paths:
-  # Authentication
-  /api/auth/login:
+  /api/v1/auth/login:
     post:
-      tags:
-        - Authentication
+      tags: [Authentication]
       summary: Authenticate user
-      description: Obtain a JWT token by providing valid credentials
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - email
-                - password
-              properties:
-                email:
-                  type: string
-                  format: email
-                  example: user@example.com
-                password:
-                  type: string
-                  format: password
-                  example: securepassword123
-                totp_code:
-                  type: string
-                  description: TOTP code if 2FA is enabled
-                  example: "123456"
+              $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Authentication successful
+          description: Login successful
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                    description: JWT access token
-                  expires_at:
-                    type: string
-                    format: date-time
-                  user:
-                    $ref: '#/components/schemas/User'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '429':
-          $ref: '#/components/responses/RateLimitError'
-
-  /api/auth/logout:
-    post:
-      tags:
-        - Authentication
-      summary: Logout user
-      description: Invalidate the current JWT token
-      responses:
-        '200':
-          description: Logout successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: Logged out successfully
-
-  /api/auth/refresh:
-    post:
-      tags:
-        - Authentication
-      summary: Refresh token
-      description: Obtain a new JWT token before expiration
-      responses:
-        '200':
-          description: Token refreshed successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                  expires_at:
-                    type: string
-                    format: date-time
-
-  /api/auth/totp/setup:
-    post:
-      tags:
-        - Authentication
-      summary: Setup TOTP 2FA
-      description: Generate TOTP secret and QR code URI for 2FA setup
-      responses:
-        '200':
-          description: TOTP setup initiated
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  secret:
-                    type: string
-                    description: Base32-encoded TOTP secret
-                  uri:
-                    type: string
-                    description: otpauth:// URI for QR code generation
-
-  /api/auth/totp/verify:
-    post:
-      tags:
-        - Authentication
-      summary: Verify and enable TOTP
-      description: Verify TOTP code and enable 2FA for the account
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - code
-              properties:
-                code:
-                  type: string
-                  pattern: '^[0-9]{6}$'
-                  example: "123456"
-      responses:
-        '200':
-          description: TOTP enabled successfully
+                $ref: '#/components/schemas/LoginResponse'
         '400':
-          $ref: '#/components/responses/BadRequestError'
+          $ref: '#/components/responses/Problem'
         '401':
-          $ref: '#/components/responses/UnauthorizedError'
-
-  # Health & Metrics
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout current session
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Authentication]
+      summary: Logout current session
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh authenticated session
+      responses:
+        '200':
+          description: Refresh successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
   /health:
     get:
-      tags:
-        - Health
-      summary: Health check
-      description: Comprehensive health status of all subsystems
+      tags: [Health]
+      summary: Full health report
       security: []
       responses:
         '200':
-          description: System is healthy
+          description: Health response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthStatus'
+                $ref: '#/components/schemas/HealthResponse'
         '503':
-          description: One or more subsystems unhealthy
+          description: Unhealthy response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthStatus'
-
+                $ref: '#/components/schemas/HealthResponse'
   /health/live:
     get:
-      tags:
-        - Health
+      tags: [Health]
       summary: Liveness probe
-      description: Kubernetes liveness probe endpoint
       security: []
       responses:
         '200':
           description: Service is alive
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                example: "alive"
-
+                $ref: '#/components/schemas/GenericObject'
   /health/ready:
     get:
-      tags:
-        - Health
+      tags: [Health]
       summary: Readiness probe
-      description: Kubernetes readiness probe endpoint
       security: []
       responses:
         '200':
-          description: Service is ready to accept traffic
+          description: Service is ready
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                example: "ready"
+                $ref: '#/components/schemas/GenericObject'
         '503':
           description: Service is not ready
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericObject'
   /metrics:
     get:
-      tags:
-        - Metrics
+      tags: [Health]
       summary: Prometheus metrics
-      description: Prometheus-compatible metrics endpoint
-      security: []
+      description: Admin-auth protected text metrics endpoint
       responses:
         '200':
-          description: Prometheus metrics in text format
+          description: Prometheus text metrics
           content:
             text/plain:
               schema:
                 type: string
-
-  # Admin - Dashboard
-  /api/admin/dashboard:
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+  /api/v1/events:
     get:
-      tags:
-        - Admin
-      summary: Admin dashboard data
-      description: Get overview statistics for the admin dashboard
+      tags: [Realtime]
+      summary: Server-Sent Events stream
       responses:
         '200':
-          description: Dashboard data
+          description: Event stream
           content:
-            application/json:
+            text/event-stream:
               schema:
-                type: object
-                properties:
-                  domains:
-                    type: integer
-                    description: Total number of domains
-                  accounts:
-                    type: integer
-                    description: Total number of accounts
-                  queue_size:
-                    type: integer
-                    description: Current mail queue size
-                  storage_used:
-                    type: integer
-                    description: Storage used in bytes
-                  recent_events:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Event'
-
-  # Domains
-  /api/admin/domains:
+                type: string
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/search:
     get:
-      tags:
-        - Domains
-        - Admin
-      summary: List all domains
-      description: Get a list of all configured domains
+      tags: [Search]
+      summary: Search messages
       parameters:
-        - name: limit
-          in: query
+        - in: query
+          name: q
           schema:
-            type: integer
-            default: 100
-            maximum: 1000
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+            type: string
+          description: Search query
       responses:
         '200':
-          description: List of domains
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/threads:
+    get:
+      tags: [Threads]
+      summary: List thread summaries
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/threads/search:
+    get:
+      tags: [Threads]
+      summary: Search threads
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/threads/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ThreadId'
+    get:
+      tags: [Threads]
+      summary: Get thread detail
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Threads]
+      summary: Delete thread
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/threads/{id}/read:
+    parameters:
+      - $ref: '#/components/parameters/ThreadId'
+    post:
+      tags: [Threads]
+      summary: Mark thread as read
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/vacation:
+    get:
+      tags: [Vacation]
+      summary: Get vacation configuration
+      responses:
+        '200':
+          description: Vacation config
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  domains:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Domain'
-                  total:
-                    type: integer
-
+                $ref: '#/components/schemas/VacationConfig'
+        '401':
+          $ref: '#/components/responses/Problem'
+    put:
+      tags: [Vacation]
+      summary: Update vacation configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VacationConfig'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Vacation]
+      summary: Delete vacation configuration
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/push/vapid-public-key:
+    get:
+      tags: [Push]
+      summary: Get VAPID public key
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /api/v1/push/subscribe:
     post:
-      tags:
-        - Domains
-        - Admin
+      tags: [Push]
+      summary: Create push subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint, p256dh, auth]
+              properties:
+                endpoint:
+                  type: string
+                  format: uri
+                p256dh:
+                  type: string
+                auth:
+                  type: string
+                deviceType:
+                  type: string
+                os:
+                  type: string
+                browser:
+                  type: string
+                name:
+                  type: string
+      responses:
+        '201':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/push/unsubscribe:
+    delete:
+      tags: [Push]
+      summary: Remove push subscription
+      parameters:
+        - in: query
+          name: id
+          schema:
+            type: string
+          description: Subscription ID
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                endpoint:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/push/subscriptions:
+    get:
+      tags: [Push]
+      summary: List push subscriptions
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/push/test:
+    post:
+      tags: [Push]
+      summary: Send test push notification
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/filters:
+    get:
+      tags: [Filters]
+      summary: List filters
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [Filters]
+      summary: Create filter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FilterMutation'
+      responses:
+        '201':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/filters/reorder:
+    post:
+      tags: [Filters]
+      summary: Reorder filters
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericObject'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/filters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/FilterId'
+    get:
+      tags: [Filters]
+      summary: Get filter
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    put:
+      tags: [Filters]
+      summary: Update filter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FilterMutation'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Filters]
+      summary: Delete filter
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/mail/inbox:
+    get: &mail_list_get
+      tags: [Mail]
+      summary: List mail in a fixed folder
+      parameters:
+        - in: query
+          name: folder
+          schema:
+            type: string
+          description: Optional folder override used by the handler
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/mail/sent:
+    get: *mail_list_get
+  /api/v1/mail/drafts:
+    get: *mail_list_get
+  /api/v1/mail/trash:
+    get: *mail_list_get
+  /api/v1/mail/spam:
+    get: *mail_list_get
+  /api/v1/mail/send:
+    post:
+      tags: [Mail]
+      summary: Send mail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericObject'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/mail/delete:
+    delete:
+      tags: [Mail]
+      summary: Delete mail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericObject'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/backups:
+    get:
+      tags: [Backups]
+      summary: List backups
+      parameters:
+        - in: query
+          name: target
+          schema:
+            type: string
+          description: Optional target filter
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/v1/backups/{id}:
+    parameters:
+      - $ref: '#/components/parameters/BackupId'
+    get:
+      tags: [Backups]
+      summary: Get backup detail
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Backups]
+      summary: Delete backup
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/backups/{id}/verify:
+    parameters:
+      - $ref: '#/components/parameters/BackupId'
+    post:
+      tags: [Backups]
+      summary: Verify backup
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /api/v1/backups/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/BackupId'
+    post:
+      tags: [Backups]
+      summary: Restore backup
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /api/v1/backups/per-user/{user}:
+    parameters:
+      - in: path
+        name: user
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Backups]
+      summary: Run per-user backup
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /api/v1/backups/per-mailbox/{user}/{mailbox}:
+    parameters:
+      - in: path
+        name: user
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: mailbox
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Backups]
+      summary: Run per-mailbox backup
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /api/v1/backup-jobs:
+    get:
+      tags: [Backups]
+      summary: List backup jobs
+      parameters:
+        - in: query
+          name: enabled
+          schema:
+            type: boolean
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/backup-jobs/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Backups]
+      summary: Get backup job
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
+    put:
+      tags: [Backups]
+      summary: Update backup job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericObject'
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Backups]
+      summary: Delete backup job
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/backup-jobs/{id}/run:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Backups]
+      summary: Run backup job immediately
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/cluster/status:
+    get:
+      tags: [Cluster]
+      summary: Get cluster status
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /api/v1/cluster/instances:
+    get:
+      tags: [Cluster]
+      summary: List cluster instances
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /api/v1/cluster/failover:
+    post:
+      tags: [Cluster]
+      summary: Trigger cluster failover
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /api/v1/cluster/heartbeat:
+    post:
+      tags: [Cluster]
+      summary: Submit cluster heartbeat
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/domains:
+    get:
+      tags: [Domains]
+      summary: List domains
+      responses:
+        '200':
+          description: Domain list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GenericObject'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [Domains]
       summary: Create domain
-      description: Create a new email domain
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DomainCreate'
+              $ref: '#/components/schemas/GenericObject'
       responses:
         '201':
-          description: Domain created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Domain'
-        '409':
-          description: Domain already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/admin/domains/{domain}:
+          $ref: '#/components/responses/GenericObjectResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+  /api/v1/domains/{name}:
     parameters:
-      - name: domain
-        in: path
+      - in: path
+        name: name
         required: true
         schema:
           type: string
-          format: hostname
-        example: example.com
-
     get:
-      tags:
-        - Domains
-        - Admin
-      summary: Get domain details
-      description: Get detailed information about a specific domain
+      tags: [Domains]
+      summary: Get domain
       responses:
         '200':
-          description: Domain details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Domain'
+          $ref: '#/components/responses/GenericObjectResponse'
         '404':
-          $ref: '#/components/responses/NotFoundError'
-
+          $ref: '#/components/responses/Problem'
     put:
-      tags:
-        - Domains
-        - Admin
+      tags: [Domains]
       summary: Update domain
-      description: Update domain configuration
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DomainUpdate'
+              $ref: '#/components/schemas/GenericObject'
       responses:
         '200':
-          description: Domain updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Domain'
+          $ref: '#/components/responses/GenericObjectResponse'
         '404':
-          $ref: '#/components/responses/NotFoundError'
-
+          $ref: '#/components/responses/Problem'
     delete:
-      tags:
-        - Domains
-        - Admin
+      tags: [Domains]
       summary: Delete domain
-      description: Delete a domain and all associated accounts
-      responses:
-        '204':
-          description: Domain deleted successfully
-        '404':
-          $ref: '#/components/responses/NotFoundError'
-        '409':
-          description: Cannot delete domain with existing accounts
-
-  # Accounts
-  /api/admin/domains/{domain}/accounts:
-    parameters:
-      - name: domain
-        in: path
-        required: true
-        schema:
-          type: string
-        example: example.com
-
-    get:
-      tags:
-        - Accounts
-        - Admin
-      summary: List domain accounts
-      description: Get all accounts for a specific domain
       responses:
         '200':
-          description: List of accounts
+          $ref: '#/components/responses/Message'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/accounts:
+    get:
+      tags: [Accounts]
+      summary: List accounts
+      description: Non-admin callers receive only their own account entry.
+      responses:
+        '200':
+          description: Account list
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  accounts:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Account'
-                  total:
-                    type: integer
-
+                type: array
+                items:
+                  $ref: '#/components/schemas/GenericObject'
+        '401':
+          $ref: '#/components/responses/Problem'
     post:
-      tags:
-        - Accounts
-        - Admin
+      tags: [Accounts]
       summary: Create account
-      description: Create a new email account
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AccountCreate'
+              $ref: '#/components/schemas/GenericObject'
       responses:
         '201':
-          description: Account created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Account'
-        '409':
-          description: Account already exists
-
-  /api/admin/domains/{domain}/accounts/{localPart}:
+          $ref: '#/components/responses/GenericObjectResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+  /api/v1/accounts/{email}:
     parameters:
-      - name: domain
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: localPart
-        in: path
-        required: true
-        schema:
-          type: string
-        example: user
-
+      - $ref: '#/components/parameters/AccountEmail'
     get:
-      tags:
-        - Accounts
-        - Admin
-      summary: Get account details
+      tags: [Accounts]
+      summary: Get account
       responses:
         '200':
-          description: Account details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Account'
+          $ref: '#/components/responses/GenericObjectResponse'
         '404':
-          $ref: '#/components/responses/NotFoundError'
-
+          $ref: '#/components/responses/Problem'
     put:
-      tags:
-        - Accounts
-        - Admin
+      tags: [Accounts]
       summary: Update account
-      description: Update account settings (quota, password, etc.)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AccountUpdate'
+              $ref: '#/components/schemas/GenericObject'
       responses:
         '200':
-          description: Account updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Account'
-
+          $ref: '#/components/responses/GenericObjectResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
     delete:
-      tags:
-        - Accounts
-        - Admin
+      tags: [Accounts]
       summary: Delete account
       responses:
-        '204':
-          description: Account deleted successfully
-
-  /api/account/me:
-    get:
-      tags:
-        - Accounts
-      summary: Get current account
-      description: Get details of the authenticated account
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/accounts/{email}/totp/setup:
+    parameters:
+      - $ref: '#/components/parameters/AccountEmail'
+    post:
+      tags: [Accounts]
+      summary: Begin TOTP setup for an account
       responses:
         '200':
-          description: Account details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Account'
-
-    put:
-      tags:
-        - Accounts
-      summary: Update current account
-      description: Update own account settings
+          $ref: '#/components/responses/GenericObjectResponse'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/accounts/{email}/totp/verify:
+    parameters:
+      - $ref: '#/components/parameters/AccountEmail'
+    post:
+      tags: [Accounts]
+      summary: Verify and enable TOTP for an account
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AccountUpdate'
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
       responses:
         '200':
-          description: Account updated successfully
-
-  # Aliases
-  /api/admin/domains/{domain}/aliases:
+          $ref: '#/components/responses/GenericObjectResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/accounts/{email}/totp/disable:
     parameters:
-      - name: domain
-        in: path
-        required: true
-        schema:
-          type: string
-
-    get:
-      tags:
-        - Aliases
-        - Admin
-      summary: List domain aliases
+      - $ref: '#/components/parameters/AccountEmail'
+    post:
+      tags: [Accounts]
+      summary: Disable TOTP for an account
       responses:
         '200':
-          description: List of aliases
+          $ref: '#/components/responses/GenericObjectResponse'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/aliases:
+    get:
+      tags: [Aliases]
+      summary: List aliases
+      responses:
+        '200':
+          description: Alias list
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  aliases:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Alias'
-
+                type: array
+                items:
+                  $ref: '#/components/schemas/GenericObject'
     post:
-      tags:
-        - Aliases
-        - Admin
+      tags: [Aliases]
       summary: Create alias
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AliasCreate'
+              $ref: '#/components/schemas/GenericObject'
       responses:
         '201':
-          description: Alias created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Alias'
-
-  /api/admin/domains/{domain}/aliases/{alias}:
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/aliases/{alias}:
     parameters:
-      - name: domain
-        in: path
+      - in: path
+        name: alias
         required: true
         schema:
           type: string
-      - name: alias
-        in: path
-        required: true
-        schema:
-          type: string
-
     get:
-      tags:
-        - Aliases
-        - Admin
-      summary: Get alias details
+      tags: [Aliases]
+      summary: Get alias
       responses:
         '200':
-          description: Alias details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Alias'
-
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
     put:
-      tags:
-        - Aliases
-        - Admin
+      tags: [Aliases]
       summary: Update alias
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AliasUpdate'
+              $ref: '#/components/schemas/GenericObject'
       responses:
         '200':
-          description: Alias updated successfully
-
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
     delete:
-      tags:
-        - Aliases
-        - Admin
+      tags: [Aliases]
       summary: Delete alias
       responses:
-        '204':
-          description: Alias deleted successfully
-
-  # Queue
-  /api/admin/queue:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/queue:
     get:
-      tags:
-        - Queue
-        - Admin
-      summary: Get queue status
-      description: Get current mail queue statistics
+      tags: [Queue]
+      summary: List queue entries
       responses:
         '200':
-          description: Queue statistics
+          description: Queue list
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  pending:
-                    type: integer
-                  deferred:
-                    type: integer
-                  failed:
-                    type: integer
-                  total:
-                    type: integer
-
-  /api/admin/queue/messages:
-    get:
-      tags:
-        - Queue
-        - Admin
-      summary: List queued messages
-      description: Get list of messages in the queue
-      parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [pending, deferred, failed, all]
-            default: all
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 100
-      responses:
-        '200':
-          description: List of queued messages
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  messages:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/QueueEntry'
-
-  /api/admin/queue/messages/{id}/retry:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GenericObject'
+  /api/v1/queue/{id}:
     parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-
+      - $ref: '#/components/parameters/QueueId'
+    get:
+      tags: [Queue]
+      summary: Get queue entry
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+        '404':
+          $ref: '#/components/responses/Problem'
     post:
-      tags:
-        - Queue
-        - Admin
-      summary: Retry queued message
-      description: Immediately retry delivery of a queued message
+      tags: [Queue]
+      summary: Retry queue entry
       responses:
         '200':
-          description: Message queued for retry
+          $ref: '#/components/responses/Message'
         '404':
-          description: Message not found in queue
-
-  /api/admin/queue/messages/{id}:
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Queue]
+      summary: Drop queue entry
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/v1/metrics:
+    get:
+      tags: [Admin]
+      summary: Get JSON metrics
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/stats:
+    get:
+      tags: [Admin]
+      summary: Get dashboard stats
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/admin/ratelimits/config:
+    get:
+      tags: [Admin]
+      summary: Get rate-limit configuration
+      responses:
+        '200':
+          description: Rate-limit config
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitConfig'
+    put:
+      tags: [Admin]
+      summary: Update rate-limit configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RateLimitConfig'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/Problem'
+  /api/v1/admin/ratelimits/ip/{ip}:
     parameters:
-      - name: id
-        in: path
+      - in: path
+        name: ip
         required: true
         schema:
           type: string
-
-    delete:
-      tags:
-        - Queue
-        - Admin
-      summary: Remove from queue
-      description: Remove a message from the delivery queue
+    get:
+      tags: [Admin]
+      summary: Get per-IP rate-limit stats
       responses:
-        '204':
-          description: Message removed from queue
-        '404':
-          description: Message not found
-
-  # JWT Secret Rotation
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/admin/ratelimits/user/{user}:
+    parameters:
+      - in: path
+        name: user
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Admin]
+      summary: Get per-user rate-limit stats
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/admin/vacations:
+    get:
+      tags: [Admin]
+      summary: List active vacations
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/admin/push/stats:
+    get:
+      tags: [Admin]
+      summary: Get push statistics
+      responses:
+        '200':
+          $ref: '#/components/responses/GenericObjectResponse'
   /api/v1/admin/jwt/rotate:
     post:
-      tags:
-        - Admin
-      summary: Rotate JWT secret
-      description: |
-        Rotates the JWT signing secret by generating a new key ID and secret.
-        The new secret is added to the version map while old secrets remain valid
-        for backward compatibility until they expire.
-      security:
-        - BearerAuth: []
+      tags: [Admin]
+      summary: Rotate JWT signing secret
       responses:
         '200':
-          description: JWT secret rotated successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: rotated
-                  newKid:
-                    type: string
-                    description: New key ID
-                  message:
-                    type: string
-                  activeKeys:
-                    type: integer
-                    description: Number of active signing keys
-        '401':
-          description: Unauthorized
-        '403':
-          description: Admin access required
-
+          $ref: '#/components/responses/GenericObjectResponse'
   /api/v1/admin/jwt/status:
     get:
-      tags:
-        - Admin
-      summary: Get JWT secret status
-      description: Returns information about the current JWT signing keys
-      security:
-        - BearerAuth: []
+      tags: [Admin]
+      summary: Get JWT key status
       responses:
         '200':
-          description: JWT status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  currentKid:
-                    type: string
-                    description: Current active key ID
-                  activeKeys:
-                    type: integer
-                    description: Number of active signing keys
-                  activeKids:
-                    type: array
-                    items:
-                      type: string
-                    description: List of all active key IDs
-        '401':
-          description: Unauthorized
-        '403':
-          description: Admin access required
-
-  # Health & Readiness
-  /health:
+          $ref: '#/components/responses/GenericObjectResponse'
+  /api/v1/admin/queue:
     get:
-      tags:
-        - Health
-      summary: Health check
-      description: Returns the health status of the server
-      security: []
+      tags: [Admin]
+      summary: Alias of queue list
       responses:
         '200':
-          description: Server is healthy
+          description: Queue list
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthStatus'
-        '503':
-          description: Server is unhealthy
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HealthStatus'
-
-  /health/ready:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GenericObject'
+  /api/v1/admin/queue/{id}:
+    parameters:
+      - $ref: '#/components/parameters/QueueId'
     get:
-      tags:
-        - Health
-      summary: Readiness probe
-      description: |
-        Kubernetes-style readiness probe. Returns 200 if the server is ready
-        to accept traffic, 503 if the server is draining for graceful shutdown
-        or not yet ready.
-      security: []
+      tags: [Admin]
+      summary: Alias of queue detail
       responses:
         '200':
-          description: Server is ready to accept traffic
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ready
-        '503':
-          description: Server is not ready (draining or not initialized)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  reason:
-                    type: string
-
+          $ref: '#/components/responses/GenericObjectResponse'
+    post:
+      tags: [Admin]
+      summary: Alias of queue retry
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+    delete:
+      tags: [Admin]
+      summary: Alias of queue drop
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-
+  parameters:
+    ThreadId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    FilterId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    BackupId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    QueueId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    AccountEmail:
+      in: path
+      name: email
+      required: true
+      schema:
+        type: string
+      description: Full email address, URL-encoded in the path
+  responses:
+    Problem:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Message:
+      description: Simple status/message response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+    GenericObjectResponse:
+      description: Generic JSON object response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GenericObject'
   schemas:
-    User:
-      type: object
-      properties:
-        email:
-          type: string
-          format: email
-        is_admin:
-          type: boolean
-        domains:
-          type: array
-          items:
-            type: string
-
-    Domain:
-      type: object
-      properties:
-        name:
-          type: string
-          example: example.com
-        max_accounts:
-          type: integer
-          example: 100
-        max_aliases:
-          type: integer
-          example: 200
-        max_mailbox_size:
-          type: integer
-          description: Maximum mailbox size in bytes
-          example: 1073741824
-        is_active:
-          type: boolean
-          default: true
-        created_at:
-          type: string
-          format: date-time
-        dkim_enabled:
-          type: boolean
-          default: true
-        dkim_selector:
-          type: string
-          example: default
-
-    DomainCreate:
-      type: object
-      required:
-        - name
-      properties:
-        name:
-          type: string
-          format: hostname
-          example: example.com
-        max_accounts:
-          type: integer
-          default: 100
-        max_aliases:
-          type: integer
-          default: 200
-        max_mailbox_size:
-          type: integer
-          default: 1073741824
-
-    DomainUpdate:
-      type: object
-      properties:
-        max_accounts:
-          type: integer
-        max_aliases:
-          type: integer
-        max_mailbox_size:
-          type: integer
-        is_active:
-          type: boolean
-
-    Account:
-      type: object
-      properties:
-        email:
-          type: string
-          format: email
-        local_part:
-          type: string
-          example: user
-        domain:
-          type: string
-          example: example.com
-        is_active:
-          type: boolean
-        is_admin:
-          type: boolean
-        quota_used:
-          type: integer
-          description: Storage used in bytes
-        quota_limit:
-          type: integer
-          description: Storage limit in bytes
-        created_at:
-          type: string
-          format: date-time
-        last_login_at:
-          type: string
-          format: date-time
-        totp_enabled:
-          type: boolean
-
-    AccountCreate:
-      type: object
-      required:
-        - local_part
-        - password
-      properties:
-        local_part:
-          type: string
-          pattern: '^[a-zA-Z0-9._-]+$'
-          example: user
-        password:
-          type: string
-          format: password
-          minLength: 8
-        quota_limit:
-          type: integer
-          default: 1073741824
-        is_admin:
-          type: boolean
-          default: false
-
-    AccountUpdate:
-      type: object
-      properties:
-        password:
-          type: string
-          format: password
-          minLength: 8
-        quota_limit:
-          type: integer
-        is_active:
-          type: boolean
-
-    Alias:
-      type: object
-      properties:
-        domain:
-          type: string
-        alias:
-          type: string
-          example: support
-        target:
-          type: string
-          format: email
-          example: user@example.com
-        is_active:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-
-    AliasCreate:
-      type: object
-      required:
-        - alias
-        - target
-      properties:
-        alias:
-          type: string
-          example: support
-        target:
-          type: string
-          format: email
-        is_active:
-          type: boolean
-          default: true
-
-    AliasUpdate:
-      type: object
-      properties:
-        target:
-          type: string
-          format: email
-        is_active:
-          type: boolean
-
-    QueueEntry:
-      type: object
-      properties:
-        id:
-          type: string
-        from:
-          type: string
-          format: email
-        to:
-          type: array
-          items:
-            type: string
-            format: email
-        status:
-          type: string
-          enum: [pending, deferred, failed]
-        created_at:
-          type: string
-          format: date-time
-        next_retry:
-          type: string
-          format: date-time
-        retry_count:
-          type: integer
-        error_message:
-          type: string
-
-    HealthStatus:
-      type: object
-      properties:
-        status:
-          type: string
-          enum: [healthy, unhealthy]
-        checks:
-          type: object
-          additionalProperties:
-            type: object
-            properties:
-              status:
-                type: string
-                enum: [healthy, unhealthy, warning]
-              message:
-                type: string
-              details:
-                type: object
-
-    Event:
-      type: object
-      properties:
-        type:
-          type: string
-          enum: [login, logout, message_sent, message_received, account_created, error]
-        timestamp:
-          type: string
-          format: date-time
-        details:
-          type: object
-
-    Error:
+    Problem:
       type: object
       properties:
         error:
@@ -1137,53 +1177,111 @@ components:
           type: string
         code:
           type: integer
-
-  responses:
-    BadRequestError:
-      description: Invalid request
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          example:
-            error: invalid_request
-            message: Invalid request parameters
-            code: 400
-
-    UnauthorizedError:
-      description: Authentication required or invalid credentials
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          example:
-            error: unauthorized
-            message: Invalid or missing authentication token
-            code: 401
-
-    NotFoundError:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          example:
-            error: not_found
-            message: Requested resource not found
-            code: 404
-
-    RateLimitError:
-      description: Too many requests
-      headers:
-        Retry-After:
-          schema:
-            type: integer
-          description: Seconds to wait before retrying
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          example:
-            error: rate_limited
-            message: Too many requests, please try again later
-            code: 429
+      additionalProperties: true
+    MessageResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+      additionalProperties: true
+    GenericObject:
+      type: object
+      additionalProperties: true
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        totp_code:
+          type: string
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Present for non-browser API clients
+        expiresIn:
+          type: integer
+        must_change_password:
+          type: boolean
+      additionalProperties: true
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+      additionalProperties: true
+    VacationConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        start_date:
+          type: string
+          format: date-time
+          nullable: true
+        end_date:
+          type: string
+          format: date-time
+          nullable: true
+        subject:
+          type: string
+        message:
+          type: string
+        html_message:
+          type: string
+        send_interval:
+          type: integer
+        exclude_addresses:
+          type: array
+          items:
+            type: string
+        ignore_lists:
+          type: boolean
+        ignore_bulk:
+          type: boolean
+    FilterMutation:
+      type: object
+      properties:
+        name:
+          type: string
+        matchAll:
+          type: boolean
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GenericObject'
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GenericObject'
+      additionalProperties: true
+    RateLimitConfig:
+      type: object
+      properties:
+        ip_per_minute:
+          type: integer
+        ip_per_hour:
+          type: integer
+        ip_per_day:
+          type: integer
+        ip_connections:
+          type: integer
+        user_per_minute:
+          type: integer
+        user_per_hour:
+          type: integer
+        user_per_day:
+          type: integer
+        user_max_recipients:
+          type: integer
+        global_per_minute:
+          type: integer
+        global_per_hour:
+          type: integer

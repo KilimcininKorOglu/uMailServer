@@ -1,409 +1,1164 @@
-definitions:
-  api.Mail:
-    properties:
-      body:
-        type: string
-      date:
-        type: string
-      folder:
-        type: string
-      from:
-        type: string
-      fromName:
-        type: string
-      hasAttachments:
-        type: boolean
-      id:
-        type: string
-      preview:
-        type: string
-      read:
-        type: boolean
-      size:
-        type: integer
-      starred:
-        type: boolean
-      subject:
-        type: string
-      to:
-        items:
-          type: string
-        type: array
-    type: object
+swagger: '2.0'
 info:
-  contact: {}
+  title: uMailServer API
+  version: 1.0.0
+  description: |
+    Legacy Swagger 2.0 compatibility snapshot for the current uMailServer HTTP API.
+
+    Use `api/openapi.yaml` as the authoritative spec.
+
+    Notes:
+    - REST routes live under `/api/v1/*`.
+    - Browser login uses the `jwt` HttpOnly cookie; non-browser clients may also receive `token`.
+    - `must_change_password` may appear in login and refresh responses.
+    - In separate admin-listener mode, admin-only routes move off the main listener.
+    - `/metrics` is Prometheus text output; `/api/v1/metrics` is authenticated JSON.
+host: localhost:8080
+basePath: /
+schemes:
+  - http
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+security:
+  - BearerAuth: []
+tags:
+  - name: Authentication
+  - name: Health
+  - name: Realtime
+  - name: Search
+  - name: Threads
+  - name: Vacation
+  - name: Push
+  - name: Filters
+  - name: Mail
+  - name: Backups
+  - name: Cluster
+  - name: Domains
+  - name: Accounts
+  - name: Aliases
+  - name: Queue
+  - name: Admin
 paths:
-  /api/v1/accounts:
-    get:
-      consumes:
-      - application/json
-      description: |-
-        Returns a list of all accounts for a domain
-        Creates a new email account
-      produces:
-      - application/json
-      - application/json
-      responses:
-        "200":
-          description: List of accounts
-          schema:
-            items:
-              additionalProperties: true
-              type: object
-            type: array
-        "201":
-          description: Account created
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      - BearerAuth: []
-      summary: Create account
-      tags:
-      - Accounts
-      - Accounts
+  /api/v1/auth/login:
     post:
-      consumes:
-      - application/json
-      description: |-
-        Returns a list of all accounts for a domain
-        Creates a new email account
-      produces:
-      - application/json
-      - application/json
-      responses:
-        "200":
-          description: List of accounts
-          schema:
-            items:
-              additionalProperties: true
-              type: object
-            type: array
-        "201":
-          description: Account created
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      - BearerAuth: []
-      summary: Create account
-      tags:
-      - Accounts
-      - Accounts
-  /api/v1/aliases:
-    get:
-      consumes:
-      - application/json
-      description: |-
-        Returns a list of all email aliases
-        Creates a new email alias
-      produces:
-      - application/json
-      - application/json
-      responses:
-        "200":
-          description: List of aliases
-          schema:
-            items:
-              additionalProperties: true
-              type: object
-            type: array
-        "201":
-          description: Alias created
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      - BearerAuth: []
-      summary: Create alias
-      tags:
-      - Aliases
-      - Aliases
-    post:
-      consumes:
-      - application/json
-      description: |-
-        Returns a list of all email aliases
-        Creates a new email alias
-      produces:
-      - application/json
-      - application/json
-      responses:
-        "200":
-          description: List of aliases
-          schema:
-            items:
-              additionalProperties: true
-              type: object
-            type: array
-        "201":
-          description: Alias created
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      - BearerAuth: []
-      summary: Create alias
-      tags:
-      - Aliases
-      - Aliases
-  /api/v1/domains:
-    get:
-      consumes:
-      - application/json
-      description: |-
-        Returns a list of all domains
-        Creates a new domain
-      produces:
-      - application/json
-      - application/json
-      responses:
-        "200":
-          description: List of domains
-          schema:
-            items:
-              additionalProperties: true
-              type: object
-            type: array
-        "201":
-          description: Domain created
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      - BearerAuth: []
-      summary: Create domain
-      tags:
-      - Domains
-      - Domains
-    post:
-      consumes:
-      - application/json
-      description: |-
-        Returns a list of all domains
-        Creates a new domain
-      produces:
-      - application/json
-      - application/json
-      responses:
-        "200":
-          description: List of domains
-          schema:
-            items:
-              additionalProperties: true
-              type: object
-            type: array
-        "201":
-          description: Domain created
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      - BearerAuth: []
-      summary: Create domain
-      tags:
-      - Domains
-      - Domains
-  /api/v1/login:
-    post:
-      consumes:
-      - application/json
-      description: Authenticates a user with email and password, returns JWT token
+      tags: [Authentication]
+      summary: Authenticate user
+      security: []
       parameters:
-      - description: User email
-        in: body
-        name: email
-        required: true
-        schema:
-          type: string
-      - description: User password
-        in: body
-        name: password
-        required: true
-        schema:
-          type: string
-      - description: TOTP code if MFA is enabled
-        in: body
-        name: totp_code
-        schema:
-          type: string
-      produces:
-      - application/json
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/LoginRequest'
       responses:
-        "200":
+        200:
           description: Login successful
           schema:
-            additionalProperties: true
-            type: object
-        "400":
+            $ref: '#/definitions/LoginResponse'
+        400:
           description: Invalid request
           schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Invalid credentials
-          schema:
-            additionalProperties: true
-            type: object
-        "429":
-          description: Too many login attempts
-          schema:
-            additionalProperties: true
-            type: object
-      summary: User login
-      tags:
-      - Auth
-  /api/v1/mail:
-    get:
-      description: Returns a list of emails from the specified mailbox folder
-      parameters:
-      - description: Folder name (default INBOX)
-        in: query
-        name: folder
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: List of emails
-          schema:
-            items:
-              $ref: '#/definitions/api.Mail'
-            type: array
-        "401":
+            $ref: '#/definitions/Problem'
+        401:
           description: Unauthorized
           schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: List emails in folder
-      tags:
-      - Mail
-  /api/v1/mail/delete:
+            $ref: '#/definitions/Problem'
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout current session
+      responses:
+        200:
+          description: Logout successful
+          schema:
+            $ref: '#/definitions/GenericObject'
     delete:
-      description: Moves an email to the Trash folder
+      tags: [Authentication]
+      summary: Logout current session
+      responses:
+        200:
+          description: Logout successful
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh authenticated session
+      responses:
+        200:
+          description: Refresh successful
+          schema:
+            $ref: '#/definitions/LoginResponse'
+        401:
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/Problem'
+  /health:
+    get:
+      tags: [Health]
+      summary: Full health report
+      security: []
+      responses:
+        200:
+          description: Health response
+          schema:
+            $ref: '#/definitions/GenericObject'
+        503:
+          description: Unhealthy response
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      security: []
+      responses:
+        200:
+          description: Service is alive
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      security: []
+      responses:
+        200:
+          description: Service is ready
+          schema:
+            $ref: '#/definitions/GenericObject'
+        503:
+          description: Service is not ready
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics
+      produces:
+        - text/plain
+      responses:
+        200:
+          description: Prometheus text metrics
+          schema:
+            type: string
+  /api/v1/events:
+    get:
+      tags: [Realtime]
+      summary: Server-Sent Events stream
+      produces:
+        - text/event-stream
+      responses:
+        200:
+          description: Event stream
+          schema:
+            type: string
+  /api/v1/search:
+    get:
+      tags: [Search]
+      summary: Search messages
       parameters:
-      - description: Message ID
-        in: query
+        - in: query
+          name: q
+          type: string
+      responses:
+        200:
+          description: Search results
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/threads:
+    get:
+      tags: [Threads]
+      summary: List thread summaries
+      responses:
+        200:
+          description: Thread summaries
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/threads/search:
+    get:
+      tags: [Threads]
+      summary: Search threads
+      responses:
+        200:
+          description: Thread search results
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/threads/{id}:
+    parameters:
+      - in: path
         name: id
         required: true
         type: string
-      produces:
-      - application/json
+    get:
+      tags: [Threads]
+      summary: Get thread detail
       responses:
-        "200":
-          description: Email deleted
+        200:
+          description: Thread detail
           schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
+            $ref: '#/definitions/GenericObject'
+        404:
+          description: Not found
           schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Delete email
-      tags:
-      - Mail
+            $ref: '#/definitions/Problem'
+    delete:
+      tags: [Threads]
+      summary: Delete thread
+      responses:
+        200:
+          description: Thread deleted
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/threads/{id}/read:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    post:
+      tags: [Threads]
+      summary: Mark thread as read
+      responses:
+        200:
+          description: Thread updated
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/vacation:
+    get:
+      tags: [Vacation]
+      summary: Get vacation configuration
+      responses:
+        200:
+          description: Vacation config
+          schema:
+            $ref: '#/definitions/VacationConfig'
+    put:
+      tags: [Vacation]
+      summary: Update vacation configuration
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/VacationConfig'
+      responses:
+        200:
+          description: Vacation updated
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Vacation]
+      summary: Delete vacation configuration
+      responses:
+        200:
+          description: Vacation removed
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/push/vapid-public-key:
+    get:
+      tags: [Push]
+      summary: Get VAPID public key
+      responses:
+        200:
+          description: VAPID public key
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/push/subscribe:
+    post:
+      tags: [Push]
+      summary: Create push subscription
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        201:
+          description: Subscription created
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/push/unsubscribe:
+    delete:
+      tags: [Push]
+      summary: Remove push subscription
+      parameters:
+        - in: query
+          name: id
+          type: string
+      responses:
+        200:
+          description: Subscription removed
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/push/subscriptions:
+    get:
+      tags: [Push]
+      summary: List push subscriptions
+      responses:
+        200:
+          description: Subscription list
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/push/test:
+    post:
+      tags: [Push]
+      summary: Send test push notification
+      responses:
+        200:
+          description: Test sent
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/filters:
+    get:
+      tags: [Filters]
+      summary: List filters
+      responses:
+        200:
+          description: Filter list
+          schema:
+            $ref: '#/definitions/GenericObject'
+    post:
+      tags: [Filters]
+      summary: Create filter
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/FilterMutation'
+      responses:
+        201:
+          description: Filter created
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/filters/reorder:
+    post:
+      tags: [Filters]
+      summary: Reorder filters
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        200:
+          description: Filters reordered
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/filters/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    get:
+      tags: [Filters]
+      summary: Get filter
+      responses:
+        200:
+          description: Filter detail
+          schema:
+            $ref: '#/definitions/GenericObject'
+    put:
+      tags: [Filters]
+      summary: Update filter
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/FilterMutation'
+      responses:
+        200:
+          description: Filter updated
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Filters]
+      summary: Delete filter
+      responses:
+        200:
+          description: Filter deleted
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/mail/inbox:
+    get: &mail_list_get
+      tags: [Mail]
+      summary: List mail in a fixed folder
+      parameters:
+        - in: query
+          name: folder
+          type: string
+      responses:
+        200:
+          description: Mail list
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/mail/sent:
+    get: *mail_list_get
+  /api/v1/mail/drafts:
+    get: *mail_list_get
+  /api/v1/mail/trash:
+    get: *mail_list_get
+  /api/v1/mail/spam:
+    get: *mail_list_get
   /api/v1/mail/send:
     post:
-      consumes:
-      - application/json
-      description: Sends an email and stores it in the Sent folder
+      tags: [Mail]
+      summary: Send mail
       parameters:
-      - description: Email data
-        in: body
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        200:
+          description: Mail sent
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/mail/delete:
+    delete:
+      tags: [Mail]
+      summary: Delete mail
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        200:
+          description: Mail deleted
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backups:
+    get:
+      tags: [Backups]
+      summary: List backups
+      parameters:
+        - in: query
+          name: target
+          type: string
+      responses:
+        200:
+          description: Backup list
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backups/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    get:
+      tags: [Backups]
+      summary: Get backup detail
+      responses:
+        200:
+          description: Backup detail
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Backups]
+      summary: Delete backup
+      responses:
+        200:
+          description: Backup removed
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backups/{id}/verify:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    post:
+      tags: [Backups]
+      summary: Verify backup
+      responses:
+        200:
+          description: Backup verified
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backups/{id}/restore:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    post:
+      tags: [Backups]
+      summary: Restore backup
+      responses:
+        200:
+          description: Backup restored
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backups/per-user/{user}:
+    parameters:
+      - in: path
+        name: user
+        required: true
+        type: string
+    post:
+      tags: [Backups]
+      summary: Run per-user backup
+      responses:
+        200:
+          description: Backup run started
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backups/per-mailbox/{user}/{mailbox}:
+    parameters:
+      - in: path
+        name: user
+        required: true
+        type: string
+      - in: path
+        name: mailbox
+        required: true
+        type: string
+    post:
+      tags: [Backups]
+      summary: Run per-mailbox backup
+      responses:
+        200:
+          description: Backup run started
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backup-jobs:
+    get:
+      tags: [Backups]
+      summary: List backup jobs
+      parameters:
+        - in: query
+          name: enabled
+          type: boolean
+      responses:
+        200:
+          description: Backup jobs
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backup-jobs/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    get:
+      tags: [Backups]
+      summary: Get backup job
+      responses:
+        200:
+          description: Backup job
+          schema:
+            $ref: '#/definitions/GenericObject'
+    put:
+      tags: [Backups]
+      summary: Update backup job
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        200:
+          description: Backup job updated
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Backups]
+      summary: Delete backup job
+      responses:
+        200:
+          description: Backup job removed
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/backup-jobs/{id}/run:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    post:
+      tags: [Backups]
+      summary: Run backup job immediately
+      responses:
+        200:
+          description: Backup job started
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/cluster/status:
+    get:
+      tags: [Cluster]
+      summary: Get cluster status
+      responses:
+        200:
+          description: Cluster status
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/cluster/instances:
+    get:
+      tags: [Cluster]
+      summary: List cluster instances
+      responses:
+        200:
+          description: Cluster instances
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/cluster/failover:
+    post:
+      tags: [Cluster]
+      summary: Trigger cluster failover
+      responses:
+        200:
+          description: Failover triggered
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/cluster/heartbeat:
+    post:
+      tags: [Cluster]
+      summary: Submit cluster heartbeat
+      responses:
+        200:
+          description: Heartbeat accepted
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/domains:
+    get:
+      tags: [Domains]
+      summary: List domains
+      responses:
+        200:
+          description: Domain list
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/GenericObject'
+    post:
+      tags: [Domains]
+      summary: Create domain
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        201:
+          description: Domain created
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/domains/{name}:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        type: string
+    get:
+      tags: [Domains]
+      summary: Get domain
+      responses:
+        200:
+          description: Domain detail
+          schema:
+            $ref: '#/definitions/GenericObject'
+    put:
+      tags: [Domains]
+      summary: Update domain
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        200:
+          description: Domain updated
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Domains]
+      summary: Delete domain
+      responses:
+        200:
+          description: Domain deleted
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/accounts:
+    get:
+      tags: [Accounts]
+      summary: List accounts
+      description: Non-admin callers receive only their own account entry.
+      responses:
+        200:
+          description: Account list
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/GenericObject'
+    post:
+      tags: [Accounts]
+      summary: Create account
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        201:
+          description: Account created
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/accounts/{email}:
+    parameters:
+      - in: path
         name: email
         required: true
-        schema:
-          additionalProperties: true
-          type: object
-      produces:
-      - application/json
+        type: string
+        description: Full email address, URL-encoded in the path
+    get:
+      tags: [Accounts]
+      summary: Get account
       responses:
-        "200":
-          description: Email sent
+        200:
+          description: Account detail
           schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
+            $ref: '#/definitions/GenericObject'
+    put:
+      tags: [Accounts]
+      summary: Update account
+      parameters:
+        - in: body
+          name: body
+          required: true
           schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Send email
-      tags:
-      - Mail
-  /api/v1/refresh:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        200:
+          description: Account updated
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Accounts]
+      summary: Delete account
+      responses:
+        200:
+          description: Account deleted
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/accounts/{email}/totp/setup:
+    parameters:
+      - in: path
+        name: email
+        required: true
+        type: string
     post:
-      description: Returns a new JWT token with extended expiry
-      produces:
-      - application/json
+      tags: [Accounts]
+      summary: Begin TOTP setup for an account
       responses:
-        "200":
-          description: Token refreshed
+        200:
+          description: TOTP setup initialized
           schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
+            $ref: '#/definitions/GenericObject'
+  /api/v1/accounts/{email}/totp/verify:
+    parameters:
+      - in: path
+        name: email
+        required: true
+        type: string
+    post:
+      tags: [Accounts]
+      summary: Verify and enable TOTP for an account
+      parameters:
+        - in: body
+          name: body
+          required: true
           schema:
-            additionalProperties: true
             type: object
-      security:
-      - BearerAuth: []
-      summary: Refresh token
-      tags:
-      - Auth
-  /health:
+            required: [code]
+            properties:
+              code:
+                type: string
+      responses:
+        200:
+          description: TOTP enabled
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/accounts/{email}/totp/disable:
+    parameters:
+      - in: path
+        name: email
+        required: true
+        type: string
+    post:
+      tags: [Accounts]
+      summary: Disable TOTP for an account
+      responses:
+        200:
+          description: TOTP disabled
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/aliases:
     get:
-      description: Returns the current health status of the server including database,
-        queue, and storage checks
-      produces:
-      - application/json
+      tags: [Aliases]
+      summary: List aliases
       responses:
-        "200":
-          description: Server is healthy
+        200:
+          description: Alias list
           schema:
-            additionalProperties: true
-            type: object
-        "503":
-          description: Server is unhealthy
+            type: array
+            items:
+              $ref: '#/definitions/GenericObject'
+    post:
+      tags: [Aliases]
+      summary: Create alias
+      parameters:
+        - in: body
+          name: body
+          required: true
           schema:
-            additionalProperties: true
-            type: object
-      summary: Get server health
-      tags:
-      - Health
-  /health/ready:
+            $ref: '#/definitions/GenericObject'
+      responses:
+        201:
+          description: Alias created
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/aliases/{alias}:
+    parameters:
+      - in: path
+        name: alias
+        required: true
+        type: string
     get:
-      description: Returns whether the server is ready to accept traffic. Used for
-        kubernetes readiness probes.
-      produces:
-      - application/json
+      tags: [Aliases]
+      summary: Get alias
       responses:
-        "200":
-          description: Server is ready
+        200:
+          description: Alias detail
           schema:
-            additionalProperties: true
-            type: object
-        "503":
-          description: Server is not ready
+            $ref: '#/definitions/GenericObject'
+    put:
+      tags: [Aliases]
+      summary: Update alias
+      parameters:
+        - in: body
+          name: body
+          required: true
           schema:
-            additionalProperties: true
-            type: object
-      summary: Get server readiness for zero-downtime deployment
-      tags:
-      - Health
-swagger: "2.0"
+            $ref: '#/definitions/GenericObject'
+      responses:
+        200:
+          description: Alias updated
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Aliases]
+      summary: Delete alias
+      responses:
+        200:
+          description: Alias deleted
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/queue:
+    get:
+      tags: [Queue]
+      summary: List queue entries
+      responses:
+        200:
+          description: Queue list
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/GenericObject'
+  /api/v1/queue/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    get:
+      tags: [Queue]
+      summary: Get queue entry
+      responses:
+        200:
+          description: Queue entry
+          schema:
+            $ref: '#/definitions/GenericObject'
+    post:
+      tags: [Queue]
+      summary: Retry queue entry
+      responses:
+        200:
+          description: Queue retry requested
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Queue]
+      summary: Drop queue entry
+      responses:
+        200:
+          description: Queue entry dropped
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/metrics:
+    get:
+      tags: [Admin]
+      summary: Get JSON metrics
+      responses:
+        200:
+          description: JSON metrics
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/stats:
+    get:
+      tags: [Admin]
+      summary: Get dashboard stats
+      responses:
+        200:
+          description: Dashboard stats
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/admin/ratelimits/config:
+    get:
+      tags: [Admin]
+      summary: Get rate-limit configuration
+      responses:
+        200:
+          description: Rate-limit config
+          schema:
+            $ref: '#/definitions/RateLimitConfig'
+    put:
+      tags: [Admin]
+      summary: Update rate-limit configuration
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/RateLimitConfig'
+      responses:
+        200:
+          description: Rate-limit config updated
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/admin/ratelimits/ip/{ip}:
+    parameters:
+      - in: path
+        name: ip
+        required: true
+        type: string
+    get:
+      tags: [Admin]
+      summary: Get per-IP rate-limit stats
+      responses:
+        200:
+          description: Rate-limit stats
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/admin/ratelimits/user/{user}:
+    parameters:
+      - in: path
+        name: user
+        required: true
+        type: string
+    get:
+      tags: [Admin]
+      summary: Get per-user rate-limit stats
+      responses:
+        200:
+          description: Rate-limit stats
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/admin/vacations:
+    get:
+      tags: [Admin]
+      summary: List active vacations
+      responses:
+        200:
+          description: Active vacations
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/admin/push/stats:
+    get:
+      tags: [Admin]
+      summary: Get push statistics
+      responses:
+        200:
+          description: Push stats
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/admin/jwt/rotate:
+    post:
+      tags: [Admin]
+      summary: Rotate JWT signing secret
+      responses:
+        200:
+          description: JWT key rotated
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/admin/jwt/status:
+    get:
+      tags: [Admin]
+      summary: Get JWT key status
+      responses:
+        200:
+          description: JWT status
+          schema:
+            $ref: '#/definitions/GenericObject'
+  /api/v1/admin/queue:
+    get:
+      tags: [Admin]
+      summary: Alias of queue list
+      responses:
+        200:
+          description: Queue list
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/GenericObject'
+  /api/v1/admin/queue/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        type: string
+    get:
+      tags: [Admin]
+      summary: Alias of queue detail
+      responses:
+        200:
+          description: Queue entry
+          schema:
+            $ref: '#/definitions/GenericObject'
+    post:
+      tags: [Admin]
+      summary: Alias of queue retry
+      responses:
+        200:
+          description: Queue retry requested
+          schema:
+            $ref: '#/definitions/GenericObject'
+    delete:
+      tags: [Admin]
+      summary: Alias of queue drop
+      responses:
+        200:
+          description: Queue entry dropped
+          schema:
+            $ref: '#/definitions/GenericObject'
+securityDefinitions:
+  BearerAuth:
+    type: apiKey
+    name: Authorization
+    in: header
+definitions:
+  GenericObject:
+    type: object
+    additionalProperties: true
+  Problem:
+    type: object
+    properties:
+      error:
+        type: string
+      message:
+        type: string
+      code:
+        type: integer
+    additionalProperties: true
+  LoginRequest:
+    type: object
+    required: [email, password]
+    properties:
+      email:
+        type: string
+        format: email
+      password:
+        type: string
+      totp_code:
+        type: string
+  LoginResponse:
+    type: object
+    properties:
+      token:
+        type: string
+      expiresIn:
+        type: integer
+      must_change_password:
+        type: boolean
+    additionalProperties: true
+  VacationConfig:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+      start_date:
+        type: string
+        format: date-time
+      end_date:
+        type: string
+        format: date-time
+      subject:
+        type: string
+      message:
+        type: string
+      html_message:
+        type: string
+      send_interval:
+        type: integer
+      exclude_addresses:
+        type: array
+        items:
+          type: string
+      ignore_lists:
+        type: boolean
+      ignore_bulk:
+        type: boolean
+  FilterMutation:
+    type: object
+    properties:
+      name:
+        type: string
+      matchAll:
+        type: boolean
+      conditions:
+        type: array
+        items:
+          $ref: '#/definitions/GenericObject'
+      actions:
+        type: array
+        items:
+          $ref: '#/definitions/GenericObject'
+    additionalProperties: true
+  RateLimitConfig:
+    type: object
+    properties:
+      ip_per_minute:
+        type: integer
+      ip_per_hour:
+        type: integer
+      ip_per_day:
+        type: integer
+      ip_connections:
+        type: integer
+      user_per_minute:
+        type: integer
+      user_per_hour:
+        type: integer
+      user_per_day:
+        type: integer
+      user_max_recipients:
+        type: integer
+      global_per_minute:
+        type: integer
+      global_per_hour:
+        type: integer

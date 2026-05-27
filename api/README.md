@@ -1,171 +1,202 @@
 # uMailServer API Documentation
 
-This directory contains the OpenAPI 3.0 specification for the uMailServer REST API.
+This directory contains the current machine-readable API specs and a human summary of the live HTTP API surface.
 
 ## Files
 
-- `openapi.yaml` - Complete OpenAPI 3.0.3 specification
+- `openapi.yaml` — authoritative OpenAPI 3.0.3 document
+- `swagger.yaml` — Swagger 2.0 compatibility snapshot
+- `swagger.json` — JSON form of `swagger.yaml`
 
-## Overview
+## Scope
 
-The uMailServer API provides REST endpoints for:
+These files describe the current HTTP API served by `internal/api`.
 
-- **Authentication** - JWT-based login/logout, TOTP 2FA setup
-- **Domain Management** - Create, update, delete email domains
-- **Account Management** - User account CRUD operations
-- **Alias Management** - Email alias configuration
-- **Queue Management** - Mail queue monitoring and retry
-- **Health & Metrics** - Health checks and Prometheus metrics
+They intentionally focus on the live routes mounted by the server:
 
-## Authentication
+- `/api/v1/*` REST endpoints
+- `/health`, `/health/live`, `/health/ready`
+- `/metrics`
 
-All API endpoints (except health checks and login) require JWT authentication:
+They do **not** try to model every non-REST surface in the binary, such as:
+
+- `/mcp` JSON-RPC
+- autoconfig / autodiscover XML endpoints
+- embedded frontend assets
+
+## Authentication Model
+
+### Login
+
+Authenticate with:
 
 ```http
-Authorization: Bearer <jwt-token>
+POST /api/v1/auth/login
 ```
 
-Obtain a token by calling `POST /api/auth/login` with valid credentials.
+with:
 
-## Base URL
-
-```
-http://localhost:8080/api
-```
-
-## Rate Limiting
-
-- Authenticated requests: 100 requests per minute
-- Unauthenticated requests: 20 requests per minute
-
-## Response Format
-
-All responses are JSON with the following structure:
-
-### Success (2xx)
 ```json
 {
-  "data": { ... }
+  "email": "user@example.com",
+  "password": "secret",
+  "totp_code": "123456"
 }
 ```
 
-### Error (4xx, 5xx)
-```json
-{
-  "error": "error_code",
-  "message": "Human-readable error message",
-  "code": 400
-}
-```
+### Session behavior
 
-## Common HTTP Status Codes
+- Browser clients receive the JWT via the `jwt` HttpOnly cookie.
+- Non-browser API clients also receive `token` in the JSON response.
+- Login and refresh responses can include `must_change_password`.
 
-| Code | Meaning |
-|------|---------|
-| 200 | Success |
-| 201 | Created |
-| 204 | No Content (delete success) |
-| 400 | Bad Request |
-| 401 | Unauthorized |
-| 403 | Forbidden |
-| 404 | Not Found |
-| 409 | Conflict |
-| 429 | Too Many Requests |
-| 500 | Internal Server Error |
-| 503 | Service Unavailable |
+### Protected routes
 
-## Using the OpenAPI Spec
+All `/api/v1/*` routes except login require authentication.
 
-### With Swagger UI
+## Listener Model
 
-```bash
-# Using Docker
-docker run -p 8080:8080 -e SWAGGER_JSON=/api/openapi.yaml \
-  -v $(pwd)/openapi.yaml:/api/openapi.yaml \
-  swaggerapi/swagger-ui
-```
+uMailServer can run in two layouts:
 
-### With Redoc
+1. **Single listener mode** — user API and admin API share the main HTTP listener.
+2. **Separate admin listener mode** — admin UI and admin-only API routes are hidden from the main listener and served only from the dedicated admin listener.
 
-```bash
-# Using Docker
-docker run -p 8080:80 -e SPEC_URL=/api/openapi.yaml \
-  -v $(pwd)/openapi.yaml:/usr/share/nginx/html/api/openapi.yaml \
-  redocly/redoc
-```
+When separate admin mode is enabled, admin routes such as `/api/v1/domains`, `/api/v1/accounts`, `/api/v1/aliases`, `/api/v1/queue`, `/api/v1/stats`, and `/api/v1/admin/*` are **not** available on the main user-facing listener.
 
-### Code Generation
+## Metrics Endpoints
 
-Generate client libraries using OpenAPI Generator:
+There are two different metrics-style endpoints:
 
-```bash
-# Generate Go client
-openapi-generator-cli generate -i openapi.yaml -g go -o ./client-go
+- `GET /metrics` — Prometheus text output, admin-auth protected
+- `GET /api/v1/metrics` — JSON metrics payload, admin-auth protected
 
-# Generate Python client
-openapi-generator-cli generate -i openapi.yaml -g python -o ./client-python
-
-# Generate TypeScript client
-openapi-generator-cli generate -i openapi.yaml -g typescript-fetch -o ./client-ts
-```
-
-## API Endpoints Summary
+## Endpoint Summary
 
 ### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/login` | Authenticate user |
-| POST | `/api/auth/logout` | Logout user |
-| POST | `/api/auth/refresh` | Refresh JWT token |
-| POST | `/api/auth/totp/setup` | Setup TOTP 2FA |
-| POST | `/api/auth/totp/verify` | Verify TOTP code |
 
-### Health & Metrics
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Full health check |
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/api/v1/auth/login` | Login, sets cookie, may also return `token` |
+| POST | `/api/v1/auth/logout` | Logout |
+| DELETE | `/api/v1/auth/logout` | Also accepted |
+| POST | `/api/v1/auth/refresh` | Refresh current authenticated session |
+
+### Health and Realtime
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/health` | Full health report |
 | GET | `/health/live` | Liveness probe |
 | GET | `/health/ready` | Readiness probe |
-| GET | `/metrics` | Prometheus metrics |
+| GET | `/metrics` | Prometheus text metrics, admin auth |
+| GET | `/api/v1/events` | Server-Sent Events stream |
 
-### Admin
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/admin/dashboard` | Dashboard statistics |
+### Search, Threads, Vacation
 
-### Domains
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/admin/domains` | List all domains |
-| POST | `/api/admin/domains` | Create domain |
-| GET | `/api/admin/domains/{domain}` | Get domain details |
-| PUT | `/api/admin/domains/{domain}` | Update domain |
-| DELETE | `/api/admin/domains/{domain}` | Delete domain |
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/v1/search` | Search endpoint |
+| GET | `/api/v1/threads` | List thread summaries |
+| GET | `/api/v1/threads/search` | Search threads |
+| GET | `/api/v1/threads/{id}` | Thread detail |
+| DELETE | `/api/v1/threads/{id}` | Delete thread |
+| POST | `/api/v1/threads/{id}/read` | Mark thread read |
+| GET | `/api/v1/vacation` | Get vacation config |
+| PUT | `/api/v1/vacation` | Update vacation config |
+| DELETE | `/api/v1/vacation` | Delete vacation config |
 
-### Accounts
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/admin/domains/{domain}/accounts` | List accounts |
-| POST | `/api/admin/domains/{domain}/accounts` | Create account |
-| GET | `/api/admin/domains/{domain}/accounts/{localPart}` | Get account |
-| PUT | `/api/admin/domains/{domain}/accounts/{localPart}` | Update account |
-| DELETE | `/api/admin/domains/{domain}/accounts/{localPart}` | Delete account |
-| GET | `/api/account/me` | Get current account |
-| PUT | `/api/account/me` | Update current account |
+### Push and Filters
 
-### Aliases
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/admin/domains/{domain}/aliases` | List aliases |
-| POST | `/api/admin/domains/{domain}/aliases` | Create alias |
-| GET | `/api/admin/domains/{domain}/aliases/{alias}` | Get alias |
-| PUT | `/api/admin/domains/{domain}/aliases/{alias}` | Update alias |
-| DELETE | `/api/admin/domains/{domain}/aliases/{alias}` | Delete alias |
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/v1/push/vapid-public-key` | Public VAPID key |
+| POST | `/api/v1/push/subscribe` | Create push subscription |
+| DELETE | `/api/v1/push/unsubscribe` | Remove push subscription |
+| GET | `/api/v1/push/subscriptions` | List current user subscriptions |
+| POST | `/api/v1/push/test` | Send test notification |
+| GET | `/api/v1/filters` | List filters |
+| POST | `/api/v1/filters` | Create filter |
+| POST | `/api/v1/filters/reorder` | Reorder filters |
+| GET | `/api/v1/filters/{id}` | Get filter |
+| PUT | `/api/v1/filters/{id}` | Update filter |
+| DELETE | `/api/v1/filters/{id}` | Delete filter |
 
-### Queue
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/admin/queue` | Queue statistics |
-| GET | `/api/admin/queue/messages` | List queued messages |
-| POST | `/api/admin/queue/messages/{id}/retry` | Retry message |
-| DELETE | `/api/admin/queue/messages/{id}` | Remove from queue |
+### Mail
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/v1/mail/inbox` | Inbox mail list |
+| GET | `/api/v1/mail/sent` | Sent mail list |
+| GET | `/api/v1/mail/drafts` | Draft mail list |
+| GET | `/api/v1/mail/trash` | Trash mail list |
+| GET | `/api/v1/mail/spam` | Spam mail list |
+| POST | `/api/v1/mail/send` | Send mail |
+| DELETE | `/api/v1/mail/delete` | Delete mail |
+
+### Backups and Cluster
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/v1/backups` | List backups |
+| GET | `/api/v1/backups/{id}` | Backup detail |
+| DELETE | `/api/v1/backups/{id}` | Delete backup |
+| POST | `/api/v1/backups/{id}/verify` | Verify backup |
+| POST | `/api/v1/backups/{id}/restore` | Restore backup |
+| POST | `/api/v1/backups/per-user/{user}` | Run per-user backup |
+| POST | `/api/v1/backups/per-mailbox/{user}/{mailbox}` | Run per-mailbox backup |
+| GET | `/api/v1/backup-jobs` | List backup jobs |
+| GET | `/api/v1/backup-jobs/{id}` | Get backup job |
+| PUT | `/api/v1/backup-jobs/{id}` | Update backup job |
+| DELETE | `/api/v1/backup-jobs/{id}` | Delete backup job |
+| POST | `/api/v1/backup-jobs/{id}/run` | Run backup job now |
+| GET | `/api/v1/cluster/status` | Cluster status |
+| GET | `/api/v1/cluster/instances` | Cluster instances |
+| POST | `/api/v1/cluster/failover` | Trigger failover |
+| POST | `/api/v1/cluster/heartbeat` | Heartbeat endpoint |
+
+### Admin Resources
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/v1/domains` | List domains |
+| POST | `/api/v1/domains` | Create domain |
+| GET | `/api/v1/domains/{name}` | Get domain |
+| PUT | `/api/v1/domains/{name}` | Update domain |
+| DELETE | `/api/v1/domains/{name}` | Delete domain |
+| GET | `/api/v1/accounts` | List accounts |
+| POST | `/api/v1/accounts` | Create account |
+| GET | `/api/v1/accounts/{email}` | Get account |
+| PUT | `/api/v1/accounts/{email}` | Update account |
+| DELETE | `/api/v1/accounts/{email}` | Delete account |
+| POST | `/api/v1/accounts/{email}/totp/setup` | Begin TOTP setup |
+| POST | `/api/v1/accounts/{email}/totp/verify` | Verify and enable TOTP |
+| POST | `/api/v1/accounts/{email}/totp/disable` | Disable TOTP |
+| GET | `/api/v1/aliases` | List aliases |
+| POST | `/api/v1/aliases` | Create alias |
+| GET | `/api/v1/aliases/{alias}` | Get alias |
+| PUT | `/api/v1/aliases/{alias}` | Update alias |
+| DELETE | `/api/v1/aliases/{alias}` | Delete alias |
+| GET | `/api/v1/queue` | List queue entries |
+| GET | `/api/v1/queue/{id}` | Queue entry detail |
+| POST | `/api/v1/queue/{id}` | Retry queue entry |
+| DELETE | `/api/v1/queue/{id}` | Drop queue entry |
+| GET | `/api/v1/metrics` | JSON metrics |
+| GET | `/api/v1/stats` | Dashboard stats |
+| GET | `/api/v1/admin/ratelimits/config` | Rate-limit config |
+| PUT | `/api/v1/admin/ratelimits/config` | Update rate-limit config |
+| GET | `/api/v1/admin/ratelimits/ip/{ip}` | Per-IP rate-limit stats |
+| GET | `/api/v1/admin/ratelimits/user/{user}` | Per-user rate-limit stats |
+| GET | `/api/v1/admin/vacations` | Active vacation overview |
+| GET | `/api/v1/admin/push/stats` | Push stats |
+| POST | `/api/v1/admin/jwt/rotate` | Rotate JWT signing secret |
+| GET | `/api/v1/admin/jwt/status` | JWT key status |
+| GET | `/api/v1/admin/queue` | Alias of admin queue list |
+| GET | `/api/v1/admin/queue/{id}` | Alias of admin queue detail |
+| POST | `/api/v1/admin/queue/{id}` | Alias of retry queue entry |
+| DELETE | `/api/v1/admin/queue/{id}` | Alias of drop queue entry |
+
+## Notes on the Specs
+
+- `openapi.yaml` is the primary document to maintain.
+- `swagger.yaml` and `swagger.json` are compatibility views and should mirror the same live route surface.
+- If routes change in `internal/api/server.go`, update this directory in the same change.
