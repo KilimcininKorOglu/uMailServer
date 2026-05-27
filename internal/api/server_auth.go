@@ -61,18 +61,10 @@ type totpAttempt struct {
 const maxTOTPFailures = 5
 const totpLockoutDuration = 5 * time.Minute
 
-const bootstrapAdminLocalPart = "admin"
-const bootstrapAdminDefaultPassword = "password"
 const passwordChangeRequiredClaim = "must_change_password"
 
-func requiresBootstrapPasswordChange(account *db.AccountData, password string) bool {
-	if account == nil || !account.IsAdmin {
-		return false
-	}
-	if account.LocalPart != bootstrapAdminLocalPart || password != bootstrapAdminDefaultPassword {
-		return false
-	}
-	return account.CreatedAt.Equal(account.UpdatedAt)
+func requiresPasswordChange(account *db.AccountData) bool {
+	return account != nil && account.MustChangePassword
 }
 
 func isPasswordChangeOnlyRoute(r *http.Request, user string) bool {
@@ -476,15 +468,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.clearTOTPFailures(req.Email)
 	}
 
-	mustChangePassword := requiresBootstrapPasswordChange(account, req.Password)
+	mustChangePassword := requiresPasswordChange(account)
 
 	// Generate JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":                    account.Email,
-		"admin":                  account.IsAdmin,
+		"sub":                       account.Email,
+		"admin":                     account.IsAdmin,
 		passwordChangeRequiredClaim: mustChangePassword,
-		"exp":                    time.Now().Add(s.config.TokenExpiry).Unix(),
-		"iat":                    time.Now().Unix(),
+		"exp":                       time.Now().Add(s.config.TokenExpiry).Unix(),
+		"iat":                       time.Now().Unix(),
 	})
 	// Set key ID header for secret rotation support
 	token.Header["kid"] = s.currentKid

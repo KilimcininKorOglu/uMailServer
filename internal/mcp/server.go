@@ -475,12 +475,12 @@ func (s *Server) handleToolsList() map[string]interface{} {
 
 // adminTools is the set of tools that require admin privileges.
 var adminTools = map[string]struct{}{
-	"add_domain":    {},
-	"delete_domain": {},
-	"add_account":   {},
+	"add_domain":     {},
+	"delete_domain":  {},
+	"add_account":    {},
 	"delete_account": {},
-	"flush_queue":   {},
-	"reload_config": {},
+	"flush_queue":    {},
+	"reload_config":  {},
 }
 
 // Handle tool call
@@ -568,13 +568,15 @@ func (s *Server) handleToolCall(ctx context.Context, params json.RawMessage) (ma
 func (s *Server) toolGetStats() (map[string]interface{}, error) {
 	domains, err := s.db.ListDomains()
 	if err != nil {
-		slog.Error("mcp tool error", "tool", "list_domains", "error", err); return nil, fmt.Errorf("internal server error")
+		slog.Error("mcp tool error", "tool", "list_domains", "error", err)
+		return nil, fmt.Errorf("internal server error")
 	}
 	accounts := 0
 	for _, d := range domains {
 		accts, err := s.db.ListAccountsByDomain(d.Name)
 		if err != nil {
-			slog.Error("mcp tool error", "tool", "list_accounts", "domain", d.Name, "error", err); return nil, fmt.Errorf("internal server error")
+			slog.Error("mcp tool error", "tool", "list_accounts", "domain", d.Name, "error", err)
+			return nil, fmt.Errorf("internal server error")
 		}
 		accounts += len(accts)
 	}
@@ -595,12 +597,14 @@ func (s *Server) toolListAccounts(domain string) (map[string]interface{}, error)
 	} else {
 		domains, err := s.db.ListDomains()
 		if err != nil {
-			slog.Error("mcp tool error", "tool", "list_domains", "error", err); return nil, fmt.Errorf("internal server error")
+			slog.Error("mcp tool error", "tool", "list_domains", "error", err)
+			return nil, fmt.Errorf("internal server error")
 		}
 		for _, d := range domains {
 			domainAccounts, err := s.db.ListAccountsByDomain(d.Name)
 			if err != nil {
-				slog.Error("mcp tool error", "tool", "list_accounts", "domain", d.Name, "error", err); return nil, fmt.Errorf("internal server error")
+				slog.Error("mcp tool error", "tool", "list_accounts", "domain", d.Name, "error", err)
+				return nil, fmt.Errorf("internal server error")
 			}
 			accounts = append(accounts, domainAccounts...)
 		}
@@ -661,7 +665,8 @@ func (s *Server) toolAddDomain(name string, maxAccounts int, maxSize string) (ma
 		MaxAccounts: maxAccounts,
 	}
 	if err := s.db.CreateDomain(domain); err != nil {
-		slog.Error("mcp tool error", "tool", "add_domain", "error", err); return nil, fmt.Errorf("internal server error")
+		slog.Error("mcp tool error", "tool", "add_domain", "error", err)
+		return nil, fmt.Errorf("internal server error")
 	}
 
 	text := fmt.Sprintf("Domain '%s' created successfully (max accounts: %d)", name, maxAccounts)
@@ -678,7 +683,8 @@ func (s *Server) toolDeleteDomain(name string) (map[string]interface{}, error) {
 	}
 
 	if err := s.db.DeleteDomain(name); err != nil {
-		slog.Error("mcp tool error", "tool", "delete_domain", "error", err); return nil, fmt.Errorf("internal server error")
+		slog.Error("mcp tool error", "tool", "delete_domain", "error", err)
+		return nil, fmt.Errorf("internal server error")
 	}
 
 	text := fmt.Sprintf("Domain '%s' deleted successfully", name)
@@ -721,7 +727,8 @@ func (s *Server) toolAddAccount(email, password string) (map[string]interface{},
 	// Hash password
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		slog.Error("mcp tool error", "tool", "add_account", "error", err); return nil, fmt.Errorf("internal server error")
+		slog.Error("mcp tool error", "tool", "add_account", "error", err)
+		return nil, fmt.Errorf("internal server error")
 	}
 
 	account := &db.AccountData{
@@ -732,7 +739,8 @@ func (s *Server) toolAddAccount(email, password string) (map[string]interface{},
 		IsAdmin:      false,
 	}
 	if err := s.db.CreateAccount(account); err != nil {
-		slog.Error("mcp tool error", "tool", "add_account", "error", err); return nil, fmt.Errorf("internal server error")
+		slog.Error("mcp tool error", "tool", "add_account", "error", err)
+		return nil, fmt.Errorf("internal server error")
 	}
 
 	return map[string]interface{}{
@@ -754,7 +762,8 @@ func (s *Server) toolDeleteAccount(email string) (map[string]interface{}, error)
 	}
 
 	if err := s.db.DeleteAccount(parts[1], parts[0]); err != nil {
-		slog.Error("mcp tool error", "tool", "delete_account", "error", err); return nil, fmt.Errorf("internal server error")
+		slog.Error("mcp tool error", "tool", "delete_account", "error", err)
+		return nil, fmt.Errorf("internal server error")
 	}
 
 	text := fmt.Sprintf("Account '%s' deleted successfully", email)
@@ -778,7 +787,8 @@ func (s *Server) toolGetAccountInfo(email string) (map[string]interface{}, error
 
 	account, err := s.db.GetAccount(parts[1], parts[0])
 	if err != nil {
-		slog.Error("mcp tool error", "tool", "get_account_info", "error", err); return nil, fmt.Errorf("account not found")
+		slog.Error("mcp tool error", "tool", "get_account_info", "error", err)
+		return nil, fmt.Errorf("account not found")
 	}
 
 	text := fmt.Sprintf("Account Information:\n")

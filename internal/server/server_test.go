@@ -16,6 +16,7 @@ import (
 	"github.com/umailserver/umailserver/internal/config"
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/queue"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestParseLogLevel(t *testing.T) {
@@ -240,8 +241,80 @@ func TestNewSyncsConfiguredDomains(t *testing.T) {
 	if !adminAccount.IsActive {
 		t.Fatal("expected bootstrap account to be active")
 	}
+	if !adminAccount.MustChangePassword {
+		t.Fatal("expected bootstrap account to require a password change")
+	}
 	if adminAccount.PasswordHash == "" || adminAccount.APOPHash == "" {
 		t.Fatal("expected bootstrap account to include password and APOP hashes")
+	}
+}
+
+func TestNewBackfillsBootstrapAdminPasswordChangeFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open seed database: %v", err)
+	}
+
+	if err := database.CreateDomain(&db.DomainData{
+		Name:        "example.com",
+		MaxAccounts: 42,
+		IsActive:    true,
+	}); err != nil {
+		t.Fatalf("failed to seed domain: %v", err)
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("failed to hash bootstrap password: %v", err)
+	}
+
+	if err := database.CreateAccount(&db.AccountData{
+		Email:              "admin@example.com",
+		LocalPart:          "admin",
+		Domain:             "example.com",
+		PasswordHash:       string(passwordHash),
+		IsAdmin:            true,
+		IsActive:           true,
+		MustChangePassword: false,
+	}); err != nil {
+		t.Fatalf("failed to seed bootstrap admin: %v", err)
+	}
+
+	if err := database.Close(); err != nil {
+		t.Fatalf("failed to close seed database: %v", err)
+	}
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Hostname: "test.example.com",
+			DataDir:  tmpDir,
+		},
+		Database: config.DatabaseConfig{
+			Path: dbPath,
+		},
+		Logging: config.LoggingConfig{
+			Level: "info",
+		},
+		Domains: []config.DomainConfig{{
+			Name: "example.com",
+		}},
+	}
+
+	server, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer func() { _ = server.Stop() }()
+
+	adminAccount, err := server.database.GetAccount("example.com", "admin")
+	if err != nil {
+		t.Fatalf("expected bootstrap admin account to exist, got error: %v", err)
+	}
+	if !adminAccount.MustChangePassword {
+		t.Fatal("expected startup to backfill the password change requirement")
 	}
 }
 

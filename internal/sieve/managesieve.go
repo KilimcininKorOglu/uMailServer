@@ -26,16 +26,16 @@ const ManageSieveTLSListenAddr = "0.0.0.0:4191"
 
 // ManageSieveServer implements RFC 5804 - Protocol for Managing Sieve Scripts
 type ManageSieveServer struct {
-	ln             net.Listener
-	tlsLn          net.Listener
-	tlsCfg         *tls.Config
-	manager        *Manager
-	listenAddr     string
-	done           chan struct{}
-	wg             sync.WaitGroup
-	mu             sync.Mutex
-	running        bool
-	authHandler    func(user, pass string) bool // Auth validation function
+	ln          net.Listener
+	tlsLn       net.Listener
+	tlsCfg      *tls.Config
+	manager     *Manager
+	listenAddr  string
+	done        chan struct{}
+	wg          sync.WaitGroup
+	mu          sync.Mutex
+	running     bool
+	authHandler func(user, pass string) bool // Auth validation function
 
 	// tracingProvider wraps every command in a `managesieve.<COMMAND>`
 	// server-kind span when set.

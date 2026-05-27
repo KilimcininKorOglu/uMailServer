@@ -831,17 +831,15 @@ func TestBootstrapAdminLoginRequiresPasswordChange(t *testing.T) {
 		t.Fatalf("failed to create domain: %v", err)
 	}
 
-	hash, _ := bcrypt.GenerateFromPassword([]byte(bootstrapAdminDefaultPassword), bcrypt.DefaultCost)
-	now := time.Now()
+	hash, _ := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
 	account := &db.AccountData{
-		Email:        "admin@boot.com",
-		LocalPart:    bootstrapAdminLocalPart,
-		Domain:       "boot.com",
-		PasswordHash: string(hash),
-		IsAdmin:      true,
-		IsActive:     true,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		Email:              "admin@boot.com",
+		LocalPart:          "admin",
+		Domain:             "boot.com",
+		PasswordHash:       string(hash),
+		MustChangePassword: true,
+		IsAdmin:            true,
+		IsActive:           true,
 	}
 	if err := database.CreateAccount(account); err != nil {
 		t.Fatalf("failed to create account: %v", err)
@@ -854,7 +852,7 @@ func TestBootstrapAdminLoginRequiresPasswordChange(t *testing.T) {
 
 	loginBody, _ := json.Marshal(map[string]string{
 		"email":    "admin@boot.com",
-		"password": bootstrapAdminDefaultPassword,
+		"password": "password",
 	})
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
 	loginRec := httptest.NewRecorder()
@@ -928,6 +926,9 @@ func TestBootstrapAdminLoginRequiresPasswordChange(t *testing.T) {
 	}
 	if !updated.IsActive {
 		t.Fatal("expected bootstrap admin to remain active")
+	}
+	if updated.MustChangePassword {
+		t.Fatal("expected password change requirement to be cleared after update")
 	}
 	matches, _ := server.verifyPassword("ChangedPass1!", updated.PasswordHash)
 	if !matches {

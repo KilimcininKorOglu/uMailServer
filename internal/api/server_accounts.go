@@ -275,15 +275,11 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		if req.IsAdmin != nil || req.IsActive != nil || req.ForwardTo != nil ||
 			req.ForwardKeepCopy != nil || req.QuotaLimit != nil || req.VacationSettings != nil ||
 			req.CurrentAdminPassword != "" {
-			s.sendError(w, http.StatusForbidden, "only password updates are allowed until the bootstrap password is changed")
+			s.sendError(w, http.StatusForbidden, "only password updates are allowed until the required password change is completed")
 			return
 		}
 		if err := validatePassword(*req.Password); err != nil {
 			s.sendError(w, http.StatusBadRequest, "password does not meet complexity requirements")
-			return
-		}
-		if *req.Password == bootstrapAdminDefaultPassword {
-			s.sendError(w, http.StatusBadRequest, "new password must differ from the bootstrap password")
 			return
 		}
 	}
@@ -346,6 +342,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		}
 		account.PasswordHash = hashedPassword
 		account.APOPHash = fmt.Sprintf("%x", sha256.Sum256([]byte(*req.Password)))
+		account.MustChangePassword = false
 	}
 	if req.IsAdmin != nil {
 		account.IsAdmin = *req.IsAdmin

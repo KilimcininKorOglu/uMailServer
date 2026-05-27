@@ -384,6 +384,9 @@ func syncConfiguredDomains(database *db.DB, configuredDomains []config.DomainCon
 }
 
 func ensureBootstrapAdminAccounts(database *db.DB, configuredDomains []config.DomainConfig, logger *slog.Logger) error {
+	const bootstrapAdminLocalPart = "admin"
+	const bootstrapAdminDefaultPassword = "password"
+
 	for _, domain := range configuredDomains {
 		accounts, err := database.ListAccountsByDomain(domain.Name)
 		if err != nil {
@@ -392,15 +395,28 @@ func ensureBootstrapAdminAccounts(database *db.DB, configuredDomains []config.Do
 
 		hasAdmin := false
 		hasBootstrapAddress := false
+		var bootstrapAdminAccount *db.AccountData
 		for _, account := range accounts {
+			if strings.EqualFold(account.LocalPart, bootstrapAdminLocalPart) {
+				hasBootstrapAddress = true
+				if account.IsAdmin {
+					bootstrapAdminAccount = account
+				}
+			}
 			if account.IsAdmin {
 				hasAdmin = true
-				break
-			}
-			if strings.EqualFold(account.LocalPart, "admin") {
-				hasBootstrapAddress = true
 			}
 		}
+
+		if bootstrapAdminAccount != nil && !bootstrapAdminAccount.MustChangePassword &&
+			bcrypt.CompareHashAndPassword([]byte(bootstrapAdminAccount.PasswordHash), []byte(bootstrapAdminDefaultPassword)) == nil {
+			bootstrapAdminAccount.MustChangePassword = true
+			if err := database.UpdateAccount(bootstrapAdminAccount); err != nil {
+				return err
+			}
+			logger.Info("Enabled bootstrap password change requirement for admin account", "email", bootstrapAdminAccount.Email)
+		}
+
 		if hasAdmin {
 			continue
 		}
@@ -412,7 +428,7 @@ func ensureBootstrapAdminAccounts(database *db.DB, configuredDomains []config.Do
 			continue
 		}
 
-		passwordHash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
+		passwordHash, err := bcrypt.GenerateFromPassword([]byte(bootstrapAdminDefaultPassword), bcrypt.DefaultCost)
 		if err != nil {
 			return fmt.Errorf("failed to hash bootstrap admin password: %w", err)
 		}
@@ -420,15 +436,16 @@ func ensureBootstrapAdminAccounts(database *db.DB, configuredDomains []config.Do
 		now := time.Now()
 		email := "admin@" + domain.Name
 		if err := database.CreateAccount(&db.AccountData{
-			Email:        email,
-			LocalPart:    "admin",
-			Domain:       domain.Name,
-			PasswordHash: string(passwordHash),
-			APOPHash:     fmt.Sprintf("%x", sha256.Sum256([]byte("password"))),
-			IsAdmin:      true,
-			IsActive:     true,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			Email:              email,
+			LocalPart:          bootstrapAdminLocalPart,
+			Domain:             domain.Name,
+			PasswordHash:       string(passwordHash),
+			APOPHash:           fmt.Sprintf("%x", sha256.Sum256([]byte(bootstrapAdminDefaultPassword))),
+			MustChangePassword: true,
+			IsAdmin:            true,
+			IsActive:           true,
+			CreatedAt:          now,
+			UpdatedAt:          now,
 		}); err != nil {
 			return err
 		}
