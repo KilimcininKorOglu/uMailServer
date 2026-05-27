@@ -8,6 +8,7 @@ data/
 *.db
 *.db.lock
 dist/
+bin/
 webmail/node_modules/
 web/admin/node_modules/
 web/account/node_modules/

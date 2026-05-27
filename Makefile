@@ -4,6 +4,17 @@
 # Variables
 BINARY_NAME=umailserver
 BINARY_PATH=./cmd/umailserver
+BIN_DIR=bin
+SERVER_BINARY=$(BIN_DIR)/$(BINARY_NAME)
+CLIENT_BINARY=$(BIN_DIR)/umailclient
+BUILD_ALL_PREFIX=$(BIN_DIR)/$(BINARY_NAME)
+BUILD_ALL_WINDOWS=$(BUILD_ALL_PREFIX)-windows-amd64.exe
+BUILD_ALL_LINUX_AMD64=$(BUILD_ALL_PREFIX)-linux-amd64
+BUILD_ALL_LINUX_ARM64=$(BUILD_ALL_PREFIX)-linux-arm64
+BUILD_ALL_DARWIN_AMD64=$(BUILD_ALL_PREFIX)-darwin-amd64
+BUILD_ALL_DARWIN_ARM64=$(BUILD_ALL_PREFIX)-darwin-arm64
+COVERAGE_OUT=$(BIN_DIR)/coverage.out
+COVERAGE_HTML=$(BIN_DIR)/coverage.html
 DOCKER_IMAGE=umailserver
 VERSION=$(shell git describe --tags --always 2>/dev/null || echo "dev")
 BUILD_DATE=$(shell date -u +%Y-%m-%d)
@@ -27,17 +38,19 @@ GOFMT=gofmt
 # Build the binary (first builds all frontends)
 build: build-web
 	@echo "Building $(BINARY_NAME)..."
-	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) $(BINARY_PATH)
-	@echo "Build complete: $(BINARY_NAME)"
+	@mkdir -p $(BIN_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(SERVER_BINARY) $(BINARY_PATH)
+	@echo "Build complete: $(SERVER_BINARY)"
 
 # Build for multiple platforms
 build-all:
 	@echo "Building for all platforms..."
-	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-linux-amd64 $(BINARY_PATH)
-	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-linux-arm64 $(BINARY_PATH)
-	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-amd64 $(BINARY_PATH)
-	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-arm64 $(BINARY_PATH)
-	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-windows-amd64.exe $(BINARY_PATH)
+	@mkdir -p $(BIN_DIR)
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_ALL_LINUX_AMD64) $(BINARY_PATH)
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_ALL_LINUX_ARM64) $(BINARY_PATH)
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_ALL_DARWIN_AMD64) $(BINARY_PATH)
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_ALL_DARWIN_ARM64) $(BINARY_PATH)
+	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_ALL_WINDOWS) $(BINARY_PATH)
 	@echo "Multi-platform build complete"
 
 # Run tests
@@ -58,9 +71,10 @@ bench:
 # Generate test coverage
 coverage:
 	@echo "Generating coverage report..."
-	$(GOTEST) -coverprofile=coverage.out ./...
-	$(GOCMD) tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report: coverage.html"
+	@mkdir -p $(BIN_DIR)
+	$(GOTEST) -coverprofile=$(COVERAGE_OUT) ./...
+	$(GOCMD) tool cover -html=$(COVERAGE_OUT) -o $(COVERAGE_HTML)
+	@echo "Coverage report: $(COVERAGE_HTML)"
 
 # Run linter
 lint:
@@ -86,15 +100,14 @@ vet:
 clean:
 	@echo "Cleaning..."
 	$(GOCLEAN)
-	rm -f $(BINARY_NAME)
-	rm -f coverage.out coverage.html
-	rm -rf dist/
+	rm -rf $(BIN_DIR)
 	rm -rf data/
 
 # Run the server
 run:
-	$(GOBUILD) -o $(BINARY_NAME) $(BINARY_PATH)
-	./$(BINARY_NAME) serve
+	@mkdir -p $(BIN_DIR)
+	$(GOBUILD) -o $(SERVER_BINARY) $(BINARY_PATH)
+	./$(SERVER_BINARY) serve
 
 # Run in development mode with hot reload
 dev:
@@ -150,8 +163,9 @@ build-web:
 # Build benchmark client
 build-client:
 	@echo "Building umailclient..."
-	$(GOBUILD) -o umailclient ./cmd/umailclient
-	@echo "Client built: umailclient"
+	@mkdir -p $(BIN_DIR)
+	$(GOBUILD) -o $(CLIENT_BINARY) ./cmd/umailclient
+	@echo "Client built: $(CLIENT_BINARY)"
 
 # Install development tools
 install-tools:
@@ -171,21 +185,21 @@ setup:
 # Create release
 release:
 	@echo "Creating release $(VERSION)..."
-	@mkdir -p dist
+	@mkdir -p $(BIN_DIR)
 	$(MAKE) build-all
 	@echo "Creating archives..."
-	tar czf dist/$(BINARY_NAME)-$(VERSION)-linux-amd64.tar.gz -C dist $(BINARY_NAME)-linux-amd64
-	tar czf dist/$(BINARY_NAME)-$(VERSION)-linux-arm64.tar.gz -C dist $(BINARY_NAME)-linux-arm64
-	tar czf dist/$(BINARY_NAME)-$(VERSION)-darwin-amd64.tar.gz -C dist $(BINARY_NAME)-darwin-amd64
-	tar czf dist/$(BINARY_NAME)-$(VERSION)-darwin-arm64.tar.gz -C dist $(BINARY_NAME)-darwin-arm64
-	zip -j dist/$(BINARY_NAME)-$(VERSION)-windows-amd64.zip dist/$(BINARY_NAME)-windows-amd64.exe
-	@echo "Release complete: dist/"
+	tar czf $(BIN_DIR)/$(BINARY_NAME)-$(VERSION)-linux-amd64.tar.gz -C $(BIN_DIR) $(BINARY_NAME)-linux-amd64
+	tar czf $(BIN_DIR)/$(BINARY_NAME)-$(VERSION)-linux-arm64.tar.gz -C $(BIN_DIR) $(BINARY_NAME)-linux-arm64
+	tar czf $(BIN_DIR)/$(BINARY_NAME)-$(VERSION)-darwin-amd64.tar.gz -C $(BIN_DIR) $(BINARY_NAME)-darwin-amd64
+	tar czf $(BIN_DIR)/$(BINARY_NAME)-$(VERSION)-darwin-arm64.tar.gz -C $(BIN_DIR) $(BINARY_NAME)-darwin-arm64
+	zip -j $(BIN_DIR)/$(BINARY_NAME)-$(VERSION)-windows-amd64.zip $(BUILD_ALL_WINDOWS)
+	@echo "Release complete: $(BIN_DIR)/"
 
 # Install binary to system
 install:
 	@echo "Installing $(BINARY_NAME)..."
 	$(MAKE) build
-	sudo cp $(BINARY_NAME) /usr/local/bin/
+	sudo cp $(SERVER_BINARY) /usr/local/bin/
 	@echo "Installed to /usr/local/bin/$(BINARY_NAME)"
 
 # Uninstall binary
