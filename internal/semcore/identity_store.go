@@ -71,6 +71,8 @@ type storedItemIdentity struct {
 	FolderID        FolderId
 	ChangeKey       ChangeKey
 	ConversationID  ConversationId
+	MsgKey          string // blob key used to look up raw message in msgStore
+	Email           string // raw email (user key) for msgStore lookups
 }
 
 // storedConversationIdentity is what we persist for a ConversationId.
@@ -165,7 +167,7 @@ type IdentityStore interface {
 
 	// PutItemIdentity stores a canonical ItemId + ChangeKey for a message.
 	// If an item already exists for this message-key, it returns ErrIdentityExists.
-	PutItemIdentity(msgKey string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId) error
+	PutItemIdentity(msgKey string, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId) error
 
 	// GetItemIDByKey retrieves ItemId for a message key.
 	// Returns ErrItemNotFound if not registered.
@@ -185,6 +187,11 @@ type IdentityStore interface {
 
 	// ListItemIdentitiesByMailbox returns all item IDs for one mailbox.
 	ListItemIdentitiesByMailbox(mboxID MailboxId) ([]storedItemIdentity, error)
+
+	// DeleteItemIdentity removes an item identity from the store.
+	// This is called after a soft-delete (MoveToDeletedItems) so the item is
+	// no longer accessible via normal item operations.
+	DeleteItemIdentity(id ItemId) error
 
 	// --- AttachmentId operations ---
 
@@ -698,7 +705,7 @@ func (s *BoltIdentityStore) GetFolderByMailbox(mboxKey, role string) (*storedFol
 // ---------------------------------------------------------------------------
 
 // PutItemIdentity implements IdentityStore.
-func (s *BoltIdentityStore) PutItemIdentity(msgKey string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId) error {
+func (s *BoltIdentityStore) PutItemIdentity(msgKey string, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId) error {
 	if id.IsZero() {
 		return errors.New("PutItemIdentity: zero ItemId")
 	}
@@ -715,6 +722,8 @@ func (s *BoltIdentityStore) PutItemIdentity(msgKey string, id ItemId, mailboxID 
 			FolderID:       folderID,
 			ChangeKey:      ck,
 			ConversationID: convID,
+			MsgKey:        msgKey,
+			Email:         email,
 		}
 		data, err := json.Marshal(rec)
 		if err != nil {
@@ -819,6 +828,25 @@ func (s *BoltIdentityStore) SetItemConversation(id ItemId, convID ConversationId
 					return fmt.Errorf("marshal updated item: %w", err)
 				}
 				return tx.Bucket([]byte(bucketItem)).Put(k, out)
+			}
+		}
+		return ErrItemNotFound
+	})
+}
+
+// DeleteItemIdentity implements IdentityStore.
+func (s *BoltIdentityStore) DeleteItemIdentity(id ItemId) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		c := tx.Bucket([]byte(bucketItem)).Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var it storedItemIdentity
+			if err := json.Unmarshal(v, &it); err != nil {
+				continue
+			}
+			if it.ItemID.Equal(id) {
+				return tx.Bucket([]byte(bucketItem)).Delete(k)
 			}
 		}
 		return ErrItemNotFound

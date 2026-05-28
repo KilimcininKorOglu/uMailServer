@@ -76,7 +76,10 @@ type MutationInput struct {
 	// For IMAP/JMAP/EWS, this is the authenticated mailbox owner.
 	Actor string
 
-	// Source identifies which protocol path initiated this mutation.
+	// Email is the raw email address (user key) for the msgStore.
+	Email string
+
+	// Source is the protocol path that initiated this mutation.
 	Source MutationSource
 
 	// UserFlags are the protocol-specific flags set at mutation time
@@ -372,7 +375,7 @@ func (p *MutationPipeline) MutateItem(in *MutationInput) (*MutationResult, error
 	blobKey := computeBlobKey(in.RawMessage)
 	msgKey := blobKey // msgKey == blobKey for content-hash store
 
-	if err := p.identity.PutItemIdentity(msgKey, itemID, in.MailboxID, in.FolderID, ck, convID); err != nil {
+	if err := p.identity.PutItemIdentity(msgKey, in.Email, itemID, in.MailboxID, in.FolderID, ck, convID); err != nil {
 		return nil, fmt.Errorf("MutateItem: put item identity: %w", err)
 	}
 

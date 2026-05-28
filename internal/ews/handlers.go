@@ -10,22 +10,29 @@ import (
 	"net/http"
 
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/storage"
 )
 
 // Server is the EWS request handler. It receives SOAP requests, routes them
 // to the appropriate operation handler, and returns SOAP responses.
 type Server struct {
-	identity *semcore.BoltIdentityStore
-	sync     *semcore.BoltSyncStateStore
-	tombstones *semcore.BoltTombstoneStore
+	identity      *semcore.BoltIdentityStore
+	sync          *semcore.BoltSyncStateStore
+	tombstones    *semcore.BoltTombstoneStore
+	msgStore      *storage.MessageStore
+	storageDB     *storage.Database
+	mutationPipe  *semcore.MutationPipeline
 }
 
-// NewServer creates an EWS handler wired to the canonical semcore stores.
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore) *Server {
+// NewServer creates an EWS handler wired to the canonical semcore stores and storage.
+func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline) *Server {
 	return &Server{
-		identity:   identity,
-		sync:       syncState,
-		tombstones: tombstones,
+		identity:     identity,
+		sync:         syncState,
+		tombstones:   tombstones,
+		msgStore:     msgStore,
+		storageDB:    storageDB,
+		mutationPipe: mutationPipe,
 	}
 }
 
@@ -70,6 +77,24 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleSyncFolderHierarchy(ctx, soapBody)
 	case "SyncFolderItems":
 		response = s.handleSyncFolderItems(ctx, soapBody)
+	case "CreateItem":
+		response = s.handleCreateItem(ctx, soapBody)
+	case "GetItem":
+		response = s.handleGetItem(ctx, soapBody)
+	case "UpdateItem":
+		response = s.handleUpdateItem(ctx, soapBody)
+	case "DeleteItem":
+		response = s.handleDeleteItem(ctx, soapBody)
+	case "SendItem":
+		response = s.handleSendItem(ctx, soapBody)
+	case "MoveItem":
+		response = s.handleMoveItem(ctx, soapBody)
+	case "CopyItem":
+		response = s.handleCopyItem(ctx, soapBody)
+	case "GetAttachment":
+		response = s.handleGetAttachment(ctx, soapBody)
+	case "DeleteAttachment":
+		response = s.handleDeleteAttachment(ctx, soapBody)
 	default:
 		response = s.errorResponseXML(op, ErrErrorNotImplemented, fmt.Sprintf("operation %q not implemented", op))
 	}
@@ -183,6 +208,10 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"DeletedItems", "ReadFlagChange", "ItemChanges",
 		"SyncFolderHierarchyResponse", "SyncFolderItemsResponse",
 		"DistinguishedFolderName", "DisplayName",
+		// Item operation elements
+		"GetItem", "UpdateItem", "DeleteItem", "CreateItem", "SendItem", "MoveItem", "CopyItem",
+		"GetAttachment", "DeleteAttachment", "ItemIds", "ItemShape", "ToFolderId",
+		"AttachmentIds", "AttachmentId", "FileAttachment", "Mailbox",
 	}
 
 	// Build a map for fast lookup.
