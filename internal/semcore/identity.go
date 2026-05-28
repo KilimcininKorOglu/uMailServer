@@ -41,7 +41,10 @@
 // fault mapping. They do not own storage or canonical change semantics.
 package semcore
 
-import "errors"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // ---------------------------------------------------------------------------
 // Identity types
@@ -82,6 +85,25 @@ func (id MailboxId) IsZero() bool { return id.raw == "" }
 // Equal reports whether two MailboxIds have the same raw value.
 func (id MailboxId) Equal(other MailboxId) bool { return id.raw == other.raw }
 
+// MarshalJSON serializes a MailboxId to its raw string value.
+func (id MailboxId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes a MailboxId from its raw string value.
+func (id *MailboxId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = MailboxId{}
+		return nil
+	}
+	*id = MailboxId{raw: raw}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 
 // FolderId is the authoritative identity for a folder within a mailbox.
@@ -116,6 +138,25 @@ func (id FolderId) IsZero() bool { return id.raw == "" }
 
 // Equal reports whether two FolderIds have the same raw value.
 func (id FolderId) Equal(other FolderId) bool { return id.raw == other.raw }
+
+// MarshalJSON serializes a FolderId to its raw string value.
+func (id FolderId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes a FolderId from its raw string value.
+func (id *FolderId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = FolderId{}
+		return nil
+	}
+	*id = FolderId{raw: raw}
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 
@@ -153,6 +194,25 @@ func (id ItemId) IsZero() bool { return id.raw == "" }
 // Equal reports whether two ItemIds have the same raw value.
 func (id ItemId) Equal(other ItemId) bool { return id.raw == other.raw }
 
+// MarshalJSON serializes an ItemId to its raw string value.
+func (id ItemId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes an ItemId from its raw string value.
+func (id *ItemId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = ItemId{}
+		return nil
+	}
+	*id = ItemId{raw: raw}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 
 // ChangeKey is an opaque version token that advances on every semantically
@@ -187,6 +247,25 @@ func (ck ChangeKey) IsZero() bool { return ck.raw == "" }
 
 // Equal reports whether two ChangeKeys have the same raw value.
 func (ck ChangeKey) Equal(other ChangeKey) bool { return ck.raw == other.raw }
+
+// MarshalJSON serializes a ChangeKey to its raw string value.
+func (ck ChangeKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ck.raw)
+}
+
+// UnmarshalJSON deserializes a ChangeKey from its raw string value.
+func (ck *ChangeKey) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*ck = ChangeKey{}
+		return nil
+	}
+	*ck = ChangeKey{raw: raw}
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 
@@ -224,6 +303,25 @@ func (id AttachmentId) IsZero() bool { return id.raw == "" }
 // Equal reports whether two AttachmentIds have the same raw value.
 func (id AttachmentId) Equal(other AttachmentId) bool { return id.raw == other.raw }
 
+// MarshalJSON serializes an AttachmentId to its raw string value.
+func (id AttachmentId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes an AttachmentId from its raw string value.
+func (id *AttachmentId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = AttachmentId{}
+		return nil
+	}
+	*id = AttachmentId{raw: raw}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 
 // ConversationId is the authoritative identity for a message thread or
@@ -258,6 +356,25 @@ func (id ConversationId) IsZero() bool { return id.raw == "" }
 
 // Equal reports whether two ConversationIds have the same raw value.
 func (id ConversationId) Equal(other ConversationId) bool { return id.raw == other.raw }
+
+// MarshalJSON serializes a ConversationId to its raw string value.
+func (id ConversationId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes a ConversationId from its raw string value.
+func (id *ConversationId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = ConversationId{}
+		return nil
+	}
+	*id = ConversationId{raw: raw}
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // Sync token
