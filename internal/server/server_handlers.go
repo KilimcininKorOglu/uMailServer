@@ -13,6 +13,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/metrics"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
 	"github.com/umailserver/umailserver/internal/webhook"
@@ -324,6 +325,52 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, targetFold
 		return fmt.Errorf("user does not exist or is not active: %s", email)
 	}
 
+	// Canonical mutation: assign semantic identity through the unified pipeline.
+	// This is the single authoritative write path for all mail mutations.
+	// It assigns ItemId, ChangeKey, and ConversationId consistently for
+	// SMTP-delivered and mailbox-authored messages.
+	//
+	// If the semcore store is not yet initialized (nil), we skip semantic
+	// identity assignment and fall back to the existing storage path.
+	var mutationResult *semcore.MutationResult
+	if s.mutationPipe != nil {
+		// Resolve or create mailbox and folder identities.
+		mboxID, mboxErr := s.mutationPipe.Identity().EnsureMailboxId(email)
+		if mboxErr != nil {
+			s.logger.Warn("Failed to ensure mailbox identity, skipping semantic mutation",
+				"email", email, "error", mboxErr)
+		} else {
+			// Determine distinguished role for known folders.
+			role := distinguishedRole(folder)
+			fldID, fldErr := s.mutationPipe.Identity().EnsureFolderId(email, folder, role)
+			if fldErr != nil {
+				s.logger.Warn("Failed to ensure folder identity, skipping semantic mutation",
+					"email", email, "folder", folder, "error", fldErr)
+			} else {
+				in := &semcore.MutationInput{
+					MailboxID:     mboxID,
+					FolderID:      fldID,
+					RawMessage:    data,
+					InternalDate: time.Now(),
+					Actor:        from,
+					Source:       semcore.MutationSourceSMTP,
+				}
+				mutationResult, mboxErr = s.mutationPipe.MutateItem(in)
+				if mboxErr != nil {
+					s.logger.Warn("Canonical mutation failed, falling back to legacy path",
+						"email", email, "error", mboxErr)
+					mutationResult = nil
+				} else {
+					s.logger.Debug("Canonical mutation succeeded",
+						"email", email,
+						"item_id", mutationResult.ItemID.String(),
+						"change_key", mutationResult.ChangeKey.String(),
+						"conversation_id", mutationResult.ConversationID.String())
+				}
+			}
+		}
+	}
+
 	// Reserve quota atomically before storing
 	if err := s.database.IncrementQuota(domain, user, int64(len(data))); err != nil {
 		return fmt.Errorf("quota exceeded for user: %s", email)
@@ -543,4 +590,29 @@ func (s *Server) authenticateClientCert(cert *x509.Certificate) (string, bool) {
 	s.logger.Info("Client certificate authentication successful", "email", email)
 
 	return email, true
+}
+
+// distinguishedRole returns the canonical distinguished folder role for well-known
+// IMAP folder names. This is used when registering folder identity in the
+// semantic-core store so that distinguished folders have stable semantic IDs
+// regardless of the mailbox or the client's view of the folder name.
+func distinguishedRole(folderName string) string {
+	switch strings.ToUpper(folderName) {
+	case "INBOX":
+		return "inbox"
+	case "DRAFTS", "DRAFT":
+		return "drafts"
+	case "SENT", "SENT ITEMS", "SENT MAIL":
+		return "sent"
+	case "TRASH", "DELETED ITEMS", "DELETED":
+		return "trash"
+	case "JUNK", "SPAM":
+		return "junk"
+	case "ARCHIVE", "ARCHIVES":
+		return "archive"
+	case "OUTBOX":
+		return "outbox"
+	default:
+		return ""
+	}
 }

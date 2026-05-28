@@ -41,6 +41,13 @@ func (s *Server) Start() error {
 	// Set MDN handler for read receipts
 	s.mailstore.SetMDNHandler(s.sendMDN)
 
+	// Wire canonical mutation pipeline for semantic identity assignment.
+	// This enables unified message-mutation semantics for IMAP append/update
+	// alongside the existing SMTP local delivery path.
+	if s.mutationPipe != nil {
+		s.mailstore.SetMutationPipeline(s.mutationPipe)
+	}
+
 	s.startSMTP()
 
 	// Start search indexing worker pool

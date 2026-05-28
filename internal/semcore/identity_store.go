@@ -327,6 +327,36 @@ func (s *BoltIdentityStore) GetMailboxIDByEmail(email string) (MailboxId, error)
 	return s.GetMailboxIDByKey(mailboxKeyEmail(email))
 }
 
+// EnsureMailboxId returns the MailboxId for an email, creating and registering
+// a new canonical identity if one does not yet exist. This is used by the
+// canonical mutation pipeline to obtain a MailboxId for a mailbox that may not
+// have been backfilled yet.
+//
+// If an identity already exists, the existing ID is returned (idempotent).
+// A new identity is generated using a cryptographically random ID.
+func (s *BoltIdentityStore) EnsureMailboxId(email string) (MailboxId, error) {
+	// Fast path: existing identity.
+	if id, err := s.GetMailboxIDByEmail(email); err == nil {
+		return id, nil
+	}
+
+	// Slow path: create new identity.
+	id, err := NewMailboxId(generateID())
+	if err != nil {
+		return MailboxId{}, fmt.Errorf("EnsureMailboxId: generate ID: %w", err)
+	}
+
+	// Use UIDValidity 1 as the initial value; the IMAP layer manages the real UIDValidity.
+	if err := s.PutMailboxIdentity(mailboxKeyEmail(email), id, 1); err != nil {
+		// Race: another goroutine may have created it. Check again.
+		if err == ErrIdentityExists {
+			return s.GetMailboxIDByEmail(email)
+		}
+		return MailboxId{}, fmt.Errorf("EnsureMailboxId: put identity: %w", err)
+	}
+	return id, nil
+}
+
 // SetMailboxModSeq implements IdentityStore.
 func (s *BoltIdentityStore) SetMailboxModSeq(key string, modseq uint64) error {
 	s.mu.Lock()
@@ -451,6 +481,38 @@ func (s *BoltIdentityStore) GetFolderByID(id FolderId) (*storedFolderIdentity, e
 		return ErrFolderNotFound
 	})
 	return rec, err
+}
+
+// EnsureFolderId returns the FolderId for a mailbox+folder combination,
+// creating and registering a new canonical identity if one does not yet exist.
+// This is used by the canonical mutation pipeline to obtain a FolderId for a
+// folder that may not have been backfilled yet.
+//
+// Role is the distinguished-role string ("inbox", "drafts", "sent", etc.)
+// or empty for user-created folders.
+//
+// If an identity already exists, the existing ID is returned (idempotent).
+// A new identity is generated using a cryptographically random ID.
+func (s *BoltIdentityStore) EnsureFolderId(mboxKey, folderName, role string) (FolderId, error) {
+	// Fast path: existing identity.
+	if id, err := s.GetFolderID(mboxKey, folderName); err == nil {
+		return id, nil
+	}
+
+	// Slow path: create new identity.
+	id, err := NewFolderId(generateID())
+	if err != nil {
+		return FolderId{}, fmt.Errorf("EnsureFolderId: generate ID: %w", err)
+	}
+
+	if err := s.PutFolderIdentity(mboxKey, folderName, id, role); err != nil {
+		// Race: another goroutine may have created it. Check again.
+		if err == ErrIdentityExists {
+			return s.GetFolderID(mboxKey, folderName)
+		}
+		return FolderId{}, fmt.Errorf("EnsureFolderId: put identity: %w", err)
+	}
+	return id, nil
 }
 
 // SetFolderParent implements IdentityStore.

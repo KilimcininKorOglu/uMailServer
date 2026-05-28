@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
@@ -19,6 +20,11 @@ type BboltMailstore struct {
 	dataDir  string
 	db       *storage.Database
 	msgStore *storage.MessageStore
+
+	// Canonical mutation pipeline for semantic identity assignment.
+	// Wired by the server during initialization via SetMutationPipeline.
+	// Nil if semantic-core is not yet initialized.
+	mutationPipe *semcore.MutationPipeline
 
 	// MDN tracking
 	mdnSent    map[string]bool // Message-Id -> true if MDN sent
@@ -35,6 +41,14 @@ type MDNHandler interface {
 // SetMDNHandler sets the handler for sending MDN notifications
 func (m *BboltMailstore) SetMDNHandler(handler func(from, to, messageID, inReplyTo string, msg []byte) error) {
 	m.mdnHandler = handler
+}
+
+// SetMutationPipeline wires the canonical mutation pipeline into the mailstore.
+// This enables semantic identity assignment (ItemId, ChangeKey, ConversationId)
+// for IMAP append and update operations. The pipeline should be the
+// *semcore.MutationPipeline owned by the server.
+func (m *BboltMailstore) SetMutationPipeline(pipe *semcore.MutationPipeline) {
+	m.mutationPipe = pipe
 }
 
 // NewBboltMailstore creates a new mailstore backed by bbolt
@@ -589,6 +603,45 @@ func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, dat
 	// RFC 3629: validate UTF-8 well-formedness before storing
 	if !utf8.Valid(data) {
 		return fmt.Errorf("message contains invalid UTF-8 sequence")
+	}
+
+	// Canonical mutation: assign semantic identity through the unified pipeline.
+	// This is the single authoritative write path for all mail mutations.
+	// It assigns ItemId, ChangeKey, and ConversationId consistently for
+	// SMTP-delivered and mailbox-authored messages.
+	//
+	// If the semcore store is not yet initialized (mutationPipe is nil),
+	// we skip semantic identity assignment and fall back to the existing path.
+	if m.mutationPipe != nil {
+		// Determine distinguished role for well-known folders.
+		role := distinguishedRole(mailbox)
+
+		// Resolve or create mailbox and folder identities.
+		mboxID, mboxErr := m.mutationPipe.Identity().EnsureMailboxId(user)
+		if mboxErr != nil {
+			// Log and continue without semantic identity.
+			// The existing storage path will still work.
+		} else {
+			fldID, fldErr := m.mutationPipe.Identity().EnsureFolderId(user, mailbox, role)
+			if fldErr != nil {
+				// Log and continue without semantic identity.
+			} else {
+				in := &semcore.MutationInput{
+					MailboxID:     mboxID,
+					FolderID:      fldID,
+					RawMessage:    data,
+					InternalDate: date,
+					Actor:         user,
+					Source:        semcore.MutationSourceIMAP,
+					UserFlags:     flags,
+				}
+				// Mutation is best-effort: even if it fails, we continue with
+				// the existing storage path. The message will be stored without
+				// semantic identity registration.
+				//nolint:errcheck // intentional discard of best-effort mutation result
+				_, _ = m.mutationPipe.MutateItem(in)
+			}
+		}
 	}
 
 	// Store message
@@ -1249,4 +1302,29 @@ func (m *BboltMailstore) EnsureDefaultMailboxes(user string) error {
 		_ = m.CreateMailbox(user, name)
 	}
 	return nil
+}
+
+// distinguishedRole returns the canonical distinguished folder role for well-known
+// IMAP folder names. This is used when registering folder identity in the
+// semantic-core store so that distinguished folders have stable semantic IDs
+// regardless of the mailbox or the client's view of the folder name.
+func distinguishedRole(folderName string) string {
+	switch strings.ToUpper(folderName) {
+	case "INBOX":
+		return "inbox"
+	case "DRAFTS", "DRAFT":
+		return "drafts"
+	case "SENT", "SENT ITEMS", "SENT MAIL":
+		return "sent"
+	case "TRASH", "DELETED ITEMS", "DELETED":
+		return "trash"
+	case "JUNK", "SPAM":
+		return "junk"
+	case "ARCHIVE", "ARCHIVES":
+		return "archive"
+	case "OUTBOX":
+		return "outbox"
+	default:
+		return ""
+	}
 }

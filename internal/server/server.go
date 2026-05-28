@@ -30,6 +30,7 @@ import (
 	"github.com/umailserver/umailserver/internal/queue"
 	"github.com/umailserver/umailserver/internal/ratelimit"
 	"github.com/umailserver/umailserver/internal/search"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 	"github.com/umailserver/umailserver/internal/smtp"
 	"github.com/umailserver/umailserver/internal/storage"
@@ -71,6 +72,12 @@ type Server struct {
 	jmapServer        *jmap.Server
 	jmapHTTPServer    *http.Server
 	metricsHTTPServer *http.Server
+
+	// Semantic-core canonical store and mutation pipeline.
+	// These are initialized during New() when the data directory is available.
+	// They are nil if semantic-core is disabled or not yet initialized.
+	semcoreStore *semcore.Store
+	mutationPipe *semcore.MutationPipeline
 
 	// S/MIME and OpenPGP keystores
 	smimeKeystore   *smtp.SMIMEKeystore
@@ -296,6 +303,25 @@ func New(cfg *config.Config) (*Server, error) {
 	searchSvc := search.NewService(storageDB, msgStore, logger)
 	s.searchSvc = searchSvc
 	s.indexWork = make(chan indexJob, 1000)
+
+	// Initialize semantic-core canonical store and mutation pipeline.
+	// The semcore store lives under dataDir/semcore/ and uses a separate bbolt DB.
+	// It is safe to create even if backfill hasn't run yet — the mutation
+	// pipeline will lazily register mailbox/folder identities as needed.
+	semcoreStore, err := semcore.NewStore(s.config.Server.DataDir)
+	if err != nil {
+		// Best-effort cleanup of partially-initialized resources.
+		//nolint:errcheck // cleanup in error path; error is already returned
+		_ = tlsManager.Close()
+		//nolint:errcheck // cleanup in error path; error is already returned
+		_ = msgStore.Close()
+		//nolint:errcheck // cleanup in error path; error is already returned
+		_ = database.Close()
+		return nil, fmt.Errorf("failed to create semcore store: %w", err)
+	}
+	s.semcoreStore = semcoreStore
+	s.mutationPipe = semcore.NewMutationPipeline(semcoreStore.Identity())
+	logger.Info("Semantic-core store initialized")
 
 	// Initialize rate limiter with config
 	rateLimiterConfig := &ratelimit.Config{
