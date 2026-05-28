@@ -28,6 +28,7 @@ type Server struct {
 	lifecycle     *semcore.BoltLifecycleStore
 	collabStore   *semcore.BoltCollaborationStore
 	policyStore   *semcore.BoltPolicyStore
+	delegateStore *semcore.BoltDelegateStore
 	sieveMgr     *sieve.Manager
 	logger       *slog.Logger
 }
@@ -36,8 +37,10 @@ type Server struct {
 // The collabStore provides identity and version persistence for calendar items, contacts,
 // and tasks (CalendarItemId, ContactId, TaskId with their ChangeKey variants).
 // The policyStore provides OOF and inbox-rule policy persistence.
+// The delegateStore provides delegate grant management (AddDelegate, UpdateDelegate,
+// RemoveDelegate, GetDelegate) and shared mailbox discovery.
 // The sieveMgr is used to recompile the Sieve script after policy changes.
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, sieveMgr *sieve.Manager) *Server {
+func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, delegateStore *semcore.BoltDelegateStore, sieveMgr *sieve.Manager) *Server {
 	return &Server{
 		identity:      identity,
 		sync:          syncState,
@@ -49,6 +52,7 @@ func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncS
 		lifecycle:     lifecycle,
 		collabStore:   collabStore,
 		policyStore:   policyStore,
+		delegateStore: delegateStore,
 		sieveMgr:     sieveMgr,
 		logger:       slog.Default(),
 	}
@@ -160,6 +164,14 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleGetInboxRules(ctx, soapBody)
 	case "UpdateInboxRules":
 		response = s.handleUpdateInboxRules(ctx, soapBody)
+	case "GetDelegate":
+		response = s.handleGetDelegate(ctx, soapBody)
+	case "AddDelegate":
+		response = s.handleAddDelegate(ctx, soapBody)
+	case "UpdateDelegate":
+		response = s.handleUpdateDelegate(ctx, soapBody)
+	case "RemoveDelegate":
+		response = s.handleRemoveDelegate(ctx, soapBody)
 	default:
 		response = s.errorResponseXML(op, ErrErrorNotImplemented, fmt.Sprintf("operation %q not implemented", op))
 	}
@@ -293,6 +305,15 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		// Task operation elements
 		"CreateTask", "GetTask", "UpdateTask", "DeleteTask",
 		"Task", "TaskId", "TasksFolder",
+		// Delegate operation elements
+		"GetDelegate", "AddDelegate", "UpdateDelegate", "RemoveDelegate",
+		"DelegateUser", "DelegateUsers", "DelegatePermissions",
+		"DeliverMeetingRequests", "DelegateUserResponseMessageType",
+		"GetDelegateResponse", "AddDelegateResponse", "UpdateDelegateResponse",
+		"RemoveDelegateResponse", "GetDelegateResponseMessage",
+		"AddDelegateResponseMessage", "UpdateDelegateResponseMessage",
+		"RemoveDelegateResponseMessage",
+		"DelegateFolderPermissionLevel",
 	}
 
 	// Build a map for fast lookup.

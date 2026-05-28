@@ -85,6 +85,7 @@ func (s *Server) startAPI() {
 			s.semcoreStore.Lifecycle(),
 			s.semcoreStore.Collaboration(),
 			s.semcoreStore.Policy(),
+			s.semcoreStore.Delegation(),
 			s.sieveManager,
 		)
 		ewsServer.SetLogger(s.logger)

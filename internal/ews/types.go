@@ -100,6 +100,18 @@ const (
 	ErrErrorInvalidId           ErrorCode = "ErrorInvalidId"
 	ErrErrorInvalidChangeKey    ErrorCode = "ErrorInvalidChangeKey"
 	ErrErrorChangeKeyRequired   ErrorCode = "ErrorChangeKeyRequired"
+	// Delegate-specific error codes (VAL-DIR-002, VAL-DIR-003, VAL-DIR-013)
+	ErrErrorDelegateAlreadyExists       ErrorCode = "ErrorDelegateAlreadyExists"
+	ErrErrorNotDelegate                ErrorCode = "ErrorNotDelegate"
+	ErrErrorInvalidDelegateUserId       ErrorCode = "ErrorInvalidDelegateUserId"
+	ErrErrorInvalidDelegatePermission   ErrorCode = "ErrorInvalidDelegatePermission"
+	ErrErrorDelegateCannotAddOwner      ErrorCode = "ErrorDelegateCannotAddOwner"
+	ErrErrorDelegateNoUser             ErrorCode = "ErrorDelegateNoUser"
+	ErrErrorDelegateMissingConfiguration ErrorCode = "ErrorDelegateMissingConfiguration"
+	ErrErrorAddDelegatesFailed         ErrorCode = "ErrorAddDelegatesFailed"
+	ErrErrorRemoveDelegatesFailed      ErrorCode = "ErrorRemoveDelegatesFailed"
+	ErrErrorUpdateDelegatesFailed       ErrorCode = "ErrorUpdateDelegatesFailed"
+	ErrErrorDelegateValidationFailed    ErrorCode = "ErrorDelegateValidationFailed"
 )
 
 // ---------------------------------------------------------------------------

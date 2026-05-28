@@ -33,6 +33,7 @@ type Store struct {
 	lifecycle     *BoltLifecycleStore
 	subscriptions *BoltSubscriptionStore
 	policy        *BoltPolicyStore
+	delegation    *BoltDelegateStore
 }
 
 // NewStore opens a canonical semantic-core store, creating the database
@@ -70,6 +71,7 @@ func NewStore(dataDir string) (*Store, error) {
 			bucketOOF,
 			bucketResource,
 			bucketNotification,
+			bucketDelegations,
 		}
 		for _, b := range buckets {
 			if _, err := tx.CreateBucketIfNotExists([]byte(b)); err != nil {
@@ -119,6 +121,14 @@ func NewStore(dataDir string) (*Store, error) {
 	}
 	s.policy = &BoltPolicyStore{db: db}
 
+	// Delegation store (delegate grants per mailbox)
+	delegation, err := NewBoltDelegateStore(db)
+	if err != nil {
+		_ = db.Close() //nolint:errcheck
+		return nil, fmt.Errorf("semcore.NewStore: delegation store: %w", err)
+	}
+	s.delegation = delegation
+
 	return s, nil
 }
 
@@ -165,3 +175,8 @@ func (s *Store) Subscriptions() *BoltSubscriptionStore { return s.subscriptions 
 // Policy returns the canonical policy store (inbox rules, OOF, resources,
 // and notification policies).
 func (s *Store) Policy() *BoltPolicyStore { return s.policy }
+
+// Delegation returns the canonical delegation store (delegate grants,
+// shared mailbox discovery, and meeting delivery settings).
+// Satisfies VAL-DIR-001, VAL-DIR-002, VAL-DIR-003, VAL-DIR-013, VAL-DIR-014.
+func (s *Store) Delegation() *BoltDelegateStore { return s.delegation }
