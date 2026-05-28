@@ -1,46 +1,110 @@
 // Package semcore defines the canonical semantic-core identity and lifecycle
 // contract for uMailServer.
 //
-// This file defines ownership boundaries that clarify which package "owns"
-// which kind of state. These boundaries are explicit in code, not implicit
-// in worker memory.
-//
-// # Ownership Map
-//
-// The following rules define the authoritative ownership of state:
-//
-//  Legacy stores (still authoritative during Phase 0, gradually migrated):
-//
-//  | Store                | Location               | Remains authoritative for                     |
-//  |----------------------|------------------------|-----------------------------------------------|
-//  | Account metadata     | internal/db            | Account records, domains, aliases              |
-//  | Mailbox metadata     | internal/storage       | UIDValidity, UIDNext, HighestModSeq (IMAP)   |
-//  | Message blobs        | internal/storage/.msgstore | Raw MIME blobs keyed by content hash       |
-//  | DAV objects          | internal/caldav, carddav | Calendar (.ics) and contact (.vcf) files   |
-//  | Sieve scripts        | internal/sieve        | User sieve scripts, vacation auto-reply state |
-//
-//  Canonical stores (semantic-core authoritative):
-//
-//  | Store                | Location               | Authoritative for                            |
-//  |----------------------|------------------------|-----------------------------------------------|
-//  | Identity family      | internal/semcore       | MailboxId, FolderId, ItemId, ChangeKey       |
-//  | Conversation lineage | internal/semcore       | ConversationId, thread ordering             |
-//  | Sync state           | internal/semcore       | SyncToken, watermark, tombstone records     |
-//  | Lifecycle journal    | internal/semcore       | Lifecycle events (Phase 1+)                 |
-//
-//  Projection adapters own their protocol-specific wire formats but must
-//  translate to/from canonical semantic-core state. They do not invent
-//  independent storage truth.
-//
-// # Migration Path
-//
-// Phase 0 documents the target ownership. Phase 1 implements the migration
-// framework. The transition is driven by FeatureGate flags (rollout.go):
-//
-//  1. legacy-only mode: all reads/writes go through existing stores
-//  2. canonical-writes mode: new objects written to canonical store + legacy mirror
-//  3. canonical reads: reads prefer canonical store, fall back to legacy lookup
-//  4. legacy shutdown: legacy stores become read-only; canonical is sole authority
-//
-// This file can be updated in Phase 1 when concrete migration code is written.
+// This file provides a unified canonical Store that owns one bbolt database
+// and exposes all semantic-core sub-stores: identity, sync-state, tombstones,
+// and backfill-seeding. Using a single DB file keeps the data model coherent
+// and simplifies startup. All sub-stores are safe for concurrent use.
 package semcore
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+
+	"go.etcd.io/bbolt"
+)
+
+// Store is the unified canonical semantic-core store. It owns one bbolt
+// database file and exposes all semantic-core sub-stores.
+// All stores are safe for concurrent use; callers must hold the appropriate
+// lock for the scope they are operating in.
+type Store struct {
+	db     *bbolt.DB
+	mu     sync.RWMutex
+	dir    string
+
+	identity   *BoltIdentityStore
+	syncState  *BoltSyncStateStore
+	tombstones *BoltTombstoneStore
+	seeding    *BoltBackfillSeedingStore
+}
+
+// NewStore opens a canonical semantic-core store, creating the database
+// file and all buckets if they do not yet exist. The dataDir is the
+// directory where the semcore DB file (identity.db) will be stored.
+func NewStore(dataDir string) (*Store, error) {
+	dir := filepath.Join(dataDir, "semcore")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("semcore.NewStore: create dir: %w", err)
+	}
+
+	dbPath := filepath.Join(dir, "identity.db")
+	db, err := bbolt.Open(dbPath, 0o600, &bbolt.Options{Timeout: 1})
+	if err != nil {
+		return nil, fmt.Errorf("semcore.NewStore: open: %w", err)
+	}
+
+	// Create all sub-store buckets in one transaction.
+	fn := func(tx *bbolt.Tx) error {
+		buckets := []string{
+			bucketMailbox,
+			bucketFolder,
+			bucketItem,
+			bucketAttachment,
+			bucketConversation,
+			bucketSyncState,
+			bucketTombstones,
+			bucketSeeding,
+		}
+		for _, b := range buckets {
+			if _, err := tx.CreateBucketIfNotExists([]byte(b)); err != nil {
+				return fmt.Errorf("create bucket %s: %w", b, err)
+			}
+		}
+		return nil
+	}
+	if err := db.Update(fn); err != nil {
+		_ = db.Close() //nolint:errcheck
+		return nil, fmt.Errorf("semcore.NewStore: init buckets: %w", err)
+	}
+
+	s := &Store{db: db, dir: dir}
+
+	// Initialize sub-stores.
+	s.identity = &BoltIdentityStore{db: db}
+	s.syncState = &BoltSyncStateStore{db: db}
+	s.tombstones = &BoltTombstoneStore{db: db}
+	s.seeding = &BoltBackfillSeedingStore{db: db}
+
+	return s, nil
+}
+
+// Close closes the underlying bbolt database.
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
+// Bolt returns the underlying bbolt.DB.
+func (s *Store) Bolt() *bbolt.DB { return s.db }
+
+// Identity returns the canonical identity store (MailboxId, FolderId, ItemId,
+// ChangeKey, AttachmentId, ConversationId).
+func (s *Store) Identity() *BoltIdentityStore { return s.identity }
+
+// SyncState returns the sync-state store (per-mailbox, per-folder, per-client
+// sync watermarks).
+func (s *Store) SyncState() *BoltSyncStateStore { return s.syncState }
+
+// Tombstones returns the tombstone store (soft-delete and hard-delete
+// lifecycle records).
+func (s *Store) Tombstones() *BoltTombstoneStore { return s.tombstones }
+
+// Seeding returns the backfill-seeding store (mailbox population progress).
+func (s *Store) Seeding() *BoltBackfillSeedingStore { return s.seeding }
