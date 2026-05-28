@@ -14,6 +14,8 @@
 package semcore
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -901,4 +903,19 @@ func (s *BoltIdentityStore) GetConversationIdentity(id ConversationId) (*storedC
 		return nil
 	})
 	return rec, err
+}
+
+// ---------------------------------------------------------------------------
+// ChangeKey generation
+// ---------------------------------------------------------------------------
+
+// generateChangeKey produces a cryptographically random version token.
+// This is used to generate RuleChangeKey, OOFChangeKey, ResourceChangeKey,
+// and NotificationChangeKey when a new policy version is needed.
+func generateChangeKey() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(b)
 }
