@@ -14,6 +14,7 @@
 package semcore
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -48,6 +49,7 @@ type storedMailboxIdentity struct {
 	Email         string    // primary account email (used as human-readable key)
 	UIDValidity   uint32    // mirrors current IMAP UIDVALIDITY
 	HighestModSeq uint64    // mirrors current modseq for sync baseline
+	_storageKey  string    // internal: raw storage key (e.g. mboxKey prefixed)
 }
 
 // storedFolderIdentity is what we persist for a canonical FolderId.
@@ -55,10 +57,11 @@ type storedFolderIdentity struct {
 	FolderID       FolderId // stable canonical ID
 	MailboxID      MailboxId
 	ParentID       FolderId // zero for top-level folders
-	Role          string  // e.g. "inbox", "drafts", "sent" — empty for user folders
+	Role           string   // e.g. "inbox", "drafts", "sent" — empty for user folders
 	SortOrder      int
 	HighestModSeq  uint64
 	IsSubscribed   bool
+	_storageKey   string   // internal: raw storage key (e.g. mboxKey+folderName)
 }
 
 // storedItemIdentity is what we persist for a canonical ItemId + ChangeKey.
@@ -146,8 +149,17 @@ type IdentityStore interface {
 	// SetFolderSubscribed updates the subscription flag for a folder.
 	SetFolderSubscribed(id FolderId, subscribed bool) error
 
+	// DeleteFolder removes a folder identity by FolderId.
+	DeleteFolder(id FolderId) error
+
 	// ListFolderIdentities returns all registered folder identities.
 	ListFolderIdentities() ([]storedFolderIdentity, error)
+
+	// ListFolderIdentitiesForMailbox returns all folder identities for one mailbox.
+	ListFolderIdentitiesForMailbox(mboxKey string) ([]storedFolderIdentity, error)
+
+	// GetFolderByMailbox retrieves a folder identity by mailbox key and role.
+	GetFolderByMailbox(mboxKey, role string) (*storedFolderIdentity, error)
 
 	// --- ItemId operations ---
 
@@ -562,6 +574,26 @@ func (s *BoltIdentityStore) SetFolderSubscribed(id FolderId, subscribed bool) er
 	})
 }
 
+// DeleteFolder implements IdentityStore.
+func (s *BoltIdentityStore) DeleteFolder(id FolderId) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketFolder))
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var f storedFolderIdentity
+			if err := json.Unmarshal(v, &f); err != nil {
+				continue
+			}
+			if f.FolderID.Equal(id) {
+				return b.Delete(k)
+			}
+		}
+		return ErrFolderNotFound
+	})
+}
+
 // updateFolder is a helper that finds a folder by ID and applies an update.
 func (s *BoltIdentityStore) updateFolder(id FolderId, fn func(*storedFolderIdentity)) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
@@ -591,15 +623,73 @@ func (s *BoltIdentityStore) ListFolderIdentities() ([]storedFolderIdentity, erro
 	var result []storedFolderIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketFolder))
-		return b.ForEach(func(_, v []byte) error {
+		return b.ForEach(func(k, v []byte) error {
 			var rec storedFolderIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
-				return nil
+				return nil // skip corrupted entries
 			}
+			rec._storageKey = string(k)
 			result = append(result, rec)
 			return nil
 		})
 	})
+	return result, err
+}
+
+// ListFolderIdentitiesForMailbox implements IdentityStore.
+func (s *BoltIdentityStore) ListFolderIdentitiesForMailbox(mboxKey string) ([]storedFolderIdentity, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []storedFolderIdentity
+	prefix := mboxKey + "\x00"
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketFolder))
+		return b.ForEach(func(k, v []byte) error {
+			if !bytes.HasPrefix(k, []byte(prefix)) {
+				return nil
+			}
+			var rec storedFolderIdentity
+			if err := json.Unmarshal(v, &rec); err != nil {
+				return nil // skip corrupted entries
+			}
+			rec._storageKey = string(k)
+			result = append(result, rec)
+			return nil
+		})
+	})
+	return result, err
+}
+
+// GetFolderByMailbox retrieves a folder identity by mailbox key and role.
+func (s *BoltIdentityStore) GetFolderByMailbox(mboxKey, role string) (*storedFolderIdentity, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result *storedFolderIdentity
+	prefix := mboxKey + "\x00"
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketFolder))
+		return b.ForEach(func(k, v []byte) error {
+			if !bytes.HasPrefix(k, []byte(prefix)) {
+				return nil
+			}
+			var rec storedFolderIdentity
+			if err := json.Unmarshal(v, &rec); err != nil {
+				return nil // skip corrupted entries
+			}
+			rec._storageKey = string(k)
+			if rec.Role == role {
+				if result != nil {
+					return fmt.Errorf("GetFolderByMailbox: multiple folders with role %q", role)
+				}
+				result = &rec
+			}
+			return nil
+		})
+	})
+	if result == nil {
+		return nil, ErrFolderNotFound
+	}
 	return result, err
 }
 

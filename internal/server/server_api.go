@@ -6,6 +6,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/backup"
+	"github.com/umailserver/umailserver/internal/ews"
 )
 
 // startAPI creates and starts the HTTP API server (webmail + admin).
@@ -69,6 +70,18 @@ func (s *Server) startAPI() {
 	}
 	// Configure API rate limiting
 	s.apiServer.SetAPIRateLimit(s.config.Security.RateLimit.HTTPRequestsPerMinute)
+
+	// Wire EWS SOAP handler into the API server.
+	// This requires semcoreStore to be initialized (done in server.go startup).
+	if s.semcoreStore != nil {
+		ewsServer := ews.NewServer(
+			s.semcoreStore.Identity(),
+			s.semcoreStore.SyncState(),
+			s.semcoreStore.Tombstones(),
+		)
+		s.apiServer.SetEWSHandler(ewsServer)
+		s.logger.Info("EWS SOAP handler initialized")
+	}
 
 	go func() {
 		if err := s.apiServer.Start(apiCfg.Addr); err != nil {

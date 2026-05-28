@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -73,6 +74,9 @@ type Server struct {
 
 	// Backup manager for backup/restore operations
 	backupMgr *backup.Manager
+
+	// EWS handler for Exchange Web Services (folder identity surface)
+	ewsHandler http.Handler
 
 	// HTTP router (cached)
 	router http.Handler
@@ -440,6 +444,22 @@ func (s *Server) initRouter() {
 
 	// Microsoft Autodiscover
 	mux.HandleFunc("/autodiscover/autodiscover.xml", s.handleAutodiscover)
+
+	// Exchange Web Services — EWS/SOAP endpoint.
+	// Authenticated via HTTP Basic Auth; credentials are validated and the email
+	// is injected into the request context via X-Email for downstream handlers.
+	if s.ewsHandler != nil {
+		mux.HandleFunc("/EWS/Exchange.asmx", func(w http.ResponseWriter, r *http.Request) {
+			email := s.ewsBasicAuth(w, r)
+			if email == "" {
+				w.Header().Set("WWW-Authenticate", `Basic realm="Exchange"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), "X-Email", email))
+			s.ewsHandler.ServeHTTP(w, r)
+		})
+	}
 
 	// Health check - use health monitor if available
 	if s.healthMon != nil {
@@ -1139,4 +1159,50 @@ func (s *Server) sendJSON(w http.ResponseWriter, status int, data interface{}) {
 
 func (s *Server) sendError(w http.ResponseWriter, status int, message string) {
 	s.sendJSON(w, status, map[string]string{"error": message})
+}
+
+// SetEWSHandler configures the EWS SOAP handler on the API server.
+// The handler requires the server to have a non-nil *db.DB for Basic Auth validation.
+func (s *Server) SetEWSHandler(handler http.Handler) {
+	s.ewsHandler = handler
+}
+
+// ewsBasicAuth performs HTTP Basic Auth validation against the database.
+// It decodes the Authorization header, parses the email and password credentials,
+// retrieves the account from the database, and verifies the password hash.
+// Returns the authenticated email or an empty string on failure.
+func (s *Server) ewsBasicAuth(w http.ResponseWriter, r *http.Request) string {
+	if s.db == nil {
+		return ""
+	}
+	authHdr := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHdr, "Basic ") {
+		return ""
+	}
+	encoded := strings.TrimPrefix(authHdr, "Basic ")
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return ""
+	}
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	email, password := parts[0], parts[1]
+	localPart, domain, ok := strings.Cut(email, "@")
+	if !ok {
+		return ""
+	}
+	account, err := s.db.GetAccount(domain, localPart)
+	if err != nil {
+		return ""
+	}
+	if !account.IsActive {
+		return ""
+	}
+	matches, _ := s.verifyPassword(password, account.PasswordHash)
+	if !matches {
+		return ""
+	}
+	return email
 }
