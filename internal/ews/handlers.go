@@ -24,10 +24,13 @@ type Server struct {
 	mutationPipe  *semcore.MutationPipeline
 	subscriptions *semcore.BoltSubscriptionStore
 	lifecycle     *semcore.BoltLifecycleStore
+	collabStore   *semcore.BoltCollaborationStore
 }
 
 // NewServer creates an EWS handler wired to the canonical semcore stores and storage.
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore) *Server {
+// The collabStore provides identity and version persistence for calendar items, contacts,
+// and tasks (CalendarItemId, ContactId, TaskId with their ChangeKey variants).
+func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore) *Server {
 	return &Server{
 		identity:      identity,
 		sync:          syncState,
@@ -37,6 +40,7 @@ func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncS
 		mutationPipe:  mutationPipe,
 		subscriptions: subscriptions,
 		lifecycle:     lifecycle,
+		collabStore:   collabStore,
 	}
 }
 
@@ -109,6 +113,30 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleUnsubscribe(ctx, soapBody)
 	case "GetEvents":
 		response = s.handleGetEvents(ctx, soapBody)
+	case "CreateCalendarItem":
+		response = s.handleCreateCalendarItem(ctx, soapBody)
+	case "GetCalendarItem":
+		response = s.handleGetCalendarItem(ctx, soapBody)
+	case "UpdateCalendarItem":
+		response = s.handleUpdateCalendarItem(ctx, soapBody)
+	case "DeleteCalendarItem":
+		response = s.handleDeleteCalendarItem(ctx, soapBody)
+	case "CreateContact":
+		response = s.handleCreateContact(ctx, soapBody)
+	case "GetContact":
+		response = s.handleGetContact(ctx, soapBody)
+	case "UpdateContact":
+		response = s.handleUpdateContact(ctx, soapBody)
+	case "DeleteContact":
+		response = s.handleDeleteContact(ctx, soapBody)
+	case "CreateTask":
+		response = s.handleCreateTask(ctx, soapBody)
+	case "GetTask":
+		response = s.handleGetTask(ctx, soapBody)
+	case "UpdateTask":
+		response = s.handleUpdateTask(ctx, soapBody)
+	case "DeleteTask":
+		response = s.handleDeleteTask(ctx, soapBody)
 	default:
 		response = s.errorResponseXML(op, ErrErrorNotImplemented, fmt.Sprintf("operation %q not implemented", op))
 	}
@@ -232,6 +260,16 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"NotificationEvent", "SubscribeResponse", "UnsubscribeResponse",
 		"GetEventsResponse", "SubscribeResponseMessage", "UnsubscribeResponseMessage",
 		"GetEventsResponseMessage",
+		// Calendar item operation elements
+		"CreateCalendarItem", "GetCalendarItem", "UpdateCalendarItem", "DeleteCalendarItem",
+		"CalendarItem", "CalendarItemId", "Recurrence", "CalendarFolder",
+		"RecurrenceId", "ModifiedOccurrence", "DeletedOccurrence",
+		// Contact operation elements
+		"CreateContact", "GetContact", "UpdateContact", "DeleteContact",
+		"Contact", "ContactId", "ContactsFolder",
+		// Task operation elements
+		"CreateTask", "GetTask", "UpdateTask", "DeleteTask",
+		"Task", "TaskId", "TasksFolder",
 	}
 
 	// Build a map for fast lookup.

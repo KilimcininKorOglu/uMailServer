@@ -38,9 +38,9 @@ import (
 // ---------------------------------------------------------------------------
 
 var (
-	ErrCalendarItemNotFound = errors.New("calendar item identity not found")
-	ErrContactNotFound     = errors.New("contact identity not found")
-	ErrTaskNotFound        = errors.New("task identity not found")
+	ErrCalendarItemNotFound  = errors.New("calendar item identity not found")
+	ErrContactNotFound       = errors.New("contact identity not found")
+	ErrTaskNotFound          = errors.New("task identity not found")
 	ErrCollabVersionConflict = errors.New("collaboration version conflict: stale change key")
 )
 
@@ -58,21 +58,31 @@ const (
 // Stored collaboration records
 // ---------------------------------------------------------------------------
 
-// storedCalendarItemIdentity is what we persist for a canonical CalendarItemId.
-type storedCalendarItemIdentity struct {
-	ID           CalendarItemId
-	MasterID     CalendarItemId // zero for master; set for exceptions
-	FolderID     FolderId
-	MailboxID    MailboxId
-	ChangeKey    CalendarChangeKey
-	Kind         CollabKind
-	IcalUID      string
-	RawHash      string // content hash of RawICal for content-change detection
-	ETag         string // precomputed ETag (ChangeKey + RawHash)
+// StoredCalendarItemIdentity is what we persist for a canonical CalendarItemId.
+type StoredCalendarItemIdentity struct {
+	ID        CalendarItemId
+	MasterID  CalendarItemId // zero for master; set for exceptions
+	FolderID  FolderId
+	MailboxID MailboxId
+	ChangeKey CalendarChangeKey
+	Kind      CollabKind
+	IcalUID   string
+	RawHash   string // content hash of RawICal for content-change detection
+	ETag      string // precomputed ETag (ChangeKey + RawHash)
 }
 
-// storedContactIdentity is what we persist for a canonical ContactId.
-type storedContactIdentity struct {
+// NewStoredCalendarItemIdentity constructs a StoredCalendarItemIdentity for use by
+// protocol adapters (EWS, CalDAV, CardDAV) that need to register collaboration
+// identities from wire-format data.
+func NewStoredCalendarItemIdentity(id CalendarItemId, folderID FolderId, mailboxID MailboxId, ck CalendarChangeKey, kind CollabKind, icalUID, rawHash string) *StoredCalendarItemIdentity {
+	return &StoredCalendarItemIdentity{
+		ID: id, FolderID: folderID, MailboxID: mailboxID,
+		ChangeKey: ck, Kind: kind, IcalUID: icalUID, RawHash: rawHash,
+	}
+}
+
+// StoredContactIdentity is what we persist for a canonical ContactId.
+type StoredContactIdentity struct {
 	ID        ContactId
 	FolderID  FolderId
 	MailboxID MailboxId
@@ -82,8 +92,13 @@ type storedContactIdentity struct {
 	ETag      string
 }
 
-// storedTaskIdentity is what we persist for a canonical TaskId.
-type storedTaskIdentity struct {
+// NewStoredContactIdentity constructs a StoredContactIdentity for use by protocol adapters.
+func NewStoredContactIdentity(id ContactId, folderID FolderId, mailboxID MailboxId, ck ContactChangeKey, icalUID, rawHash string) *StoredContactIdentity {
+	return &StoredContactIdentity{ID: id, FolderID: folderID, MailboxID: mailboxID, ChangeKey: ck, IcalUID: icalUID, RawHash: rawHash}
+}
+
+// StoredTaskIdentity is what we persist for a canonical TaskId.
+type StoredTaskIdentity struct {
 	ID        TaskId
 	FolderID  FolderId
 	MailboxID MailboxId
@@ -91,6 +106,11 @@ type storedTaskIdentity struct {
 	IcalUID   string
 	RawHash   string
 	ETag      string
+}
+
+// NewStoredTaskIdentity constructs a StoredTaskIdentity for use by protocol adapters.
+func NewStoredTaskIdentity(id TaskId, folderID FolderId, mailboxID MailboxId, ck TaskChangeKey, icalUID, rawHash string) *StoredTaskIdentity {
+	return &StoredTaskIdentity{ID: id, FolderID: folderID, MailboxID: mailboxID, ChangeKey: ck, IcalUID: icalUID, RawHash: rawHash}
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +152,7 @@ func NewBoltCollaborationStore(db *bbolt.DB) (*BoltCollaborationStore, error) {
 // PutCalendarItemIdentity registers (or updates) a calendar item identity.
 // If replacing an existing identity, the caller MUST provide currentChangeKey
 // for optimistic locking. Pass zero CalendarChangeKey{} for new inserts.
-func (s *BoltCollaborationStore) PutCalendarItemIdentity(msgKey string, rec *storedCalendarItemIdentity, currentChangeKey CalendarChangeKey) error {
+func (s *BoltCollaborationStore) PutCalendarItemIdentity(msgKey string, rec *StoredCalendarItemIdentity, currentChangeKey CalendarChangeKey) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketCalendarItem))
 		existing := bkt.Get([]byte(msgKey))
@@ -142,7 +162,7 @@ func (s *BoltCollaborationStore) PutCalendarItemIdentity(msgKey string, rec *sto
 			if currentChangeKey.IsZero() {
 				return fmt.Errorf("PutCalendarItemIdentity: update requires currentChangeKey")
 			}
-			var stored storedCalendarItemIdentity
+			var stored StoredCalendarItemIdentity
 			if err := json.Unmarshal(existing, &stored); err != nil {
 				return fmt.Errorf("PutCalendarItemIdentity: unmarshal existing: %w", err)
 			}
@@ -161,15 +181,15 @@ func (s *BoltCollaborationStore) PutCalendarItemIdentity(msgKey string, rec *sto
 
 // GetCalendarItemIdentity retrieves a calendar item identity by its storage key.
 // The msgKey is typically the blob key (SHA256 of the raw iCal content).
-func (s *BoltCollaborationStore) GetCalendarItemIdentity(msgKey string) (*storedCalendarItemIdentity, error) {
-	var out *storedCalendarItemIdentity
+func (s *BoltCollaborationStore) GetCalendarItemIdentity(msgKey string) (*StoredCalendarItemIdentity, error) {
+	var out *StoredCalendarItemIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketCalendarItem))
 		data := bkt.Get([]byte(msgKey))
 		if data == nil {
 			return ErrCalendarItemNotFound
 		}
-		var rec storedCalendarItemIdentity
+		var rec StoredCalendarItemIdentity
 		if err := json.Unmarshal(data, &rec); err != nil {
 			return fmt.Errorf("GetCalendarItemIdentity: unmarshal: %w", err)
 		}
@@ -181,13 +201,13 @@ func (s *BoltCollaborationStore) GetCalendarItemIdentity(msgKey string) (*stored
 
 // GetCalendarItemByID retrieves a calendar item identity by its CalendarItemId.
 // This requires iterating over the bucket; use msgKey lookups for hot paths.
-func (s *BoltCollaborationStore) GetCalendarItemByID(id CalendarItemId) (*storedCalendarItemIdentity, error) {
-	var out *storedCalendarItemIdentity
+func (s *BoltCollaborationStore) GetCalendarItemByID(id CalendarItemId) (*StoredCalendarItemIdentity, error) {
+	var out *StoredCalendarItemIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketCalendarItem))
 		c := bkt.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var rec storedCalendarItemIdentity
+			var rec StoredCalendarItemIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				continue
 			}
@@ -202,13 +222,13 @@ func (s *BoltCollaborationStore) GetCalendarItemByID(id CalendarItemId) (*stored
 }
 
 // ListCalendarItemsByFolder returns all calendar item identities in a folder.
-func (s *BoltCollaborationStore) ListCalendarItemsByFolder(folderID FolderId) ([]storedCalendarItemIdentity, error) {
-	var out []storedCalendarItemIdentity
+func (s *BoltCollaborationStore) ListCalendarItemsByFolder(folderID FolderId) ([]StoredCalendarItemIdentity, error) {
+	var out []StoredCalendarItemIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketCalendarItem))
 		c := bkt.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var rec storedCalendarItemIdentity
+			var rec StoredCalendarItemIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				continue
 			}
@@ -230,7 +250,7 @@ func (s *BoltCollaborationStore) DeleteCalendarItemIdentity(msgKey string, curre
 		if existing == nil {
 			return ErrCalendarItemNotFound
 		}
-		var stored storedCalendarItemIdentity
+		var stored StoredCalendarItemIdentity
 		if err := json.Unmarshal(existing, &stored); err != nil {
 			return fmt.Errorf("DeleteCalendarItemIdentity: unmarshal: %w", err)
 		}
@@ -243,7 +263,7 @@ func (s *BoltCollaborationStore) DeleteCalendarItemIdentity(msgKey string, curre
 
 // PutCalendarItemIdentityUnsafe is like PutCalendarItemIdentity but skips
 // version checking. Use only for trusted initialization or migration code.
-func (s *BoltCollaborationStore) PutCalendarItemIdentityUnsafe(msgKey string, rec *storedCalendarItemIdentity) error {
+func (s *BoltCollaborationStore) PutCalendarItemIdentityUnsafe(msgKey string, rec *StoredCalendarItemIdentity) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketCalendarItem))
 		data, err := json.Marshal(rec)
@@ -260,7 +280,7 @@ func (s *BoltCollaborationStore) PutCalendarItemIdentityUnsafe(msgKey string, re
 
 // PutContactIdentity registers or updates a contact identity.
 // Caller MUST provide currentChangeKey for updates (zero for inserts).
-func (s *BoltCollaborationStore) PutContactIdentity(msgKey string, rec *storedContactIdentity, currentChangeKey ContactChangeKey) error {
+func (s *BoltCollaborationStore) PutContactIdentity(msgKey string, rec *StoredContactIdentity, currentChangeKey ContactChangeKey) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketContact))
 		existing := bkt.Get([]byte(msgKey))
@@ -269,7 +289,7 @@ func (s *BoltCollaborationStore) PutContactIdentity(msgKey string, rec *storedCo
 			if currentChangeKey.IsZero() {
 				return fmt.Errorf("PutContactIdentity: update requires currentChangeKey")
 			}
-			var stored storedContactIdentity
+			var stored StoredContactIdentity
 			if err := json.Unmarshal(existing, &stored); err != nil {
 				return fmt.Errorf("PutContactIdentity: unmarshal existing: %w", err)
 			}
@@ -287,15 +307,15 @@ func (s *BoltCollaborationStore) PutContactIdentity(msgKey string, rec *storedCo
 }
 
 // GetContactIdentity retrieves a contact identity by its storage key.
-func (s *BoltCollaborationStore) GetContactIdentity(msgKey string) (*storedContactIdentity, error) {
-	var out *storedContactIdentity
+func (s *BoltCollaborationStore) GetContactIdentity(msgKey string) (*StoredContactIdentity, error) {
+	var out *StoredContactIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketContact))
 		data := bkt.Get([]byte(msgKey))
 		if data == nil {
 			return ErrContactNotFound
 		}
-		var rec storedContactIdentity
+		var rec StoredContactIdentity
 		if err := json.Unmarshal(data, &rec); err != nil {
 			return fmt.Errorf("GetContactIdentity: unmarshal: %w", err)
 		}
@@ -306,13 +326,13 @@ func (s *BoltCollaborationStore) GetContactIdentity(msgKey string) (*storedConta
 }
 
 // GetContactByID retrieves a contact identity by its ContactId.
-func (s *BoltCollaborationStore) GetContactByID(id ContactId) (*storedContactIdentity, error) {
-	var out *storedContactIdentity
+func (s *BoltCollaborationStore) GetContactByID(id ContactId) (*StoredContactIdentity, error) {
+	var out *StoredContactIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketContact))
 		c := bkt.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var rec storedContactIdentity
+			var rec StoredContactIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				continue
 			}
@@ -327,13 +347,13 @@ func (s *BoltCollaborationStore) GetContactByID(id ContactId) (*storedContactIde
 }
 
 // ListContactsByFolder returns all contact identities in a folder.
-func (s *BoltCollaborationStore) ListContactsByFolder(folderID FolderId) ([]storedContactIdentity, error) {
-	var out []storedContactIdentity
+func (s *BoltCollaborationStore) ListContactsByFolder(folderID FolderId) ([]StoredContactIdentity, error) {
+	var out []StoredContactIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketContact))
 		c := bkt.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var rec storedContactIdentity
+			var rec StoredContactIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				continue
 			}
@@ -355,7 +375,7 @@ func (s *BoltCollaborationStore) DeleteContactIdentity(msgKey string, currentCha
 		if existing == nil {
 			return ErrContactNotFound
 		}
-		var stored storedContactIdentity
+		var stored StoredContactIdentity
 		if err := json.Unmarshal(existing, &stored); err != nil {
 			return fmt.Errorf("DeleteContactIdentity: unmarshal: %w", err)
 		}
@@ -367,7 +387,7 @@ func (s *BoltCollaborationStore) DeleteContactIdentity(msgKey string, currentCha
 }
 
 // PutContactIdentityUnsafe skips version checking. Use only for migration/trusted init.
-func (s *BoltCollaborationStore) PutContactIdentityUnsafe(msgKey string, rec *storedContactIdentity) error {
+func (s *BoltCollaborationStore) PutContactIdentityUnsafe(msgKey string, rec *StoredContactIdentity) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketContact))
 		data, err := json.Marshal(rec)
@@ -384,7 +404,7 @@ func (s *BoltCollaborationStore) PutContactIdentityUnsafe(msgKey string, rec *st
 
 // PutTaskIdentity registers or updates a task identity.
 // Caller MUST provide currentChangeKey for updates (zero for inserts).
-func (s *BoltCollaborationStore) PutTaskIdentity(msgKey string, rec *storedTaskIdentity, currentChangeKey TaskChangeKey) error {
+func (s *BoltCollaborationStore) PutTaskIdentity(msgKey string, rec *StoredTaskIdentity, currentChangeKey TaskChangeKey) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketTask))
 		existing := bkt.Get([]byte(msgKey))
@@ -393,7 +413,7 @@ func (s *BoltCollaborationStore) PutTaskIdentity(msgKey string, rec *storedTaskI
 			if currentChangeKey.IsZero() {
 				return fmt.Errorf("PutTaskIdentity: update requires currentChangeKey")
 			}
-			var stored storedTaskIdentity
+			var stored StoredTaskIdentity
 			if err := json.Unmarshal(existing, &stored); err != nil {
 				return fmt.Errorf("PutTaskIdentity: unmarshal existing: %w", err)
 			}
@@ -411,15 +431,15 @@ func (s *BoltCollaborationStore) PutTaskIdentity(msgKey string, rec *storedTaskI
 }
 
 // GetTaskIdentity retrieves a task identity by its storage key.
-func (s *BoltCollaborationStore) GetTaskIdentity(msgKey string) (*storedTaskIdentity, error) {
-	var out *storedTaskIdentity
+func (s *BoltCollaborationStore) GetTaskIdentity(msgKey string) (*StoredTaskIdentity, error) {
+	var out *StoredTaskIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketTask))
 		data := bkt.Get([]byte(msgKey))
 		if data == nil {
 			return ErrTaskNotFound
 		}
-		var rec storedTaskIdentity
+		var rec StoredTaskIdentity
 		if err := json.Unmarshal(data, &rec); err != nil {
 			return fmt.Errorf("GetTaskIdentity: unmarshal: %w", err)
 		}
@@ -430,13 +450,13 @@ func (s *BoltCollaborationStore) GetTaskIdentity(msgKey string) (*storedTaskIden
 }
 
 // GetTaskByID retrieves a task identity by its TaskId.
-func (s *BoltCollaborationStore) GetTaskByID(id TaskId) (*storedTaskIdentity, error) {
-	var out *storedTaskIdentity
+func (s *BoltCollaborationStore) GetTaskByID(id TaskId) (*StoredTaskIdentity, error) {
+	var out *StoredTaskIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketTask))
 		c := bkt.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var rec storedTaskIdentity
+			var rec StoredTaskIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				continue
 			}
@@ -451,13 +471,13 @@ func (s *BoltCollaborationStore) GetTaskByID(id TaskId) (*storedTaskIdentity, er
 }
 
 // ListTasksByFolder returns all task identities in a folder.
-func (s *BoltCollaborationStore) ListTasksByFolder(folderID FolderId) ([]storedTaskIdentity, error) {
-	var out []storedTaskIdentity
+func (s *BoltCollaborationStore) ListTasksByFolder(folderID FolderId) ([]StoredTaskIdentity, error) {
+	var out []StoredTaskIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketTask))
 		c := bkt.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var rec storedTaskIdentity
+			var rec StoredTaskIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				continue
 			}
@@ -479,7 +499,7 @@ func (s *BoltCollaborationStore) DeleteTaskIdentity(msgKey string, currentChange
 		if existing == nil {
 			return ErrTaskNotFound
 		}
-		var stored storedTaskIdentity
+		var stored StoredTaskIdentity
 		if err := json.Unmarshal(existing, &stored); err != nil {
 			return fmt.Errorf("DeleteTaskIdentity: unmarshal: %w", err)
 		}
@@ -491,7 +511,7 @@ func (s *BoltCollaborationStore) DeleteTaskIdentity(msgKey string, currentChange
 }
 
 // PutTaskIdentityUnsafe skips version checking. Use only for migration/trusted init.
-func (s *BoltCollaborationStore) PutTaskIdentityUnsafe(msgKey string, rec *storedTaskIdentity) error {
+func (s *BoltCollaborationStore) PutTaskIdentityUnsafe(msgKey string, rec *StoredTaskIdentity) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucketTask))
 		data, err := json.Marshal(rec)

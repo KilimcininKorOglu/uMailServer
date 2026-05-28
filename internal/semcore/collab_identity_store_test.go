@@ -38,7 +38,7 @@ func TestBoltCollaborationStore_PutCalendarItemIdentity(t *testing.T) {
 	//nolint:errcheck
 	ck, _ := NewCalendarChangeKey("ck-cal-item-1")
 
-	rec := &storedCalendarItemIdentity{
+	rec := &StoredCalendarItemIdentity{
 		ID:        itemID,
 		FolderID:  folderID,
 		MailboxID: mboxID,
@@ -134,7 +134,7 @@ func TestBoltCollaborationStore_ListCalendarItemsByFolder(t *testing.T) {
 		itemID, _ := NewCalendarItemId("cal-item-list-" + itoa(i))
 		//nolint:errcheck
 		ck, _ := NewCalendarChangeKey("ck-list-" + itoa(i))
-		rec := &storedCalendarItemIdentity{
+		rec := &StoredCalendarItemIdentity{
 			ID: itemID, FolderID: folderID, MailboxID: mboxID,
 			ChangeKey: ck, Kind: CollabKindEvent,
 		}
@@ -174,7 +174,7 @@ func TestBoltCollaborationStore_DeleteCalendarItemIdentity(t *testing.T) {
 	//nolint:errcheck
 	ck, _ := NewCalendarChangeKey("ck-del")
 
-	rec := &storedCalendarItemIdentity{
+	rec := &StoredCalendarItemIdentity{
 		ID: itemID, FolderID: folderID, MailboxID: mboxID,
 		ChangeKey: ck, Kind: CollabKindEvent,
 	}
@@ -230,7 +230,7 @@ func TestBoltCollaborationStore_PutContactIdentity(t *testing.T) {
 	//nolint:errcheck
 	ck, _ := NewContactChangeKey("ck-contact-1")
 
-	rec := &storedContactIdentity{
+	rec := &StoredContactIdentity{
 		ID: contactID, FolderID: folderID, MailboxID: mboxID,
 		ChangeKey: ck, IcalUID: "uid-contact-1",
 		ETag: "ck-contact-1",
@@ -291,7 +291,7 @@ func TestBoltCollaborationStore_ListContactsByFolder(t *testing.T) {
 		contactID, _ := NewContactId("contact-list-" + itoa(i))
 		//nolint:errcheck
 		ck, _ := NewContactChangeKey("ck-contact-list-" + itoa(i))
-		rec := &storedContactIdentity{
+		rec := &StoredContactIdentity{
 			ID: contactID, FolderID: folderID, MailboxID: mboxID,
 			ChangeKey: ck,
 		}
@@ -335,7 +335,7 @@ func TestBoltCollaborationStore_PutTaskIdentity(t *testing.T) {
 	//nolint:errcheck
 	ck, _ := NewTaskChangeKey("ck-task-1")
 
-	rec := &storedTaskIdentity{
+	rec := &StoredTaskIdentity{
 		ID: taskID, FolderID: folderID, MailboxID: mboxID,
 		ChangeKey: ck, IcalUID: "uid-task-1",
 		ETag: "ck-task-1",
@@ -396,7 +396,7 @@ func TestBoltCollaborationStore_ListTasksByFolder(t *testing.T) {
 		taskID, _ := NewTaskId("task-list-" + itoa(i))
 		//nolint:errcheck
 		ck, _ := NewTaskChangeKey("ck-task-list-" + itoa(i))
-		rec := &storedTaskIdentity{
+		rec := &StoredTaskIdentity{
 			ID: taskID, FolderID: folderID, MailboxID: mboxID,
 			ChangeKey: ck,
 		}
