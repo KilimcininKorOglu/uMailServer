@@ -32,6 +32,7 @@ type Store struct {
 	collab        *BoltCollaborationStore
 	lifecycle     *BoltLifecycleStore
 	subscriptions *BoltSubscriptionStore
+	policy        *BoltPolicyStore
 }
 
 // NewStore opens a canonical semantic-core store, creating the database
@@ -65,6 +66,10 @@ func NewStore(dataDir string) (*Store, error) {
 			bucketTask,
 			bucketLifecycle,
 			bucketSubscriptions,
+			bucketRule,
+			bucketOOF,
+			bucketResource,
+			bucketNotification,
 		}
 		for _, b := range buckets {
 			if _, err := tx.CreateBucketIfNotExists([]byte(b)); err != nil {
@@ -106,6 +111,13 @@ func NewStore(dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("semcore.NewStore: subscription store: %w", err)
 	}
 	s.subscriptions = subscriptions
+
+	// Policy store (rules, OOF, resources, notifications)
+	if err := NewBoltPolicyStore(db); err != nil {
+		_ = db.Close() //nolint:errcheck
+		return nil, fmt.Errorf("semcore.NewStore: policy store: %w", err)
+	}
+	s.policy = &BoltPolicyStore{db: db}
 
 	return s, nil
 }
@@ -149,3 +161,7 @@ func (s *Store) Lifecycle() *BoltLifecycleStore { return s.lifecycle }
 // Subscriptions returns the event subscription store (pull/push/streaming
 // subscription watermarks for EWS event polling).
 func (s *Store) Subscriptions() *BoltSubscriptionStore { return s.subscriptions }
+
+// Policy returns the canonical policy store (inbox rules, OOF, resources,
+// and notification policies).
+func (s *Store) Policy() *BoltPolicyStore { return s.policy }

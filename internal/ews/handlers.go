@@ -7,9 +7,11 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/sieve"
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
@@ -25,12 +27,17 @@ type Server struct {
 	subscriptions *semcore.BoltSubscriptionStore
 	lifecycle     *semcore.BoltLifecycleStore
 	collabStore   *semcore.BoltCollaborationStore
+	policyStore   *semcore.BoltPolicyStore
+	sieveMgr     *sieve.Manager
+	logger       *slog.Logger
 }
 
 // NewServer creates an EWS handler wired to the canonical semcore stores and storage.
 // The collabStore provides identity and version persistence for calendar items, contacts,
 // and tasks (CalendarItemId, ContactId, TaskId with their ChangeKey variants).
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore) *Server {
+// The policyStore provides OOF and inbox-rule policy persistence.
+// The sieveMgr is used to recompile the Sieve script after policy changes.
+func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, sieveMgr *sieve.Manager) *Server {
 	return &Server{
 		identity:      identity,
 		sync:          syncState,
@@ -41,7 +48,15 @@ func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncS
 		subscriptions: subscriptions,
 		lifecycle:     lifecycle,
 		collabStore:   collabStore,
+		policyStore:   policyStore,
+		sieveMgr:     sieveMgr,
+		logger:       slog.Default(),
 	}
+}
+
+// SetLogger sets the logger for the EWS server.
+func (s *Server) SetLogger(logger *slog.Logger) {
+	s.logger = logger
 }
 
 // HandleHTTP is the http.Handler entry point for /EWS/Exchange.asmx.
@@ -137,6 +152,14 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleUpdateTask(ctx, soapBody)
 	case "DeleteTask":
 		response = s.handleDeleteTask(ctx, soapBody)
+	case "GetUserOofSettings":
+		response = s.handleGetUserOofSettings(ctx, soapBody)
+	case "SetUserOofSettings":
+		response = s.handleSetUserOofSettings(ctx, soapBody)
+	case "GetInboxRules":
+		response = s.handleGetInboxRules(ctx, soapBody)
+	case "UpdateInboxRules":
+		response = s.handleUpdateInboxRules(ctx, soapBody)
 	default:
 		response = s.errorResponseXML(op, ErrErrorNotImplemented, fmt.Sprintf("operation %q not implemented", op))
 	}

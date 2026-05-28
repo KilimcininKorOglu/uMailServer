@@ -84,7 +84,10 @@ func (s *Server) startAPI() {
 			s.semcoreStore.Subscriptions(),
 			s.semcoreStore.Lifecycle(),
 			s.semcoreStore.Collaboration(),
+			s.semcoreStore.Policy(),
+			s.sieveManager,
 		)
+		ewsServer.SetLogger(s.logger)
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 	}
