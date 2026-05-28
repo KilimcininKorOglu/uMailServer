@@ -884,17 +884,6 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 }
 
 // ---------------------------------------------------------------------------
-// SyncFolderItems (stub)
-// ---------------------------------------------------------------------------
-
-// handleSyncFolderItems is a stub for the sync items operation.
-// Full implementation is in the sync/subscription feature.
-func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte {
-	return s.errorResponseXML("SyncFolderItems", ErrErrorNotImplemented,
-		"SyncFolderItems is not yet implemented; use SyncFolderHierarchy for folder sync")
-}
-
-// ---------------------------------------------------------------------------
 // Mailbox resolution helpers
 // ---------------------------------------------------------------------------
 

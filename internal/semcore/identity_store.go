@@ -64,8 +64,8 @@ type storedFolderIdentity struct {
 	_storageKey   string   // internal: raw storage key (e.g. mboxKey+folderName)
 }
 
-// storedItemIdentity is what we persist for a canonical ItemId + ChangeKey.
-type storedItemIdentity struct {
+// StoredItemIdentity is what we persist for a canonical ItemId + ChangeKey.
+type StoredItemIdentity struct {
 	ItemID          ItemId
 	MailboxID       MailboxId
 	FolderID        FolderId
@@ -174,7 +174,7 @@ type IdentityStore interface {
 	GetItemIDByKey(msgKey string) (ItemId, error)
 
 	// GetItemIdentity retrieves the full item identity record by ItemId.
-	GetItemIdentity(id ItemId) (*storedItemIdentity, error)
+	GetItemIdentity(id ItemId) (*StoredItemIdentity, error)
 
 	// PutChangeKey sets the ChangeKey for an existing ItemId.
 	// Returns ErrItemNotFound if the item is not registered.
@@ -186,7 +186,11 @@ type IdentityStore interface {
 	SetItemConversation(id ItemId, convID ConversationId) error
 
 	// ListItemIdentitiesByMailbox returns all item IDs for one mailbox.
-	ListItemIdentitiesByMailbox(mboxID MailboxId) ([]storedItemIdentity, error)
+	ListItemIdentitiesByMailbox(mboxID MailboxId) ([]StoredItemIdentity, error)
+
+	// ListItemIdentitiesByFolder returns all item identities for one folder.
+	// This is used by EWS FindItem and SyncFolderItems to enumerate folder contents.
+	ListItemIdentitiesByFolder(folderID FolderId) ([]StoredItemIdentity, error)
 
 	// DeleteItemIdentity removes an item identity from the store.
 	// This is called after a soft-delete (MoveToDeletedItems) so the item is
@@ -716,7 +720,7 @@ func (s *BoltIdentityStore) PutItemIdentity(msgKey string, email string, id Item
 		if b.Get([]byte(msgKey)) != nil {
 			return ErrIdentityExists
 		}
-		rec := storedItemIdentity{
+		rec := StoredItemIdentity{
 			ItemID:         id,
 			MailboxID:      mailboxID,
 			FolderID:       folderID,
@@ -744,7 +748,7 @@ func (s *BoltIdentityStore) GetItemIDByKey(msgKey string) (ItemId, error) {
 		if data == nil {
 			return ErrItemNotFound
 		}
-		var rec storedItemIdentity
+		var rec StoredItemIdentity
 		if err := json.Unmarshal(data, &rec); err != nil {
 			return fmt.Errorf("unmarshal item identity: %w", err)
 		}
@@ -755,14 +759,14 @@ func (s *BoltIdentityStore) GetItemIDByKey(msgKey string) (ItemId, error) {
 }
 
 // GetItemIdentity implements IdentityStore.
-func (s *BoltIdentityStore) GetItemIdentity(id ItemId) (*storedItemIdentity, error) {
+func (s *BoltIdentityStore) GetItemIdentity(id ItemId) (*StoredItemIdentity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var rec *storedItemIdentity
+	var rec *StoredItemIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		c := tx.Bucket([]byte(bucketItem)).Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var it storedItemIdentity
+			var it StoredItemIdentity
 			if err := json.Unmarshal(v, &it); err != nil {
 				continue
 			}
@@ -787,7 +791,7 @@ func (s *BoltIdentityStore) PutChangeKey(id ItemId, currentCK ChangeKey, newCK C
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		c := tx.Bucket([]byte(bucketItem)).Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var it storedItemIdentity
+			var it StoredItemIdentity
 			if err := json.Unmarshal(v, &it); err != nil {
 				continue
 			}
@@ -817,7 +821,7 @@ func (s *BoltIdentityStore) SetItemConversation(id ItemId, convID ConversationId
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		c := tx.Bucket([]byte(bucketItem)).Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var it storedItemIdentity
+			var it StoredItemIdentity
 			if err := json.Unmarshal(v, &it); err != nil {
 				continue
 			}
@@ -841,7 +845,7 @@ func (s *BoltIdentityStore) DeleteItemIdentity(id ItemId) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		c := tx.Bucket([]byte(bucketItem)).Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var it storedItemIdentity
+			var it StoredItemIdentity
 			if err := json.Unmarshal(v, &it); err != nil {
 				continue
 			}
@@ -854,18 +858,39 @@ func (s *BoltIdentityStore) DeleteItemIdentity(id ItemId) error {
 }
 
 // ListItemIdentitiesByMailbox implements IdentityStore.
-func (s *BoltIdentityStore) ListItemIdentitiesByMailbox(mboxID MailboxId) ([]storedItemIdentity, error) {
+func (s *BoltIdentityStore) ListItemIdentitiesByMailbox(mboxID MailboxId) ([]StoredItemIdentity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var result []storedItemIdentity
+	var result []StoredItemIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketItem))
 		return b.ForEach(func(_, v []byte) error {
-			var rec storedItemIdentity
+			var rec StoredItemIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil
 			}
 			if rec.MailboxID.Equal(mboxID) {
+				result = append(result, rec)
+			}
+			return nil
+		})
+	})
+	return result, err
+}
+
+// ListItemIdentitiesByFolder implements IdentityStore.
+func (s *BoltIdentityStore) ListItemIdentitiesByFolder(folderID FolderId) ([]StoredItemIdentity, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []StoredItemIdentity
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketItem))
+		return b.ForEach(func(_, v []byte) error {
+			var rec StoredItemIdentity
+			if err := json.Unmarshal(v, &rec); err != nil {
+				return nil
+			}
+			if rec.FolderID.Equal(folderID) {
 				result = append(result, rec)
 			}
 			return nil

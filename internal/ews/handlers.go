@@ -77,6 +77,10 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleSyncFolderHierarchy(ctx, soapBody)
 	case "SyncFolderItems":
 		response = s.handleSyncFolderItems(ctx, soapBody)
+	case "FindItem":
+		response = s.handleFindItem(ctx, soapBody)
+	case "FindConversation":
+		response = s.handleFindConversation(ctx, soapBody)
 	case "CreateItem":
 		response = s.handleCreateItem(ctx, soapBody)
 	case "GetItem":
