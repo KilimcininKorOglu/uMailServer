@@ -81,7 +81,7 @@ type UserOofSettings struct {
 
 // GetUserOofSettingsRequest is the EWS GetUserOofSettings operation request.
 type GetUserOofSettingsRequest struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserOofSettingsRequest"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserOofSettings"`
 	Mailbox struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 		Email  string  `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
@@ -99,7 +99,7 @@ type GetUserOofSettingsResponse struct {
 
 // SetUserOofSettingsRequest is the EWS SetUserOofSettings operation request.
 type SetUserOofSettingsRequest struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SetUserOofSettingsRequest"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SetUserOofSettings"`
 	Mailbox struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 		Email  string  `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
@@ -512,12 +512,10 @@ func (s *Server) handleSetUserOofSettings(ctx context.Context, soapBody []byte) 
 		return buildResponseEnvelope(resp)
 	}
 
-	// If OOF is enabled, recompile and activate Sieve script
-	if policy.Enabled {
-		if err := s.recompileSieveForMailbox(ctx, mailboxID); err != nil {
-			// Log but don't fail the write — the policy is saved
-			s.logger.Warn("failed to recompile sieve after OOF update", "mailbox", mailboxID, "error", err)
-		}
+	// Recompile Sieve script for the mailbox.
+	// This may asynchronously update the runtime Sieve script.
+	if err := s.recompileSieveForMailbox(ctx, mailboxID); err != nil {
+		s.logger.Warn("failed to recompile sieve after OOF update", "mailbox", mailboxID, "error", err)
 	}
 
 	resp := SetUserOofSettingsResponse{
