@@ -130,7 +130,7 @@ func TestBackfillStatus_String(t *testing.T) {
 		{BackfillStatusRunning, "running"},
 		{BackfillStatusCompleted, "completed"},
 		{BackfillStatusFailed, "failed"},
-		{BackfillStatusCancelled, "canceled"},
+		{BackfillStatusCanceled, "canceled"},
 	}
 	for _, tt := range tests {
 		if got := tt.s.String(); got != tt.want {

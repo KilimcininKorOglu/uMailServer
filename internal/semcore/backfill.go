@@ -73,7 +73,7 @@ const (
 	BackfillStatusRunning   BackfillStatus = "running"
 	BackfillStatusCompleted BackfillStatus = "completed"
 	BackfillStatusFailed    BackfillStatus = "failed"
-	BackfillStatusCancelled BackfillStatus = "canceled"
+	BackfillStatusCanceled  BackfillStatus = "canceled"
 )
 
 func (s BackfillStatus) String() string { return string(s) }
