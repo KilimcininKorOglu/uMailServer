@@ -25,11 +25,13 @@ type Store struct {
 	mu     sync.RWMutex
 	dir    string
 
-	identity     *BoltIdentityStore
-	syncState    *BoltSyncStateStore
-	tombstones   *BoltTombstoneStore
-	seeding      *BoltBackfillSeedingStore
-	collab       *BoltCollaborationStore
+	identity      *BoltIdentityStore
+	syncState     *BoltSyncStateStore
+	tombstones    *BoltTombstoneStore
+	seeding       *BoltBackfillSeedingStore
+	collab        *BoltCollaborationStore
+	lifecycle     *BoltLifecycleStore
+	subscriptions *BoltSubscriptionStore
 }
 
 // NewStore opens a canonical semantic-core store, creating the database
@@ -61,6 +63,8 @@ func NewStore(dataDir string) (*Store, error) {
 			bucketCalendarItem,
 			bucketContact,
 			bucketTask,
+			bucketLifecycle,
+			bucketSubscriptions,
 		}
 		for _, b := range buckets {
 			if _, err := tx.CreateBucketIfNotExists([]byte(b)); err != nil {
@@ -88,6 +92,20 @@ func NewStore(dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("semcore.NewStore: collab store: %w", err)
 	}
 	s.collab = collab
+
+	lifecycle, err := NewBoltLifecycleStore(db)
+	if err != nil {
+		_ = db.Close() //nolint:errcheck
+		return nil, fmt.Errorf("semcore.NewStore: lifecycle store: %w", err)
+	}
+	s.lifecycle = lifecycle
+
+	subscriptions, err := NewBoltSubscriptionStore(db)
+	if err != nil {
+		_ = db.Close() //nolint:errcheck
+		return nil, fmt.Errorf("semcore.NewStore: subscription store: %w", err)
+	}
+	s.subscriptions = subscriptions
 
 	return s, nil
 }
@@ -123,3 +141,11 @@ func (s *Store) Seeding() *BoltBackfillSeedingStore { return s.seeding }
 // Collaboration returns the canonical collaboration store (CalendarItem,
 // Contact, and Task identities with version tokens).
 func (s *Store) Collaboration() *BoltCollaborationStore { return s.collab }
+
+// Lifecycle returns the lifecycle event store (append-only canonical
+// mailbox mutation events for sync and event consumers).
+func (s *Store) Lifecycle() *BoltLifecycleStore { return s.lifecycle }
+
+// Subscriptions returns the event subscription store (pull/push/streaming
+// subscription watermarks for EWS event polling).
+func (s *Store) Subscriptions() *BoltSubscriptionStore { return s.subscriptions }

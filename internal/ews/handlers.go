@@ -22,17 +22,21 @@ type Server struct {
 	msgStore      *storage.MessageStore
 	storageDB     *storage.Database
 	mutationPipe  *semcore.MutationPipeline
+	subscriptions *semcore.BoltSubscriptionStore
+	lifecycle     *semcore.BoltLifecycleStore
 }
 
 // NewServer creates an EWS handler wired to the canonical semcore stores and storage.
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline) *Server {
+func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore) *Server {
 	return &Server{
-		identity:     identity,
-		sync:         syncState,
-		tombstones:   tombstones,
-		msgStore:     msgStore,
-		storageDB:    storageDB,
-		mutationPipe: mutationPipe,
+		identity:      identity,
+		sync:          syncState,
+		tombstones:    tombstones,
+		msgStore:      msgStore,
+		storageDB:     storageDB,
+		mutationPipe:  mutationPipe,
+		subscriptions: subscriptions,
+		lifecycle:     lifecycle,
 	}
 }
 
@@ -99,6 +103,12 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleGetAttachment(ctx, soapBody)
 	case "DeleteAttachment":
 		response = s.handleDeleteAttachment(ctx, soapBody)
+	case "Subscribe":
+		response = s.handleSubscribe(ctx, soapBody)
+	case "Unsubscribe":
+		response = s.handleUnsubscribe(ctx, soapBody)
+	case "GetEvents":
+		response = s.handleGetEvents(ctx, soapBody)
 	default:
 		response = s.errorResponseXML(op, ErrErrorNotImplemented, fmt.Sprintf("operation %q not implemented", op))
 	}
@@ -216,6 +226,12 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"GetItem", "UpdateItem", "DeleteItem", "CreateItem", "SendItem", "MoveItem", "CopyItem",
 		"GetAttachment", "DeleteAttachment", "ItemIds", "ItemShape", "ToFolderId",
 		"AttachmentIds", "AttachmentId", "FileAttachment", "Mailbox",
+		// Subscription elements
+		"Subscribe", "Unsubscribe", "GetEvents",
+		"PullSubscriptionRequest", "SubscriptionId", "Watermark",
+		"NotificationEvent", "SubscribeResponse", "UnsubscribeResponse",
+		"GetEventsResponse", "SubscribeResponseMessage", "UnsubscribeResponseMessage",
+		"GetEventsResponseMessage",
 	}
 
 	// Build a map for fast lookup.

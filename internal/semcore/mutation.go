@@ -140,14 +140,17 @@ type MutationResult struct {
 // and message-update operations through this pipeline instead of calling
 // storage directly.
 type MutationPipeline struct {
-	identity *BoltIdentityStore
+	identity   *BoltIdentityStore
+	lifecycle  *BoltLifecycleStore
 }
 
 // NewMutationPipeline creates a new mutation pipeline backed by the given
-// identity store. The store must be the same BoltIdentityStore owned by the
-// semcore.Store so that identity and sync-state remain coherent.
-func NewMutationPipeline(identity *BoltIdentityStore) *MutationPipeline {
-	return &MutationPipeline{identity: identity}
+// identity store and optional lifecycle store. The identity store must be the
+// same BoltIdentityStore owned by the semcore.Store so that identity and
+// sync-state remain coherent. If lifecycle is nil, lifecycle events are
+// returned in MutationResult but not persisted.
+func NewMutationPipeline(identity *BoltIdentityStore, lifecycle *BoltLifecycleStore) *MutationPipeline {
+	return &MutationPipeline{identity: identity, lifecycle: lifecycle}
 }
 
 // Identity returns the underlying identity store, exposing helpers like
@@ -485,6 +488,12 @@ func (p *MutationPipeline) MutateUpdate(in *UpdateInput) (*UpdateResult, error) 
 		ChangeKey: newCK,
 	}
 
+	// Persist lifecycle event if store is wired.
+	if p.lifecycle != nil {
+		//nolint:errcheck
+		_ = p.lifecycle.AppendLifecycle(lifecycle) // best-effort
+	}
+
 	return &UpdateResult{
 		ItemID:    in.ItemID,
 		ChangeKey: newCK,
@@ -541,6 +550,20 @@ func (p *MutationPipeline) MutateDelete(in *DeleteInput, tombstore *BoltTombston
 	}
 	if err := tombstore.PutTombstone(tomb); err != nil {
 		return fmt.Errorf("MutateDelete: put tombstone: %w", err)
+	}
+
+	// Persist lifecycle event so GetEvents and sync consumers see the deletion.
+	if p.lifecycle != nil {
+		lifecycle := Lifecycle{
+			MailboxID: in.MailboxID,
+			FolderID:  in.FolderID,
+			ItemID:    in.ItemID,
+			Kind:      kind,
+			At:        time.Now(),
+			Actor:     in.Actor,
+		}
+		//nolint:errcheck
+		_ = p.lifecycle.AppendLifecycle(lifecycle) // best-effort
 	}
 
 	return nil
@@ -600,14 +623,20 @@ func (p *MutationPipeline) MutateMove(in *MoveInput) error {
 		return fmt.Errorf("MutateMove: get item identity: %w", err)
 	}
 
-	_ = Lifecycle{
-		MailboxID: in.MailboxID,
-		FolderID:  in.SourceFolder,
+	lifecycle := Lifecycle{
+		MailboxID:  in.MailboxID,
+		FolderID:   in.SourceFolder,
 		ItemID:    in.ItemID,
 		Kind:      LifecycleKindMoved,
 		At:        time.Now(),
 		Actor:     in.Actor,
 		ChangeKey: current.ChangeKey,
+	}
+
+	// Persist lifecycle event if store is wired.
+	if p.lifecycle != nil {
+		//nolint:errcheck
+		_ = p.lifecycle.AppendLifecycle(lifecycle) // best-effort
 	}
 
 	return nil

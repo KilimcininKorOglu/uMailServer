@@ -251,6 +251,12 @@ func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxI
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, "mutation failed: "+err.Error())
 	}
 
+	// Persist lifecycle event so GetEvents and sync consumers see the mutation.
+	if s.lifecycle != nil {
+		//nolint:errcheck
+		_ = s.lifecycle.AppendLifecycle(result.Lifecycle) // best-effort; event was already emitted
+	}
+
 	msgResp := MessageTypeResponse{
 		ItemID: ItemIdType{
 			ID: result.ItemID.String(),

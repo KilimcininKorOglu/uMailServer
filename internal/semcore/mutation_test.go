@@ -205,7 +205,7 @@ func TestMutationPipeline_MutateItem_Basic(t *testing.T) {
 	store, closeStore := tmpBoltStoreForMutation(t)
 	defer closeStore()
 
-	pipe := NewMutationPipeline(store)
+	pipe := NewMutationPipeline(store, nil)
 
 	mboxID, err := store.EnsureMailboxId("alice@local.test")
 	if err != nil {
@@ -282,7 +282,7 @@ func TestMutationPipeline_MutateItem_WithThreadHeaders(t *testing.T) {
 	store, closeStore := tmpBoltStoreForMutation(t)
 	defer closeStore()
 
-	pipe := NewMutationPipeline(store)
+	pipe := NewMutationPipeline(store, nil)
 
 	mboxID, err := store.EnsureMailboxId("alice@local.test")
 	if err != nil {
@@ -338,7 +338,7 @@ func TestMutationPipeline_MutateItem_SameContentSameBlobKey(t *testing.T) {
 	store, closeStore := tmpBoltStoreForMutation(t)
 	defer closeStore()
 
-	pipe := NewMutationPipeline(store)
+	pipe := NewMutationPipeline(store, nil)
 
 	mboxID, err := store.EnsureMailboxId("alice@local.test")
 	if err != nil {
@@ -413,7 +413,7 @@ func TestMutationPipeline_MutateItem_RequiresMailboxID(t *testing.T) {
 	store, closeStore := tmpBoltStoreForMutation(t)
 	defer closeStore()
 
-	pipe := NewMutationPipeline(store)
+	pipe := NewMutationPipeline(store, nil)
 
 	_, err := pipe.MutateItem(&MutationInput{
 		MailboxID:  MailboxId{},
@@ -429,7 +429,7 @@ func TestMutationPipeline_MutateItem_RequiresFolderID(t *testing.T) {
 	store, closeStore := tmpBoltStoreForMutation(t)
 	defer closeStore()
 
-	pipe := NewMutationPipeline(store)
+	pipe := NewMutationPipeline(store, nil)
 
 	_, err := pipe.MutateItem(&MutationInput{
 		MailboxID:  MustMailboxId("mbx-1"),
@@ -445,7 +445,7 @@ func TestMutationPipeline_MutateItem_RequiresRawMessage(t *testing.T) {
 	store, closeStore := tmpBoltStoreForMutation(t)
 	defer closeStore()
 
-	pipe := NewMutationPipeline(store)
+	pipe := NewMutationPipeline(store, nil)
 
 	_, err := pipe.MutateItem(&MutationInput{
 		MailboxID: MustMailboxId("mbx-1"),
@@ -460,7 +460,7 @@ func TestMutationPipeline_UpdateInput(t *testing.T) {
 	store, closeStore := tmpBoltStoreForMutation(t)
 	defer closeStore()
 
-	pipe := NewMutationPipeline(store)
+	pipe := NewMutationPipeline(store, nil)
 
 	mboxID, err := store.EnsureMailboxId("alice@local.test")
 	if err != nil {
@@ -554,7 +554,7 @@ func TestMutationPipeline_Identity(t *testing.T) {
 	store, closeStore := tmpBoltStoreForMutation(t)
 	defer closeStore()
 
-	pipe := NewMutationPipeline(store)
+	pipe := NewMutationPipeline(store, nil)
 
 	// Identity() returns the underlying store.
 	if pipe.Identity() != store {

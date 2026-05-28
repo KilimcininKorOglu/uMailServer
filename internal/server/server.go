@@ -320,7 +320,7 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create semcore store: %w", err)
 	}
 	s.semcoreStore = semcoreStore
-	s.mutationPipe = semcore.NewMutationPipeline(semcoreStore.Identity())
+	s.mutationPipe = semcore.NewMutationPipeline(semcoreStore.Identity(), semcoreStore.Lifecycle())
 	logger.Info("Semantic-core store initialized")
 
 	// Wire canonical identity store into search service so that search documents

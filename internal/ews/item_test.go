@@ -69,9 +69,9 @@ func tmpEWSItemServer(t *testing.T) (*Server, func()) {
 	identity, sync, tomb, msgStore, cleanup := tmpItemStores(t)
 
 	// Mutation pipeline needs the identity store.
-	pipe := semcore.NewMutationPipeline(identity)
+	pipe := semcore.NewMutationPipeline(identity, nil)
 
-	srv := NewServer(identity, sync, tomb, msgStore, nil, pipe)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, pipe, nil, nil)
 
 	return srv, cleanup
 }
