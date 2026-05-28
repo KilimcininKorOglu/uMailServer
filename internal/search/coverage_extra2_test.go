@@ -138,7 +138,7 @@ func TestIndexMessage_WithMsgStoreAndContent(t *testing.T) {
 	svc := NewService(database, msgStore, nil)
 	svc.indexes[user] = NewIndex()
 
-	err = svc.IndexMessage(user, "INBOX", 42)
+	err = svc.IndexMessage(user, "INBOX", 42, "", "")
 	if err != nil {
 		t.Fatalf("IndexMessage: %v", err)
 	}
@@ -165,7 +165,8 @@ func TestIndexMessage_NilDB(t *testing.T) {
 	defer func() {
 		_ = recover()
 	}()
-	svc.IndexMessage("niluser", "INBOX", 1)
+	//nolint:errcheck // deliberately ignoring error in panic-recovery test path
+	svc.IndexMessage("niluser", "INBOX", 1, "", "")
 }
 
 // TestBuildIndex_ManyFoldersManyMessages stress tests with many folders and messages.

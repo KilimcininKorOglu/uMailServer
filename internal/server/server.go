@@ -323,6 +323,13 @@ func New(cfg *config.Config) (*Server, error) {
 	s.mutationPipe = semcore.NewMutationPipeline(semcoreStore.Identity())
 	logger.Info("Semantic-core store initialized")
 
+	// Wire canonical identity store into search service so that search documents
+	// use ItemId as DocID and can resolve hits back to semantic-core items.
+	if s.searchSvc != nil {
+		s.searchSvc.SetIdentityStore(semcoreStore.Identity())
+		logger.Info("Search service wired to semantic-core identity store")
+	}
+
 	// Initialize rate limiter with config
 	rateLimiterConfig := &ratelimit.Config{
 		IPPerMinute:       cfg.Security.RateLimit.IPPerMinute,

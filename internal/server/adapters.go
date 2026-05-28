@@ -79,10 +79,12 @@ func (a *pop3MailstoreAdapter) GetMessageSize(user string, index int) (int64, er
 	return msg.Size, nil
 }
 
-// indexJob represents a search indexing task.
+// indexJob represents a search indexing task with canonical identity context.
 type indexJob struct {
-	email string
-	uid   uint32
+	email         string
+	uid           uint32
+	itemID        string // canonical ItemId (empty if mutation pipeline not used)
+	conversationID string // canonical ConversationId (empty if mutation pipeline not used)
 }
 
 // runIndexWorker processes search indexing jobs.
@@ -94,8 +96,12 @@ func (s *Server) runIndexWorker() {
 		}
 	}()
 	for job := range s.indexWork {
-		if err := s.searchSvc.IndexMessage(job.email, "INBOX", job.uid); err != nil {
-			s.logger.Error("Failed to index message for search", "email", job.email, "uid", job.uid, "error", err)
+		if err := s.searchSvc.IndexMessage(job.email, "INBOX", job.uid, job.itemID, job.conversationID); err != nil {
+			s.logger.Error("Failed to index message for search",
+				"email", job.email, "uid", job.uid,
+				"item_id", job.itemID,
+				"conversation_id", job.conversationID,
+				"error", err)
 		}
 	}
 }

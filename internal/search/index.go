@@ -119,17 +119,35 @@ type SearchResult struct {
 
 // SearchOptions contains search options
 type SearchOptions struct {
-	Limit  int
-	Offset int
+	Limit           int
+	Offset          int
+	ConversationID  string // when non-empty, only return documents in this conversation
 }
 
-// Search performs a full-text search
+// Search performs a full-text search with optional conversation filtering.
 func (idx *Index) Search(query string, opts SearchOptions) []SearchResult {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
 	// Parse query
 	queryTerms := parseQuery(query)
+
+	// Pre-filter by conversation if specified.
+	// Build a set of docIDs that belong to the given conversation.
+	var convDocIDs map[string]bool
+	if opts.ConversationID != "" {
+		convToken := "conversation:" + opts.ConversationID
+		if docFreqs, ok := idx.tokens[convToken]; ok {
+			// Convert from map[string]int (docID->freq) to map[string]bool (docID set).
+			convDocIDs = make(map[string]bool, len(docFreqs))
+			for docID := range docFreqs {
+				convDocIDs[docID] = true
+			}
+		} else {
+			// No documents match this conversation.
+			return []SearchResult{}
+		}
+	}
 
 	// Score documents
 	docScores := make(map[string]float64)
@@ -139,12 +157,20 @@ func (idx *Index) Search(query string, opts SearchOptions) []SearchResult {
 			// Field-specific search
 			fieldToken := term.Field + ":" + term.Value
 			for docID, freq := range idx.tokens[fieldToken] {
+				// Apply conversation filter if specified.
+				if convDocIDs != nil && !convDocIDs[docID] {
+					continue
+				}
 				score := idx.calculateScore(fieldToken, docID, freq)
 				docScores[docID] += score * term.Boost
 			}
 		} else {
 			// General search across all fields
 			for docID, freq := range idx.tokens[term.Value] {
+				// Apply conversation filter if specified.
+				if convDocIDs != nil && !convDocIDs[docID] {
+					continue
+				}
 				score := idx.calculateScore(term.Value, docID, freq)
 				docScores[docID] += score * term.Boost
 			}

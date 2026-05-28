@@ -187,22 +187,22 @@ func TestParseDocID(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		folder, uid, err := parseDocID(tc.docID)
+		folder, uid, err := parseLegacyDocID(tc.docID)
 		if tc.expectError {
 			if err == nil {
-				t.Errorf("parseDocID('%s'): expected error", tc.docID)
+				t.Errorf("parseLegacyDocID('%s'): expected error", tc.docID)
 			}
 			continue
 		}
 		if err != nil {
-			t.Errorf("parseDocID('%s'): unexpected error: %v", tc.docID, err)
+			t.Errorf("parseLegacyDocID('%s'): unexpected error: %v", tc.docID, err)
 			continue
 		}
 		if folder != tc.expectedFolder {
-			t.Errorf("parseDocID('%s'): expected folder '%s', got '%s'", tc.docID, tc.expectedFolder, folder)
+			t.Errorf("parseLegacyDocID('%s'): expected folder '%s', got '%s'", tc.docID, tc.expectedFolder, folder)
 		}
 		if uid != tc.expectedUID {
-			t.Errorf("parseDocID('%s'): expected uid %d, got %d", tc.docID, tc.expectedUID, uid)
+			t.Errorf("parseLegacyDocID('%s'): expected uid %d, got %d", tc.docID, tc.expectedUID, uid)
 		}
 	}
 }
@@ -311,7 +311,7 @@ func TestServiceRemoveMessage(t *testing.T) {
 	idx.Add(doc)
 
 	// Remove the message
-	svc.RemoveMessage("testuser", "INBOX", 1)
+	svc.RemoveMessage("testuser", "INBOX", 1, "")
 
 	// Verify document was removed
 	if idx.DocCount() != 0 {
@@ -419,7 +419,8 @@ func TestServiceIndexMessage(t *testing.T) {
 	defer func() {
 		_ = recover() // Ignore panic if db is nil
 	}()
-	svc.IndexMessage("testuser", "INBOX", 1)
+	//nolint:errcheck // deliberately ignoring error in panic-recovery test path
+	svc.IndexMessage("testuser", "INBOX", 1, "", "")
 }
 
 // TestServiceIndexMessageWithIndex tests IndexMessage when index exists
@@ -433,7 +434,8 @@ func TestServiceIndexMessageWithIndex(t *testing.T) {
 	defer func() {
 		_ = recover() // Expect panic when db is nil
 	}()
-	svc.IndexMessage("testuser", "INBOX", 1)
+	//nolint:errcheck // deliberately ignoring error in panic-recovery test path
+	svc.IndexMessage("testuser", "INBOX", 1, "", "")
 }
 
 // TestServiceBuildIndexEmptyUser tests BuildIndex with empty user
@@ -596,7 +598,7 @@ func TestServiceRemoveMessageNoIndex(t *testing.T) {
 	svc := NewService(nil, nil, nil)
 
 	// Remove message when no index exists - should not panic
-	svc.RemoveMessage("nonexistent", "INBOX", 1)
+	svc.RemoveMessage("nonexistent", "INBOX", 1, "")
 }
 
 // TestServiceClearIndexNonExistent tests ClearIndex for non-existent user
@@ -847,14 +849,14 @@ func TestServiceIndexMessageNoIndex(t *testing.T) {
 	svc := NewService(database, nil, nil)
 
 	// No index exists for user, so BuildIndex will be called
-	err = svc.IndexMessage("newuser", "INBOX", 1)
+	err = svc.IndexMessage("newuser", "INBOX", 1, "", "")
 	// May succeed or fail depending on database state
 	_ = err
 }
 
 func TestParseDocIDWithColonInFolder(t *testing.T) {
 	// Folder names with colons should use SplitN correctly
-	folder, uid, err := parseDocID("Sent.Items:42")
+	folder, uid, err := parseLegacyDocID("Sent.Items:42")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -882,12 +884,12 @@ func TestParseDocIDEdgeCases(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.docID, func(t *testing.T) {
-			_, _, err := parseDocID(tc.docID)
+			_, _, err := parseLegacyDocID(tc.docID)
 			if tc.wantErr && err == nil {
-				t.Errorf("parseDocID(%q): expected error", tc.docID)
+				t.Errorf("parseLegacyDocID(%q): expected error", tc.docID)
 			}
 			if !tc.wantErr && err != nil {
-				t.Errorf("parseDocID(%q): unexpected error: %v", tc.docID, err)
+				t.Errorf("parseLegacyDocID(%q): unexpected error: %v", tc.docID, err)
 			}
 		})
 	}
@@ -1127,7 +1129,7 @@ func TestServiceRemoveMessageThenSearch(t *testing.T) {
 	idx.Add(&Document{ID: "INBOX:2", Content: "keepme"})
 
 	// Remove one document
-	svc.RemoveMessage("user1", "INBOX", 1)
+	svc.RemoveMessage("user1", "INBOX", 1, "")
 
 	// Search should only find the remaining document
 	results, err := svc.Search(MessageSearchOptions{

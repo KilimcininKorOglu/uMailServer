@@ -461,7 +461,7 @@ func TestIndexMessageWithRealDB(t *testing.T) {
 	}
 
 	// Index the message
-	err = svc.IndexMessage(user, "INBOX", 5)
+	err = svc.IndexMessage(user, "INBOX", 5, "", "")
 	if err != nil {
 		t.Fatalf("IndexMessage failed: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestIndexMessageNoExistingIndexTriggersBuild(t *testing.T) {
 
 	// IndexMessage without pre-existing index -> triggers BuildIndex
 	svc := NewService(database, msgStore, nil)
-	err = svc.IndexMessage(user, "INBOX", 10)
+	err = svc.IndexMessage(user, "INBOX", 10, "", "")
 	if err != nil {
 		t.Fatalf("IndexMessage (no existing index) failed: %v", err)
 	}
@@ -569,7 +569,7 @@ func TestIndexMessageMetadataError(t *testing.T) {
 	// IndexMessage with non-existent message should return an error
 	// GetMessageMetadata on a non-existent message returns empty metadata
 	// but no error in this implementation. Test the path anyway.
-	err = svc.IndexMessage("heidi", "INBOX", 999)
+	err = svc.IndexMessage("heidi", "INBOX", 999, "", "")
 	// Depending on db implementation, this may or may not error
 	// The important thing is it doesn't panic
 	_ = err
@@ -605,7 +605,7 @@ func TestIndexMessageWithNilMsgStore(t *testing.T) {
 	svc := NewService(database, nil, nil) // nil msgStore
 	svc.indexes[user] = NewIndex()
 
-	err = svc.IndexMessage(user, "INBOX", 1)
+	err = svc.IndexMessage(user, "INBOX", 1, "", "")
 	if err != nil {
 		t.Fatalf("IndexMessage with nil msgStore: %v", err)
 	}
@@ -887,7 +887,7 @@ func TestIndexMessageMultipleToExistingIndex(t *testing.T) {
 		if err := database.StoreMessageMetadata(user, "INBOX", uid, meta); err != nil {
 			t.Fatalf("store metadata %d: %v", uid, err)
 		}
-		if err := svc.IndexMessage(user, "INBOX", uid); err != nil {
+		if err := svc.IndexMessage(user, "INBOX", uid, "", ""); err != nil {
 			t.Fatalf("IndexMessage %d: %v", uid, err)
 		}
 	}

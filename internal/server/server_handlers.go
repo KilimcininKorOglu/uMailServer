@@ -446,8 +446,14 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, targetFold
 			}
 
 			if s.searchSvc != nil {
+				// Extract canonical identity from mutation result when available.
+				var itemID, conversationID string
+				if mutationResult != nil {
+					itemID = mutationResult.ItemID.String()
+					conversationID = mutationResult.ConversationID.String()
+				}
 				select {
-				case s.indexWork <- indexJob{email: email, uid: uid}:
+				case s.indexWork <- indexJob{email: email, uid: uid, itemID: itemID, conversationID: conversationID}:
 				default:
 					s.logger.Warn("Search index queue full, dropping index job", "email", email, "uid", uid)
 				}

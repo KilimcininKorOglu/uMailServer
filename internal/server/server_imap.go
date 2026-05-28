@@ -37,7 +37,11 @@ func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
 	}
 	if s.searchSvc != nil {
 		imapServer.SetOnExpunge(func(user, mailbox string, uid uint32) {
-			s.searchSvc.RemoveMessage(user, mailbox, uid)
+			// IMAP expunge doesn't have ItemId readily available.
+			// Pass empty string to use legacy folder:uid removal.
+			// TODO(phase3): Look up ItemId from mailstore and pass it here
+			// so that semantic-core mode can remove by ItemId.
+			s.searchSvc.RemoveMessage(user, mailbox, uid, "")
 		})
 	}
 
