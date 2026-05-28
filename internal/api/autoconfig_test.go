@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/umailserver/umailserver/internal/semcore"
 )
 
 func TestExtractDomainFromEmail(t *testing.T) {
@@ -202,7 +204,70 @@ func TestBuildAutodiscoverResponse(t *testing.T) {
 		t.Errorf("Expected account type email, got %s", resp.Response.Account.AccountType)
 	}
 	if len(resp.Response.Account.Protocol) != 2 {
-		t.Errorf("Expected 2 protocols, got %d", len(resp.Response.Account.Protocol))
+		t.Errorf("Expected 2 protocols (IMAP+SMTP) when FeatureEWS is disabled, got %d", len(resp.Response.Account.Protocol))
+	}
+}
+
+// TestBuildAutodiscoverResponse_ExchangeTier verifies that when FeatureEWS is enabled,
+// the Exchange tier adds an EWS protocol entry alongside IMAP/SMTP.
+func TestBuildAutodiscoverResponse_ExchangeTier(t *testing.T) {
+	s := &Server{}
+
+	// Enable both canonical identity (triggers Exchange tier) and EWS gate.
+	semcore.Gate().Set(semcore.FeatureCanonicalIdentity, true)
+	semcore.Gate().Set(semcore.FeatureEWS, true)
+	defer func() {
+		semcore.Gate().Set(semcore.FeatureCanonicalIdentity, false)
+		semcore.Gate().Set(semcore.FeatureEWS, false)
+	}()
+
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com")
+	if resp == nil {
+		t.Fatal("Expected non-nil response")
+	}
+
+	// Exchange tier with EWS enabled should advertise 3 protocols: IMAP, SMTP, EWS
+	if len(resp.Response.Account.Protocol) != 3 {
+		t.Errorf("Expected 3 protocols (IMAP+SMTP+EWS) in Exchange tier, got %d", len(resp.Response.Account.Protocol))
+	}
+
+	// Verify the third protocol is EWS
+	protoTypes := make([]string, len(resp.Response.Account.Protocol))
+	for i, p := range resp.Response.Account.Protocol {
+		protoTypes[i] = p.Type
+	}
+	foundEWS := false
+	for _, pt := range protoTypes {
+		if pt == "EWS" {
+			foundEWS = true
+			break
+		}
+	}
+	if !foundEWS {
+		t.Error("Expected EWS protocol in Exchange tier response, but it was not found")
+	}
+}
+
+// TestBuildAutodiscoverResponse_IMAPOnlyTier verifies that when FeatureEWS is enabled
+// but FeatureCanonicalIdentity is not, accounts remain in TierIMAPOnly and only
+// receive IMAP/SMTP settings.
+func TestBuildAutodiscoverResponse_IMAPOnlyTier(t *testing.T) {
+	s := &Server{}
+
+	// Enable EWS but NOT canonical identity — should stay in IMAP-only tier.
+	semcore.Gate().Set(semcore.FeatureEWS, true)
+	defer func() {
+		semcore.Gate().Set(semcore.FeatureEWS, false)
+	}()
+
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com")
+	if resp == nil {
+		t.Fatal("Expected non-nil response")
+	}
+
+	// Without canonical identity, Exchange tier is not active — only IMAP/SMTP.
+	if len(resp.Response.Account.Protocol) != 2 {
+		t.Errorf("Expected 2 protocols (IMAP+SMTP) in IMAP-only tier, got %d", len(resp.Response.Account.Protocol))
 	}
 }
 

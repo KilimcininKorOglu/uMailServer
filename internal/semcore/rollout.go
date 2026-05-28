@@ -58,6 +58,21 @@ const (
 	FeatureMAPIHTTP FeatureName = "mapi_http"
 )
 
+// CompatibilityTier represents the protocol compatibility level for a mailbox.
+// This determines which endpoints are advertised in Autodiscover responses.
+type CompatibilityTier uint8
+
+const (
+	// TierIMAPOnly is the baseline tier: only IMAP/SMTP settings are advertised.
+	// This is the implicit tier for all accounts before canonical identity migration.
+	TierIMAPOnly CompatibilityTier = 0
+
+	// TierExchange is the Exchange tier: IMAP/SMTP plus EWS/Exchange endpoints
+	// are advertised. This tier is active after FeatureCanonicalIdentity is
+	// enabled and the account's domain has been migrated to the semantic core.
+	TierExchange CompatibilityTier = 1
+)
+
 // FeatureGate holds the global feature-gate state.
 // It is safe for concurrent use.
 type FeatureGate struct {
@@ -142,6 +157,17 @@ func CurrentRolloutPhase() RolloutPhase {
 	default:
 		return RolloutPhaseLegacy
 	}
+}
+
+// CurrentCompatibilityTier returns the effective Exchange compatibility tier.
+// When canonical identity is enabled (Phase 1+ migration starting), accounts
+// enter the Exchange tier and will see EWS endpoints in Autodiscover responses.
+// Until that gate is passed, all accounts remain at TierIMAPOnly.
+func CurrentCompatibilityTier() CompatibilityTier {
+	if Gate().IsEnabled(FeatureCanonicalIdentity) {
+		return TierExchange
+	}
+	return TierIMAPOnly
 }
 
 // String implements fmt.Stringer for RolloutPhase.

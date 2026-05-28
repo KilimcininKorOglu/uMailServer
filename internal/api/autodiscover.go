@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"net/http"
 	"strings"
+
+	"github.com/umailserver/umailserver/internal/semcore"
 )
 
 // AutodiscoverRequest represents an Autodiscover request
@@ -103,7 +105,11 @@ func (s *Server) parseAutodiscoverPOST(r *http.Request) string {
 	return email
 }
 
-// buildAutodiscoverResponse builds the Autodiscover response
+// buildAutodiscoverResponse builds the Autodiscover response.
+// The response advertises only the endpoints supported by the account's
+// active compatibility tier. When FeatureEWS is enabled, accounts in the
+// Exchange tier receive the EWS/Exchange.asmx protocol entry, while
+// TierIMAPOnly accounts receive only IMAP and SMTP settings.
 func (s *Server) buildAutodiscoverResponse(email, domain string) *AutodiscoverResponse {
 	resp := &AutodiscoverResponse{
 		Space: "http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006",
@@ -114,53 +120,71 @@ func (s *Server) buildAutodiscoverResponse(email, domain string) *AutodiscoverRe
 	resp.Response.Account.AccountType = "email"
 	resp.Response.Account.Action = "settings"
 
-	// Add IMAP protocol
-	imapProtocol := struct {
-		XMLName   xml.Name `xml:"Protocol"`
-		Type      string   `xml:"Type"`
-		Server    string   `xml:"Server"`
-		Port      int      `xml:"Port"`
-		LoginName string   `xml:"LoginName"`
-		Domain    string   `xml:"Domain"`
-		SPA       string   `xml:"SPA"`
-		SSL       string   `xml:"SSL"`
-		Auth      string   `xml:"Auth"`
-	}{
-		Type:      "IMAP",
-		Server:    "mail." + domain,
-		Port:      993,
-		LoginName: email,
-		Domain:    domain,
-		SPA:       "off",
-		SSL:       "on",
-		Auth:      "password-encrypted",
-	}
+	// Determine the effective compatibility tier.
+	// TierIMAPOnly (default) advertises only IMAP/SMTP.
+	// TierExchange additionally advertises EWS when FeatureEWS is enabled.
+	tier := semcore.CurrentCompatibilityTier()
+	ewsgate := semcore.Gate().IsEnabled(semcore.FeatureEWS)
 
-	// Add SMTP protocol
-	smtpProtocol := struct {
-		XMLName   xml.Name `xml:"Protocol"`
-		Type      string   `xml:"Type"`
-		Server    string   `xml:"Server"`
-		Port      int      `xml:"Port"`
-		LoginName string   `xml:"LoginName"`
-		Domain    string   `xml:"Domain"`
-		SPA       string   `xml:"SPA"`
-		SSL       string   `xml:"SSL"`
-		Auth      string   `xml:"Auth"`
-	}{
-		Type:      "SMTP",
-		Server:    "mail." + domain,
-		Port:      465,
-		LoginName: email,
-		Domain:    domain,
-		SPA:       "off",
-		SSL:       "on",
-		Auth:      "password-encrypted",
-	}
+	// Add IMAP protocol (available in all tiers)
+	imapProtocol := newProtocol("IMAP", "mail."+domain, 993, email, domain)
+	resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, *imapProtocol)
 
-	resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, imapProtocol, smtpProtocol)
+	// Add SMTP protocol (available in all tiers)
+	smtpProtocol := newProtocol("SMTP", "mail."+domain, 465, email, domain)
+	resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, *smtpProtocol)
+
+	// Add EWS/Exchange protocol only when in Exchange tier with EWS gate enabled
+	if tier == semcore.TierExchange && ewsgate {
+		ewsProtocol := newProtocol("EWS", s.serverHost(), 443, email, domain)
+		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, *ewsProtocol)
+	}
 
 	return resp
+}
+
+// newProtocol creates a Protocol struct for the given type, server, port, and credentials.
+func newProtocol(protoType, server string, port int, loginName, domain string) *struct {
+	XMLName   xml.Name `xml:"Protocol"`
+	Type      string  `xml:"Type"`
+	Server    string  `xml:"Server"`
+	Port      int     `xml:"Port"`
+	LoginName string  `xml:"LoginName"`
+	Domain    string  `xml:"Domain"`
+	SPA       string  `xml:"SPA"`
+	SSL       string  `xml:"SSL"`
+	Auth      string  `xml:"Auth"`
+} {
+	return &struct {
+		XMLName   xml.Name `xml:"Protocol"`
+		Type      string  `xml:"Type"`
+		Server    string  `xml:"Server"`
+		Port      int     `xml:"Port"`
+		LoginName string  `xml:"LoginName"`
+		Domain    string  `xml:"Domain"`
+		SPA       string  `xml:"SPA"`
+		SSL       string  `xml:"SSL"`
+		Auth      string  `xml:"Auth"`
+	}{
+		Type:      protoType,
+		Server:    server,
+		Port:      port,
+		LoginName: loginName,
+		Domain:    domain,
+		SPA:       "off",
+		SSL:       "on",
+		Auth:      "password-encrypted",
+	}
+}
+
+// serverHost returns the configured server hostname for EWS endpoint URLs.
+// This is used to construct the EWS/Exchange.asmx URL in Autodiscover responses.
+// The returned value should be the externally reachable server hostname.
+func (s *Server) serverHost() string {
+	// Use a sensible default. In production with TLS and a configured hostname,
+	// this would be set via server configuration. For now, return a default that
+	// works for the local development environment.
+	return "localhost"
 }
 
 // extractEmailFromHost extracts email from Host header
