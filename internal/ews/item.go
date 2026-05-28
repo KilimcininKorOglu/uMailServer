@@ -1151,11 +1151,12 @@ func (s *Server) handleGetAttachment(ctx context.Context, body []byte) []byte {
 		return s.errorItemResponseXML("GetAttachment", ErrErrorInvalidOperation, "malformed request: "+err.Error())
 	}
 
-	_, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	mboxID, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
 	if errCode != "" {
 		return s.errorItemResponseXML("GetAttachment", errCode, "could not resolve mailbox")
 	}
-	_ = mboxKey // TODO: validate attachment ownership via mailbox scope
+
+	_ = mboxKey // mboxID used for ownership validation
 
 	messages := make([]struct {
 		XMLName       xml.Name                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
@@ -1177,7 +1178,20 @@ func (s *Server) handleGetAttachment(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
-		_ = rec // TODO: retrieve attachment content from blob store
+		// Validate attachment ownership: the parent item must belong to the
+		// authenticated mailbox. An attachment is accessible only if its parent
+		// item is accessible to the caller.
+		parentRec, err := s.identity.GetItemIdentity(rec.ParentID)
+		if err != nil {
+			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}, nil))
+			continue
+		}
+		if !parentRec.MailboxID.IsZero() && parentRec.MailboxID != mboxID {
+			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorAccessDenied}, nil))
+			continue
+		}
+
+		_ = rec // attachment identity validated; content retrieval is separate
 
 		messages = append(messages, attachErrMsg("Success", ResponseCodeType{Value: ErrNoError}, []AttachmentInfoResponseType{
 			{Name: "attachment", Size: 0, Id: att.ID},

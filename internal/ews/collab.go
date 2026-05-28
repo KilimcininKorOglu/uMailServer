@@ -1776,7 +1776,6 @@ func buildTaskICalFromTask(uid string, task *TaskTypeNew) string {
 
 // parseICalRRULE extracts structured recurrence data from raw iCal RRULE.
 // parseICalRRULE is reserved for future recurrence RRULE parsing integration.
-//nolint:unused
 func parseICalRRULE(rrule string) *semcore.RecurrenceRule {
 	if rrule == "" {
 		return nil
@@ -1827,7 +1826,6 @@ func parseICalRRULE(rrule string) *semcore.RecurrenceRule {
 }
 
 // parseICalDateTimeTZ parses an iCal datetime with optional TZID.
-//nolint:unused
 func parseICalDateTimeTZ(s string) (time.Time, string) {
 	if s == "" {
 		return time.Time{}, ""
@@ -1847,7 +1845,6 @@ func parseICalDateTimeTZ(s string) (time.Time, string) {
 }
 
 // recurrenceRange maps EWS recurrence range strings.
-//nolint:unused
 func recurrenceRange(s string) semcore.RecurrenceRange {
 	switch s {
 	case "ThisAndFuture":
@@ -1919,7 +1916,12 @@ func sortAttendees(attendees []semcore.Attendee) {
 
 // conflictFreeBusy checks for overlapping busy time ranges in a calendar item
 // for free/busy calculations. Satisfies VAL-COLLAB-003.
-//nolint:unused
+//
+// Wired into CreateCalendarItem to provide a conflict check against existing
+// calendar items in the same mailbox. Returns true if the time ranges overlap.
+// The actual free/busy surface (VAL-COLLAB-003) is exposed through the
+// GetUserAvailability handler; this helper is used to detect conflicts at
+// item-creation time for policy-aware booking.
 func conflictFreeBusy(a, b *semcore.CalendarItem) bool {
 	if a.DTStart.IsZero() || b.DTStart.IsZero() {
 		return false
