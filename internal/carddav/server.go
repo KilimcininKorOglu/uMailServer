@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/tracing"
 )
 
@@ -23,6 +24,7 @@ type Server struct {
 	dataDir         string
 	storage         *Storage
 	tracingProvider *tracing.Provider
+	collabStore     *semcore.BoltCollaborationStore
 }
 
 // SetTracingProvider attaches an OpenTelemetry tracing provider so each
@@ -46,6 +48,13 @@ func NewServer(dataDir string, logger *slog.Logger) *Server {
 // SetAuthFunc sets the authentication function
 func (s *Server) SetAuthFunc(fn func(username, password string) (bool, error)) {
 	s.authFunc = fn
+}
+
+// SetCollaborationStore wires the semcore collaboration store into the CardDAV
+// server. When set, ETags are derived from ContactChangeKey instead of
+// filesystem mtime. Passing nil clears the store (reverts to mtime-based ETags).
+func (s *Server) SetCollaborationStore(store *semcore.BoltCollaborationStore) {
+	s.collabStore = store
 }
 
 // ServeHTTP implements the http.Handler interface, wrapping the actual
@@ -721,6 +730,10 @@ type Contact struct {
 	Photo        string     `json:"photo,omitempty"`
 	Created      time.Time  `json:"created"`
 	Modified     time.Time  `json:"modified"`
+	// ETag is the DAV ETag for this contact. When non-empty, it is used instead
+	// of the filesystem mtime-based ETag. It is set by the CardDAV server when
+	// the semcore collaboration store provides a ContactChangeKey-based ETag.
+	ETag string `json:"etag,omitempty"`
 }
 
 // Email represents an email address
@@ -754,4 +767,7 @@ type Addressbook struct {
 	ReadOnly    bool      `json:"read_only,omitempty"`
 	Created     time.Time `json:"created"`
 	Modified    time.Time `json:"modified"`
+	// ETag is the DAV ETag for this addressbook. Used instead of mtime-based ETag
+	// when the semcore collaboration store provides a ChangeKey-based ETag.
+	ETag string `json:"etag,omitempty"`
 }

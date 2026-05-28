@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/tracing"
 )
 
@@ -20,6 +21,7 @@ type Server struct {
 	dataDir         string
 	storage         *Storage
 	tracingProvider *tracing.Provider
+	collabStore     any // *semcore.BoltCollaborationStore; set via SetCollaborationStore
 }
 
 // SetTracingProvider attaches an OpenTelemetry tracing provider so each
@@ -43,6 +45,13 @@ func NewServer(dataDir string, logger *slog.Logger) *Server {
 // SetAuthFunc sets the authentication function
 func (s *Server) SetAuthFunc(fn func(username, password string) (bool, error)) {
 	s.authFunc = fn
+}
+
+// SetCollaborationStore wires the semcore collaboration store into the CalDAV
+// server. When set, ETags are derived from CalendarChangeKey instead of
+// filesystem mtime. Passing nil clears the store (reverts to mtime-based ETags).
+func (s *Server) SetCollaborationStore(store *semcore.BoltCollaborationStore) {
+	s.collabStore = store
 }
 
 // ServeHTTP implements the http.Handler interface, wrapping the actual
@@ -694,6 +703,10 @@ type CalendarEvent struct {
 	Recurrence  string    `json:"recurrence,omitempty"`
 	Created     time.Time `json:"created"`
 	Modified    time.Time `json:"modified"`
+	// ETag is the DAV ETag for this event. When non-empty, it is used instead
+	// of the filesystem mtime-based ETag. It is set by the CalDAV server when
+	// the semcore collaboration store provides a ChangeKey-based ETag.
+	ETag string `json:"etag,omitempty"`
 }
 
 // Calendar represents a calendar collection
@@ -706,4 +719,7 @@ type Calendar struct {
 	ReadOnly    bool      `json:"read_only,omitempty"`
 	Created     time.Time `json:"created"`
 	Modified    time.Time `json:"modified"`
+	// ETag is the DAV ETag for this calendar. Used instead of mtime-based ETag
+	// when the semcore collaboration store provides a ChangeKey-based ETag.
+	ETag string `json:"etag,omitempty"`
 }

@@ -26,6 +26,11 @@ func (s *Server) startCardDAV() {
 	})
 	carddavServer.SetTracingProvider(s.tracingProvider)
 
+	// Wire semcore collaboration store for ChangeKey-based ETags.
+	if s.semcoreStore != nil {
+		carddavServer.SetCollaborationStore(s.semcoreStore.Collaboration())
+	}
+
 	s.carddavServer = carddavServer
 
 	srv := &http.Server{

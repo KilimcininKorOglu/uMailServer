@@ -25,10 +25,11 @@ type Store struct {
 	mu     sync.RWMutex
 	dir    string
 
-	identity   *BoltIdentityStore
-	syncState  *BoltSyncStateStore
-	tombstones *BoltTombstoneStore
-	seeding    *BoltBackfillSeedingStore
+	identity     *BoltIdentityStore
+	syncState    *BoltSyncStateStore
+	tombstones   *BoltTombstoneStore
+	seeding      *BoltBackfillSeedingStore
+	collab       *BoltCollaborationStore
 }
 
 // NewStore opens a canonical semantic-core store, creating the database
@@ -57,6 +58,9 @@ func NewStore(dataDir string) (*Store, error) {
 			bucketSyncState,
 			bucketTombstones,
 			bucketSeeding,
+			bucketCalendarItem,
+			bucketContact,
+			bucketTask,
 		}
 		for _, b := range buckets {
 			if _, err := tx.CreateBucketIfNotExists([]byte(b)); err != nil {
@@ -77,6 +81,13 @@ func NewStore(dataDir string) (*Store, error) {
 	s.syncState = &BoltSyncStateStore{db: db}
 	s.tombstones = &BoltTombstoneStore{db: db}
 	s.seeding = &BoltBackfillSeedingStore{db: db}
+
+	collab, err := NewBoltCollaborationStore(db)
+	if err != nil {
+		_ = db.Close() //nolint:errcheck
+		return nil, fmt.Errorf("semcore.NewStore: collab store: %w", err)
+	}
+	s.collab = collab
 
 	return s, nil
 }
@@ -108,3 +119,7 @@ func (s *Store) Tombstones() *BoltTombstoneStore { return s.tombstones }
 
 // Seeding returns the backfill-seeding store (mailbox population progress).
 func (s *Store) Seeding() *BoltBackfillSeedingStore { return s.seeding }
+
+// Collaboration returns the canonical collaboration store (CalendarItem,
+// Contact, and Task identities with version tokens).
+func (s *Store) Collaboration() *BoltCollaborationStore { return s.collab }

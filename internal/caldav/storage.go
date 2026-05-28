@@ -295,9 +295,68 @@ func (s *Storage) DeleteEvent(username, calendarID, eventUID string) error {
 	return nil
 }
 
-// GetETag generates an ETag for an event based on modification time
+// SetETag updates the stored ETag for an event in the metadata JSON.
+// When a non-empty etag is stored, GetETag returns it instead of the
+// filesystem mtime-based ETag. This enables ChangeKey-based ETags backed
+// by the semcore collaboration store.
+func (s *Storage) SetETag(username, calendarID, eventUID, etag string) error {
+	if err := validateID(calendarID); err != nil {
+		return err
+	}
+	if err := validateID(eventUID); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Read current event metadata.
+	path := s.eventPath(username, calendarID, eventUID) + ".meta"
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// No metadata file yet — nothing to update.
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("SetETag: read: %w", err)
+	}
+
+	var event CalendarEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		return fmt.Errorf("SetETag: unmarshal: %w", err)
+	}
+
+	event.ETag = etag
+
+	data, err = json.MarshalIndent(&event, "", "  ")
+	if err != nil {
+		return fmt.Errorf("SetETag: marshal: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("SetETag: write: %w", err)
+	}
+	return nil
+}
+
+// GetETag returns the DAV ETag for an event. When the event metadata contains
+// a stored ETag (ChangeKey-based), it is returned. Otherwise the ETag is
+// derived from the filesystem mtime (legacy fallback).
 func (s *Storage) GetETag(username, calendarID, eventUID string) string {
-	path := s.eventPath(username, calendarID, eventUID)
+	// Fast path: try to read the stored ETag from the event metadata.
+	s.mu.RLock()
+	path := s.eventPath(username, calendarID, eventUID) + ".meta"
+	data, err := os.ReadFile(filepath.Clean(path))
+	s.mu.RUnlock()
+
+	if err == nil && len(data) > 0 {
+		var event CalendarEvent
+		if err := json.Unmarshal(data, &event); err == nil && event.ETag != "" {
+			return event.ETag
+		}
+	}
+
+	// Legacy fallback: derive ETag from filesystem mtime.
+	path = s.eventPath(username, calendarID, eventUID)
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Sprintf("\"%s\"", uuid.New().String())
@@ -305,9 +364,24 @@ func (s *Storage) GetETag(username, calendarID, eventUID string) string {
 	return fmt.Sprintf("\"%d\"", info.ModTime().Unix())
 }
 
-// GetCalendarETag generates an ETag for a calendar
+// GetCalendarETag returns the DAV ETag for a calendar. When the calendar
+// metadata contains a stored ETag (ChangeKey-based), it is returned.
+// Otherwise the ETag is derived from the filesystem mtime.
 func (s *Storage) GetCalendarETag(username, calendarID string) string {
+	// Try stored ETag first.
+	s.mu.RLock()
 	path := s.calendarPath(username, calendarID)
+	data, err := os.ReadFile(filepath.Clean(path))
+	s.mu.RUnlock()
+
+	if err == nil && len(data) > 0 {
+		var cal Calendar
+		if err := json.Unmarshal(data, &cal); err == nil && cal.ETag != "" {
+			return cal.ETag
+		}
+	}
+
+	// Legacy fallback.
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Sprintf("\"%s\"", uuid.New().String())

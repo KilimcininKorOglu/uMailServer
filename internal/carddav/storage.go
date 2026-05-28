@@ -295,9 +295,67 @@ func (s *Storage) DeleteContact(username, addressbookID, contactUID string) erro
 	return nil
 }
 
-// GetETag generates an ETag for a contact based on modification time
+// SetETag updates the stored ETag for a contact in the metadata JSON.
+// When a non-empty etag is stored, GetETag returns it instead of the
+// filesystem mtime-based ETag. This enables ChangeKey-based ETags backed
+// by the semcore collaboration store.
+func (s *Storage) SetETag(username, addressbookID, contactUID, etag string) error {
+	if err := validateID(addressbookID); err != nil {
+		return err
+	}
+	if err := validateID(contactUID); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Read current contact metadata.
+	path := s.contactPath(username, addressbookID, contactUID) + ".meta"
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("SetETag: read: %w", err)
+	}
+
+	var contact Contact
+	if err := json.Unmarshal(data, &contact); err != nil {
+		return fmt.Errorf("SetETag: unmarshal: %w", err)
+	}
+
+	contact.ETag = etag
+
+	data, err = json.MarshalIndent(&contact, "", "  ")
+	if err != nil {
+		return fmt.Errorf("SetETag: marshal: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("SetETag: write: %w", err)
+	}
+	return nil
+}
+
+// GetETag returns the DAV ETag for a contact. When the contact metadata contains
+// a stored ETag (ContactChangeKey-based), it is returned. Otherwise the ETag is
+// derived from the filesystem mtime (legacy fallback).
 func (s *Storage) GetETag(username, addressbookID, contactUID string) string {
-	path := s.contactPath(username, addressbookID, contactUID)
+	// Fast path: try to read the stored ETag from the contact metadata.
+	s.mu.RLock()
+	path := s.contactPath(username, addressbookID, contactUID) + ".meta"
+	data, err := os.ReadFile(filepath.Clean(path))
+	s.mu.RUnlock()
+
+	if err == nil && len(data) > 0 {
+		var contact Contact
+		if err := json.Unmarshal(data, &contact); err == nil && contact.ETag != "" {
+			return contact.ETag
+		}
+	}
+
+	// Legacy fallback: derive ETag from filesystem mtime.
+	path = s.contactPath(username, addressbookID, contactUID)
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Sprintf("\"%s\"", uuid.New().String())
@@ -305,9 +363,24 @@ func (s *Storage) GetETag(username, addressbookID, contactUID string) string {
 	return fmt.Sprintf("\"%d\"", info.ModTime().Unix())
 }
 
-// GetAddressbookETag generates an ETag for an addressbook
+// GetAddressbookETag returns the DAV ETag for an addressbook. When the
+// addressbook metadata contains a stored ETag (ContactChangeKey-based), it is
+// returned. Otherwise the ETag is derived from the filesystem mtime.
 func (s *Storage) GetAddressbookETag(username, addressbookID string) string {
+	// Try stored ETag first.
+	s.mu.RLock()
 	path := s.addressbookPath(username, addressbookID)
+	data, err := os.ReadFile(filepath.Clean(path))
+	s.mu.RUnlock()
+
+	if err == nil && len(data) > 0 {
+		var ab Addressbook
+		if err := json.Unmarshal(data, &ab); err == nil && ab.ETag != "" {
+			return ab.ETag
+		}
+	}
+
+	// Legacy fallback.
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Sprintf("\"%s\"", uuid.New().String())

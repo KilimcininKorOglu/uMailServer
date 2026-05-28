@@ -377,6 +377,420 @@ func (id *ConversationId) UnmarshalJSON(data []byte) error {
 }
 
 // ---------------------------------------------------------------------------
+// Collaboration identity types
+//
+// These identities are used for calendar, contact, and task objects managed
+// through CalDAV, CardDAV, and future EWS surfaces. They follow the same
+// architectural rules as the mail identity family: stable, opaque, and not
+// derived from filesystem paths or mtimes.
+//
+// CalendarItemId: stable identity for a calendar component (VEVENT, VTODO).
+// Scoped to a FolderId (calendar collection).
+//
+// ContactId: stable identity for a vCard contact. Scoped to a FolderId
+// (addressbook collection).
+//
+// TaskId: stable identity for a standalone task object. Tasks may exist
+// inside calendar collections (as VTODO components) or as separate task
+// objects. The TaskId is scoped to a FolderId.
+//
+// RecurrenceId: identifies a specific occurrence in a recurring series
+// (RFC 4791 §9.2.1). Combined with the master CalendarItemId it uniquely
+// identifies a recurring event occurrence. The RecurrenceId is scoped to
+// the master CalendarItemId and is not globally unique on its own.
+// ---------------------------------------------------------------------------
+
+// CalendarItemId is the authoritative identity for a calendar component
+// (VEVENT or VTODO) within a calendar collection (FolderId).
+// It is assigned at creation and must remain stable across reads, moves,
+// copies, and non-destructive edits. A CalendarItemId alone is not globally
+// unique; global uniqueness requires the parent FolderId context.
+type CalendarItemId struct {
+	raw string
+}
+
+// NewCalendarItemId constructs a CalendarItemId from its raw string representation.
+func NewCalendarItemId(raw string) (CalendarItemId, error) {
+	if raw == "" {
+		return CalendarItemId{}, errors.New("CalendarItemId: empty value")
+	}
+	return CalendarItemId{raw: raw}, nil
+}
+
+// MustCalendarItemId constructs a CalendarItemId and panics on invalid input.
+func MustCalendarItemId(raw string) CalendarItemId {
+	id, err := NewCalendarItemId(raw)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+// String returns the raw string value. Clients must treat this as opaque.
+func (id CalendarItemId) String() string { return id.raw }
+
+// IsZero returns true for a nil/empty CalendarItemId.
+func (id CalendarItemId) IsZero() bool { return id.raw == "" }
+
+// Equal reports whether two CalendarItemIds have the same raw value.
+func (id CalendarItemId) Equal(other CalendarItemId) bool { return id.raw == other.raw }
+
+// MarshalJSON serializes a CalendarItemId to its raw string value.
+func (id CalendarItemId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes a CalendarItemId from its raw string value.
+func (id *CalendarItemId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = CalendarItemId{}
+		return nil
+	}
+	*id = CalendarItemId{raw: raw}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+
+// ContactId is the authoritative identity for a vCard contact within an
+// addressbook collection (FolderId). It is assigned at creation and must
+// remain stable across reads and non-destructive edits. A ContactId alone
+// is not globally unique; global uniqueness requires the parent FolderId context.
+type ContactId struct {
+	raw string
+}
+
+// NewContactId constructs a ContactId from its raw string representation.
+func NewContactId(raw string) (ContactId, error) {
+	if raw == "" {
+		return ContactId{}, errors.New("ContactId: empty value")
+	}
+	return ContactId{raw: raw}, nil
+}
+
+// MustContactId constructs a ContactId and panics on invalid input.
+func MustContactId(raw string) ContactId {
+	id, err := NewContactId(raw)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+// String returns the raw string value. Clients must treat this as opaque.
+func (id ContactId) String() string { return id.raw }
+
+// IsZero returns true for a nil/empty ContactId.
+func (id ContactId) IsZero() bool { return id.raw == "" }
+
+// Equal reports whether two ContactIds have the same raw value.
+func (id ContactId) Equal(other ContactId) bool { return id.raw == other.raw }
+
+// MarshalJSON serializes a ContactId to its raw string value.
+func (id ContactId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes a ContactId from its raw string value.
+func (id *ContactId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = ContactId{}
+		return nil
+	}
+	*id = ContactId{raw: raw}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+
+// TaskId is the authoritative identity for a standalone task object.
+// It is assigned at creation and must remain stable for the task's lifetime.
+// A TaskId alone is not globally unique; global uniqueness requires the
+// parent FolderId context. Tasks that live as VTODO components inside
+// calendar collections use CalendarItemId instead.
+type TaskId struct {
+	raw string
+}
+
+// NewTaskId constructs a TaskId from its raw string representation.
+func NewTaskId(raw string) (TaskId, error) {
+	if raw == "" {
+		return TaskId{}, errors.New("TaskId: empty value")
+	}
+	return TaskId{raw: raw}, nil
+}
+
+// MustTaskId constructs a TaskId and panics on invalid input.
+func MustTaskId(raw string) TaskId {
+	id, err := NewTaskId(raw)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+// String returns the raw string value. Clients must treat this as opaque.
+func (id TaskId) String() string { return id.raw }
+
+// IsZero returns true for a nil/empty TaskId.
+func (id TaskId) IsZero() bool { return id.raw == "" }
+
+// Equal reports whether two TaskIds have the same raw value.
+func (id TaskId) Equal(other TaskId) bool { return id.raw == other.raw }
+
+// MarshalJSON serializes a TaskId to its raw string value.
+func (id TaskId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes a TaskId from its raw string value.
+func (id *TaskId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = TaskId{}
+		return nil
+	}
+	*id = TaskId{raw: raw}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+
+// RecurrenceId identifies a specific occurrence in a recurring series
+// (RFC 4791 §9.2.1). When combined with the master CalendarItemId it
+// uniquely identifies a recurring event occurrence. The RecurrenceId is
+// scoped to the master CalendarItemId; the same RecurrenceId value may
+// appear in different series and is not globally unique on its own.
+//
+// For calendar items without recurrence, the zero RecurrenceId is used.
+type RecurrenceId struct {
+	raw string
+}
+
+// NewRecurrenceId constructs a RecurrenceId from its raw string representation.
+// The raw value encodes the iCal RECURRENCE-ID value (which may include
+// a UTC offset suffix for floating times) as a plain string.
+func NewRecurrenceId(raw string) (RecurrenceId, error) {
+	if raw == "" {
+		return RecurrenceId{}, errors.New("RecurrenceId: empty value")
+	}
+	return RecurrenceId{raw: raw}, nil
+}
+
+// MustRecurrenceId constructs a RecurrenceId and panics on invalid input.
+func MustRecurrenceId(raw string) RecurrenceId {
+	id, err := NewRecurrenceId(raw)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+// String returns the raw value. Clients must treat this as opaque.
+func (id RecurrenceId) String() string { return id.raw }
+
+// IsZero returns true for a nil/empty RecurrenceId.
+func (id RecurrenceId) IsZero() bool { return id.raw == "" }
+
+// Equal reports whether two RecurrenceIds have the same raw value.
+func (id RecurrenceId) Equal(other RecurrenceId) bool { return id.raw == other.raw }
+
+// MarshalJSON serializes a RecurrenceId to its raw string value.
+func (id RecurrenceId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.raw)
+}
+
+// UnmarshalJSON deserializes a RecurrenceId from its raw string value.
+func (id *RecurrenceId) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*id = RecurrenceId{}
+		return nil
+	}
+	*id = RecurrenceId{raw: raw}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Collaboration version tokens
+//
+// Collaboration objects (calendar items, contacts, tasks) each carry their
+// own version token separate from mail ItemId/ChangeKey. This allows the
+// CalDAV/CardDAV projections to expose ETag semantics without conflating
+// collaboration versions with mail versions.
+//
+// CalendarChangeKey: advances on every semantically-visible calendar mutation.
+// ContactChangeKey: advances on every semantically-visible contact mutation.
+// TaskChangeKey:    advances on every semantically-visible task mutation.
+//
+// A stale version token on write must be rejected explicitly (version conflict).
+// ---------------------------------------------------------------------------
+
+// CalendarChangeKey is the version token for calendar items.
+type CalendarChangeKey struct {
+	raw string
+}
+
+// NewCalendarChangeKey constructs a CalendarChangeKey from its raw string representation.
+func NewCalendarChangeKey(raw string) (CalendarChangeKey, error) {
+	if raw == "" {
+		return CalendarChangeKey{}, errors.New("CalendarChangeKey: empty value")
+	}
+	return CalendarChangeKey{raw: raw}, nil
+}
+
+// MustCalendarChangeKey constructs a CalendarChangeKey and panics on invalid input.
+func MustCalendarChangeKey(raw string) CalendarChangeKey {
+	ck, err := NewCalendarChangeKey(raw)
+	if err != nil {
+		panic(err)
+	}
+	return ck
+}
+
+// String returns the raw string value. Clients must treat this as opaque.
+func (ck CalendarChangeKey) String() string { return ck.raw }
+
+// IsZero returns true for a nil/empty CalendarChangeKey.
+func (ck CalendarChangeKey) IsZero() bool { return ck.raw == "" }
+
+// Equal reports whether two CalendarChangeKeys have the same raw value.
+func (ck CalendarChangeKey) Equal(other CalendarChangeKey) bool { return ck.raw == other.raw }
+
+// MarshalJSON serializes a CalendarChangeKey to its raw string value.
+func (ck CalendarChangeKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ck.raw)
+}
+
+// UnmarshalJSON deserializes a CalendarChangeKey from its raw string value.
+func (ck *CalendarChangeKey) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*ck = CalendarChangeKey{}
+		return nil
+	}
+	*ck = CalendarChangeKey{raw: raw}
+	return nil
+}
+
+// ContactChangeKey is the version token for contacts.
+type ContactChangeKey struct {
+	raw string
+}
+
+// NewContactChangeKey constructs a ContactChangeKey from its raw string representation.
+func NewContactChangeKey(raw string) (ContactChangeKey, error) {
+	if raw == "" {
+		return ContactChangeKey{}, errors.New("ContactChangeKey: empty value")
+	}
+	return ContactChangeKey{raw: raw}, nil
+}
+
+// MustContactChangeKey constructs a ContactChangeKey and panics on invalid input.
+func MustContactChangeKey(raw string) ContactChangeKey {
+	ck, err := NewContactChangeKey(raw)
+	if err != nil {
+		panic(err)
+	}
+	return ck
+}
+
+// String returns the raw string value. Clients must treat this as opaque.
+func (ck ContactChangeKey) String() string { return ck.raw }
+
+// IsZero returns true for a nil/empty ContactChangeKey.
+func (ck ContactChangeKey) IsZero() bool { return ck.raw == "" }
+
+// Equal reports whether two ContactChangeKeys have the same raw value.
+func (ck ContactChangeKey) Equal(other ContactChangeKey) bool { return ck.raw == other.raw }
+
+// MarshalJSON serializes a ContactChangeKey to its raw string value.
+func (ck ContactChangeKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ck.raw)
+}
+
+// UnmarshalJSON deserializes a ContactChangeKey from its raw string value.
+func (ck *ContactChangeKey) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*ck = ContactChangeKey{}
+		return nil
+	}
+	*ck = ContactChangeKey{raw: raw}
+	return nil
+}
+
+// TaskChangeKey is the version token for tasks.
+type TaskChangeKey struct {
+	raw string
+}
+
+// NewTaskChangeKey constructs a TaskChangeKey from its raw string representation.
+func NewTaskChangeKey(raw string) (TaskChangeKey, error) {
+	if raw == "" {
+		return TaskChangeKey{}, errors.New("TaskChangeKey: empty value")
+	}
+	return TaskChangeKey{raw: raw}, nil
+}
+
+// MustTaskChangeKey constructs a TaskChangeKey and panics on invalid input.
+func MustTaskChangeKey(raw string) TaskChangeKey {
+	ck, err := NewTaskChangeKey(raw)
+	if err != nil {
+		panic(err)
+	}
+	return ck
+}
+
+// String returns the raw string value. Clients must treat this as opaque.
+func (ck TaskChangeKey) String() string { return ck.raw }
+
+// IsZero returns true for a nil/empty TaskChangeKey.
+func (ck TaskChangeKey) IsZero() bool { return ck.raw == "" }
+
+// Equal reports whether two TaskChangeKeys have the same raw value.
+func (ck TaskChangeKey) Equal(other TaskChangeKey) bool { return ck.raw == other.raw }
+
+// MarshalJSON serializes a TaskChangeKey to its raw string value.
+func (ck TaskChangeKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ck.raw)
+}
+
+// UnmarshalJSON deserializes a TaskChangeKey from its raw string value.
+func (ck *TaskChangeKey) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == "" {
+		*ck = TaskChangeKey{}
+		return nil
+	}
+	*ck = TaskChangeKey{raw: raw}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Sync token
 // ---------------------------------------------------------------------------
 

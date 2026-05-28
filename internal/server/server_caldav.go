@@ -26,6 +26,11 @@ func (s *Server) startCalDAV() {
 	})
 	caldavServer.SetTracingProvider(s.tracingProvider)
 
+	// Wire semcore collaboration store for ChangeKey-based ETags.
+	if s.semcoreStore != nil {
+		caldavServer.SetCollaborationStore(s.semcoreStore.Collaboration())
+	}
+
 	s.caldavServer = caldavServer
 
 	srv := &http.Server{
