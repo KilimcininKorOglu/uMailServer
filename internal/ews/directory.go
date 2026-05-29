@@ -35,7 +35,7 @@ import (
 
 // ResolveNamesType is the EWS ResolveNames request type.
 type ResolveNamesType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResolveNames"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResolveNamesRequest"`
 
 	// UnresolvedEntry is the partial or full name/email to resolve.
 	UnresolvedEntry string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UnresolvedEntry"`
