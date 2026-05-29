@@ -418,3 +418,144 @@ func TestDelegateFolderPermissions_CanWriteCalendar(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// VAL-DIR-004 / VAL-DIR-005 send-as and send-on-behalf tests
+// ---------------------------------------------------------------------------
+
+func TestDelegateUser_CanSendAs_NotImpliedByFolderPermissions(t *testing.T) {
+	// VAL-DIR-004: send-as is NOT implied by general mailbox access.
+	// A delegate with folder permissions but no explicit CanSendAs flag
+	// must have CanSendAs == false.
+	ownerID := MustMailboxId("owner-val-dir-004")
+	store, cleanup := newBoltDelegateStoreForTest(t)
+	defer cleanup()
+
+	delegate := &DelegateUser{
+		OwnerID:        ownerID,
+		DelegateEmail:  "bob@example.com",
+		DelegateUserID: "bob@example.com",
+		Permissions: DelegateFolderPermissions{
+			Calendar: DelegateFolderPermissionAuthor,
+			Inbox:    DelegateFolderPermissionAuthor,
+		},
+		CanSendAs:       false, // explicit; no send-as grant
+		CanSendOnBehalf: false,
+	}
+	if _, err := store.PutDelegate(delegate); err != nil {
+		t.Fatalf("PutDelegate: %v", err)
+	}
+
+	got, err := store.GetDelegateForUser(ownerID, "bob@example.com")
+	if err != nil {
+		t.Fatalf("GetDelegateForUser: %v", err)
+	}
+	if got.CanSendAs {
+		t.Errorf("delegate with folder permissions but CanSendAs=false: got.CanSendAs = true, want false")
+	}
+	if got.CanSendOnBehalf {
+		t.Errorf("delegate with folder permissions but CanSendOnBehalf=false: got.CanSendOnBehalf = true, want false")
+	}
+}
+
+func TestDelegateUser_CanSendAs_RequiresExplicitGrant(t *testing.T) {
+	// VAL-DIR-004: send-as requires an explicit CanSendAs grant.
+	ownerID := MustMailboxId("owner-sendas")
+	store, cleanup := newBoltDelegateStoreForTest(t)
+	defer cleanup()
+
+	delegate := &DelegateUser{
+		OwnerID:        ownerID,
+		DelegateEmail:  "alice@example.com",
+		DelegateUserID: "alice@example.com",
+		Permissions: DelegateFolderPermissions{
+			Inbox: DelegateFolderPermissionAuthor,
+		},
+		CanSendAs:       true, // explicit send-as grant
+		CanSendOnBehalf: false,
+	}
+	if _, err := store.PutDelegate(delegate); err != nil {
+		t.Fatalf("PutDelegate: %v", err)
+	}
+
+	got, err := store.GetDelegateForUser(ownerID, "alice@example.com")
+	if err != nil {
+		t.Fatalf("GetDelegateForUser: %v", err)
+	}
+	if !got.CanSendAs {
+		t.Errorf("delegate with explicit CanSendAs=true: got.CanSendAs = false, want true")
+	}
+	if got.CanSendOnBehalf {
+		t.Errorf("delegate with CanSendOnBehalf=false: got.CanSendOnBehalf = true, want false")
+	}
+}
+
+func TestDelegateUser_CanSendOnBehalf_PreservedDistinctly(t *testing.T) {
+	// VAL-DIR-005: send-on-behalf preserves represented identity distinctly from send-as.
+	ownerID := MustMailboxId("owner-sob")
+	store, cleanup := newBoltDelegateStoreForTest(t)
+	defer cleanup()
+
+	// Grant only send-on-behalf, not send-as.
+	delegate := &DelegateUser{
+		OwnerID:        ownerID,
+		DelegateEmail:  "carol@example.com",
+		DelegateUserID: "carol@example.com",
+		Permissions: DelegateFolderPermissions{
+			Inbox: DelegateFolderPermissionAuthor,
+		},
+		CanSendAs:       false,
+		CanSendOnBehalf: true, // explicit send-on-behalf grant
+	}
+	if _, err := store.PutDelegate(delegate); err != nil {
+		t.Fatalf("PutDelegate: %v", err)
+	}
+
+	got, err := store.GetDelegateForUser(ownerID, "carol@example.com")
+	if err != nil {
+		t.Fatalf("GetDelegateForUser: %v", err)
+	}
+	if got.CanSendAs {
+		t.Errorf("delegate with only CanSendOnBehalf=true: got.CanSendAs = true, want false")
+	}
+	if !got.CanSendOnBehalf {
+		t.Errorf("delegate with CanSendOnBehalf=true: got.CanSendOnBehalf = false, want true")
+	}
+}
+
+func TestDelegateUser_CanSendAs_UpdatePersists(t *testing.T) {
+	// Test that updating CanSendAs through PutDelegate persists correctly.
+	ownerID := MustMailboxId("owner-sendas-update")
+	store, cleanup := newBoltDelegateStoreForTest(t)
+	defer cleanup()
+
+	// Start without send-as.
+	delegate := &DelegateUser{
+		OwnerID:        ownerID,
+		DelegateEmail:  "dave@example.com",
+		DelegateUserID: "dave@example.com",
+		Permissions: DelegateFolderPermissions{
+			Inbox: DelegateFolderPermissionAuthor,
+		},
+		CanSendAs: false,
+	}
+	id, err := store.PutDelegate(delegate)
+	if err != nil {
+		t.Fatalf("PutDelegate: %v", err)
+	}
+
+	// Add send-as in update.
+	delegate.CanSendAs = true
+	_, err = store.PutDelegate(delegate)
+	if err != nil {
+		t.Fatalf("PutDelegate update: %v", err)
+	}
+
+	got, err := store.GetDelegate(id)
+	if err != nil {
+		t.Fatalf("GetDelegate: %v", err)
+	}
+	if !got.CanSendAs {
+		t.Errorf("after update: got.CanSendAs = false, want true")
+	}
+}

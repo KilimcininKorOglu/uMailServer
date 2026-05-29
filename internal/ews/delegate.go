@@ -91,6 +91,13 @@ type DelegateUserType struct {
 	ReceiveCopiesOfMeetingMessages *bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReceiveCopiesOfMeetingMessages,omitempty"`
 	// ViewPrivateItems: if true, delegate can see private calendar items.
 	ViewPrivateItems *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types ViewPrivateItems,omitempty"`
+	// CanSendAs grants the delegate permission to send as the owner without "on behalf of".
+	// VAL-DIR-004.
+	CanSendAs *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types CanSendAs,omitempty"`
+	// CanSendOnBehalf grants the delegate permission to send on behalf of the owner
+	// with "on behalf of" semantics where Sender identifies the delegate.
+	// VAL-DIR-005.
+	CanSendOnBehalf *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types CanSendOnBehalf,omitempty"`
 }
 
 // ArrayOfDelegateUserType holds a list of delegate users.
@@ -333,6 +340,20 @@ func (s *Server) handleGetDelegate(ctx context.Context, body []byte) []byte {
 					buf.WriteString(`<t:ViewPrivateItems>false</t:ViewPrivateItems>`)
 				}
 			}
+			if u.CanSendAs != nil {
+				if *u.CanSendAs {
+					buf.WriteString(`<t:CanSendAs>true</t:CanSendAs>`)
+				} else {
+					buf.WriteString(`<t:CanSendAs>false</t:CanSendAs>`)
+				}
+			}
+			if u.CanSendOnBehalf != nil {
+				if *u.CanSendOnBehalf {
+					buf.WriteString(`<t:CanSendOnBehalf>true</t:CanSendOnBehalf>`)
+				} else {
+					buf.WriteString(`<t:CanSendOnBehalf>false</t:CanSendOnBehalf>`)
+				}
+			}
 			buf.WriteString(`</m:DelegateUser>`)
 		}
 	}
@@ -471,18 +492,28 @@ func (s *Server) addSingleDelegate(ctx context.Context, ownerID semcore.MailboxI
 	if eu.ReceiveCopiesOfMeetingMessages != nil {
 		receiveCopies = *eu.ReceiveCopiesOfMeetingMessages
 	}
+	canSendAs := false
+	if eu.CanSendAs != nil {
+		canSendAs = *eu.CanSendAs
+	}
+	canSendOnBehalf := false
+	if eu.CanSendOnBehalf != nil {
+		canSendOnBehalf = *eu.CanSendOnBehalf
+	}
 
 	delegate := &semcore.DelegateUser{
-		OwnerID:        ownerID,
-		DelegateEmail:  eu.UserId.PrimarySmtpAddress,
-		DelegateUserID: eu.UserId.PrimarySmtpAddress,
-		Permissions:   perms,
+		OwnerID:         ownerID,
+		DelegateEmail:   eu.UserId.PrimarySmtpAddress,
+		DelegateUserID:  eu.UserId.PrimarySmtpAddress,
+		Permissions:     perms,
 		ViewPrivateItems: viewPrivate,
-		ReceiveCopies:  receiveCopies,
+		ReceiveCopies:   receiveCopies,
 		DeliverRequests: meetingDelivery,
-		GrantedBy:     grantedBy,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		GrantedBy:      grantedBy,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		CanSendAs:      canSendAs,
+		CanSendOnBehalf: canSendOnBehalf,
 	}
 
 	_, err := s.delegateStore.PutDelegate(delegate)
@@ -628,6 +659,12 @@ func (s *Server) updateSingleDelegate(ctx context.Context, ownerID semcore.Mailb
 	if eu.ReceiveCopiesOfMeetingMessages != nil {
 		existing.ReceiveCopies = *eu.ReceiveCopiesOfMeetingMessages
 	}
+	if eu.CanSendAs != nil {
+		existing.CanSendAs = *eu.CanSendAs
+	}
+	if eu.CanSendOnBehalf != nil {
+		existing.CanSendOnBehalf = *eu.CanSendOnBehalf
+	}
 	existing.DeliverRequests = meetingDelivery
 	existing.UpdatedAt = time.Now()
 
@@ -740,7 +777,9 @@ func delegateUserToEWS(d *semcore.DelegateUser, includePermissions bool) Delegat
 			PrimarySmtpAddress: d.DelegateEmail,
 		},
 		ReceiveCopiesOfMeetingMessages: &d.ReceiveCopies,
-		ViewPrivateItems: &d.ViewPrivateItems,
+		ViewPrivateItems:                &d.ViewPrivateItems,
+		CanSendAs:                      &d.CanSendAs,
+		CanSendOnBehalf:                &d.CanSendOnBehalf,
 	}
 
 	if includePermissions {

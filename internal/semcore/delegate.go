@@ -176,6 +176,17 @@ type DelegateUser struct {
 	CreatedAt      time.Time               `json:"created_at"`
 	UpdatedAt      time.Time               `json:"updated_at"`
 	GrantedBy      string                  `json:"granted_by"` // who made the grant (owner email)
+	// CanSendAs grants the delegate permission to send mail using the owner's
+	// mailbox as the From address without an "on behalf of" marker.
+	// VAL-DIR-004: send-as requires separate authorization not implied by
+	// general mailbox access.
+	CanSendAs bool `json:"can_send_as"`
+	// CanSendOnBehalf grants the delegate permission to send mail using the
+	// owner's mailbox where the Sender header identifies the acting delegate
+	// and the From header identifies the owner ("on behalf of" semantics).
+	// VAL-DIR-005: send-on-behalf preserves represented identity distinctly
+	// from send-as.
+	CanSendOnBehalf bool `json:"can_send_on_behalf"`
 }
 
 // CanDelegateCalendar reports whether the delegate can act on calendar items.

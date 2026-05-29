@@ -585,6 +585,65 @@ func (s *Server) checkDelegatePermission(ownerID semcore.MailboxId, ownerEmail, 
 	return "", ""
 }
 
+// checkSendAsPermission verifies whether the authenticated acting user
+// (actorEmail) has send-as permission on the target mailbox (ownerID).
+// VAL-DIR-004: send-as is NOT implied by general mailbox access.
+// It requires an explicit CanSendAs grant on the delegate-user record.
+func (s *Server) checkSendAsPermission(ownerID semcore.MailboxId, ownerEmail, actorEmail string) (string, ErrorCode) {
+	if s.delegateStore == nil {
+		// No delegate store: only the owner can send-as themselves.
+		if actorEmail == ownerEmail {
+			return "", ""
+		}
+		return "send-as requires explicit authorization", ErrErrorSendDenied
+	}
+
+	if actorEmail == ownerEmail {
+		return "", ""
+	}
+
+	delegate, err := s.delegateStore.GetDelegateForUser(ownerID, actorEmail)
+	if err != nil {
+		return "send-as requires explicit authorization for " + actorEmail + " on " + ownerEmail, ErrErrorSendDenied
+	}
+
+	if !delegate.CanSendAs {
+		return "send-as requires explicit authorization for " + actorEmail + " on " + ownerEmail, ErrErrorSendDenied
+	}
+
+	return "", ""
+}
+
+// checkSendOnBehalfPermission verifies whether the authenticated acting user
+// (actorEmail) has send-on-behalf permission on the target mailbox (ownerID).
+// VAL-DIR-005: send-on-behalf preserves represented identity distinctly
+// from send-as. It requires an explicit CanSendOnBehalf grant on the
+// delegate-user record. General mailbox access does NOT imply this right.
+func (s *Server) checkSendOnBehalfPermission(ownerID semcore.MailboxId, ownerEmail, actorEmail string) (string, ErrorCode) {
+	if s.delegateStore == nil {
+		// No delegate store: only the owner can send on behalf of themselves.
+		if actorEmail == ownerEmail {
+			return "", ""
+		}
+		return "send-on-behalf requires explicit authorization", ErrErrorSendDenied
+	}
+
+	if actorEmail == ownerEmail {
+		return "", ""
+	}
+
+	delegate, err := s.delegateStore.GetDelegateForUser(ownerID, actorEmail)
+	if err != nil {
+		return "send-on-behalf requires explicit authorization for " + actorEmail + " on " + ownerEmail, ErrErrorSendDenied
+	}
+
+	if !delegate.CanSendOnBehalf {
+		return "send-on-behalf requires explicit authorization for " + actorEmail + " on " + ownerEmail, ErrErrorSendDenied
+	}
+
+	return "", ""
+}
+
 // getActingEmail extracts the authenticated user's email from the request context.
 func (s *Server) getActingEmail(ctx context.Context) string {
 	if email, ok := ctx.Value("X-Email").(string); ok && email != "" {

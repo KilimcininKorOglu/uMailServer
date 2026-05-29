@@ -1044,3 +1044,245 @@ func TestCheckDelegatePermission_OwnerBypassesCheck(t *testing.T) {
 		t.Fatalf("Owner should have access without delegate grant, got: %s", respBody)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// VAL-DIR-004 send-as authorization tests
+// ---------------------------------------------------------------------------
+
+// TestSendAs_RequiresExplicitGrant verifies that a delegate with folder
+// permissions but no explicit CanSendAs grant is denied before enqueue
+// when attempting to set From to the owner's address.
+func TestSendAs_RequiresExplicitGrant(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	ownerEmail := "owneras@local.test"
+	delegateEmail := "delas@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+	ensureMailboxFixtures(t, srv, delegateEmail)
+
+	// Register delegate with folder permissions but NO send-as grant.
+	ownerID, _ := srv.identity.GetMailboxIDByEmail(ownerEmail) //nolint:errcheck
+	delegateStore := srv.delegateStore
+	delegate := &semcore.DelegateUser{
+		OwnerID:       ownerID,
+		DelegateEmail: delegateEmail,
+		Permissions: semcore.DelegateFolderPermissions{
+			Inbox: semcore.DelegateFolderPermissionAuthor,
+		},
+		CanSendAs:       false, // explicit: no send-as
+		CanSendOnBehalf: false,
+		GrantedBy:      ownerEmail,
+	}
+	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
+
+	// Delegate attempts to create item with From=owner — must be rejected.
+	createBody := ewsEnvelopeWithAttrs("CreateItem", ` SaveItemToFolder="true"`, `
+		<m:SavedItemFolderId Id="drafts"/>
+		<m:DelegateMailbox>`+ownerEmail+`</m:DelegateMailbox>
+		<m:Items>
+			<t:Message>
+				<t:Subject>SendAs Test</t:Subject>
+				<t:Body BodyType="Text">Attempting send-as without grant</t:Body>
+				<t:From><t:Mailbox><t:EmailAddress>`+ownerEmail+`</t:EmailAddress></t:Mailbox></t:From>
+			</t:Message>
+		</m:Items>
+	`)
+	rec := ewsItemRequest(t, srv, delegateEmail, createBody)
+	respBody := rec.Body.String()
+
+	// VAL-DIR-004: denied before enqueue.
+	if !strings.Contains(respBody, `ErrorSendDenied`) {
+		t.Fatalf("Expected ErrorSendDenied when delegate without CanSendAs attempts From=owner; got: %s", respBody)
+	}
+}
+
+// TestSendAs_WithExplicitGrant succeeds when the delegate has CanSendAs=true.
+func TestSendAs_WithExplicitGrant(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	ownerEmail := "owneras2@local.test"
+	delegateEmail := "delas2@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+	ensureMailboxFixtures(t, srv, delegateEmail)
+
+	ownerID, _ := srv.identity.GetMailboxIDByEmail(ownerEmail) //nolint:errcheck
+	delegateStore := srv.delegateStore
+	delegate := &semcore.DelegateUser{
+		OwnerID:       ownerID,
+		DelegateEmail: delegateEmail,
+		Permissions: semcore.DelegateFolderPermissions{
+			Inbox: semcore.DelegateFolderPermissionAuthor,
+		},
+		CanSendAs:       true, // explicit send-as grant
+		CanSendOnBehalf: false,
+		GrantedBy:      ownerEmail,
+	}
+	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
+
+	// Delegate creates item with From=owner — must succeed.
+	createBody := ewsEnvelopeWithAttrs("CreateItem", ` SaveItemToFolder="true"`, `
+		<m:SavedItemFolderId Id="drafts"/>
+		<m:DelegateMailbox>`+ownerEmail+`</m:DelegateMailbox>
+		<m:Items>
+			<t:Message>
+				<t:Subject>SendAs Allowed</t:Subject>
+				<t:Body BodyType="Text">With explicit grant</t:Body>
+				<t:From><t:Mailbox><t:EmailAddress>`+ownerEmail+`</t:EmailAddress></t:Mailbox></t:From>
+			</t:Message>
+		</m:Items>
+	`)
+	rec := ewsItemRequest(t, srv, delegateEmail, createBody)
+	respBody := rec.Body.String()
+
+	if !strings.Contains(respBody, `ResponseClass="Success"`) {
+		t.Fatalf("Expected success when delegate with CanSendAs creates From=owner; got: %s", respBody)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// VAL-DIR-005 send-on-behalf authorization tests
+// ---------------------------------------------------------------------------
+
+// TestSendOnBehalf_RequiresExplicitGrant verifies that a delegate with
+// folder permissions but no CanSendOnBehalf grant is denied when attempting
+// to set From=owner and Sender=delegate (send-on-behalf semantics).
+func TestSendOnBehalf_RequiresExplicitGrant(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	ownerEmail := "ownersob@local.test"
+	delegateEmail := "delsob@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+	ensureMailboxFixtures(t, srv, delegateEmail)
+
+	ownerID, _ := srv.identity.GetMailboxIDByEmail(ownerEmail) //nolint:errcheck
+	delegateStore := srv.delegateStore
+	delegate := &semcore.DelegateUser{
+		OwnerID:       ownerID,
+		DelegateEmail: delegateEmail,
+		Permissions: semcore.DelegateFolderPermissions{
+			Inbox: semcore.DelegateFolderPermissionAuthor,
+		},
+		CanSendAs:       false, // no send-as
+		CanSendOnBehalf: false, // explicit: no send-on-behalf
+		GrantedBy:      ownerEmail,
+	}
+	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
+
+	// Delegate sends with From=owner and Sender=delegate.
+	createBody := ewsEnvelopeWithAttrs("CreateItem", ` SaveItemToFolder="true"`, `
+		<m:SavedItemFolderId Id="drafts"/>
+		<m:DelegateMailbox>`+ownerEmail+`</m:DelegateMailbox>
+		<m:Items>
+			<t:Message>
+				<t:Subject>SendOnBehalf Test</t:Subject>
+				<t:Body BodyType="Text">Attempting without grant</t:Body>
+				<t:From><t:Mailbox><t:EmailAddress>`+ownerEmail+`</t:EmailAddress></t:Mailbox></t:From>
+				<t:Sender><t:Mailbox><t:EmailAddress>`+delegateEmail+`</t:EmailAddress></t:Mailbox></t:Sender>
+			</t:Message>
+		</m:Items>
+	`)
+	rec := ewsItemRequest(t, srv, delegateEmail, createBody)
+	respBody := rec.Body.String()
+
+	// VAL-DIR-005: denied before enqueue when no explicit grant.
+	if !strings.Contains(respBody, `ErrorSendDenied`) {
+		t.Fatalf("Expected ErrorSendDenied when delegate without CanSendOnBehalf attempts send-on-behalf; got: %s", respBody)
+	}
+}
+
+// TestSendOnBehalf_WithExplicitGrant verifies that a delegate with
+// CanSendOnBehalf=true can create a message with From=owner and Sender=delegate.
+func TestSendOnBehalf_WithExplicitGrant(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	ownerEmail := "ownersob2@local.test"
+	delegateEmail := "delsob2@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+	ensureMailboxFixtures(t, srv, delegateEmail)
+
+	ownerID, _ := srv.identity.GetMailboxIDByEmail(ownerEmail) //nolint:errcheck
+	delegateStore := srv.delegateStore
+	delegate := &semcore.DelegateUser{
+		OwnerID:       ownerID,
+		DelegateEmail: delegateEmail,
+		Permissions: semcore.DelegateFolderPermissions{
+			Inbox: semcore.DelegateFolderPermissionAuthor,
+		},
+		CanSendAs:       false,
+		CanSendOnBehalf: true, // explicit send-on-behalf grant
+		GrantedBy:      ownerEmail,
+	}
+	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
+
+	// Delegate sends with From=owner and Sender=delegate — must succeed.
+	createBody := ewsEnvelopeWithAttrs("CreateItem", ` SaveItemToFolder="true"`, `
+		<m:SavedItemFolderId Id="drafts"/>
+		<m:DelegateMailbox>`+ownerEmail+`</m:DelegateMailbox>
+		<m:Items>
+			<t:Message>
+				<t:Subject>SendOnBehalf Allowed</t:Subject>
+				<t:Body BodyType="Text">With explicit grant</t:Body>
+				<t:From><t:Mailbox><t:EmailAddress>`+ownerEmail+`</t:EmailAddress></t:Mailbox></t:From>
+				<t:Sender><t:Mailbox><t:EmailAddress>`+delegateEmail+`</t:EmailAddress></t:Mailbox></t:Sender>
+			</t:Message>
+		</m:Items>
+	`)
+	rec := ewsItemRequest(t, srv, delegateEmail, createBody)
+	respBody := rec.Body.String()
+
+	if !strings.Contains(respBody, `ResponseClass="Success"`) {
+		t.Fatalf("Expected success when delegate with CanSendOnBehalf creates send-on-behalf message; got: %s", respBody)
+	}
+}
+
+// TestSendAs_NotImpliedByGeneralMailboxAccess verifies that having folder
+// permissions (Inbox Author) but no explicit CanSendAs still denies send-as.
+// This is the core invariant of VAL-DIR-004.
+func TestSendAs_NotImpliedByGeneralMailboxAccess(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	ownerEmail := "ownernoimp@local.test"
+	delegateEmail := "delnoimp@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+	ensureMailboxFixtures(t, srv, delegateEmail)
+
+	ownerID, _ := srv.identity.GetMailboxIDByEmail(ownerEmail) //nolint:errcheck
+	delegateStore := srv.delegateStore
+	// Delegate has Inbox Author (can create items in inbox) but no explicit send-as.
+	delegate := &semcore.DelegateUser{
+		OwnerID:       ownerID,
+		DelegateEmail: delegateEmail,
+		Permissions: semcore.DelegateFolderPermissions{
+			Inbox: semcore.DelegateFolderPermissionAuthor, // folder write access
+		},
+		CanSendAs:       false, // explicit absence
+		CanSendOnBehalf: false,
+		GrantedBy:      ownerEmail,
+	}
+	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
+
+	// Delegate attempts to send with From=owner — must be denied.
+	createBody := ewsEnvelopeWithAttrs("CreateItem", ` SaveItemToFolder="true"`, `
+		<m:SavedItemFolderId Id="drafts"/>
+		<m:DelegateMailbox>`+ownerEmail+`</m:DelegateMailbox>
+		<m:Items>
+			<t:Message>
+				<t:Subject>FolderPerms No SendAs</t:Subject>
+				<t:Body BodyType="Text">Should be denied</t:Body>
+				<t:From><t:Mailbox><t:EmailAddress>`+ownerEmail+`</t:EmailAddress></t:Mailbox></t:From>
+			</t:Message>
+		</m:Items>
+	`)
+	rec := ewsItemRequest(t, srv, delegateEmail, createBody)
+	respBody := rec.Body.String()
+
+	// VAL-DIR-004 invariant: folder access ≠ send-as.
+	if !strings.Contains(respBody, `ErrorSendDenied`) {
+		t.Fatalf("Expected ErrorSendDenied; folder access must not imply send-as (VAL-DIR-004); got: %s", respBody)
+	}
+}

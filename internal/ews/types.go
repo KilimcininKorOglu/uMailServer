@@ -100,6 +100,8 @@ const (
 	ErrErrorInvalidId           ErrorCode = "ErrorInvalidId"
 	ErrErrorInvalidChangeKey    ErrorCode = "ErrorInvalidChangeKey"
 	ErrErrorChangeKeyRequired   ErrorCode = "ErrorChangeKeyRequired"
+	// Send identity error codes (VAL-DIR-004, VAL-DIR-005)
+	ErrErrorSendDenied          ErrorCode = "ErrorSendDenied"
 	// Delegate-specific error codes (VAL-DIR-002, VAL-DIR-003, VAL-DIR-013)
 	ErrErrorDelegateAlreadyExists       ErrorCode = "ErrorDelegateAlreadyExists"
 	ErrErrorNotDelegate                ErrorCode = "ErrorNotDelegate"

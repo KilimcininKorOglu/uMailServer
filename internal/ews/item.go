@@ -42,17 +42,16 @@ type CreateItemRequest struct {
 }
 
 // MessageTypeNew is a message item in a CreateItem request.
-
-// MessageTypeNew is a message item in a CreateItem request.
 type MessageTypeNew struct {
-	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
-	Subject       string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Body          *BodyType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
-	ToRecipients  RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
-	CcRecipients  RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
-	BccRecipients RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types BccRecipients,omitempty"`
+	XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	Subject       string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body          *BodyType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	ToRecipients  RawRecipients     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
+	CcRecipients  RawRecipients     `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
+	BccRecipients RawRecipients     `xml:"http://schemas.microsoft.com/exchange/services/2006/types BccRecipients,omitempty"`
 	From          *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
-	IsDraft       bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDraft,attr"`
+	Sender        *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sender,omitempty"`
+	IsDraft       bool              `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDraft,attr"`
 }
 
 // RawRecipients holds raw XML for recipient lists (To/Cc/Bcc).
@@ -194,6 +193,35 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 		return s.errorItemResponseXML("CreateItem", code, msg)
 	}
 
+	// VAL-DIR-004 / VAL-DIR-005: send-as and send-on-behalf authorization.
+	// If the message carries a From address different from the acting user,
+	// an explicit grant is required. General delegate folder access (VAL-DIR-002)
+	// does NOT imply send-as or send-on-behalf rights.
+	// We need to check the From field across all items in the request.
+	for i := range req.Items.Item {
+		item := &req.Items.Item[i]
+		// Check if From field names a different sender than the actor.
+		if item.From != nil && item.From.Mailbox.Email != "" && !strings.EqualFold(item.From.Mailbox.Email, actorEmail) {
+			// This From address is not the actor's own. Verify send-as on behalf of that identity.
+			fromEmail := item.From.Mailbox.Email
+			// If the From address matches the owner mailbox, we need either send-as or send-on-behalf.
+			if strings.EqualFold(fromEmail, ownerEmail) {
+				// Delegate sending as owner: require send-as OR send-on-behalf.
+				if _, code := s.checkSendAsPermission(mboxID, ownerEmail, actorEmail); code == "" {
+					// send-as authorized
+				} else if _, code = s.checkSendOnBehalfPermission(mboxID, ownerEmail, actorEmail); code == "" {
+					// send-on-behalf authorized
+				} else {
+					return s.errorItemResponseXML("CreateItem", code, "send-as/send-on-behalf requires explicit authorization for "+actorEmail+" on "+fromEmail)
+				}
+			} else {
+				// From address is neither the actor's nor the owner's — denied.
+				return s.errorItemResponseXML("CreateItem", ErrErrorSendDenied,
+					"From address "+fromEmail+" is not authorized for "+actorEmail)
+			}
+		}
+	}
+
 	// Build delegate audit context for lifecycle emission (VAL-DIR-014).
 	delegateCtx := s.buildDelegateAuditContext(ctx, mboxID, ownerEmail)
 
@@ -229,7 +257,21 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 	msgs := make([]ItemResponseMessageType, 0, len(req.Items.Item))
 	for range req.Items.Item {
 		item := &req.Items.Item[0] // safe: we process one at a time
-		msg := s.createItemInFolder(ctx, mboxID, ownerEmail, folderID, item, delegateCtx)
+		// Detect which mode each item uses. Check send-as first (VAL-DIR-004);
+		// if that is authorized, use plain From. Otherwise check send-on-behalf
+		// (VAL-DIR-005) and set isSendOnBehalf so MIME builder adds Sender header.
+		itemIsSendOnBehalf := false
+		if item.From != nil && item.From.Mailbox.Email != "" {
+			fromEmail := item.From.Mailbox.Email
+			if strings.EqualFold(fromEmail, ownerEmail) && !strings.EqualFold(actorEmail, ownerEmail) {
+				if _, code := s.checkSendAsPermission(mboxID, ownerEmail, actorEmail); code != "" {
+					if _, code := s.checkSendOnBehalfPermission(mboxID, ownerEmail, actorEmail); code == "" {
+						itemIsSendOnBehalf = true
+					}
+				}
+			}
+		}
+		msg := s.createItemInFolder(ctx, mboxID, ownerEmail, folderID, item, delegateCtx, itemIsSendOnBehalf)
 		msgs = append(msgs, msg)
 	}
 
@@ -240,13 +282,14 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 }
 
 // createItemInFolder creates a message item in the target folder.
-func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *MessageTypeNew, delegateCtx *semcore.DelegateAuditContext) ItemResponseMessageType {
+func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *MessageTypeNew, delegateCtx *semcore.DelegateAuditContext, isSendOnBehalf bool) ItemResponseMessageType {
 	if folderID.IsZero() {
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, "no target folder")
 	}
 
 	// Build RFC 5322 MIME from the EWS item.
-	rawMsg := buildMimeMessage(item)
+	// isSendOnBehalf controls whether Sender header is included (VAL-DIR-005).
+	rawMsg := buildMimeMessage(item, isSendOnBehalf)
 	if rawMsg == nil {
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, "failed to build message")
 	}
@@ -309,18 +352,37 @@ func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxI
 }
 
 // buildMimeMessage constructs RFC 5322 MIME bytes from an EWS Message item.
-func buildMimeMessage(item *MessageTypeNew) []byte {
+// If isSendOnBehalf is true, the Sender header is added to identify the acting
+// delegate and the From header identifies the owner mailbox (send-on-behalf
+// semantics per VAL-DIR-005). If isSendOnBehalf is false and send-as is used,
+// only the From header is set without a Sender (send-as semantics per VAL-DIR-004).
+func buildMimeMessage(item *MessageTypeNew, isSendOnBehalf bool) []byte {
 	var buf bytes.Buffer
 	now := time.Now().UTC().Format(time.RFC1123Z)
 
 	buf.WriteString("Date: " + now + "\r\n")
 
+	// VAL-DIR-004 / VAL-DIR-005: From header sets the represented identity.
+	// For send-on-behalf (VAL-DIR-005), Sender distinguishes the acting delegate.
 	if item.From != nil && item.From.Mailbox.Email != "" {
 		buf.WriteString("From: ")
 		if item.From.Mailbox.Name != "" {
 			buf.WriteString(item.From.Mailbox.Name + " <" + item.From.Mailbox.Email + ">")
 		} else {
 			buf.WriteString(item.From.Mailbox.Email)
+		}
+		buf.WriteString("\r\n")
+	}
+
+	// VAL-DIR-005: send-on-behalf preserves represented identity distinctly.
+	// When a delegate with send-on-behalf permission sends mail, the Sender header
+	// identifies the delegate while From identifies the owner.
+	if isSendOnBehalf && item.Sender != nil && item.Sender.Mailbox.Email != "" {
+		buf.WriteString("Sender: ")
+		if item.Sender.Mailbox.Name != "" {
+			buf.WriteString(item.Sender.Mailbox.Name + " <" + item.Sender.Mailbox.Email + ">")
+		} else {
+			buf.WriteString(item.Sender.Mailbox.Email)
 		}
 		buf.WriteString("\r\n")
 	}
