@@ -56,7 +56,7 @@ func tmpEWSServer(t *testing.T) (*Server, func()) {
 		_ = tombDB.Close()
 		t.Fatalf("NewBoltTombstoneStore: %v", err)
 	}
-	srv := NewServer(store, syncStore, tombStore, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	srv := NewServer(store, syncStore, tombStore, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	cleanup := func() {
 		_ = store.Close()
 		_ = identityDB.Close()

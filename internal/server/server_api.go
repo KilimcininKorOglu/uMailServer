@@ -80,6 +80,7 @@ func (s *Server) startAPI() {
 			s.semcoreStore.Tombstones(),
 			s.msgStore,
 			s.storageDB,
+			s.database,
 			s.mutationPipe,
 			s.semcoreStore.Subscriptions(),
 			s.semcoreStore.Lifecycle(),

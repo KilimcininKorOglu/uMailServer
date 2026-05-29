@@ -84,7 +84,7 @@ func tmpEWSItemServer(t *testing.T) (*Server, func()) {
 	// Mutation pipeline needs the identity store.
 	pipe := semcore.NewMutationPipeline(identity, nil)
 
-	srv := NewServer(identity, sync, tomb, msgStore, nil, pipe, nil, nil, nil, nil, delegateStore, nil)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, nil, nil, nil, nil, delegateStore, nil)
 
 	return srv, func() {
 		cleanup()
@@ -964,7 +964,7 @@ func TestDelegateAuditContext_PresentInLifecycle(t *testing.T) {
 	delegateStore, _ := semcore.NewBoltDelegateStore(delegateDB) //nolint:errcheck
 
 	pipe := semcore.NewMutationPipeline(identity, lifecycle)
-	srv := NewServer(identity, sync, tomb, msgStore, nil, pipe, nil, lifecycle, nil, nil, delegateStore, nil)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, nil, lifecycle, nil, nil, delegateStore, nil)
 
 	ownerEmail := "owner3@local.test"
 	delegateEmail := "delegate3@local.test"

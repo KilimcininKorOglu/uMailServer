@@ -44,7 +44,7 @@ func tmpEWSItemServerWithLifecycle(t *testing.T) (*Server, func()) {
 
 	pipe := semcore.NewMutationPipeline(identity, lifecycle)
 
-	srv := NewServer(identity, sync, tomb, msgStore, nil, pipe, subs, lifecycle, nil, nil, nil, nil)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, subs, lifecycle, nil, nil, nil, nil)
 
 	cleanup := func() {
 		//nolint:errcheck

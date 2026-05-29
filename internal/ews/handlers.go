@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 	"github.com/umailserver/umailserver/internal/storage"
@@ -24,6 +25,7 @@ type Server struct {
 	tombstones    *semcore.BoltTombstoneStore
 	msgStore      *storage.MessageStore
 	storageDB     *storage.Database
+	db            *db.DB
 	mutationPipe  *semcore.MutationPipeline
 	subscriptions *semcore.BoltSubscriptionStore
 	lifecycle     *semcore.BoltLifecycleStore
@@ -41,13 +43,15 @@ type Server struct {
 // The delegateStore provides delegate grant management (AddDelegate, UpdateDelegate,
 // RemoveDelegate, GetDelegate) and shared mailbox discovery.
 // The sieveMgr is used to recompile the Sieve script after policy changes.
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, delegateStore *semcore.BoltDelegateStore, sieveMgr *sieve.Manager) *Server {
+// The db parameter provides account/domain lookups for GAL directory operations.
+func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, db *db.DB, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, delegateStore *semcore.BoltDelegateStore, sieveMgr *sieve.Manager) *Server {
 	return &Server{
 		identity:      identity,
 		sync:          syncState,
 		tombstones:    tombstones,
 		msgStore:      msgStore,
 		storageDB:     storageDB,
+		db:            db,
 		mutationPipe:  mutationPipe,
 		subscriptions: subscriptions,
 		lifecycle:     lifecycle,
@@ -173,6 +177,14 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleUpdateDelegate(ctx, soapBody)
 	case "RemoveDelegate":
 		response = s.handleRemoveDelegate(ctx, soapBody)
+	case "ResolveNames":
+		response = s.handleResolveNames(ctx, soapBody)
+	case "GetUserAvailability":
+		response = s.handleGetUserAvailability(ctx, soapBody)
+	case "GetRoomLists":
+		response = s.handleGetRoomLists(ctx, soapBody)
+	case "GetRooms":
+		response = s.handleGetRooms(ctx, soapBody)
 	default:
 		response = s.errorResponseXML(op, ErrErrorNotImplemented, fmt.Sprintf("operation %q not implemented", op))
 	}
