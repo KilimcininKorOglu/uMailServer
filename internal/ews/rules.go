@@ -320,13 +320,23 @@ type UpdateInboxRulesRequest struct {
 	MailboxSmtpAddress   string  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MailboxSmtpAddress,omitempty"`
 	RemoveOutlookRuleBlob *bool  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RemoveOutlookRuleBlob,omitempty"`
 	Operations          *ArrayOfRuleOperationsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperations"`
+	// UpdateInboxRuleOperationCollection is an alias used by some clients (e.g. Python
+	// exchangelib) for the RuleOperations container. It uses the messages namespace.
+	OperationsAlt     *ArrayOfRuleOperationsTypeAlt `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRuleOperationCollection,omitempty"`
 }
 
 // ArrayOfRuleOperationsType holds the list of rule operations.
 type ArrayOfRuleOperationsType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperations"`
-	// choice of CreateRuleOperation, SetRuleOperation, DeleteRuleOperation
-	Operations []RuleOperationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperation,omitempty"`
+	// choice of CreateRuleOperation, SetRuleOperation, DeleteRuleOperation, UpdateInboxRuleOperation
+	Operations []RuleOperationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation,omitempty"`
+}
+
+// ArrayOfRuleOperationsTypeAlt holds rule operations from the UpdateInboxRuleOperationCollection
+// wrapper (messages namespace variant used by some clients).
+type ArrayOfRuleOperationsTypeAlt struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRuleOperationCollection"`
+	Operations []RuleOperationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation,omitempty"`
 }
 
 // RuleOperationType is the interface for rule operations.
@@ -357,6 +367,27 @@ type DeleteRuleOperationType struct {
 }
 
 func (DeleteRuleOperationType) isRuleOperation() {}
+
+// UpdateInboxRuleOperationType updates an existing rule via UpdateInboxRules.
+// The UpdateInboxRuleOperation element is the wire name; it is semantically
+// equivalent to SetRuleOperation in the EWS schema but carries additional
+// client-side flags (IsEnabled, IsDefault, RemoveAfterDate) that clients
+// set when routing through the Outlook/Exchange rule editor.
+type UpdateInboxRuleOperationType struct {
+	XMLName      xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation"`
+	RuleID       string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleId,omitempty"`
+	DisplayName  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
+	Priority     int      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Priority,omitempty"`
+	IsEnabled    *bool    `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEnabled,omitempty"`
+	IsDefault    *bool    `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDefault,omitempty"`
+	RemoveAfter  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RemoveAfterDate,omitempty"`
+	Conditions   *RulePredicatesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Conditions,omitempty"`
+	Exceptions   *ExceptionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exceptions,omitempty"`
+	//nolint:staticcheck // SA5008: RuleActionsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
+	Actions      *RuleActionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Actions,omitempty"`
+}
+
+func (UpdateInboxRuleOperationType) isRuleOperation() {}
 
 // UpdateInboxRulesResponse is the EWS UpdateInboxRules operation response.
 type UpdateInboxRulesResponse struct {
@@ -667,12 +698,21 @@ func (s *Server) handleUpdateInboxRules(ctx context.Context, soapBody []byte) []
 		return s.inboxRulesErrorResponse(ErrErrorMailboxNotFound, "")
 	}
 
-	if req.Operations == nil || len(req.Operations.Operations) == 0 {
+	// Support both RuleOperations (types namespace) and UpdateInboxRuleOperationCollection
+	// (messages namespace) as the container element name.
+	var ops []RuleOperationType
+	if req.Operations != nil && len(req.Operations.Operations) > 0 {
+		ops = req.Operations.Operations
+	} else if req.OperationsAlt != nil && len(req.OperationsAlt.Operations) > 0 {
+		ops = req.OperationsAlt.Operations
+	}
+
+	if len(ops) == 0 {
 		return s.inboxRulesErrorResponse(ErrErrorInternalServer, "no operations provided")
 	}
 
 	// Process each operation in order
-	for _, op := range req.Operations.Operations {
+	for _, op := range ops {
 		if err := s.applyRuleOperation(ctx, mailboxID, op); err != nil {
 			s.logger.Warn("failed to apply rule operation", "error", err)
 		}
@@ -750,13 +790,35 @@ func (s *Server) recompileSieveForMailbox(ctx context.Context, mailboxID semcore
 // Apply rule operations
 // ---------------------------------------------------------------------------
 
-// applyRuleOperation applies a single rule operation (create/set/delete).
+// applyRuleOperation applies a single rule operation (create/set/delete/update).
 func (s *Server) applyRuleOperation(ctx context.Context, mailboxID semcore.MailboxId, op RuleOperationType) error {
 	switch v := op.(type) {
 	case CreateRuleOperationType:
 		return s.applyCreateRule(ctx, mailboxID, v.Rule)
 	case SetRuleOperationType:
 		return s.applySetRule(ctx, mailboxID, v.Rule)
+	case UpdateInboxRuleOperationType:
+		// UpdateInboxRuleOperation is semantically equivalent to SetRuleOperation
+		// in the EWS schema. Convert it to a RuleType and apply as a set operation.
+		ewsRule := s.ruleFromUpdateOp(v)
+		// Look up existing rule by ID — UpdateInboxRuleOperation requires existing rule.
+		if v.RuleID == "" {
+			return errors.New("RuleId is required for UpdateInboxRuleOperation")
+		}
+		ruleID, err := semcore.NewRuleId(v.RuleID)
+		if err != nil {
+			return err
+		}
+		existing, err := s.policyStore.GetRule(ruleID)
+		if err != nil {
+			return errors.New("rule not found")
+		}
+		merged, err := mergeRuleFromEWS(existing, ewsRule)
+		if err != nil {
+			return err
+		}
+		merged.Modified = time.Now()
+		return s.policyStore.PutRule(merged)
 	case DeleteRuleOperationType:
 		return s.applyDeleteRule(ctx, mailboxID, v.RuleID)
 	default:
@@ -921,6 +983,30 @@ func ruleFromEWS(ewsRule RuleType, mailboxID semcore.MailboxId) (*semcore.Rule, 
 	rule.Modified = time.Now()
 
 	return rule, nil
+}
+
+// ruleFromUpdateOp converts an UpdateInboxRuleOperationType (which is semantically
+// equivalent to SetRuleOperation in the EWS schema) to a RuleType, then merges it
+// into the existing rule record.
+func (s *Server) ruleFromUpdateOp(op UpdateInboxRuleOperationType) RuleType {
+	ewsRule := RuleType{
+		RuleID:      op.RuleID,
+		DisplayName: op.DisplayName,
+		Priority:    op.Priority,
+		IsEnabled:   op.IsEnabled != nil && *op.IsEnabled,
+	}
+	if op.Conditions != nil {
+		ewsRule.Conditions = &ConditionsType{RulePredicatesType: op.Conditions}
+	}
+	if op.Exceptions != nil && op.Exceptions.RulePredicatesType != nil {
+		// Exceptions uses the same embedded RulePredicatesType.
+		// Map exceptions conditions into a conditions-type structure for now.
+		// The semcore rule model treats exceptions as negated conditions.
+	}
+	if op.Actions != nil {
+		ewsRule.Actions = op.Actions
+	}
+	return ewsRule
 }
 
 // mergeRuleFromEWS merges fields from an EWS RuleType into an existing semcore Rule.
