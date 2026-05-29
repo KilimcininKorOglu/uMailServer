@@ -119,9 +119,9 @@ type SearchResult struct {
 
 // SearchOptions contains search options
 type SearchOptions struct {
-	Limit           int
-	Offset          int
-	ConversationID  string // when non-empty, only return documents in this conversation
+	Limit          int
+	Offset         int
+	ConversationID string // when non-empty, only return documents in this conversation
 }
 
 // Search performs a full-text search with optional conversation filtering.

@@ -188,14 +188,14 @@ func TestRuleToEWS_DisabledRule(t *testing.T) {
 
 func TestOOFPolicyToEWS_Enabled(t *testing.T) {
 	policy := &semcore.OOFPolicy{
-		ID:         semcore.MustOOFId("test@local.test"),
-		Enabled:    true,
-		Subject:    "Out of Office",
-		TextBody:   "I am out of office",
-		Audience:   semcore.OOFAudienceExternal,
-		StartTime:  time.Now(),
-		EndTime:    time.Now().Add(7 * 24 * time.Hour),
-		Timezone:   "UTC",
+		ID:        semcore.MustOOFId("test@local.test"),
+		Enabled:   true,
+		Subject:   "Out of Office",
+		TextBody:  "I am out of office",
+		Audience:  semcore.OOFAudienceExternal,
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(7 * 24 * time.Hour),
+		Timezone:  "UTC",
 	}
 
 	settings := oofPolicyToEWS(policy)
@@ -233,7 +233,7 @@ func TestOOFPolicyToEWS_Disabled(t *testing.T) {
 func TestOOFPolicyFromEWS_Enabled(t *testing.T) {
 	mailboxID := semcore.MustMailboxId("test@local.test")
 	settings := &UserOofSettings{
-		OofState:        OofStateEnabled,
+		OofState:         OofStateEnabled,
 		ExternalAudience: ExternalAudienceKnown,
 		InternalReply:    &ReplyBody{Message: "I am away"},
 	}
@@ -261,7 +261,7 @@ func TestOOFPolicyFromEWS_Scheduled(t *testing.T) {
 	startTime := time.Now()
 	endTime := time.Now().Add(7 * 24 * time.Hour)
 	settings := &UserOofSettings{
-		OofState:        OofStateScheduled,
+		OofState:         OofStateScheduled,
 		ExternalAudience: ExternalAudienceAll,
 		Duration: &Duration{
 			StartTime: FormatEWSDateTime(startTime),
@@ -381,7 +381,7 @@ func TestConditionsFromEWS(t *testing.T) {
 		ContainsSubjectStrings: &ArrayOfStringsType{
 			Strings: []string{"meeting"},
 		},
-		SentToMe:      boolPtr(true),
+		SentToMe:       boolPtr(true),
 		HasAttachments: boolPtr(true),
 	}
 
@@ -411,9 +411,9 @@ func TestConditionsFromEWS_Empty(t *testing.T) {
 
 func TestActionsFromEWS(t *testing.T) {
 	actions := &RuleActionsType{
-		Delete:               boolPtr(true),
+		Delete:              boolPtr(true),
 		MarkAsRead:          boolPtr(true),
-		StopProcessingRules:  boolPtr(true),
+		StopProcessingRules: boolPtr(true),
 	}
 
 	result := actionsFromEWS(actions)
@@ -510,7 +510,7 @@ func TestFormatEWSDateTime_Zero(t *testing.T) {
 
 func TestOOFAudienceString(t *testing.T) {
 	tests := []struct {
-		aud semcore.OOFAudience
+		aud  semcore.OOFAudience
 		want string
 	}{
 		{semcore.OOFAudienceInternal, "internal"},

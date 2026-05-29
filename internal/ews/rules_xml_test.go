@@ -19,7 +19,7 @@ func TestGetUserOofSettingsResponseMarshal(t *testing.T) {
 			ResponseCode:  ErrNoError,
 		},
 		OofSettings: &UserOofSettings{
-			OofState:        OofStateDisabled,
+			OofState:         OofStateDisabled,
 			ExternalAudience: ExternalAudienceNone,
 		},
 		AllowExternalOof: ExternalAudienceNone,

@@ -57,7 +57,6 @@ func xmlEsc(s string) string {
 	return string(r)
 }
 
-
 // ---------------------------------------------------------------------------
 // OOF (Out-of-Office) EWS Types
 // ---------------------------------------------------------------------------
@@ -77,7 +76,7 @@ type ExternalAudience string
 const (
 	ExternalAudienceNone  ExternalAudience = "None"
 	ExternalAudienceKnown ExternalAudience = "Known"
-	ExternalAudienceAll  ExternalAudience = "All"
+	ExternalAudienceAll   ExternalAudience = "All"
 )
 
 // Duration represents a time window for OOF.
@@ -96,11 +95,11 @@ type ReplyBody struct {
 type UserOofSettings struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserOofSettings"`
 
-	OofState        OofState  `xml:"http://schemas.microsoft.com/exchange/services/2006/types OofState"`
+	OofState         OofState         `xml:"http://schemas.microsoft.com/exchange/services/2006/types OofState"`
 	ExternalAudience ExternalAudience `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExternalAudience"`
-	Duration        *Duration `xml:"http://schemas.microsoft.com/exchange/services/2006/types Duration,omitempty"`
-	InternalReply   *ReplyBody `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternalReply,omitempty"`
-	ExternalReply   *ReplyBody `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExternalReply,omitempty"`
+	Duration         *Duration        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Duration,omitempty"`
+	InternalReply    *ReplyBody       `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternalReply,omitempty"`
+	ExternalReply    *ReplyBody       `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExternalReply,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +111,7 @@ type GetUserOofSettingsRequest struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserOofSettings"`
 	Mailbox struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
-		Email  string  `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
+		Email   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 }
 
@@ -120,10 +119,10 @@ type GetUserOofSettingsRequest struct {
 type GetUserOofSettingsResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserOofSettingsResponse"`
 
-	ResponseMessage    ResponseMessageType   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseMessage ResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
 	//nolint:staticcheck // SA5008: field tag name conflicts with UserOofSettings.XMLName; struct is never marshaled directly.
-	OofSettings       *UserOofSettings     `xml:"http://schemas.microsoft.com/exchange/services/2006/types OofSettings,omitempty"`
-	AllowExternalOof  ExternalAudience     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages AllowExternalOof,omitempty"`
+	OofSettings      *UserOofSettings `xml:"http://schemas.microsoft.com/exchange/services/2006/types OofSettings,omitempty"`
+	AllowExternalOof ExternalAudience `xml:"http://schemas.microsoft.com/exchange/services/2006/messages AllowExternalOof,omitempty"`
 }
 
 // SetUserOofSettingsRequest is the EWS SetUserOofSettings operation request.
@@ -131,7 +130,7 @@ type SetUserOofSettingsRequest struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SetUserOofSettings"`
 	Mailbox struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
-		Email  string  `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
+		Email   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 	UserOofSettings *UserOofSettings `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserOofSettings"`
 }
@@ -152,32 +151,32 @@ type RulePredicatesType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RulePredicates"`
 
 	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	Categories                *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
+	Categories *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsBodyStrings      *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsBodyStrings,omitempty"`
+	ContainsBodyStrings *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsBodyStrings,omitempty"`
 	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsHeaderStrings    *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsHeaderStrings,omitempty"`
+	ContainsHeaderStrings *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsHeaderStrings,omitempty"`
 	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
 	ContainsRecipientStrings *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsRecipientStrings,omitempty"`
 	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsSenderStrings    *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSenderStrings,omitempty"`
+	ContainsSenderStrings *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSenderStrings,omitempty"`
 	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsSubjectOrBody    *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectOrBodyStrings,omitempty"`
+	ContainsSubjectOrBody *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectOrBodyStrings,omitempty"`
 	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsSubjectStrings   *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectStrings,omitempty"`
-	HasAttachments           *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types HasAttachments,omitempty"`
-	Importance               string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
-	IsAutomaticForward       *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticForward,omitempty"`
-	IsAutomaticReply         *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticReply,omitempty"`
-	IsReadReceipt            *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsReadReceipt,omitempty"`
-	NotSentToMe              *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotSentToMe,omitempty"`
-	SentCcMe                 *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentCcMe,omitempty"`
-	SentOnlyToMe             *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentOnlyToMe,omitempty"`
-	SentToMe                 *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToMe,omitempty"`
-	SentToOrCcMe             *bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToOrCcMe,omitempty"`
-	SentToAddresses          *SentToAddressesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToAddresses,omitempty"`
-	WithinDateRange          *RulePredicateDateRange    `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinDateRange,omitempty"`
-	WithinSizeRange          *RulePredicateSizeRange   `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinSizeRange,omitempty"`
+	ContainsSubjectStrings *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectStrings,omitempty"`
+	HasAttachments         *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types HasAttachments,omitempty"`
+	Importance             string                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
+	IsAutomaticForward     *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticForward,omitempty"`
+	IsAutomaticReply       *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticReply,omitempty"`
+	IsReadReceipt          *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsReadReceipt,omitempty"`
+	NotSentToMe            *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotSentToMe,omitempty"`
+	SentCcMe               *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentCcMe,omitempty"`
+	SentOnlyToMe           *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentOnlyToMe,omitempty"`
+	SentToMe               *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToMe,omitempty"`
+	SentToOrCcMe           *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToOrCcMe,omitempty"`
+	SentToAddresses        *SentToAddressesType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToAddresses,omitempty"`
+	WithinDateRange        *RulePredicateDateRange `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinDateRange,omitempty"`
+	WithinSizeRange        *RulePredicateSizeRange `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinSizeRange,omitempty"`
 }
 
 // ArrayOfStringsType holds a list of strings.
@@ -188,45 +187,45 @@ type ArrayOfStringsType struct {
 
 // MailboxArrayType holds a list of mailboxes (reused for multiple EWS elements).
 type MailboxArrayType struct {
-	XMLName   xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ArrayOfEmailAddresses"`
+	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ArrayOfEmailAddresses"`
 	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
 }
 
 // RulePredicateDateRange is date range for rule predicate.
 type RulePredicateDateRange struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinDateRange"`
-	StartDate string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartDateTime,omitempty"`
-	EndDate   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndDateTime,omitempty"`
+	XMLName   xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinDateRange"`
+	StartDate string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartDateTime,omitempty"`
+	EndDate   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndDateTime,omitempty"`
 }
 
 // RulePredicateSizeRange is size range for rule predicate.
 type RulePredicateSizeRange struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinSizeRange"`
-	MinSize string `xml:"http://schemas.microsoft.com/exchange/services/2006/types MinimumSize,omitempty"`
-	MaxSize string `xml:"http://schemas.microsoft.com/exchange/services/2006/types MaximumSize,omitempty"`
+	MinSize string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types MinimumSize,omitempty"`
+	MaxSize string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types MaximumSize,omitempty"`
 }
 
 // ForwardAsAttachmentToRecipientsType is the ForwardAsAttachmentToRecipients element.
 type ForwardAsAttachmentToRecipientsType struct {
-	XMLName   xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardAsAttachmentToRecipients"`
+	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardAsAttachmentToRecipients"`
 	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
 }
 
 // ForwardToRecipientsType is the ForwardToRecipients element.
 type ForwardToRecipientsType struct {
-	XMLName   xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardToRecipients"`
+	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardToRecipients"`
 	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
 }
 
 // RedirectToRecipientsType is the RedirectToRecipients element.
 type RedirectToRecipientsType struct {
-	XMLName   xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types RedirectToRecipients"`
+	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types RedirectToRecipients"`
 	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
 }
 
 // SentToAddressesType is the SentToAddresses element.
 type SentToAddressesType struct {
-	XMLName   xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToAddresses"`
+	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToAddresses"`
 	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
 }
 
@@ -247,20 +246,20 @@ type RuleActionsType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleActions"`
 
 	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	AssignCategories      *ArrayOfStringsType               `xml:"http://schemas.microsoft.com/exchange/services/2006/types AssignCategories,omitempty"`
+	AssignCategories *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types AssignCategories,omitempty"`
 	//nolint:staticcheck // SA5008: TargetFolderIdType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	CopyToFolder         *TargetFolderIdType             `xml:"http://schemas.microsoft.com/exchange/services/2006/types CopyToFolder,omitempty"`
-	Delete               *bool                             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete,omitempty"`
-	ForwardAsAttachment  *ForwardAsAttachmentToRecipientsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardAsAttachmentToRecipients,omitempty"`
-	ForwardTo            *ForwardToRecipientsType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardToRecipients,omitempty"`
-	MarkAsRead           *bool                             `xml:"http://schemas.microsoft.com/exchange/services/2006/types MarkAsRead,omitempty"`
-	MarkImportance       string                             `xml:"http://schemas.microsoft.com/exchange/services/2006/types MarkImportance,omitempty"`
+	CopyToFolder        *TargetFolderIdType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types CopyToFolder,omitempty"`
+	Delete              *bool                                `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete,omitempty"`
+	ForwardAsAttachment *ForwardAsAttachmentToRecipientsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardAsAttachmentToRecipients,omitempty"`
+	ForwardTo           *ForwardToRecipientsType             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardToRecipients,omitempty"`
+	MarkAsRead          *bool                                `xml:"http://schemas.microsoft.com/exchange/services/2006/types MarkAsRead,omitempty"`
+	MarkImportance      string                               `xml:"http://schemas.microsoft.com/exchange/services/2006/types MarkImportance,omitempty"`
 	//nolint:staticcheck // SA5008: TargetFolderIdType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	MoveToFolder         *TargetFolderIdType             `xml:"http://schemas.microsoft.com/exchange/services/2006/types MoveToFolder,omitempty"`
-	PermanentDelete      *bool                             `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermanentDelete,omitempty"`
-	RedirectTo           *RedirectToRecipientsType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types RedirectToRecipients,omitempty"`
-	ServerReplyWithMessage *string                         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ServerReplyWithMessage,omitempty"`
-	StopProcessingRules  *bool                             `xml:"http://schemas.microsoft.com/exchange/services/2006/types StopProcessingRules,omitempty"`
+	MoveToFolder           *TargetFolderIdType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types MoveToFolder,omitempty"`
+	PermanentDelete        *bool                     `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermanentDelete,omitempty"`
+	RedirectTo             *RedirectToRecipientsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RedirectToRecipients,omitempty"`
+	ServerReplyWithMessage *string                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ServerReplyWithMessage,omitempty"`
+	StopProcessingRules    *bool                     `xml:"http://schemas.microsoft.com/exchange/services/2006/types StopProcessingRules,omitempty"`
 }
 
 // TargetFolderIdType holds a folder ID reference for rule actions.
@@ -268,7 +267,7 @@ type TargetFolderIdType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TargetFolderId"`
 	Folder  *struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
-		ID     string   `xml:"Id,attr"`
+		ID      string   `xml:"Id,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId,omitempty"`
 }
 
@@ -276,21 +275,21 @@ type TargetFolderIdType struct {
 type RuleType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Rule"`
 
-	RuleID         string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleId,omitempty"`
-	DisplayName    string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName"`
-	Priority       int              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Priority"`
-	IsEnabled      bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEnabled"`
+	RuleID         string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleId,omitempty"`
+	DisplayName    string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName"`
+	Priority       int             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Priority"`
+	IsEnabled      bool            `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEnabled"`
 	IsNotSupported *bool           `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsNotSupported,omitempty"`
 	IsInError      *bool           `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsInError,omitempty"`
-	Conditions     *ConditionsType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Conditions,omitempty"`
-	Exceptions     *ExceptionsType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exceptions,omitempty"`
+	Conditions     *ConditionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Conditions,omitempty"`
+	Exceptions     *ExceptionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exceptions,omitempty"`
 	//nolint:staticcheck // SA5008: RuleActionsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	Actions        *RuleActionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Actions,omitempty"`
+	Actions *RuleActionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Actions,omitempty"`
 }
 
 // ArrayOfRulesType holds a list of rules.
 type ArrayOfRulesType struct {
-	XMLName xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ArrayOfRules"`
+	XMLName xml.Name   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ArrayOfRules"`
 	Rules   []RuleType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Rule,omitempty"`
 }
 
@@ -300,8 +299,8 @@ type ArrayOfRulesType struct {
 
 // GetInboxRulesRequest is the EWS GetInboxRules operation request.
 type GetInboxRulesRequest struct {
-	XMLName           xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetInboxRules"`
-	MailboxSmtpAddress string  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MailboxSmtpAddress,omitempty"`
+	XMLName            xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetInboxRules"`
+	MailboxSmtpAddress string   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MailboxSmtpAddress,omitempty"`
 }
 
 // GetInboxRulesResponse is the EWS GetInboxRules operation response.
@@ -309,20 +308,20 @@ type GetInboxRulesResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetInboxRulesResponse"`
 
 	ResponseMessageType
-	OutlookRuleBlobExists *bool           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages OutlookRuleBlobExists,omitempty"`
+	OutlookRuleBlobExists *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/messages OutlookRuleBlobExists,omitempty"`
 	//nolint:staticcheck // SA5008: ArrayOfRulesType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	InboxRules           *ArrayOfRulesType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages InboxRules,omitempty"`
+	InboxRules *ArrayOfRulesType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages InboxRules,omitempty"`
 }
 
 // UpdateInboxRulesRequest is the EWS UpdateInboxRules operation request.
 type UpdateInboxRulesRequest struct {
-	XMLName             xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRules"`
-	MailboxSmtpAddress   string  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MailboxSmtpAddress,omitempty"`
-	RemoveOutlookRuleBlob *bool  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RemoveOutlookRuleBlob,omitempty"`
-	Operations          *ArrayOfRuleOperationsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperations"`
+	XMLName               xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRules"`
+	MailboxSmtpAddress    string                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MailboxSmtpAddress,omitempty"`
+	RemoveOutlookRuleBlob *bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RemoveOutlookRuleBlob,omitempty"`
+	Operations            *ArrayOfRuleOperationsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperations"`
 	// UpdateInboxRuleOperationCollection is an alias used by some clients (e.g. Python
 	// exchangelib) for the RuleOperations container. It uses the messages namespace.
-	OperationsAlt     *ArrayOfRuleOperationsTypeAlt `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRuleOperationCollection,omitempty"`
+	OperationsAlt *ArrayOfRuleOperationsTypeAlt `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRuleOperationCollection,omitempty"`
 }
 
 // ArrayOfRuleOperationsType holds the list of rule operations.
@@ -335,7 +334,7 @@ type ArrayOfRuleOperationsType struct {
 // ArrayOfRuleOperationsTypeAlt holds rule operations from the UpdateInboxRuleOperationCollection
 // wrapper (messages namespace variant used by some clients).
 type ArrayOfRuleOperationsTypeAlt struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRuleOperationCollection"`
+	XMLName    xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRuleOperationCollection"`
 	Operations []RuleOperationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation,omitempty"`
 }
 
@@ -374,18 +373,18 @@ func (DeleteRuleOperationType) isRuleOperation() {}
 // client-side flags (IsEnabled, IsDefault, RemoveAfterDate) that clients
 // set when routing through the Outlook/Exchange rule editor.
 type UpdateInboxRuleOperationType struct {
-	XMLName      xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation"`
-	RuleID       string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleId,omitempty"`
-	DisplayName  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
-	Priority     int      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Priority,omitempty"`
-	IsEnabled    *bool    `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEnabled,omitempty"`
-	IsDefault    *bool    `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDefault,omitempty"`
-	RemoveAfter  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RemoveAfterDate,omitempty"`
+	XMLName     xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation"`
+	RuleID      string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleId,omitempty"`
+	DisplayName string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
+	Priority    int      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Priority,omitempty"`
+	IsEnabled   *bool    `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEnabled,omitempty"`
+	IsDefault   *bool    `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDefault,omitempty"`
+	RemoveAfter string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RemoveAfterDate,omitempty"`
 	//nolint:staticcheck // SA5008: RulePredicatesType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	Conditions   *RulePredicatesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Conditions,omitempty"`
-	Exceptions   *ExceptionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exceptions,omitempty"`
+	Conditions *RulePredicatesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Conditions,omitempty"`
+	Exceptions *ExceptionsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exceptions,omitempty"`
 	//nolint:staticcheck // SA5008: RuleActionsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	Actions      *RuleActionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Actions,omitempty"`
+	Actions *RuleActionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Actions,omitempty"`
 }
 
 func (UpdateInboxRuleOperationType) isRuleOperation() {}
@@ -401,7 +400,7 @@ type UpdateInboxRulesResponse struct {
 
 // ArrayOfRuleOperationErrorsType holds rule operation errors.
 type ArrayOfRuleOperationErrorsType struct {
-	XMLName xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/types ArrayOfRuleOperationErrors"`
+	XMLName xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types ArrayOfRuleOperationErrors"`
 	Errors  []RuleOperationErrorType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperationError,omitempty"`
 }
 
@@ -409,10 +408,10 @@ type ArrayOfRuleOperationErrorsType struct {
 type RuleOperationErrorType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperationError"`
 
-	RuleID     string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleId,omitempty"`
-	ErrorCode  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ErrorCode"`
+	RuleID       string `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleId,omitempty"`
+	ErrorCode    string `xml:"http://schemas.microsoft.com/exchange/services/2006/types ErrorCode"`
 	ErrorMessage string `xml:"http://schemas.microsoft.com/exchange/services/2006/types ErrorMessage,omitempty"`
-	FieldURI   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI,omitempty"`
+	FieldURI     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -423,10 +422,10 @@ type RuleOperationErrorType struct {
 type ResponseMessageType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
 
-	ResponseClass    string     `xml:"ResponseClass,attr,omitempty"`
-	ResponseCode     ErrorCode  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	ErrorMessage     string     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ErrorMessage,omitempty"`
-	DescriptiveLinkKey *int     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DescriptiveLinkKey,omitempty"`
+	ResponseClass      string    `xml:"ResponseClass,attr,omitempty"`
+	ResponseCode       ErrorCode `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	ErrorMessage       string    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ErrorMessage,omitempty"`
+	DescriptiveLinkKey *int      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DescriptiveLinkKey,omitempty"`
 }
 
 // ResponseClass constants.
@@ -545,7 +544,6 @@ func (s *Server) handleGetUserOofSettings(ctx context.Context, soapBody []byte) 
 	}
 	return s.oofSettingsResponseXML(ResponseClassSuccess, string(ErrNoError), "", oofState, extAudience)
 }
-
 
 // handleSetUserOofSettings implements the EWS SetUserOofSettings operation.
 // Satisfies VAL-COLLAB-007, VAL-COLLAB-008, and VAL-COLLAB-013.
@@ -678,7 +676,6 @@ func (s *Server) handleGetInboxRules(ctx context.Context, soapBody []byte) []byt
 	return buf.Bytes()
 }
 
-
 // handleUpdateInboxRules implements the EWS UpdateInboxRules operation.
 // Satisfies VAL-COLLAB-009 and VAL-COLLAB-014.
 func (s *Server) handleUpdateInboxRules(ctx context.Context, soapBody []byte) []byte {
@@ -740,7 +737,6 @@ func (s *Server) handleUpdateInboxRules(ctx context.Context, soapBody []byte) []
 	buf.WriteString(`</soap:Envelope>`)
 	return buf.Bytes()
 }
-
 
 // ---------------------------------------------------------------------------
 // Helper: resolve mailbox ID from email address
@@ -892,12 +888,12 @@ func (s *Server) applyDeleteRule(ctx context.Context, mailboxID semcore.MailboxI
 // ruleToEWS converts a semcore Rule to an EWS RuleType.
 func ruleToEWS(rule *semcore.Rule) RuleType {
 	ewsRule := RuleType{
-		RuleID:      rule.ID.String(),
-		DisplayName: rule.Name,
-		Priority:    rule.Priority,
-		IsEnabled:   rule.Enabled,
+		RuleID:         rule.ID.String(),
+		DisplayName:    rule.Name,
+		Priority:       rule.Priority,
+		IsEnabled:      rule.Enabled,
 		IsNotSupported: boolPtr(false),
-		IsInError:   boolPtr(false),
+		IsInError:      boolPtr(false),
 	}
 
 	// Map conditions
@@ -1159,7 +1155,7 @@ func actionsFromEWS(actions *RuleActionsType) []semcore.RuleAction {
 	if actions.AssignCategories != nil {
 		for _, cat := range actions.AssignCategories.Strings {
 			result = append(result, semcore.RuleAction{
-				Kind:   semcore.RuleActionKindAddHeader,
+				Kind:        semcore.RuleActionKindAddHeader,
 				HeaderName:  "X-Category",
 				HeaderValue: cat,
 			})
@@ -1176,7 +1172,7 @@ func actionsFromEWS(actions *RuleActionsType) []semcore.RuleAction {
 // oofPolicyToEWS converts a semcore OOFPolicy to EWS UserOofSettings.
 func oofPolicyToEWS(policy *semcore.OOFPolicy) *UserOofSettings {
 	settings := &UserOofSettings{
-		OofState:        oofStateFromOOF(policy),
+		OofState:         oofStateFromOOF(policy),
 		ExternalAudience: externalAudienceFromOOF(policy.Audience),
 	}
 
@@ -1252,8 +1248,8 @@ func oofPolicyFromEWS(ctx context.Context, mailboxID semcore.MailboxId, settings
 	}
 
 	policy := &semcore.OOFPolicy{
-		MailboxID:    mailboxID,
-		Audience:     oofAudienceFromEWS(settings.ExternalAudience),
+		MailboxID:           mailboxID,
+		Audience:            oofAudienceFromEWS(settings.ExternalAudience),
 		SendIntervalSeconds: 7 * 24 * 3600, // default 7 days
 	}
 

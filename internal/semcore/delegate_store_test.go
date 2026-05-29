@@ -64,7 +64,7 @@ func TestBoltDelegateStore_PutAndGet(t *testing.T) {
 		ViewPrivateItems: true,
 		ReceiveCopies:    true,
 		DeliverRequests:  DeliverDelegatesAndMe,
-		GrantedBy:       "owner@example.com",
+		GrantedBy:        "owner@example.com",
 	}
 
 	id, err := store.PutDelegate(delegate)

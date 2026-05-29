@@ -41,7 +41,7 @@ const (
 	JobStateRunning   JobState = "running"
 	JobStateCompleted JobState = "completed"
 	JobStateFailed    JobState = "failed"
-	JobStateCanceled JobState = "canceled"
+	JobStateCanceled  JobState = "canceled"
 )
 
 func (s JobState) String() string { return string(s) }

@@ -95,12 +95,12 @@ const (
 
 // DelegateFolderPermissions holds permission levels per folder type.
 type DelegateFolderPermissions struct {
-	Calendar  DelegateFolderPermissionLevel `json:"calendar,omitempty"`
-	Tasks     DelegateFolderPermissionLevel `json:"tasks,omitempty"`
-	Inbox     DelegateFolderPermissionLevel `json:"inbox,omitempty"`
-	Contacts  DelegateFolderPermissionLevel `json:"contacts,omitempty"`
-	Notes     DelegateFolderPermissionLevel `json:"notes,omitempty"`
-	Journal   DelegateFolderPermissionLevel `json:"journal,omitempty"`
+	Calendar DelegateFolderPermissionLevel `json:"calendar,omitempty"`
+	Tasks    DelegateFolderPermissionLevel `json:"tasks,omitempty"`
+	Inbox    DelegateFolderPermissionLevel `json:"inbox,omitempty"`
+	Contacts DelegateFolderPermissionLevel `json:"contacts,omitempty"`
+	Notes    DelegateFolderPermissionLevel `json:"notes,omitempty"`
+	Journal  DelegateFolderPermissionLevel `json:"journal,omitempty"`
 }
 
 // HasAccess reports whether the delegate has at least Reviewer access on any folder.
@@ -165,17 +165,17 @@ const (
 // DelegateUser represents a single delegate grant on a mailbox.
 // The grant is scoped to one mailbox (the owner) and one delegate user.
 type DelegateUser struct {
-	ID             DelegateId               `json:"id"`
-	OwnerID        MailboxId               `json:"owner_id"`         // MailboxId of the mailbox owner
-	DelegateEmail  string                  `json:"delegate_email"`   // email of the delegate user
-	DelegateUserID string                  `json:"delegate_user_id"` // opaque user ID of delegate
-	Permissions    DelegateFolderPermissions `json:"permissions"`     // per-folder permission levels
-	ViewPrivateItems bool                  `json:"view_private_items"` // can see private calendar items
-	ReceiveCopies  bool                    `json:"receive_copies"`     // receives copies of meeting messages
-	DeliverRequests DeliverMeetingRequests  `json:"deliver_meeting_requests"` // meeting delivery mode
-	CreatedAt      time.Time               `json:"created_at"`
-	UpdatedAt      time.Time               `json:"updated_at"`
-	GrantedBy      string                  `json:"granted_by"` // who made the grant (owner email)
+	ID               DelegateId                `json:"id"`
+	OwnerID          MailboxId                 `json:"owner_id"`                 // MailboxId of the mailbox owner
+	DelegateEmail    string                    `json:"delegate_email"`           // email of the delegate user
+	DelegateUserID   string                    `json:"delegate_user_id"`         // opaque user ID of delegate
+	Permissions      DelegateFolderPermissions `json:"permissions"`              // per-folder permission levels
+	ViewPrivateItems bool                      `json:"view_private_items"`       // can see private calendar items
+	ReceiveCopies    bool                      `json:"receive_copies"`           // receives copies of meeting messages
+	DeliverRequests  DeliverMeetingRequests    `json:"deliver_meeting_requests"` // meeting delivery mode
+	CreatedAt        time.Time                 `json:"created_at"`
+	UpdatedAt        time.Time                 `json:"updated_at"`
+	GrantedBy        string                    `json:"granted_by"` // who made the grant (owner email)
 	// CanSendAs grants the delegate permission to send mail using the owner's
 	// mailbox as the From address without an "on behalf of" marker.
 	// VAL-DIR-004: send-as requires separate authorization not implied by
@@ -209,22 +209,22 @@ func (d *DelegateUser) CanActAsDelegate() bool {
 // from direct owner actions.
 type DelegateAuditContext struct {
 	OwnerMailboxID MailboxId  // the mailbox being acted on
-	OwnerEmail    string     // email of the mailbox owner
-	DelegateEmail string     // email of the acting delegate
-	DelegateID    DelegateId // the delegation grant ID
-	Action        string     // e.g. "create", "update", "delete", "send"
-	ItemID        ItemId     // item affected if applicable
-	FolderID      FolderId   // folder affected if applicable
-	At            time.Time  // when the action occurred
+	OwnerEmail     string     // email of the mailbox owner
+	DelegateEmail  string     // email of the acting delegate
+	DelegateID     DelegateId // the delegation grant ID
+	Action         string     // e.g. "create", "update", "delete", "send"
+	ItemID         ItemId     // item affected if applicable
+	FolderID       FolderId   // folder affected if applicable
+	At             time.Time  // when the action occurred
 }
 
 // NewDelegateAuditContext builds an audit context for a delegate action.
 func NewDelegateAuditContext(ownerID MailboxId, ownerEmail, delegateEmail string, delegateID DelegateId) DelegateAuditContext {
 	return DelegateAuditContext{
 		OwnerMailboxID: ownerID,
-		OwnerEmail:    ownerEmail,
-		DelegateEmail: delegateEmail,
-		DelegateID:    delegateID,
-		At:            time.Now(),
+		OwnerEmail:     ownerEmail,
+		DelegateEmail:  delegateEmail,
+		DelegateID:     delegateID,
+		At:             time.Now(),
 	}
 }

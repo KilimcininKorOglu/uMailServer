@@ -36,9 +36,9 @@ func TestBoltLifecycleStorePoll(t *testing.T) {
 	// Append a test event.
 	testLC := Lifecycle{
 		MailboxID: ownerID,
-		Kind:     LifecycleKindCreated,
-		At:       time.Now(),
-		Actor:    "test-actor",
+		Kind:      LifecycleKindCreated,
+		At:        time.Now(),
+		Actor:     "test-actor",
 	}
 	appendErr := lifecycle.AppendLifecycle(testLC)
 	t.Logf("append err=%v", appendErr)
@@ -46,7 +46,7 @@ func TestBoltLifecycleStorePoll(t *testing.T) {
 	// Poll.
 	events, _, pollErr := lifecycle.PollEvents(ownerID, 0, 10)
 	t.Logf("poll err=%v eventsCount=%d ownerID=%s first32=%s", pollErr, len(events), ownerID.String(), ownerID.String()[:min(32, len(ownerID.String()))])
-	
+
 	if len(events) == 0 {
 		t.Errorf("PollEvents returned 0 events after append; expected 1")
 	}

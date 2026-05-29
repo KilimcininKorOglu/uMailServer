@@ -42,10 +42,10 @@ type Mailbox struct {
 type Folder struct {
 	ID            FolderId
 	MailboxID     MailboxId
-	Name          string // display name (may change without identity change)
+	Name          string   // display name (may change without identity change)
 	ParentID      FolderId // zero if this is a top-level folder
-	Role          string // e.g., "inbox", "drafts", "sent", "trash", "archive" — empty for user folders
-	SortOrder     int    // client sort hint
+	Role          string   // e.g., "inbox", "drafts", "sent", "trash", "archive" — empty for user folders
+	SortOrder     int      // client sort hint
 	TotalItems    int
 	UnreadItems   int
 	HighestModSeq uint64 // RFC 7162
@@ -64,10 +64,10 @@ func (f *Folder) IsDistinguished() bool { return f.Role != "" }
 // copies, and non-destructive updates. ChangeKey advances on every semantically
 // visible mutation. ItemId is scoped to a MailboxId.
 type Item struct {
-	ID            ItemId
-	MailboxID     MailboxId
-	FolderID      FolderId
-	ChangeKey     ChangeKey
+	ID             ItemId
+	MailboxID      MailboxId
+	FolderID       FolderId
+	ChangeKey      ChangeKey
 	ConversationID ConversationId
 
 	// Content
@@ -105,12 +105,12 @@ func (i *Item) HasKeyword(flag string) bool {
 // Attachment represents a file attachment on an Item.
 // AttachmentId is scoped to its parent ItemId; the combination is globally unique.
 type Attachment struct {
-	ID       AttachmentId
-	ParentID ItemId
-	Name     string
+	ID          AttachmentId
+	ParentID    ItemId
+	Name        string
 	ContentType string
-	Size     int64 // bytes
-	IsInline bool  // inline disposition (CID-backed body reference)
+	Size        int64 // bytes
+	IsInline    bool  // inline disposition (CID-backed body reference)
 }
 
 // ---------------------------------------------------------------------------
@@ -120,12 +120,12 @@ type Attachment struct {
 // Conversation represents a message thread lineage. It groups related Items
 // across folder boundaries. ConversationId is scoped to a MailboxId.
 type Conversation struct {
-	ID          ConversationId
-	MailboxID   MailboxId
-	ItemIDs     []ItemId // ordered list of Items in this conversation
-	Subject     string   // root message subject
+	ID             ConversationId
+	MailboxID      MailboxId
+	ItemIDs        []ItemId // ordered list of Items in this conversation
+	Subject        string   // root message subject
 	HasAttachments bool
-	UnreadCount int
+	UnreadCount    int
 }
 
 // ---------------------------------------------------------------------------
@@ -139,14 +139,14 @@ type Conversation struct {
 // consumers (sync, events, search) derive their view from these entries rather than
 // inferring state from timestamps or filesystem artifacts.
 type Lifecycle struct {
-	MailboxID  MailboxId  // mailbox owning this event
-	FolderID   FolderId   // zero for mailbox-scoped events
-	ItemID     ItemId     // zero for folder-scoped events
-	Kind       LifecycleKind
-	At         time.Time
-	Actor      string // user or system actor that triggered the change; for delegate
-	           // actions this carries "delegate:<del>@owner:<owner>" in readable form
-	ChangeKey  ChangeKey
+	MailboxID MailboxId // mailbox owning this event
+	FolderID  FolderId  // zero for mailbox-scoped events
+	ItemID    ItemId    // zero for folder-scoped events
+	Kind      LifecycleKind
+	At        time.Time
+	Actor     string // user or system actor that triggered the change; for delegate
+	// actions this carries "delegate:<del>@owner:<owner>" in readable form
+	ChangeKey ChangeKey
 
 	// DelegateEmail records the delegate's email when a delegate acted on behalf
 	// of a mailbox owner. This allows audit logs and sync consumers to distinguish

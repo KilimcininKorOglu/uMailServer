@@ -106,13 +106,13 @@ func (ex *SnapshotExecutor) collectIdentityLayerJSON(mboxID MailboxId, email str
 
 	// Mailbox identity
 	mboxRec := struct {
-		MailboxID    string `json:"mailbox_id"`
+		MailboxID   string `json:"mailbox_id"`
 		Email       string `json:"email"`
 		UIDValidity uint32 `json:"uid_validity"`
 	}{
-		MailboxID:    mboxIDFromStore.String(),
-		Email:        email,
-		UIDValidity:  1,
+		MailboxID:   mboxIDFromStore.String(),
+		Email:       email,
+		UIDValidity: 1,
 	}
 
 	// Folder identities
@@ -152,10 +152,10 @@ func (ex *SnapshotExecutor) collectIdentityLayerJSON(mboxID MailboxId, email str
 		}
 	}
 	itemRecs := make([]struct {
-		ItemID     string `json:"item_id"`
-		ChangeKey  string `json:"change_key"`
-		FolderID   string `json:"folder_id"`
-		MailboxID  string `json:"mailbox_id"`
+		ItemID    string `json:"item_id"`
+		ChangeKey string `json:"change_key"`
+		FolderID  string `json:"folder_id"`
+		MailboxID string `json:"mailbox_id"`
 		MsgKey    string `json:"msg_key"`
 		Email     string `json:"email"`
 	}, 0, len(itemMap))
@@ -165,26 +165,26 @@ func (ex *SnapshotExecutor) collectIdentityLayerJSON(mboxID MailboxId, email str
 			ChangeKey string `json:"change_key"`
 			FolderID  string `json:"folder_id"`
 			MailboxID string `json:"mailbox_id"`
-			MsgKey   string `json:"msg_key"`
-			Email    string `json:"email"`
+			MsgKey    string `json:"msg_key"`
+			Email     string `json:"email"`
 		}{
 			ItemID:    it.ItemID.String(),
 			ChangeKey: it.ChangeKey.String(),
 			FolderID:  it.FolderID.String(),
 			MailboxID: it.MailboxID.String(),
-			MsgKey:   it.MsgKey,
-			Email:    it.Email,
+			MsgKey:    it.MsgKey,
+			Email:     it.Email,
 		})
 	}
 
 	layer := struct {
-		Mailbox  interface{} `json:"mailbox"`
+		Mailbox interface{} `json:"mailbox"`
 		Folders interface{} `json:"folders"`
 		Items   interface{} `json:"items"`
 	}{
-		Mailbox:  mboxRec,
-		Folders:  folderRecs,
-		Items:    itemRecs,
+		Mailbox: mboxRec,
+		Folders: folderRecs,
+		Items:   itemRecs,
 	}
 	return json.Marshal(layer)
 }
@@ -197,20 +197,20 @@ func (ex *SnapshotExecutor) collectSyncStateLayerJSON(mboxID MailboxId) ([]byte,
 	}
 	recs := make([]struct {
 		MailboxID string `json:"mailbox_id"`
-		FolderID string `json:"folder_id"`
-		ClientID string `json:"client_id"`
+		FolderID  string `json:"folder_id"`
+		ClientID  string `json:"client_id"`
 		Watermark string `json:"watermark"`
-		Version  uint64 `json:"version"`
+		Version   uint64 `json:"version"`
 	}, 0, len(records))
 	for _, r := range records {
 		recs = append(recs, struct {
-			MailboxID  string `json:"mailbox_id"`
+			MailboxID string `json:"mailbox_id"`
 			FolderID  string `json:"folder_id"`
 			ClientID  string `json:"client_id"`
 			Watermark string `json:"watermark"`
 			Version   uint64 `json:"version"`
 		}{
-			MailboxID:  r.MailboxID.String(),
+			MailboxID: r.MailboxID.String(),
 			FolderID:  r.FolderID.String(),
 			ClientID:  r.ClientID,
 			Watermark: r.Watermark,
@@ -229,26 +229,26 @@ func (ex *SnapshotExecutor) collectTombstonesLayerJSON(mboxID MailboxId) ([]byte
 	recs := make([]struct {
 		MailboxID string `json:"mailbox_id"`
 		FolderID  string `json:"folder_id"`
-		ItemID   string `json:"item_id"`
-		Kind     string `json:"kind"`
+		ItemID    string `json:"item_id"`
+		Kind      string `json:"kind"`
 		DeletedAt string `json:"deleted_at"`
-		Actor    string `json:"actor"`
+		Actor     string `json:"actor"`
 	}, 0, len(tombstones))
 	for _, t := range tombstones {
 		recs = append(recs, struct {
 			MailboxID string `json:"mailbox_id"`
-			FolderID string `json:"folder_id"`
-			ItemID  string `json:"item_id"`
-			Kind    string `json:"kind"`
+			FolderID  string `json:"folder_id"`
+			ItemID    string `json:"item_id"`
+			Kind      string `json:"kind"`
 			DeletedAt string `json:"deleted_at"`
-			Actor   string `json:"actor"`
+			Actor     string `json:"actor"`
 		}{
-			MailboxID:  t.MailboxID.String(),
+			MailboxID: t.MailboxID.String(),
 			FolderID:  t.FolderID.String(),
-			ItemID:   t.ItemID.String(),
-			Kind:     t.Kind.String(),
+			ItemID:    t.ItemID.String(),
+			Kind:      t.Kind.String(),
 			DeletedAt: t.DeletedAt.Format(time.RFC3339),
-			Actor:    t.Actor,
+			Actor:     t.Actor,
 		})
 	}
 	return json.Marshal(struct{ Records interface{} }{Records: recs})
@@ -259,15 +259,15 @@ func (ex *SnapshotExecutor) collectLifecycleLayerJSON(mboxID MailboxId, highSeq 
 	events, _, err := ex.store.lifecycle.PollEvents(mboxID, 0, 1000)
 	if err != nil || events == nil {
 		return json.Marshal(struct {
-			HighSeq uint64        `json:"high_seq"`
+			HighSeq uint64         `json:"high_seq"`
 			Events  []LifecycleRef `json:"events"`
 		}{HighSeq: highSeq, Events: nil})
 	}
 	refs := make([]LifecycleRef, len(events))
 	for i, e := range events {
 		refs[i] = LifecycleRef{
-			MailboxID:  e.MailboxID.String(),
-			FolderID:   e.FolderID.String(),
+			MailboxID: e.MailboxID.String(),
+			FolderID:  e.FolderID.String(),
 			ItemID:    e.ItemID.String(),
 			Kind:      e.Kind.String(),
 			At:        e.At.Format(time.RFC3339),
@@ -276,15 +276,15 @@ func (ex *SnapshotExecutor) collectLifecycleLayerJSON(mboxID MailboxId, highSeq 
 		}
 	}
 	return json.Marshal(struct {
-		HighSeq uint64        `json:"high_seq"`
+		HighSeq uint64         `json:"high_seq"`
 		Events  []LifecycleRef `json:"events"`
 	}{HighSeq: highSeq, Events: refs})
 }
 
 // LifecycleRef is a JSON-serializable reference to a lifecycle event.
 type LifecycleRef struct {
-	MailboxID  string `json:"mailbox_id"`
-	FolderID   string `json:"folder_id"`
+	MailboxID string `json:"mailbox_id"`
+	FolderID  string `json:"folder_id"`
 	ItemID    string `json:"item_id"`
 	Kind      string `json:"kind"`
 	At        string `json:"at"`
@@ -301,10 +301,10 @@ func (ex *SnapshotExecutor) collectSubscriptionLayerJSON(mboxID MailboxId) ([]by
 	recs := make([]struct {
 		ID        string   `json:"id"`
 		MailboxID string   `json:"mailbox_id"`
-		Kind     string   `json:"kind"`
+		Kind      string   `json:"kind"`
 		FolderIDs []string `json:"folder_ids"`
-		LastSeq  uint64   `json:"last_seq"`
-		ExpiresAt string  `json:"expires_at"`
+		LastSeq   uint64   `json:"last_seq"`
+		ExpiresAt string   `json:"expires_at"`
 	}, 0, len(subs))
 	for _, s := range subs {
 		fids := make([]string, len(s.FolderIDs))
@@ -312,15 +312,15 @@ func (ex *SnapshotExecutor) collectSubscriptionLayerJSON(mboxID MailboxId) ([]by
 			fids[i] = f.String()
 		}
 		recs = append(recs, struct {
-			ID         string   `json:"id"`
-			MailboxID  string   `json:"mailbox_id"`
+			ID        string   `json:"id"`
+			MailboxID string   `json:"mailbox_id"`
 			Kind      string   `json:"kind"`
 			FolderIDs []string `json:"folder_ids"`
 			LastSeq   uint64   `json:"last_seq"`
 			ExpiresAt string   `json:"expires_at"`
 		}{
-			ID:         s.ID.ID,
-			MailboxID:  s.MailboxID.String(),
+			ID:        s.ID.ID,
+			MailboxID: s.MailboxID.String(),
 			Kind:      s.Kind.String(),
 			FolderIDs: fids,
 			LastSeq:   s.LastSeq,
@@ -333,8 +333,8 @@ func (ex *SnapshotExecutor) collectSubscriptionLayerJSON(mboxID MailboxId) ([]by
 // collectPolicyLayerJSON returns OOF, rules, and delegations as a JSON blob.
 func (ex *SnapshotExecutor) collectPolicyLayerJSON(mboxID MailboxId) ([]byte, error) {
 	layer := struct {
-		OOF       interface{} `json:"oof,omitempty"`
-		Rules     interface{} `json:"rules,omitempty"`
+		OOF         interface{} `json:"oof,omitempty"`
+		Rules       interface{} `json:"rules,omitempty"`
 		Delegations interface{} `json:"delegations,omitempty"`
 	}{}
 

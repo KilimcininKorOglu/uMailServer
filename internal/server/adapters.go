@@ -81,9 +81,9 @@ func (a *pop3MailstoreAdapter) GetMessageSize(user string, index int) (int64, er
 
 // indexJob represents a search indexing task with canonical identity context.
 type indexJob struct {
-	email         string
-	uid           uint32
-	itemID        string // canonical ItemId (empty if mutation pipeline not used)
+	email          string
+	uid            uint32
+	itemID         string // canonical ItemId (empty if mutation pipeline not used)
 	conversationID string // canonical ConversationId (empty if mutation pipeline not used)
 }
 

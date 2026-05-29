@@ -178,7 +178,7 @@ func TestBoltSyncStateStore_ListSyncStatesByMailbox(t *testing.T) {
 	// Write tokens for two folders and a mailbox-level token.
 	store.PutSyncState(mboxID, folderID1, "client1", "w1")  //nolint:errcheck
 	store.PutSyncState(mboxID, folderID2, "client1", "w2")  //nolint:errcheck
-	store.PutSyncState(mboxID, FolderId{}, "client2", "w3")  //nolint:errcheck
+	store.PutSyncState(mboxID, FolderId{}, "client2", "w3") //nolint:errcheck
 
 	// List all for mailbox.
 	states, err := store.ListSyncStatesByMailbox(mboxID, FolderId{})
@@ -265,7 +265,7 @@ func TestBoltSyncStateStore_PutSyncState_clearsFolderGone(t *testing.T) {
 	folderID := MustFolderId("folder-7")
 
 	store.PutSyncState(mboxID, folderID, "client", "w1") //nolint:errcheck
-	store.MarkFolderGone(folderID)                        //nolint:errcheck
+	store.MarkFolderGone(folderID)                       //nolint:errcheck
 
 	// New watermark write should clear FolderGone.
 	store.PutSyncState(mboxID, folderID, "client", "w2") //nolint:errcheck
@@ -754,7 +754,7 @@ func TestBoltTombstoneStore_PruneTombstones(t *testing.T) {
 	}
 
 	store.PutTombstone(oldTomb) //nolint:errcheck
-	store.PutTombstone(newTomb)  //nolint:errcheck
+	store.PutTombstone(newTomb) //nolint:errcheck
 
 	pruned, err := store.PruneTombstones(30 * 24 * time.Hour)
 	if err != nil {
@@ -818,8 +818,8 @@ func TestBoltTombstoneStore_distinguishesSoftAndHardDelete(t *testing.T) {
 		DeletedAt: now,
 	}
 
-	store.PutTombstone(softTomb)  //nolint:errcheck
-	store.PutTombstone(hardTomb)   //nolint:errcheck
+	store.PutTombstone(softTomb) //nolint:errcheck
+	store.PutTombstone(hardTomb) //nolint:errcheck
 
 	tombstones, _ := store.ListTombstonesByMailbox(mboxID, folderID) //nolint:errcheck
 	if len(tombstones) != 2 {

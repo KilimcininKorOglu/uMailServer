@@ -11,7 +11,7 @@
 //   - FolderId   — authoritative folder identity within a mailbox
 //   - ItemId     — authoritative message/item identity within a mailbox
 //   - ChangeKey  — opaque version token that advances on every semantically
-//                 visible mutation (per RFC 4551 semantics)
+//     visible mutation (per RFC 4551 semantics)
 //   - AttachmentId — identity for an attachment relative to its parent ItemId
 //   - ConversationId — identity for a message thread/conversation lineage
 //
@@ -826,12 +826,12 @@ func (t SyncToken) Equal(other SyncToken) bool { return t.raw == other.raw }
 type LifecycleKind uint8
 
 const (
-	LifecycleKindCreated   LifecycleKind = iota // object was created
-	LifecycleKindUpdated                         // object was mutated
-	LifecycleKindMoved                          // object changed parent/folder
-	LifecycleKindSoftDeleted                    // object moved to trash/tombstoned
-	LifecycleKindHardDeleted                    // object permanently removed
-	LifecycleKindRestored                       // object restored from trash
+	LifecycleKindCreated     LifecycleKind = iota // object was created
+	LifecycleKindUpdated                          // object was mutated
+	LifecycleKindMoved                            // object changed parent/folder
+	LifecycleKindSoftDeleted                      // object moved to trash/tombstoned
+	LifecycleKindHardDeleted                      // object permanently removed
+	LifecycleKindRestored                         // object restored from trash
 )
 
 // String returns a human-readable label for the kind.

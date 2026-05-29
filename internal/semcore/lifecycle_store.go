@@ -69,16 +69,16 @@ const bucketLifecycle = "__semcore_lifecycle"
 const lifecycleBucketSeql = "__semcore_lifecycle_seql"
 
 type storedLifecycleEvent struct {
-	Seq          uint64        `json:"seq"`
-	MailboxID    MailboxId     `json:"mailbox_id"`
-	FolderID     FolderId      `json:"folder_id"`
-	ItemID       ItemId        `json:"item_id"`
-	Kind         LifecycleKind `json:"kind"`
-	At           time.Time    `json:"at"`
-	Actor        string       `json:"actor"`
-	ChangeKey    ChangeKey    `json:"change_key"`
-	DelegateEmail string      `json:"delegate_email,omitempty"`
-	DelegateID   DelegateId   `json:"delegate_id,omitempty"`
+	Seq           uint64        `json:"seq"`
+	MailboxID     MailboxId     `json:"mailbox_id"`
+	FolderID      FolderId      `json:"folder_id"`
+	ItemID        ItemId        `json:"item_id"`
+	Kind          LifecycleKind `json:"kind"`
+	At            time.Time     `json:"at"`
+	Actor         string        `json:"actor"`
+	ChangeKey     ChangeKey     `json:"change_key"`
+	DelegateEmail string        `json:"delegate_email,omitempty"`
+	DelegateID    DelegateId    `json:"delegate_id,omitempty"`
 }
 
 // BoltLifecycleStore persists Lifecycle events in a dedicated bbolt bucket.

@@ -40,9 +40,9 @@ type SchedulerConfig struct {
 // DefaultSchedulerConfig returns the default scheduler configuration.
 func DefaultSchedulerConfig() SchedulerConfig {
 	return SchedulerConfig{
-		MaxRetriesPerStep:   3,
-		StepYieldInterval:   500 * time.Millisecond,
-		OnJobStateChange:    nil,
+		MaxRetriesPerStep: 3,
+		StepYieldInterval: 500 * time.Millisecond,
+		OnJobStateChange:  nil,
 	}
 }
 

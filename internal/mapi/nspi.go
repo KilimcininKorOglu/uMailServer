@@ -110,8 +110,8 @@ func (s *Server) handleNSPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := nspiResponse{
-		Results:                results,
-		Status:                 "success",
+		Results:                 results,
+		Status:                  "success",
 		IncludesLastItemInRange: true,
 	}
 
@@ -135,7 +135,7 @@ type nspiParams struct {
 
 // nspiResponse is the NSPI JSON response.
 type nspiResponse struct {
-	Results                []directoryCandidate `json:"results"`
-	Status                 string               `json:"status"`
-	IncludesLastItemInRange bool                `json:"includesLastItemInRange"`
+	Results                 []directoryCandidate `json:"results"`
+	Status                  string               `json:"status"`
+	IncludesLastItemInRange bool                 `json:"includesLastItemInRange"`
 }

@@ -145,8 +145,8 @@ type MutationResult struct {
 // and message-update operations through this pipeline instead of calling
 // storage directly.
 type MutationPipeline struct {
-	identity   *BoltIdentityStore
-	lifecycle  *BoltLifecycleStore
+	identity  *BoltIdentityStore
+	lifecycle *BoltLifecycleStore
 }
 
 // NewMutationPipeline creates a new mutation pipeline backed by the given
@@ -272,10 +272,10 @@ func parseHeaders(data []byte) parsedHeaders {
 
 	return parsedHeaders{
 		MessageID:  stripAngleBrackets(h.Get("Message-ID")),
-		Subject:   subject,
-		From:      h.Get("From"),
-		To:        h.Get("To"),
-		InReplyTo: irt,
+		Subject:    subject,
+		From:       h.Get("From"),
+		To:         h.Get("To"),
+		InReplyTo:  irt,
 		References: refs,
 	}
 }
@@ -413,18 +413,18 @@ func (p *MutationPipeline) MutateItem(in *MutationInput) (*MutationResult, error
 
 	// 8. Return result for downstream consumers.
 	return &MutationResult{
-		ItemID:          itemID,
-		ChangeKey:       ck,
-		ConversationID:  convID,
-		BlobKey:         blobKey,
-		Subject:         headers.Subject,
-		From:            headers.From,
-		To:              headers.To,
-		InReplyTo:       headers.InReplyTo,
-		References:      headers.References,
-		IsThreadRoot:    isRoot,
-		Size:            int64(len(in.RawMessage)),
-		Lifecycle:       lifecycle,
+		ItemID:         itemID,
+		ChangeKey:      ck,
+		ConversationID: convID,
+		BlobKey:        blobKey,
+		Subject:        headers.Subject,
+		From:           headers.From,
+		To:             headers.To,
+		InReplyTo:      headers.InReplyTo,
+		References:     headers.References,
+		IsThreadRoot:   isRoot,
+		Size:           int64(len(in.RawMessage)),
+		Lifecycle:      lifecycle,
 	}, nil
 }
 
@@ -436,11 +436,11 @@ func (p *MutationPipeline) MutateItem(in *MutationInput) (*MutationResult, error
 // Only fields that are non-nil or non-zero are considered for update;
 // nil/zero fields are left unchanged.
 type UpdateInput struct {
-	ItemID       ItemId
-	MailboxID    MailboxId
-	FolderID     FolderId
-	Actor        string
-	Source       MutationSource
+	ItemID    ItemId
+	MailboxID MailboxId
+	FolderID  FolderId
+	Actor     string
+	Source    MutationSource
 
 	// Flags to add or remove. These are merged with existing flags.
 	AddFlags    []string
@@ -611,12 +611,12 @@ func (p *MutationPipeline) MutateDelete(in *DeleteInput, tombstore *BoltTombston
 
 // MoveInput contains context for a canonical item move mutation.
 type MoveInput struct {
-	ItemID        ItemId
-	MailboxID     MailboxId
-	SourceFolder  FolderId
-	DestFolder    FolderId
-	Actor         string
-	Source        MutationSource
+	ItemID       ItemId
+	MailboxID    MailboxId
+	SourceFolder FolderId
+	DestFolder   FolderId
+	Actor        string
+	Source       MutationSource
 
 	// DelegateAuditContext is set when a delegate is acting on behalf of a mailbox owner.
 	DelegateAuditContext *DelegateAuditContext
@@ -663,13 +663,13 @@ func (p *MutationPipeline) MutateMove(in *MoveInput) error {
 	}
 
 	lifecycle := Lifecycle{
-		MailboxID:  in.MailboxID,
-		FolderID:   in.SourceFolder,
-		ItemID:    in.ItemID,
-		Kind:      LifecycleKindMoved,
-		At:        time.Now(),
-		Actor:     in.Actor,
-		ChangeKey: current.ChangeKey,
+		MailboxID:     in.MailboxID,
+		FolderID:      in.SourceFolder,
+		ItemID:        in.ItemID,
+		Kind:          LifecycleKindMoved,
+		At:            time.Now(),
+		Actor:         in.Actor,
+		ChangeKey:     current.ChangeKey,
 		DelegateEmail: "",
 	}
 	if in.DelegateAuditContext != nil {

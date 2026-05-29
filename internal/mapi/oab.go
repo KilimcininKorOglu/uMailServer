@@ -189,9 +189,9 @@ func generateOABVersion(priorVersion string) string {
 
 // oabResponse is the OAB JSON response.
 type oabResponse struct {
-	OAB         oabData    `json:"oab"`
-	Status      string     `json:"status"`
-	Incremental bool       `json:"incremental"`
+	OAB         oabData `json:"oab"`
+	Status      string  `json:"status"`
+	Incremental bool    `json:"incremental"`
 }
 
 // oabData wraps the OAB payload.

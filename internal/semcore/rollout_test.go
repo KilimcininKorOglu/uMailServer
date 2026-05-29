@@ -320,9 +320,9 @@ func TestAccountCompatibilityTier_MAPIHTTPWithoutCanonicalIdentity(t *testing.T)
 type customBackfill struct{}
 
 func (customBackfill) Run(context.Context, BackfillTarget, MailboxId) error { return nil }
-func (customBackfill) Status() BackfillJob                                           { return BackfillJob{} }
+func (customBackfill) Status() BackfillJob                                  { return BackfillJob{} }
 
 type customRollback struct{}
 
 func (customRollback) Run(context.Context, RollbackTarget, MailboxId) error { return nil }
-func (customRollback) Status() RollbackJob                                        { return RollbackJob{} }
+func (customRollback) Status() RollbackJob                                  { return RollbackJob{} }

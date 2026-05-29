@@ -19,28 +19,28 @@ import (
 
 // GetFolderRequest is the EWS GetFolder operation request.
 type GetFolderRequest struct {
-	XMLName    xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetFolder"`
-	FolderIDs  FolderIDsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
+	XMLName     xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetFolder"`
+	FolderIDs   FolderIDsType       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
 	FolderShape FolderResponseShape `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderShape"`
 }
 
 // FolderIDsType is a list of folder IDs.
 type FolderIDsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
+	XMLName       xml.Name                  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
 	Distinguished []DistinguishedFolderName `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
-	Folder []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+	Folder        []FolderIDOnly            `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 }
 
 // FolderIDOnly is a folder ID without additional properties.
 type FolderIDOnly struct {
 	XMLName   xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
-	ID       string   `xml:"Id,attr"`
-	ChangeKey string  `xml:"ChangeKey,attr,omitempty"`
+	ID        string   `xml:"Id,attr"`
+	ChangeKey string   `xml:"ChangeKey,attr,omitempty"`
 }
 
 // GetFolderResponse is the EWS GetFolder operation response.
 type GetFolderResponse struct {
-	XMLName          xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetFolderResponse"`
+	XMLName          xml.Name                  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetFolderResponse"`
 	ResponseMessages GetFolderResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -51,22 +51,22 @@ type GetFolderResponseMessages struct {
 
 // FolderResponseMessageType is one folder's result in a GetFolder response.
 type FolderResponseMessageType struct {
-	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderResponseMessage"`
-	ResponseClass string  `xml:"ResponseClass,attr"`
-	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	XMLName       xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderResponseMessage"`
+	ResponseClass string                  `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	Folders       FolderResponseContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
 }
 
 // FolderResponseContainer wraps the Folders list in response messages.
 // The m:Folders element is in messages namespace, containing t:Folder in types namespace.
 type FolderResponseContainer struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
+	XMLName xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
 	Folders []FolderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
 }
 
 // ResponseCodeType is the EWS ResponseCode element inside response messages.
 type ResponseCodeType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	XMLName xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	Value   ErrorCode `xml:",chardata"`
 }
 
@@ -181,12 +181,10 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 	msg.ResponseCode.Value = ErrNoError
 
 	fxml := FolderType{
-		FolderID: FolderIdComponents{ID: folderID.String(),
-		},
-		ParentFolderID: FolderIdComponents{ID: rec.ParentID.String(),
-		},
-		DisplayName:       displayName,
-		TotalCount:        0,
+		FolderID:         FolderIdComponents{ID: folderID.String()},
+		ParentFolderID:   FolderIdComponents{ID: rec.ParentID.String()},
+		DisplayName:      displayName,
+		TotalCount:       0,
 		ChildFolderCount: 0,
 		FolderClass:      "IPF.Note",
 	}
@@ -208,17 +206,17 @@ func errorMsg(op string, code ErrorCode, message string) FolderResponseMessageTy
 
 // FindFolderRequest is the EWS FindFolder operation request.
 type FindFolderRequest struct {
-	XMLName         xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindFolder"`
-	FolderShape    FolderResponseShape `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderShape"`
+	XMLName               xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindFolder"`
+	FolderShape           FolderResponseShape `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderShape"`
 	IndexedPageFolderView struct {
 		MaxEntriesReturned string `xml:"MaxEntriesReturned,attr"`
-		Offset              string `xml:"Offset,attr"`
+		Offset             string `xml:"Offset,attr"`
 		BasePoint          string `xml:"BasePoint,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages IndexedPageFolderView,omitempty"`
 	ParentFolderIDs struct {
 		Distinguished []struct {
 			XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
-			ID     string   `xml:"Id,attr"`
+			ID      string   `xml:"Id,attr"`
 		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
 		Folder []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ParentFolderIds"`
@@ -226,7 +224,7 @@ type FindFolderRequest struct {
 
 // FindFolderResponse is the EWS FindFolder operation response.
 type FindFolderResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindFolderResponse"`
+	XMLName          xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindFolderResponse"`
 	ResponseMessages FindFolderResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -305,12 +303,10 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		}
 
 		fxml := FolderType{
-			FolderID: FolderIdComponents{ID: f.FolderID.String(),
-			},
-			ParentFolderID: FolderIdComponents{ID: f.ParentID.String(),
-			},
-			DisplayName:       displayName,
-			TotalCount:        0,
+			FolderID:         FolderIdComponents{ID: f.FolderID.String()},
+			ParentFolderID:   FolderIdComponents{ID: f.ParentID.String()},
+			DisplayName:      displayName,
+			TotalCount:       0,
 			ChildFolderCount: 0,
 			FolderClass:      "IPF.Note",
 		}
@@ -342,13 +338,13 @@ type FolderTypeForCreate struct {
 // FoldersContainer wraps the Folders list in CreateFolder requests.
 // The m:Folders element is in messages namespace, containing t:Folder in types namespace.
 type FoldersContainer struct {
-	XMLName  xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
+	XMLName xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
 	Folders []FolderTypeForCreate `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
 }
 
 // CreateFolderRequest is the EWS CreateFolder operation request.
 type CreateFolderRequest struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateFolder"`
+	XMLName        xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateFolder"`
 	ParentFolderID struct {
 		Distinguished string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId,attr,omitempty"`
 		ID            string `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId,attr,omitempty"`
@@ -358,7 +354,7 @@ type CreateFolderRequest struct {
 
 // CreateFolderResponse is the EWS CreateFolder operation response.
 type CreateFolderResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateFolderResponse"`
+	XMLName          xml.Name                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateFolderResponse"`
 	ResponseMessages CreateFolderResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -432,12 +428,10 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 
 		displayName := f.DisplayName
 		fxml := FolderType{
-			FolderID: FolderIdComponents{ID: folderID.String(),
-			},
-			ParentFolderID: FolderIdComponents{ID: parentID.String(),
-			},
-			DisplayName:  displayName,
-			FolderClass: "IPF.Note",
+			FolderID:       FolderIdComponents{ID: folderID.String()},
+			ParentFolderID: FolderIdComponents{ID: parentID.String()},
+			DisplayName:    displayName,
+			FolderClass:    "IPF.Note",
 		}
 		msg := FolderResponseMessageType{}
 		msg.ResponseClass = "Created"
@@ -458,7 +452,7 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 
 // SetFolderFieldOp represents a SetFolderField update operation.
 type SetFolderFieldOp struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types SetFolderField"`
+	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types SetFolderField"`
 	FieldURIField struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
 		URI     string   `xml:"uri,attr"`
@@ -478,14 +472,14 @@ type SetFolderFieldOp struct {
 
 // FolderUpdatesOp wraps the update operations for a folder.
 type FolderUpdatesOp struct {
-	XMLName    xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Updates"`
+	XMLName    xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Updates"`
 	Operations []SetFolderFieldOp `xml:"http://schemas.microsoft.com/exchange/services/2006/types SetFolderField"`
 }
 
 // FolderChangeOp represents one folder change in UpdateFolder.
 type FolderChangeOp struct {
-	XMLName   xml.Name        `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderChange"`
-	FolderID  struct {
+	XMLName  xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderChange"`
+	FolderID struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 		ID      string   `xml:"Id,attr"`
 		CK      string   `xml:"ChangeKey,attr,omitempty"`
@@ -495,19 +489,19 @@ type FolderChangeOp struct {
 
 // FolderChangesList wraps the FolderChanges list in UpdateFolder.
 type FolderChangesList struct {
-	XMLName  xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderChanges"`
+	XMLName xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderChanges"`
 	Changes []FolderChangeOp `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderChange"`
 }
 
 // UpdateFolderRequest is the EWS UpdateFolder operation request.
 type UpdateFolderRequest struct {
-	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateFolder"`
+	XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateFolder"`
 	FolderChanges FolderChangesList `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderChanges"`
 }
 
 // UpdateFolderResponse is the EWS UpdateFolder operation response.
 type UpdateFolderResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateFolderResponse"`
+	XMLName          xml.Name                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateFolderResponse"`
 	ResponseMessages UpdateFolderResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -630,26 +624,26 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 // FolderIdForDelete represents a FolderId or DistinguishedFolderId in DeleteFolder requests.
 type FolderIdForDelete struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
-	ID      string  `xml:"Id,attr"`
-	CK      string  `xml:"ChangeKey,attr,omitempty"`
+	ID      string   `xml:"Id,attr"`
+	CK      string   `xml:"ChangeKey,attr,omitempty"`
 }
 
 // FolderIdsForDelete wraps the FolderIds list in DeleteFolder requests.
 type FolderIdsForDelete struct {
-	XMLName xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
+	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
 	Items   []FolderIdForDelete `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 }
 
 // DeleteFolderRequest is the EWS DeleteFolder operation request.
 type DeleteFolderRequest struct {
-	XMLName    xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteFolder"`
+	XMLName    xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteFolder"`
 	FolderIDs  FolderIdsForDelete `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
-	DeleteType string            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteType,attr"` // HardDelete | SoftDelete | MoveToDeletedItems
+	DeleteType string             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteType,attr"` // HardDelete | SoftDelete | MoveToDeletedItems
 }
 
 // DeleteFolderResponse is the EWS DeleteFolder operation response.
 type DeleteFolderResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteFolderResponse"`
+	XMLName          xml.Name                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteFolderResponse"`
 	ResponseMessages DeleteFolderResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -771,41 +765,41 @@ func (s *Server) handleDeleteFolder(ctx context.Context, body []byte) []byte {
 
 // SyncFolderHierarchyRequest is the EWS SyncFolderHierarchy operation request.
 type SyncFolderHierarchyRequest struct {
-	XMLName     xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderHierarchy"`
-	SyncState   string  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState,omitempty"`
+	XMLName     xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderHierarchy"`
+	SyncState   string              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState,omitempty"`
 	FolderShape FolderResponseShape `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderShape"`
 }
 
 // SyncFolderChangesContainer wraps the SyncFolderHierarchy Changes element.
 // SyncFolderChangesUpdate wraps <Update> containing <Folder> elements.
 type SyncFolderChangesUpdate struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
+	XMLName xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
 	Folders []FolderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
 }
 
 // SyncFolderChangesDelete wraps <Delete> containing <FolderId> elements.
 type SyncFolderChangesDelete struct {
-	XMLName    xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
+	XMLName   xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
 	FolderIds []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 }
 
 // The <Changes> element is in messages namespace; <Update>/<Delete> are in types namespace.
 type SyncFolderChangesContainer struct {
-	Updates []SyncFolderChangesUpdate  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
+	Updates []SyncFolderChangesUpdate `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
 	Deletes []SyncFolderChangesDelete `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
 }
 
 // SyncFolderHierarchyMsg is one SyncFolderHierarchy result.
 type SyncFolderHierarchyMsg struct {
-	ResponseClass string                `xml:"ResponseClass,attr"`
-	ResponseCode  string                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	SyncState     string                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState"`
+	ResponseClass string                     `xml:"ResponseClass,attr"`
+	ResponseCode  string                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	SyncState     string                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState"`
 	Changes       SyncFolderChangesContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Changes"`
 }
 
 // SyncFolderHierarchyResponse is the EWS SyncFolderHierarchy operation response.
 type SyncFolderHierarchyResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderHierarchyResponse"`
+	XMLName          xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderHierarchyResponse"`
 	ResponseMessages struct {
 		Messages []SyncFolderHierarchyMsg `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderHierarchyResponseMessage"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
@@ -873,12 +867,10 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 		}
 
 		fxml := FolderType{
-			FolderID: FolderIdComponents{ID: f.FolderID.String(),
-			},
-			ParentFolderID: FolderIdComponents{ID: f.ParentID.String(),
-			},
-			DisplayName:       displayName,
-			TotalCount:        0,
+			FolderID:         FolderIdComponents{ID: f.FolderID.String()},
+			ParentFolderID:   FolderIdComponents{ID: f.ParentID.String()},
+			DisplayName:      displayName,
+			TotalCount:       0,
 			ChildFolderCount: 0,
 			FolderClass:      "IPF.Note",
 		}

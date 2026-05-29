@@ -285,7 +285,7 @@ func (s *BoltDelegateStore) RemoveDelegate(id DelegateId) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-		return s.db.Update(func(tx *bbolt.Tx) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketDelegations))
 		c := b.Cursor()
 

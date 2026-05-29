@@ -368,5 +368,3 @@ func (s *BoltSubscriptionStore) ExpireAllSubscriptions() (int, error) {
 
 	return count, err
 }
-
-

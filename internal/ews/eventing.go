@@ -20,17 +20,17 @@ import (
 
 // SubscribeRequest is the EWS Subscribe operation request.
 type SubscribeRequest struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Subscribe"`
+	XMLName                             xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Subscribe"`
 	PullSubscriptionSubscriptionRequest *struct {
-		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages PullSubscriptionRequest"`
-		SubscribeToAllFolders string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeToAllFolders,attr,omitempty"`
-		FolderIDs []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+		XMLName               xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages PullSubscriptionRequest"`
+		SubscribeToAllFolders string         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeToAllFolders,attr,omitempty"`
+		FolderIDs             []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages PullSubscriptionRequest,omitempty"`
 }
 
 // SubscribeResponse is the EWS Subscribe operation response.
 type SubscribeResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeResponse"`
+	XMLName          xml.Name                  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeResponse"`
 	ResponseMessages SubscribeResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -41,18 +41,18 @@ type SubscribeResponseMessages struct {
 
 // SubscribeResponseMessageType is one Subscribe result.
 type SubscribeResponseMessageType struct {
-	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeResponseMessage"`
-	ResponseClass string  `xml:"ResponseClass,attr"`
-	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	SubscriptionID SubscriptionIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscriptionId"`
-	Watermark     string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Watermark"`
-	PreviousWatermark string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages PreviousWatermark,omitempty"`
+	XMLName           xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeResponseMessage"`
+	ResponseClass     string             `xml:"ResponseClass,attr"`
+	ResponseCode      ResponseCodeType   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	SubscriptionID    SubscriptionIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscriptionId"`
+	Watermark         string             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Watermark"`
+	PreviousWatermark string             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages PreviousWatermark,omitempty"`
 }
 
 // SubscriptionIdType is the EWS subscription ID with a subscription ID string.
 type SubscriptionIdType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscriptionId"`
-	ID     string   `xml:",chardata"`
+	ID      string   `xml:",chardata"`
 }
 
 // handleSubscribe processes a Subscribe EWS SOAP request.
@@ -98,7 +98,7 @@ func (s *Server) handleSubscribe(ctx context.Context, body []byte) []byte {
 
 	sub := semcore.Subscription{
 		MailboxID: mboxID,
-		Kind:     semcore.SubscriptionKindPull,
+		Kind:      semcore.SubscriptionKindPull,
 	}
 	if len(subscribedFolders) > 0 {
 		sub.FolderIDs = subscribedFolders
@@ -119,10 +119,10 @@ func (s *Server) handleSubscribe(ctx context.Context, body []byte) []byte {
 	}
 
 	msg := SubscribeResponseMessageType{
-		ResponseClass: "Success",
-		ResponseCode:  ResponseCodeType{Value: ErrNoError},
+		ResponseClass:  "Success",
+		ResponseCode:   ResponseCodeType{Value: ErrNoError},
 		SubscriptionID: SubscriptionIdType{ID: subID.ID},
-		Watermark:     watermark,
+		Watermark:      watermark,
 	}
 
 	resp := SubscribeResponse{}
@@ -142,7 +142,7 @@ type UnsubscribeRequest struct {
 
 // UnsubscribeResponse is the EWS Unsubscribe operation response.
 type UnsubscribeResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UnsubscribeResponse"`
+	XMLName          xml.Name                    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UnsubscribeResponse"`
 	ResponseMessages UnsubscribeResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -150,8 +150,8 @@ type UnsubscribeResponse struct {
 type UnsubscribeResponseMessages struct {
 	Messages []struct {
 		XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UnsubscribeResponseMessage"`
-		ResponseClass string  `xml:"ResponseClass,attr"`
-		ResponseCode  string  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+		ResponseClass string   `xml:"ResponseClass,attr"`
+		ResponseCode  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UnsubscribeResponseMessage"`
 }
 
@@ -174,8 +174,8 @@ func (s *Server) handleUnsubscribe(ctx context.Context, body []byte) []byte {
 	resp := UnsubscribeResponse{}
 	resp.ResponseMessages.Messages = []struct {
 		XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UnsubscribeResponseMessage"`
-		ResponseClass string  `xml:"ResponseClass,attr"`
-		ResponseCode  string  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+		ResponseClass string   `xml:"ResponseClass,attr"`
+		ResponseCode  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	}{{
 		ResponseClass: "Success",
 		ResponseCode:  string(ErrNoError),
@@ -196,7 +196,7 @@ type GetEventsRequest struct {
 
 // GetEventsResponse is the EWS GetEvents operation response.
 type GetEventsResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetEventsResponse"`
+	XMLName          xml.Name                  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetEventsResponse"`
 	ResponseMessages GetEventsResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -207,27 +207,27 @@ type GetEventsResponseMessages struct {
 
 // GetEventsResponseMessageType is one GetEvents result.
 type GetEventsResponseMessageType struct {
-	XMLName             xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetEventsResponseMessage"`
-	ResponseClass       string  `xml:"ResponseClass,attr"`
-	ResponseCode        ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	SubscriptionID      SubscriptionIdType  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscriptionId"`
-	Watermark           string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Watermark"`
-	MoreEvents          bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MoreEvents,attr"`
-	FolderSyncStatus    int    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderSyncStatus,omitempty"`
-	ItemSyncStatus      int    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemSyncStatus,omitempty"`
-	Events             []NotificationEventType `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotificationEvent"`
+	XMLName          xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetEventsResponseMessage"`
+	ResponseClass    string                  `xml:"ResponseClass,attr"`
+	ResponseCode     ResponseCodeType        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	SubscriptionID   SubscriptionIdType      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscriptionId"`
+	Watermark        string                  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Watermark"`
+	MoreEvents       bool                    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MoreEvents,attr"`
+	FolderSyncStatus int                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderSyncStatus,omitempty"`
+	ItemSyncStatus   int                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemSyncStatus,omitempty"`
+	Events           []NotificationEventType `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotificationEvent"`
 }
 
 // NotificationEventType wraps individual notification events.
 type NotificationEventType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotificationEvent"`
 	// Event types: CreatedEvent, ModifiedEvent, DeletedEvent, MovedEvent, CopiedEvent, CreatedEvent.01
-	EventType   string   `xml:"EventType,attr"`
-	Time       string   `xml:"Time,attr"`
-	FolderID   struct {
+	EventType string `xml:"EventType,attr"`
+	Time      string `xml:"Time,attr"`
+	FolderID  struct {
 		ID string `xml:"Id,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
-	ItemID     struct {
+	ItemID struct {
 		ID string `xml:"Id,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	ParentFolderID struct {

@@ -142,21 +142,21 @@ type RuleConditionKind uint8
 
 const (
 	RuleConditionKindFrom    RuleConditionKind = iota // header "From" contains
-	RuleConditionKindTo                              // header "To" contains
-	RuleConditionKindSubject                         // header "Subject" contains
-	RuleConditionKindBody                           // body contains
-	RuleConditionKindHeader                         // arbitrary header contains
-	RuleConditionKindSize                           // size over/under threshold
-	RuleConditionKindFlag                            // message has/hasn't flag
-	RuleConditionKindAddress                        // From/To/CC contains address
+	RuleConditionKindTo                               // header "To" contains
+	RuleConditionKindSubject                          // header "Subject" contains
+	RuleConditionKindBody                             // body contains
+	RuleConditionKindHeader                           // arbitrary header contains
+	RuleConditionKindSize                             // size over/under threshold
+	RuleConditionKindFlag                             // message has/hasn't flag
+	RuleConditionKindAddress                          // From/To/CC contains address
 )
 
 // RuleMatchType is the string comparison operator.
 type RuleMatchType string
 
 const (
-	RuleMatchTypeContains  RuleMatchType = "contains"
-	RuleMatchTypeEquals    RuleMatchType = "equals"
+	RuleMatchTypeContains   RuleMatchType = "contains"
+	RuleMatchTypeEquals     RuleMatchType = "equals"
 	RuleMatchTypeStartsWith RuleMatchType = "startsWith"
 	RuleMatchTypeEndsWith   RuleMatchType = "endsWith"
 	RuleMatchTypeMatches    RuleMatchType = "matches" // regex
@@ -184,20 +184,20 @@ func (c *RuleCondition) IsZero() bool {
 type RuleActionKind uint8
 
 const (
-	RuleActionKindMoveToFolder    RuleActionKind = iota // move message to folder
-	RuleActionKindCopyToFolder                         // copy message to folder
-	RuleActionKindDelete                               // delete message
-	RuleActionKindMarkRead                             // mark as read
-	RuleActionKindMarkImportant                        // mark as important/starred
-	RuleActionKindForward                              // forward to address
-	RuleActionKindForwardAsAttachment                  // forward to address as attachment
-	RuleActionKindRedirect                             // redirect to address
-	RuleActionKindReject                               // reject with message
-	RuleActionKindVacation                             // send vacation auto-reply
-	RuleActionKindAddHeader                           // add header
-	RuleActionKindDeleteHeader                        // remove header
-	RuleActionKindFlag                                 // set/clear flag
-	RuleActionKindStop                               // stop processing rules
+	RuleActionKindMoveToFolder        RuleActionKind = iota // move message to folder
+	RuleActionKindCopyToFolder                              // copy message to folder
+	RuleActionKindDelete                                    // delete message
+	RuleActionKindMarkRead                                  // mark as read
+	RuleActionKindMarkImportant                             // mark as important/starred
+	RuleActionKindForward                                   // forward to address
+	RuleActionKindForwardAsAttachment                       // forward to address as attachment
+	RuleActionKindRedirect                                  // redirect to address
+	RuleActionKindReject                                    // reject with message
+	RuleActionKindVacation                                  // send vacation auto-reply
+	RuleActionKindAddHeader                                 // add header
+	RuleActionKindDeleteHeader                              // remove header
+	RuleActionKindFlag                                      // set/clear flag
+	RuleActionKindStop                                      // stop processing rules
 )
 
 // String returns a human-readable label for the action kind.
@@ -238,14 +238,14 @@ func (k RuleActionKind) String() string {
 
 // RuleAction is a single action to perform when the rule matches.
 type RuleAction struct {
-	Kind      RuleActionKind `json:"kind"`
-	Target    string         `json:"target,omitempty"`    // folder path for move/copy
-	ForwardTo string         `json:"forwardTo,omitempty"`  // email for forward/redirect
-	Message   string         `json:"message,omitempty"`    // rejection message
-	HeaderName string        `json:"headerName,omitempty"` // for add/delete header
-	HeaderValue string       `json:"headerValue,omitempty"`// for add header
-	FlagName  string         `json:"flagName,omitempty"`   // for flag action
-	ClearFlag bool           `json:"clearFlag,omitempty"`  // for flag: true = clear, false = set
+	Kind        RuleActionKind `json:"kind"`
+	Target      string         `json:"target,omitempty"`      // folder path for move/copy
+	ForwardTo   string         `json:"forwardTo,omitempty"`   // email for forward/redirect
+	Message     string         `json:"message,omitempty"`     // rejection message
+	HeaderName  string         `json:"headerName,omitempty"`  // for add/delete header
+	HeaderValue string         `json:"headerValue,omitempty"` // for add header
+	FlagName    string         `json:"flagName,omitempty"`    // for flag action
+	ClearFlag   bool           `json:"clearFlag,omitempty"`   // for flag: true = clear, false = set
 }
 
 // IsZero returns true for an uninitialized action.
@@ -277,8 +277,8 @@ type Rule struct {
 	Priority int    `json:"priority"` // Lower = higher precedence; evaluated first
 
 	// Matching
-	MatchAll   bool             `json:"matchAll"` // true = all conditions must match; false = any
-	Conditions []RuleCondition  `json:"conditions"`
+	MatchAll   bool            `json:"matchAll"` // true = all conditions must match; false = any
+	Conditions []RuleCondition `json:"conditions"`
 	Actions    []RuleAction    `json:"actions"`
 
 	// Lifecycle
@@ -400,9 +400,9 @@ func (ck *OOFChangeKey) UnmarshalJSON(data []byte) error {
 type OOFAudience uint8
 
 const (
-	OOFAudienceInternal   OOFAudience = iota // only internal domain recipients
-	OOFAudienceExternal                        // all known external recipients
-	OOFAudienceEveryone                       // everyone including unknown
+	OOFAudienceInternal OOFAudience = iota // only internal domain recipients
+	OOFAudienceExternal                    // all known external recipients
+	OOFAudienceEveryone                    // everyone including unknown
 )
 
 // OOFAudienceFromString parses an audience string.
@@ -437,9 +437,9 @@ func (a OOFAudience) String() string {
 type OOFAutoReplyStyle uint8
 
 const (
-	OOFAutoReplyStyleText  OOFAutoReplyStyle = iota // plain text body
-	OOFAutoReplyStyleHTML                           // HTML body
-	OOFAutoReplyStyleBoth                           // both text and HTML
+	OOFAutoReplyStyleText OOFAutoReplyStyle = iota // plain text body
+	OOFAutoReplyStyleHTML                          // HTML body
+	OOFAutoReplyStyleBoth                          // both text and HTML
 )
 
 // ---------------------------------------------------------------------------
@@ -465,20 +465,20 @@ type OOFPolicy struct {
 	// Schedule (timezone-aware)
 	StartTime time.Time `json:"startTime,omitempty"` // zero = no start restriction
 	EndTime   time.Time `json:"endTime,omitempty"`   // zero = no end restriction
-	Timezone  string    `json:"timezone,omitempty"`   // IANA tz name e.g. "America/New_York"
+	Timezone  string    `json:"timezone,omitempty"`  // IANA tz name e.g. "America/New_York"
 
 	// Reply content
-	Subject      string `json:"subject"`
-	TextBody     string `json:"textBody"`
-	HTMLBody     string `json:"htmlBody,omitempty"`
-	ReplyStyle   OOFAutoReplyStyle `json:"replyStyle"`
+	Subject    string            `json:"subject"`
+	TextBody   string            `json:"textBody"`
+	HTMLBody   string            `json:"htmlBody,omitempty"`
+	ReplyStyle OOFAutoReplyStyle `json:"replyStyle"`
 
 	// Audience and suppression
-	Audience        OOFAudience `json:"audience"`           // who receives replies
-	ExcludeAddresses []string   `json:"excludeAddresses,omitempty"` // do not reply to these
-	IgnoreLists     bool        `json:"ignoreLists"`         // don't reply to List-ID mailing lists
-	IgnoreBulk      bool        `json:"ignoreBulk"`          // don't reply to bulk/promotional
-	IgnoreAutoReplies bool      `json:"ignoreAutoReplies"`   // don't reply to Auto-Submitted:
+	Audience          OOFAudience `json:"audience"`                   // who receives replies
+	ExcludeAddresses  []string    `json:"excludeAddresses,omitempty"` // do not reply to these
+	IgnoreLists       bool        `json:"ignoreLists"`                // don't reply to List-ID mailing lists
+	IgnoreBulk        bool        `json:"ignoreBulk"`                 // don't reply to bulk/promotional
+	IgnoreAutoReplies bool        `json:"ignoreAutoReplies"`          // don't reply to Auto-Submitted:
 
 	// Resend interval (minimum seconds between replies to same sender)
 	SendIntervalSeconds int64 `json:"sendIntervalSeconds"` // 0 = use server default (7 days)
@@ -622,8 +622,8 @@ func (ck *ResourceChangeKey) UnmarshalJSON(data []byte) error {
 type ResourceKind uint8
 
 const (
-	ResourceKindRoom     ResourceKind = iota // meeting room
-	ResourceKindEquipment                    // projector, laptop, etc.
+	ResourceKindRoom      ResourceKind = iota // meeting room
+	ResourceKindEquipment                     // projector, laptop, etc.
 )
 
 // String returns a human-readable label for the resource kind.
@@ -646,10 +646,10 @@ func (k ResourceKind) String() string {
 type BookingDecision uint8
 
 const (
-	BookingDecisionAutoAccept   BookingDecision = iota // auto-accept if no conflict
-	BookingDecisionAutoDecline                        // auto-decline all
-	BookingDecisionDelegateReview                      // route to delegate for review
-	BookingDecisionProvisional                        // provisional accept, needs confirmation
+	BookingDecisionAutoAccept     BookingDecision = iota // auto-accept if no conflict
+	BookingDecisionAutoDecline                           // auto-decline all
+	BookingDecisionDelegateReview                        // route to delegate for review
+	BookingDecisionProvisional                           // provisional accept, needs confirmation
 )
 
 // ---------------------------------------------------------------------------
@@ -664,23 +664,23 @@ const (
 // booking policy.
 type ResourcePolicy struct {
 	// Identity
-	ID        ResourceId       `json:"id"`
-	MailboxID MailboxId       `json:"mailboxId"`
+	ID        ResourceId        `json:"id"`
+	MailboxID MailboxId         `json:"mailboxId"`
 	ChangeKey ResourceChangeKey `json:"changeKey"`
 
 	// Resource metadata
-	Name        string      `json:"name"`
-	Kind       ResourceKind `json:"kind"`
-	Email      string      `json:"email"`       // resource mailbox email
-	Capacity   int         `json:"capacity"`    // for rooms
-	Description string     `json:"description"`
+	Name        string       `json:"name"`
+	Kind        ResourceKind `json:"kind"`
+	Email       string       `json:"email"`    // resource mailbox email
+	Capacity    int          `json:"capacity"` // for rooms
+	Description string       `json:"description"`
 
 	// Booking behavior
-	Decision          BookingDecision `json:"decision"`           // auto-accept/decline/delegate
-	DelegateEmail     string          `json:"delegateEmail,omitempty"` // for delegate review
-	AllowRecurring    bool            `json:"allowRecurring"`   // allow recurring meetings
-	MaxDurationMinutes int            `json:"maxDurationMinutes"` // maximum meeting duration
-	MinNoticeMinutes  int            `json:"minNoticeMinutes"`  // minimum advance booking
+	Decision           BookingDecision `json:"decision"`                // auto-accept/decline/delegate
+	DelegateEmail      string          `json:"delegateEmail,omitempty"` // for delegate review
+	AllowRecurring     bool            `json:"allowRecurring"`          // allow recurring meetings
+	MaxDurationMinutes int             `json:"maxDurationMinutes"`      // maximum meeting duration
+	MinNoticeMinutes   int             `json:"minNoticeMinutes"`        // minimum advance booking
 
 	// Conflict handling
 	AllowConflicts bool `json:"allowConflicts"` // allow overlapping bookings
@@ -808,10 +808,10 @@ type NotificationTriggerKind uint8
 
 const (
 	NotificationTriggerImmediate NotificationTriggerKind = iota // immediately on event
-	NotificationTriggerAtStart                                 // at event start time
-	NotificationTriggerAtEnd                                   // at event end time
-	NotificationTriggerBefore                                  // N minutes before
-	NotificationTriggerAfter                                  // N minutes after
+	NotificationTriggerAtStart                                  // at event start time
+	NotificationTriggerAtEnd                                    // at event end time
+	NotificationTriggerBefore                                   // N minutes before
+	NotificationTriggerAfter                                    // N minutes after
 )
 
 // NotificationDeliveryMethod is how the notification is sent.
@@ -819,29 +819,29 @@ type NotificationDeliveryMethod uint8
 
 const (
 	NotificationDeliveryEmail NotificationDeliveryMethod = iota // email
-	NotificationDeliveryPush                                  // push notification
-	NotificationDeliverySMS                                   // SMS
+	NotificationDeliveryPush                                    // push notification
+	NotificationDeliverySMS                                     // SMS
 )
 
 // NotificationPolicy is the canonical representation of a notification delivery
 // policy for calendar items, tasks, or inbox rules.
 type NotificationPolicy struct {
 	// Identity
-	ID        NotificationId      `json:"id"`
-	MailboxID MailboxId          `json:"mailboxId"`
+	ID        NotificationId        `json:"id"`
+	MailboxID MailboxId             `json:"mailboxId"`
 	ChangeKey NotificationChangeKey `json:"changeKey"`
 
 	// Trigger
-	TriggerKind NotificationTriggerKind `json:"triggerKind"`
-	MinutesBefore int                   `json:"minutesBefore"` // for Before trigger
+	TriggerKind   NotificationTriggerKind `json:"triggerKind"`
+	MinutesBefore int                     `json:"minutesBefore"` // for Before trigger
 
 	// Delivery
 	Delivery NotificationDeliveryMethod `json:"delivery"`
 
 	// Scope
-	ItemID    ItemId `json:"itemId,omitempty"`    // for per-item override
-	RuleID    RuleId `json:"ruleId,omitempty"`    // for rule-triggered notification
-	Disabled  bool   `json:"disabled"`             // opt-out globally
+	ItemID   ItemId `json:"itemId,omitempty"` // for per-item override
+	RuleID   RuleId `json:"ruleId,omitempty"` // for rule-triggered notification
+	Disabled bool   `json:"disabled"`         // opt-out globally
 
 	// Lifecycle
 	Created  time.Time `json:"created"`

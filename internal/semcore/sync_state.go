@@ -11,11 +11,11 @@
 //   - MailboxID  — which mailbox this token applies to
 //   - FolderID   — which folder (zero = mailbox-level token covering all folders)
 //   - ClientID   — opaque client identifier (EWS uses account-specific tokens,
-//                  IMAP uses "imap", JMAP uses its own session token, etc.)
+//     IMAP uses "imap", JMAP uses its own session token, etc.)
 //   - Watermark  — opaque continuation value understood by the protocol adapter
-//                  that issued it. Semantic-core treats it as an opaque string.
+//     that issued it. Semantic-core treats it as an opaque string.
 //   - Version    — monotonic counter that advances every time the watermark
-//                  is updated. Used to detect stale token writes.
+//     is updated. Used to detect stale token writes.
 //
 // SyncState is append-only: once a watermark is written for a
 // (MailboxID, FolderID, ClientID) tuple, it is never deleted — only updated.
@@ -45,7 +45,7 @@ import (
 // ---------------------------------------------------------------------------
 
 var (
-	ErrSyncStateNotFound      = errors.New("sync state not found")
+	ErrSyncStateNotFound       = errors.New("sync state not found")
 	ErrStaleSyncStateWatermark = errors.New("stale sync state watermark")
 )
 
@@ -55,13 +55,13 @@ var (
 
 // storedSyncState is what we persist for one sync-state record.
 type storedSyncState struct {
-	MailboxID  MailboxId  `json:"mailbox_id"`
-	FolderID   FolderId   `json:"folder_id"`    // zero for mailbox-level tokens
-	ClientID   string     `json:"client_id"`    // protocol-specific client token
-	Watermark  string     `json:"watermark"`    // opaque continuation value
-	Version    uint64     `json:"version"`       // monotonic counter for conflict detection
-	UpdatedAt  time.Time `json:"updated_at"`    // last write time
-	FolderGone bool       `json:"folder_gone"`  // true when folder was deleted after token was issued
+	MailboxID  MailboxId `json:"mailbox_id"`
+	FolderID   FolderId  `json:"folder_id"`   // zero for mailbox-level tokens
+	ClientID   string    `json:"client_id"`   // protocol-specific client token
+	Watermark  string    `json:"watermark"`   // opaque continuation value
+	Version    uint64    `json:"version"`     // monotonic counter for conflict detection
+	UpdatedAt  time.Time `json:"updated_at"`  // last write time
+	FolderGone bool      `json:"folder_gone"` // true when folder was deleted after token was issued
 }
 
 // syncStateKey returns the Bolt bucket key for a (mailbox, folder, client) tuple.

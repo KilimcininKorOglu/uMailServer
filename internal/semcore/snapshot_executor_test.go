@@ -17,7 +17,7 @@ func TestContinuityMode_IsResyncRequired(t *testing.T) {
 		want bool
 	}{
 		{ContinuityModeSeamless, false},
-		{ContinuityModeResync,   true},
+		{ContinuityModeResync, true},
 		{ContinuityMode("invalid_mode"), false},
 	}
 
@@ -34,13 +34,13 @@ func TestContinuityMode_IsResyncRequired(t *testing.T) {
 
 func TestSnapshotManifest_JSON(t *testing.T) {
 	manifest := SnapshotManifest{
-		Version:                    "1.0",
-		Email:                     "user@example.com",
-		SnapshotAt:                time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-		ContinuityMode:             ContinuityModeResync,
-		ResyncBaselineWatermark:   42,
-		ResyncReason:              "forced by restore operation",
-		ResyncForcedByRestore:     true,
+		Version:                 "1.0",
+		Email:                   "user@example.com",
+		SnapshotAt:              time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		ContinuityMode:          ContinuityModeResync,
+		ResyncBaselineWatermark: 42,
+		ResyncReason:            "forced by restore operation",
+		ResyncForcedByRestore:   true,
 	}
 
 	data, err := json.Marshal(manifest)
@@ -74,8 +74,8 @@ func TestSnapshotManifest_ResyncMarker(t *testing.T) {
 	mboxID := MustMailboxId("mbox-test-001")
 
 	tests := []struct {
-		name     string
-		manifest SnapshotManifest
+		name      string
+		manifest  SnapshotManifest
 		wantEmpty bool
 	}{
 		{
@@ -89,11 +89,11 @@ func TestSnapshotManifest_ResyncMarker(t *testing.T) {
 		{
 			name: "resync returns non-empty marker",
 			manifest: SnapshotManifest{
-				Version:                  "1.0",
+				Version:                 "1.0",
 				MailboxID:               mboxID,
 				ContinuityMode:          ContinuityModeResync,
 				ResyncBaselineWatermark: 99,
-				ResyncReason:           "restore",
+				ResyncReason:            "restore",
 			},
 			wantEmpty: false,
 		},
@@ -118,15 +118,15 @@ func TestSnapshotManifest_ResyncMarker(t *testing.T) {
 
 func TestValidateSnapshotManifest(t *testing.T) {
 	tests := []struct {
-		name    string
+		name     string
 		manifest *SnapshotManifest
-		wantErr bool
+		wantErr  bool
 	}{
 		{
 			name: "valid seamless manifest",
 			manifest: &SnapshotManifest{
-				Version:       "1.0",
-				SnapshotAt:    time.Now(),
+				Version:        "1.0",
+				SnapshotAt:     time.Now(),
 				ContinuityMode: ContinuityModeSeamless,
 			},
 			wantErr: false,
@@ -134,23 +134,23 @@ func TestValidateSnapshotManifest(t *testing.T) {
 		{
 			name: "valid resync manifest",
 			manifest: &SnapshotManifest{
-				Version:                    "1.0",
-				SnapshotAt:                time.Now(),
-				ContinuityMode:             ContinuityModeResync,
-				ResyncBaselineWatermark:   42,
-				ResyncReason:              "forced by user",
+				Version:                 "1.0",
+				SnapshotAt:              time.Now(),
+				ContinuityMode:          ContinuityModeResync,
+				ResyncBaselineWatermark: 42,
+				ResyncReason:            "forced by user",
 			},
 			wantErr: false,
 		},
 		{
-			name:    "nil manifest",
+			name:     "nil manifest",
 			manifest: nil,
-			wantErr: true,
+			wantErr:  true,
 		},
 		{
 			name: "missing version",
 			manifest: &SnapshotManifest{
-				SnapshotAt:    time.Now(),
+				SnapshotAt:     time.Now(),
 				ContinuityMode: ContinuityModeSeamless,
 			},
 			wantErr: true,
@@ -158,8 +158,8 @@ func TestValidateSnapshotManifest(t *testing.T) {
 		{
 			name: "zero snapshot time",
 			manifest: &SnapshotManifest{
-				Version:       "1.0",
-				SnapshotAt:    time.Time{},
+				Version:        "1.0",
+				SnapshotAt:     time.Time{},
 				ContinuityMode: ContinuityModeSeamless,
 			},
 			wantErr: true,
@@ -167,8 +167,8 @@ func TestValidateSnapshotManifest(t *testing.T) {
 		{
 			name: "unknown continuity mode",
 			manifest: &SnapshotManifest{
-				Version:       "1.0",
-				SnapshotAt:    time.Now(),
+				Version:        "1.0",
+				SnapshotAt:     time.Now(),
 				ContinuityMode: ContinuityMode("unknown"),
 			},
 			wantErr: true,
@@ -243,14 +243,14 @@ func TestHasResyncSuffix(t *testing.T) {
 		clientID string
 		want     bool
 	}{
-		{"sync_v1",                false},
-		{"desktop_outlook",        false},
+		{"sync_v1", false},
+		{"desktop_outlook", false},
 		{"desktop_outlook_resync", true},
-		{"mobile_resync",          true},
-		{"abc_resync",             true},
-		{"outlook_resync",         true},
-		{"resync",                 false}, // too short (< 8 chars)
-		{"",                       false},
+		{"mobile_resync", true},
+		{"abc_resync", true},
+		{"outlook_resync", true},
+		{"resync", false}, // too short (< 8 chars)
+		{"", false},
 	}
 
 	for _, tt := range tests {
@@ -284,7 +284,7 @@ func TestSnapshotIdentityLayer_JSON(t *testing.T) {
 	// Verify that SnapshotIdentityLayer can be serialized and deserialized
 	// as a JSON blob without errors, regardless of whether internal data is nil.
 	layer := SnapshotIdentityLayer{
-		MailboxJSON:        nil,
+		MailboxJSON:       nil,
 		FoldersJSON:       nil,
 		ItemsJSON:         nil,
 		ConversationsJSON: nil,

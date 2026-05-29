@@ -10,23 +10,23 @@ func TestSubscription_IsDrained(t *testing.T) {
 	past := now.Add(-1 * time.Hour)
 
 	tests := []struct {
-		name     string
-		sub      Subscription
+		name        string
+		sub         Subscription
 		wantDrained bool
 	}{
 		{
-			name:     "not drained when DrainedAt is zero",
-			sub:      Subscription{ID: SubscriptionId{ID: "s1"}, DrainedAt: time.Time{}},
+			name:        "not drained when DrainedAt is zero",
+			sub:         Subscription{ID: SubscriptionId{ID: "s1"}, DrainedAt: time.Time{}},
 			wantDrained: false,
 		},
 		{
-			name:     "drained when DrainedAt is set in the past",
-			sub:      Subscription{ID: SubscriptionId{ID: "s2"}, DrainedAt: past},
+			name:        "drained when DrainedAt is set in the past",
+			sub:         Subscription{ID: SubscriptionId{ID: "s2"}, DrainedAt: past},
 			wantDrained: true,
 		},
 		{
-			name:     "drained when DrainedAt is set to now",
-			sub:      Subscription{ID: SubscriptionId{ID: "s3"}, DrainedAt: now},
+			name:        "drained when DrainedAt is set to now",
+			sub:         Subscription{ID: SubscriptionId{ID: "s3"}, DrainedAt: now},
 			wantDrained: true,
 		},
 	}
@@ -46,23 +46,23 @@ func TestSubscription_IsExpired(t *testing.T) {
 	future := now.Add(1 * time.Hour)
 
 	tests := []struct {
-		name       string
-		sub        Subscription
+		name        string
+		sub         Subscription
 		wantExpired bool
 	}{
 		{
-			name:       "not expired when ExpiresAt is zero",
-			sub:        Subscription{ID: SubscriptionId{ID: "s1"}, ExpiresAt: time.Time{}},
+			name:        "not expired when ExpiresAt is zero",
+			sub:         Subscription{ID: SubscriptionId{ID: "s1"}, ExpiresAt: time.Time{}},
 			wantExpired: false,
 		},
 		{
-			name:       "expired when ExpiresAt is in the past",
-			sub:        Subscription{ID: SubscriptionId{ID: "s2"}, ExpiresAt: past},
+			name:        "expired when ExpiresAt is in the past",
+			sub:         Subscription{ID: SubscriptionId{ID: "s2"}, ExpiresAt: past},
 			wantExpired: true,
 		},
 		{
-			name:       "not expired when ExpiresAt is in the future",
-			sub:        Subscription{ID: SubscriptionId{ID: "s3"}, ExpiresAt: future},
+			name:        "not expired when ExpiresAt is in the future",
+			sub:         Subscription{ID: SubscriptionId{ID: "s3"}, ExpiresAt: future},
 			wantExpired: false,
 		},
 	}

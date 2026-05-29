@@ -31,9 +31,9 @@ type CollabKind uint8
 
 const (
 	CollabKindEvent   CollabKind = iota // VEVENT: calendar event
-	CollabKindTodo                       // VTODO: calendar task
-	CollabKindContact                    // VCARD: contact
-	CollabKindTask                       // standalone task
+	CollabKindTodo                      // VTODO: calendar task
+	CollabKindContact                   // VCARD: contact
+	CollabKindTask                      // standalone task
 )
 
 // String returns a human-readable label for the kind.
@@ -66,22 +66,22 @@ type RecurrenceRule struct {
 	Interval int    // every N freq units
 
 	// Until or Count (mutually exclusive)
-	Until   time.Time
+	Until    time.Time
 	UseUntil bool
-	Count   int
+	Count    int
 	UseCount bool
 
 	// WEEKLY
 	ByDay []string // MO, TU, WE, TH, FR, SA, SU
 
 	// MONTHLY
-	ByMonthDay []int // 1-31
-	ByDayMonthly bool // weekday index (e.g. 2TU = second Tuesday)
+	ByMonthDay   []int // 1-31
+	ByDayMonthly bool  // weekday index (e.g. 2TU = second Tuesday)
 
 	// YEARLY
-	ByMonth    []int // 1-12
-	ByYearDay  []int // 1-366
-	ByWeekNo   []int // week numbers
+	ByMonth   []int // 1-12
+	ByYearDay []int // 1-366
+	ByWeekNo  []int // week numbers
 
 	// Set positions (RFC 7986)
 	BySetPos []int
@@ -170,7 +170,7 @@ func joinInts(ns []int, sep string) string {
 // Stored as the RFC 5545 RECURRENCE-ID wire format string.
 type ExceptionDate struct {
 	RecurrenceID RecurrenceId
-	Reason      string // optional human-readable reason for the exclusion
+	Reason       string // optional human-readable reason for the exclusion
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +183,7 @@ type RecurrenceRange uint8
 
 const (
 	RecurrenceRangeThisAndFuture RecurrenceRange = iota // "ThisAndFuture"
-	RecurrenceRangeThisOnly                            // exact occurrence only
+	RecurrenceRangeThisOnly                             // exact occurrence only
 )
 
 // ---------------------------------------------------------------------------
@@ -194,9 +194,9 @@ const (
 type AttendeeRole string
 
 const (
-	AttendeeRoleChair       AttendeeRole = "CHAIR"
-	AttendeeRoleRequired    AttendeeRole = "REQ-PARTICIPANT"
-	AttendeeRoleOptional   AttendeeRole = "OPT-PARTICIPANT"
+	AttendeeRoleChair          AttendeeRole = "CHAIR"
+	AttendeeRoleRequired       AttendeeRole = "REQ-PARTICIPANT"
+	AttendeeRoleOptional       AttendeeRole = "OPT-PARTICIPANT"
 	AttendeeRoleNonParticipant AttendeeRole = "NON-PARTICIPANT"
 )
 
@@ -204,20 +204,20 @@ const (
 type AttendeePartStat string
 
 const (
-	AttendeePartStatNeedsAction  AttendeePartStat = "NEEDS-ACTION"
-	AttendeePartStatAccepted     AttendeePartStat = "ACCEPTED"
-	AttendeePartStatDeclined     AttendeePartStat = "DECLINED"
-	AttendeePartStatTentative    AttendeePartStat = "TENTATIVE"
-	AttendeePartStatDelegated    AttendeePartStat = "DELEGATED"
+	AttendeePartStatNeedsAction AttendeePartStat = "NEEDS-ACTION"
+	AttendeePartStatAccepted    AttendeePartStat = "ACCEPTED"
+	AttendeePartStatDeclined    AttendeePartStat = "DECLINED"
+	AttendeePartStatTentative   AttendeePartStat = "TENTATIVE"
+	AttendeePartStatDelegated   AttendeePartStat = "DELEGATED"
 )
 
 // Attendee represents a calendar event attendee or organizer.
 type Attendee struct {
-	CalAddress string          // mailto: URI
-	CN         string          // display name
+	CalAddress string // mailto: URI
+	CN         string // display name
 	Role       AttendeeRole
 	PartStat   AttendeePartStat
-	RSVP       bool            // true if response requested
+	RSVP       bool // true if response requested
 }
 
 // ---------------------------------------------------------------------------
@@ -228,16 +228,16 @@ type Attendee struct {
 type ReminderAction uint8
 
 const (
-	ReminderActionEmail   ReminderAction = iota // send email notification
-	ReminderActionDisplay                     // display notification
-	ReminderActionProcedure                    // execute a procedure/script
+	ReminderActionEmail     ReminderAction = iota // send email notification
+	ReminderActionDisplay                         // display notification
+	ReminderActionProcedure                       // execute a procedure/script
 )
 
 // ReminderTrigger describes when a reminder fires relative to an event.
 type ReminderTrigger struct {
-	Relative bool          // true = duration before event; false = absolute time
-	Duration int           // seconds before event (when Relative=true)
-	Due      time.Time     // absolute due time (when Relative=false)
+	Relative bool      // true = duration before event; false = absolute time
+	Duration int       // seconds before event (when Relative=true)
+	Due      time.Time // absolute due time (when Relative=false)
 	Action   ReminderAction
 }
 
@@ -268,11 +268,11 @@ func (t *ReminderTrigger) IsZero() bool {
 // but is treated as a separate semantic entity with its own ChangeKey.
 type CalendarItem struct {
 	// Identity
-	ID           CalendarItemId
-	MasterID     CalendarItemId // zero for master; non-zero for exceptions
-	FolderID     FolderId
-	MailboxID    MailboxId
-	ChangeKey    CalendarChangeKey
+	ID        CalendarItemId
+	MasterID  CalendarItemId // zero for master; non-zero for exceptions
+	FolderID  FolderId
+	MailboxID MailboxId
+	ChangeKey CalendarChangeKey
 
 	// Object kind: event or todo
 	Kind CollabKind
@@ -299,8 +299,8 @@ type CalendarItem struct {
 	Location string
 
 	// Organizer and attendees
-	Organizer  *Attendee
-	Attendees  []Attendee
+	Organizer *Attendee
+	Attendees []Attendee
 
 	// Transparency (TRANSP): OPAQUE or TRANSPARENT
 	Transparency string // "OPAQUE" or "TRANSPARENT"
@@ -330,8 +330,8 @@ type CalendarItem struct {
 	Sequence int
 
 	// Created / modified times
-	Created   time.Time
-	Modified  time.Time
+	Created     time.Time
+	Modified    time.Time
 	CreatedRaw  string // RFC 5322 CREATED
 	ModifiedRaw string // RFC 5322 LAST-MODIFIED
 
@@ -395,24 +395,24 @@ type Contact struct {
 	ChangeKey ContactChangeKey
 
 	// vCard fields (RFC 6350)
-	IcalUID    string // FORMMAYBE: X-UID if present
-	FullName   string // FN
-	NameParts  NameParts // N structured
-	Nicknames  []string // NICKNAME
-	Emails     []LabeledValue[string] // EMAIL
-	Phones     []LabeledValue[string] // TEL
-	Addresses  []LabeledValue[PostalAddress] // ADR
-	URLs       []LabeledValue[string] // URL
-	PhotoURL   string // PHOTO (external reference)
+	IcalUID   string                        // FORMMAYBE: X-UID if present
+	FullName  string                        // FN
+	NameParts NameParts                     // N structured
+	Nicknames []string                      // NICKNAME
+	Emails    []LabeledValue[string]        // EMAIL
+	Phones    []LabeledValue[string]        // TEL
+	Addresses []LabeledValue[PostalAddress] // ADR
+	URLs      []LabeledValue[string]        // URL
+	PhotoURL  string                        // PHOTO (external reference)
 
 	// Organization
-	Organization string    // ORG
-	Title        string    // TITLE
-	Role         string    // ROLE
-	Departments  []string  // ORG member values
+	Organization string   // ORG
+	Title        string   // TITLE
+	Role         string   // ROLE
+	Departments  []string // ORG member values
 
 	// Timestamps
-	Birthday   time.Time // BDAY
+	Birthday    time.Time // BDAY
 	Anniversary time.Time // ANNIVERSARY
 
 	// Notes
@@ -436,8 +436,8 @@ type NameParts struct {
 	Family     string
 	Given      string
 	Additional []string // second, third, etc.
-	Prefix     string // honorific prefixes
-	Suffix     string // honorific suffixes
+	Prefix     string   // honorific prefixes
+	Suffix     string   // honorific suffixes
 }
 
 // PostalAddress represents the structured ADR: field from vCard.
@@ -453,9 +453,9 @@ type PostalAddress struct {
 
 // LabeledValue pairs a label (TYPE parameter) with a value.
 type LabeledValue[T any] struct {
-	Label   string // TYPE parameter: HOME, WORK, CELL, etc.
-	Pref    int    // PREF parameter: 1 = most preferred
-	Value   T
+	Label string // TYPE parameter: HOME, WORK, CELL, etc.
+	Pref  int    // PREF parameter: 1 = most preferred
+	Value T
 }
 
 // ItemClass returns the "ITEMClass" Outlook property equivalent for contacts.
@@ -514,24 +514,24 @@ type Task struct {
 	DoneTime time.Time // COMPLETED
 
 	// Status and completion
-	Status       TaskStatus
+	Status          TaskStatus
 	PercentComplete float64 // 0.0 to 1.0
 
 	// Priority
 	Priority int // 0 = undefined, 1-4 = high, 5 = medium, 6-9 = low
 
 	// Recurrence (VTODO)
-	IsRecurring      bool
-	RecurrenceRule   *RecurrenceRule
-	ExceptionDates   []ExceptionDate
+	IsRecurring    bool
+	RecurrenceRule *RecurrenceRule
+	ExceptionDates []ExceptionDate
 
 	// Reminder
 	HasReminder bool
 	Reminder    *ReminderTrigger
 
 	// Assignment
-	Organizer  *Attendee
-	Attendees  []Attendee
+	Organizer *Attendee
+	Attendees []Attendee
 
 	// Body
 	Description string

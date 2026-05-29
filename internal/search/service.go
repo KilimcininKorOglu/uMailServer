@@ -47,22 +47,22 @@ func (s *Service) SetIdentityStore(store *semcore.BoltIdentityStore) {
 
 // MessageSearchResult represents a message search result
 type MessageSearchResult struct {
-	ItemID          string `json:"item_id"`           // canonical ItemId (stable across moves/copies)
-	ConversationID  string `json:"conversation_id"`  // canonical ConversationId (thread lineage)
-	UID             uint32 `json:"uid"`              // protocol-local UID (deprecated, use ItemId)
-	Folder          string `json:"folder"`            // protocol-local folder name (deprecated, use ItemId)
-	From            string `json:"from"`
-	To              string `json:"to"`
-	Subject         string `json:"subject"`
-	Preview         string `json:"preview"`
-	Date            string `json:"date"`
-	Score           float64 `json:"score"`
-	HasAttachment   bool    `json:"has_attachment"`
+	ItemID         string  `json:"item_id"`         // canonical ItemId (stable across moves/copies)
+	ConversationID string  `json:"conversation_id"` // canonical ConversationId (thread lineage)
+	UID            uint32  `json:"uid"`             // protocol-local UID (deprecated, use ItemId)
+	Folder         string  `json:"folder"`          // protocol-local folder name (deprecated, use ItemId)
+	From           string  `json:"from"`
+	To             string  `json:"to"`
+	Subject        string  `json:"subject"`
+	Preview        string  `json:"preview"`
+	Date           string  `json:"date"`
+	Score          float64 `json:"score"`
+	HasAttachment  bool    `json:"has_attachment"`
 }
 
 // MessageSearchOptions contains search options
 type MessageSearchOptions struct {
-	User            string
+	User           string
 	Folder         string // empty for all folders
 	Query          string
 	Limit          int
@@ -223,10 +223,10 @@ func (s *Service) BuildIndex(user string) error {
 				ID:      docID,
 				Content: content,
 				Fields: map[string]string{
-					"from":          meta.From,
-					"to":            meta.To,
-					"subject":       meta.Subject,
-					"conversation":  convID,
+					"from":         meta.From,
+					"to":           meta.To,
+					"subject":      meta.Subject,
+					"conversation": convID,
 				},
 			}
 

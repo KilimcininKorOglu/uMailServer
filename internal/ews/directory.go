@@ -117,12 +117,14 @@ type DirectoryAddressType struct {
 // We use an anonymous struct to avoid the XML name conflict that arises when
 // DirectoryAddressType has XMLName xml:"... EmailAddress" and is used as
 // Mailbox xml:"... Mailbox" — Go's xml encoder reports:
-//   name "Mailbox" in tag conflicts with name "EmailAddress" in XMLName
+//
+//	name "Mailbox" in tag conflicts with name "EmailAddress" in XMLName
+//
 // This type is used only inside ResolutionType.Mailbox.
 type directoryMailboxType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
-	Name    string  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
-	Address string  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
+	Name    string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
+	Address string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
 }
 
 // handleResolveNames implements the EWS ResolveNames operation.
@@ -265,7 +267,7 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 			allCandidates = append(allCandidates, directoryCandidate{
 				Email:       email,
 				DisplayName: displayName,
-				ObjectClass:  objClass,
+				ObjectClass: objClass,
 				// We use Email as a sort key; position in the slice gives the ranking.
 			})
 		}
@@ -299,9 +301,9 @@ type GetUserAvailabilityRequestType struct {
 
 	// TimeZone: the timezone context for availability queries.
 	// Uses SerializableTimeZoneType directly to avoid XML name conflicts.
-	TimeZone *SerializableTimeZoneType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
-	MailboxDataArray *ArrayOfMailboxDataType `xml:"http://schemas.microsoft.com/exchange/services/2006/types MailboxDataArray"`
-	FreeBusyViewOptions *FreeBusyViewOptionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types FreeBusyViewOptions,omitempty"`
+	TimeZone            *SerializableTimeZoneType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
+	MailboxDataArray    *ArrayOfMailboxDataType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types MailboxDataArray"`
+	FreeBusyViewOptions *FreeBusyViewOptionsType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types FreeBusyViewOptions,omitempty"`
 }
 
 // SerializableTimeZoneType is the EWS serializable time zone specification.
@@ -324,7 +326,7 @@ type TimeZoneContextType struct {
 
 // ArrayOfMailboxDataType is the EWS MailboxDataArray.
 type ArrayOfMailboxDataType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types MailboxDataArray"`
+	XMLName     xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/types MailboxDataArray"`
 	MailboxData []MailboxDataType `xml:"http://schemas.microsoft.com/exchange/services/2006/types MailboxData"`
 }
 
@@ -332,9 +334,9 @@ type ArrayOfMailboxDataType struct {
 type MailboxDataType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types MailboxData"`
 
-	Email     EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Email"`
-	AttendeeType string `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttendeeType,omitempty"` // "Required", "Optional", "Resource"
-	ExcludeConflicts bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExcludeConflicts,omitempty"`
+	Email            EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Email"`
+	AttendeeType     string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttendeeType,omitempty"` // "Required", "Optional", "Resource"
+	ExcludeConflicts bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExcludeConflicts,omitempty"`
 }
 
 // FreeBusyViewOptionsType controls the free/busy view.
@@ -346,12 +348,12 @@ type FreeBusyViewOptionsType struct {
 	// DurationType.XMLName's "Duration" — Go's xml encoder rejects
 	// name "TimeWindow" in tag conflicting with name "Duration" in XMLName.
 	TimeWindow struct {
-		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeWindow"`
-		StartTime string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartTime"`
-		EndTime   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndTime"`
+		XMLName   xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeWindow"`
+		StartTime string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartTime"`
+		EndTime   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndTime"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeWindow"`
-	MergedFreeBusyIntervalInMinutes int `xml:"http://schemas.microsoft.com/exchange/services/2006/types MergedFreeBusyIntervalInMinutes,omitempty"`
-	RequestedView string `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequestedView,omitempty"` // "MergedOnly", "FreeBusy", "FreeBusyMerged", "Detailed", "DetailedMerged"
+	MergedFreeBusyIntervalInMinutes int    `xml:"http://schemas.microsoft.com/exchange/services/2006/types MergedFreeBusyIntervalInMinutes,omitempty"`
+	RequestedView                   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequestedView,omitempty"` // "MergedOnly", "FreeBusy", "FreeBusyMerged", "Detailed", "DetailedMerged"
 }
 
 // DurationType represents a time window.
@@ -371,7 +373,7 @@ type GetUserAvailabilityResponseType struct {
 
 // ArrayOfFreeBusyResponseType holds per-mailbox free/busy responses.
 type ArrayOfFreeBusyResponseType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FreeBusyResponseArray"`
+	XMLName   xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FreeBusyResponseArray"`
 	Responses []FreeBusyResponseType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FreeBusyResponse"`
 }
 
@@ -380,23 +382,23 @@ type FreeBusyResponseType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FreeBusyResponse"`
 
 	ResponseMessage *SimpleResponseMessage `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	FreeBusyView    *FreeBusyViewType   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FreeBusyView,omitempty"`
+	FreeBusyView    *FreeBusyViewType      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FreeBusyView,omitempty"`
 }
 
 // FreeBusyViewType is the free/busy view container.
 type FreeBusyViewType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FreeBusyView"`
 
-	FreeBusyViewType string `xml:"http://schemas.microsoft.com/exchange/services/2006/types FreeBusyViewType,omitempty"`
-	MergedFreeBusy  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types MergedFreeBusy,omitempty"`
+	FreeBusyViewType   string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types FreeBusyViewType,omitempty"`
+	MergedFreeBusy     string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types MergedFreeBusy,omitempty"`
 	CalendarEventArray *ArrayOfCalendarEventType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEventArray,omitempty"`
-	WorkingHours *WorkingHoursType `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingHours,omitempty"`
+	WorkingHours       *WorkingHoursType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingHours,omitempty"`
 }
 
 // ArrayOfCalendarEventType holds calendar events for free/busy.
 type ArrayOfCalendarEventType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEventArray"`
-	Events []CalendarEventType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEvent"`
+	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEventArray"`
+	Events  []CalendarEventType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEvent"`
 }
 
 // CalendarEventType is one busy slot in free/busy view.
@@ -404,38 +406,38 @@ type CalendarEventType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEvent"`
 
 	CalendarEventDetails *CalendarEventDetailsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEventDetails,omitempty"`
-	Start string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start"`
-	End   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types End"`
-	IsTransparent bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsTransparent,omitempty"`
-	IsAllDayEvent bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAllDayEvent,omitempty"`
+	Start                string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start"`
+	End                  string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types End"`
+	IsTransparent        bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsTransparent,omitempty"`
+	IsAllDayEvent        bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAllDayEvent,omitempty"`
 }
 
 // CalendarEventDetailsType holds details about a calendar event.
 type CalendarEventDetailsType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEventDetails"`
 
-	ID string `xml:"http://schemas.microsoft.com/exchange/services/2006/types ID,omitempty"`
-	Subject string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Location string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
-	IsMeeting bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsMeeting,omitempty"`
-	IsRecurring bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRecurring,omitempty"`
-	IsException bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsException,omitempty"`
+	ID          string `xml:"http://schemas.microsoft.com/exchange/services/2006/types ID,omitempty"`
+	Subject     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Location    string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
+	IsMeeting   bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsMeeting,omitempty"`
+	IsRecurring bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRecurring,omitempty"`
+	IsException bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsException,omitempty"`
 	MeetingType string `xml:"http://schemas.microsoft.com/exchange/services/2006/types MeetingType,omitempty"`
-	IsCancelled bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsCancelled,omitempty"`
-	IsPrivate bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsPrivate,omitempty"`
+	IsCancelled bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsCancelled,omitempty"`
+	IsPrivate   bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsPrivate,omitempty"`
 }
 
 // WorkingHoursType holds working hours information.
 type WorkingHoursType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingHours"`
 
-	TimeZone *SerializableTimeZoneType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
-	WorkingPeriodArray *WorkingPeriodArrayType `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingPeriodArray,omitempty"`
+	TimeZone           *SerializableTimeZoneType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
+	WorkingPeriodArray *WorkingPeriodArrayType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingPeriodArray,omitempty"`
 }
 
 // WorkingPeriodArrayType holds working periods.
 type WorkingPeriodArrayType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingPeriodArray"`
+	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingPeriodArray"`
 	Periods []WorkingPeriodType `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingPeriod"`
 }
 
@@ -443,9 +445,9 @@ type WorkingPeriodArrayType struct {
 type WorkingPeriodType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkingPeriod"`
 
-	DayOfWeek string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DayOfWeek,omitempty"`
-	StartTimeInMinutes int `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartTimeInMinutes,omitempty"`
-	EndTimeInMinutes int `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndTimeInMinutes,omitempty"`
+	DayOfWeek          string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DayOfWeek,omitempty"`
+	StartTimeInMinutes int    `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartTimeInMinutes,omitempty"`
+	EndTimeInMinutes   int    `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndTimeInMinutes,omitempty"`
 }
 
 // handleGetUserAvailability implements the EWS GetUserAvailability operation.
@@ -544,7 +546,7 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 			},
 			FreeBusyView: &FreeBusyViewType{
 				FreeBusyViewType: requestedView,
-				MergedFreeBusy:  "",
+				MergedFreeBusy:   "",
 			},
 		}
 	}
@@ -635,7 +637,7 @@ type GetRoomListsResponseMessageType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
 
 	ResponseClass string `xml:"ResponseClass,attr"`
-	ResponseCode string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	ResponseCode  string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 
 	// RoomLists: the visible room lists.
 	RoomLists *ArrayOfRoomListsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RoomLists,omitempty"`
@@ -643,7 +645,7 @@ type GetRoomListsResponseMessageType struct {
 
 // ArrayOfRoomListsType holds room list entries.
 type ArrayOfRoomListsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RoomLists"`
+	XMLName  xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RoomLists"`
 	RoomList []EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
 }
 
@@ -700,9 +702,9 @@ func (s *Server) handleGetRoomLists(ctx context.Context, body []byte) []byte {
 // be decoded properly when used as a direct (non-pointer) field - the Go XML
 // decoder cannot determine the element name for the nested struct.
 type GetRoomsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRooms"`
+	XMLName  xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRooms"`
 	RoomList struct {
-		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
+		XMLName xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
 		Mailbox MailboxTypeSimple `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
 }
@@ -724,15 +726,15 @@ type GetRoomsResponseMessageType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
 
 	ResponseClass string `xml:"ResponseClass,attr"`
-	ResponseCode string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	ResponseCode  string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 
 	Rooms *ArrayOfRoomsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Rooms,omitempty"`
 }
 
 // ArrayOfRoomsType holds room entries.
 type ArrayOfRoomsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Rooms"`
-	Room []RoomType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Room"`
+	XMLName xml.Name   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Rooms"`
+	Room    []RoomType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Room"`
 }
 
 // RoomType is one room in a room list.
@@ -818,8 +820,8 @@ type SimpleResponseMessage struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
 
 	ResponseClass string `xml:"ResponseClass,attr,omitempty"`
-	ResponseCode string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode,omitempty"`
-	ErrorMessage string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ErrorMessage,omitempty"`
+	ResponseCode  string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode,omitempty"`
+	ErrorMessage  string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ErrorMessage,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -879,10 +881,10 @@ func (s *Server) checkResourceBookingPolicy(ctx context.Context, attendees []Att
 type BookingDecision string
 
 const (
-	BookingDecisionAutoAccept   BookingDecision = "AutoAccept"
-	BookingDecisionAutoDecline BookingDecision = "AutoDecline"
+	BookingDecisionAutoAccept     BookingDecision = "AutoAccept"
+	BookingDecisionAutoDecline    BookingDecision = "AutoDecline"
 	BookingDecisionDelegateReview BookingDecision = "DelegateReview"
-	BookingDecisionProvisional BookingDecision = "Provisional"
+	BookingDecisionProvisional    BookingDecision = "Provisional"
 )
 
 // applyResourceBookingPolicy applies the resource booking decisions to a

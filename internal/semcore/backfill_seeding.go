@@ -11,14 +11,14 @@
 //
 // A mailbox enters the semantic-core world in phases:
 //
-//  Phase 0 — Raw legacy data only (IMAP UIDs, folder paths, file blobs)
-//  Phase 1 — MailboxId assigned
-//  Phase 2 — FolderId assigned for all folders (distinguished + user-created)
-//  Phase 3 — ItemId + ChangeKey assigned for all messages
-//  Phase 4 — ConversationId computed for all threads
-//  Phase 5 — SyncState seeded for all known clients
-//  Phase 6 — Lifecycle journal seeded
-//  Complete — All canonical structures populated
+//	Phase 0 — Raw legacy data only (IMAP UIDs, folder paths, file blobs)
+//	Phase 1 — MailboxId assigned
+//	Phase 2 — FolderId assigned for all folders (distinguished + user-created)
+//	Phase 3 — ItemId + ChangeKey assigned for all messages
+//	Phase 4 — ConversationId computed for all threads
+//	Phase 5 — SyncState seeded for all known clients
+//	Phase 6 — Lifecycle journal seeded
+//	Complete — All canonical structures populated
 //
 // SeedingState records which phases are complete for each mailbox so that
 // a resumed backfill can pick up exactly where it left off. Each phase is
@@ -171,7 +171,7 @@ type BackfillSeedingState struct {
 	ItemDone       bool          `json:"item_done"`        // all ItemId/ChangeKey assigned
 	ConvDone       bool          `json:"conv_done"`        // all ConversationIds assigned
 	SyncStateDone  bool          `json:"sync_state_done"`  // sync watermarks seeded
-	LifecycleDone  bool          `json:"lifecycle_done"`    // lifecycle journal seeded
+	LifecycleDone  bool          `json:"lifecycle_done"`   // lifecycle journal seeded
 	LastPhaseAt    time.Time     `json:"last_phase_at"`    // when current phase was reached
 	LastBackfillAt time.Time     `json:"last_backfill_at"` // last backfill activity
 	Errors         int           `json:"errors"`           // non-fatal errors during backfill

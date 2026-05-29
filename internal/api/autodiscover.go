@@ -34,9 +34,9 @@ type AutodiscoverResponse struct {
 			EMailAddress string   `xml:"EMailAddress"`
 		} `xml:"User"`
 		Account struct {
-			XMLName     xml.Name `xml:"Account"`
-			AccountType string   `xml:"AccountType"`
-			Action      string   `xml:"Action"`
+			XMLName     xml.Name               `xml:"Account"`
+			AccountType string                 `xml:"AccountType"`
+			Action      string                 `xml:"Action"`
 			Protocol    []AutodiscoverProtocol `xml:"Protocol"`
 		} `xml:"Account"`
 	} `xml:"Response"`
@@ -47,18 +47,18 @@ type AutodiscoverResponse struct {
 // EWS, MAPI/HTTP, NSPI, OAB) that each require different subsets of fields.
 type AutodiscoverProtocol struct {
 	XMLName     xml.Name `xml:"Protocol"`
-	Type        string  `xml:"Type"`
-	Server      string  `xml:"Server,omitempty"`
-	Port        int     `xml:"Port,omitempty"`
-	LoginName   string  `xml:"LoginName,omitempty"`
-	Domain      string  `xml:"Domain,omitempty"`
-	SPA         string  `xml:"SPA,omitempty"`
-	SSL         string  `xml:"SSL,omitempty"`
-	Auth        string  `xml:"Auth,omitempty"`
-	AuthPackage string  `xml:"AuthPackage,omitempty"`
-	MapiHttp    string  `xml:"MapiHttp,omitempty"`
-	MailboxDN   string  `xml:"MailboxDN,omitempty"`
-	RedirectURL string  `xml:"RedirectUrl,omitempty"`
+	Type        string   `xml:"Type"`
+	Server      string   `xml:"Server,omitempty"`
+	Port        int      `xml:"Port,omitempty"`
+	LoginName   string   `xml:"LoginName,omitempty"`
+	Domain      string   `xml:"Domain,omitempty"`
+	SPA         string   `xml:"SPA,omitempty"`
+	SSL         string   `xml:"SSL,omitempty"`
+	Auth        string   `xml:"Auth,omitempty"`
+	AuthPackage string   `xml:"AuthPackage,omitempty"`
+	MapiHttp    string   `xml:"MapiHttp,omitempty"`
+	MailboxDN   string   `xml:"MailboxDN,omitempty"`
+	RedirectURL string   `xml:"RedirectUrl,omitempty"`
 }
 
 // handleAutodiscover handles Microsoft Autodiscover requests

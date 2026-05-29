@@ -221,7 +221,7 @@ func buildBackfillSteps(target BackfillTarget) []JobStep {
 		}
 	default:
 		return []JobStep{
-			{Name: string(target), Description: "Backfill "+string(target), State: StepStatePending},
+			{Name: string(target), Description: "Backfill " + string(target), State: StepStatePending},
 		}
 	}
 }

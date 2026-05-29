@@ -11,7 +11,7 @@ import (
 type DiagnosticEntry struct {
 	ID        string `json:"id"`
 	Severity  string `json:"severity"` // error, warning, info
-	Category  string `json:"category"`  // policy, sync, delivery, auth, access
+	Category  string `json:"category"` // policy, sync, delivery, auth, access
 	Message   string `json:"message"`
 	Mailbox   string `json:"mailbox,omitempty"`
 	Timestamp string `json:"timestamp"`

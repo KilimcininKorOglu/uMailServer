@@ -41,13 +41,13 @@ import "context"
 type BackfillTarget string
 
 const (
-	BackfillTargetMailbox     BackfillTarget = "mailbox"     // MailboxId assignment
-	BackfillTargetFolder      BackfillTarget = "folder"      // FolderId assignment + distinguished folder metadata
-	BackfillTargetItem        BackfillTarget = "item"        // ItemId/ChangeKey/ConversationId for messages
-	BackfillTargetAttachment  BackfillTarget = "attachment" // AttachmentId for file/inline attachments
-	BackfillTermConversation  BackfillTarget = "conversation" // ConversationId / thread ordering
-	BackfillTargetSyncState   BackfillTarget = "sync_state"  // SyncToken / watermark seeding
-	BackfillTargetLifecycle  BackfillTarget = "lifecycle"   // Lifecycle journal population
+	BackfillTargetMailbox    BackfillTarget = "mailbox"      // MailboxId assignment
+	BackfillTargetFolder     BackfillTarget = "folder"       // FolderId assignment + distinguished folder metadata
+	BackfillTargetItem       BackfillTarget = "item"         // ItemId/ChangeKey/ConversationId for messages
+	BackfillTargetAttachment BackfillTarget = "attachment"   // AttachmentId for file/inline attachments
+	BackfillTermConversation BackfillTarget = "conversation" // ConversationId / thread ordering
+	BackfillTargetSyncState  BackfillTarget = "sync_state"   // SyncToken / watermark seeding
+	BackfillTargetLifecycle  BackfillTarget = "lifecycle"    // Lifecycle journal population
 )
 
 // BackfillJob represents a single backfill run for a target type.
@@ -57,12 +57,12 @@ type BackfillJob struct {
 	Target      BackfillTarget
 	MailboxID   MailboxId // zero = all mailboxes; non-zero = single mailbox
 	Status      BackfillStatus
-	Cursor      string   // opaque resume cursor
-	TotalItems  int      // estimated or counted total items to process
-	Processed   int      // items processed so far
-	Errors      int      // non-fatal errors encountered
-	StartedAt   int64   // unix timestamp
-	CompletedAt int64   // zero if not yet complete
+	Cursor      string // opaque resume cursor
+	TotalItems  int    // estimated or counted total items to process
+	Processed   int    // items processed so far
+	Errors      int    // non-fatal errors encountered
+	StartedAt   int64  // unix timestamp
+	CompletedAt int64  // zero if not yet complete
 }
 
 // BackfillStatus describes the state of a backfill job.
@@ -119,7 +119,7 @@ func (noOpBackfill) Status() BackfillJob {
 type RollbackTarget string
 
 const (
-	RollbackTargetIdentity  RollbackTarget = "identity"  // clear canonical IDs, fall back to legacy
+	RollbackTargetIdentity  RollbackTarget = "identity"   // clear canonical IDs, fall back to legacy
 	RollbackTargetSyncState RollbackTarget = "sync_state" // clear sync tokens and watermarks
 	RollbackTargetLifecycle RollbackTarget = "lifecycle"  // clear lifecycle journal
 	RollbackTargetAll       RollbackTarget = "all"        // clear all canonical state
@@ -131,7 +131,7 @@ type RollbackJob struct {
 	Target      RollbackTarget
 	Status      RollbackStatus
 	MailboxID   MailboxId // zero = all mailboxes
-	Affected    int      // objects affected
+	Affected    int       // objects affected
 	StartedAt   int64
 	CompletedAt int64
 }

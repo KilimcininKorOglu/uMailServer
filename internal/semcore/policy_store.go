@@ -12,9 +12,9 @@ import (
 
 // Bucket names for policy storage
 const (
-	bucketRule        = "rules"
-	bucketOOF         = "oof"
-	bucketResource    = "resources"
+	bucketRule         = "rules"
+	bucketOOF          = "oof"
+	bucketResource     = "resources"
 	bucketNotification = "notifications"
 )
 

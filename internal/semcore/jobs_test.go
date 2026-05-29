@@ -218,7 +218,7 @@ func TestJob_Marshal_Unmarshal(t *testing.T) {
 		State:     JobStateRunning,
 		Priority:  10,
 		Steps:     steps,
-		Cursor:   "step=0",
+		Cursor:    "step=0",
 		Errors:    0,
 		CreatedAt: time.Now(),
 		StartedAt: time.Now(),

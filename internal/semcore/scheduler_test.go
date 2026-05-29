@@ -300,7 +300,8 @@ func TestScheduler_Stop_idempotent(t *testing.T) {
 	sched := NewJobScheduler(store, cfg)
 
 	// Start may fail in some environments; the test only cares about Stop.
-	err := sched.Start(); _ = err //nolint:errcheck
+	err := sched.Start()
+	_ = err      //nolint:errcheck
 	sched.Stop() // First stop.
 	sched.Stop() // Second stop — should not panic.
 }
@@ -310,7 +311,8 @@ func TestScheduler_Start_twice(t *testing.T) {
 	cfg := DefaultSchedulerConfig()
 	sched := NewJobScheduler(store, cfg)
 
-	err := sched.Start(); _ = err //nolint:errcheck
+	err := sched.Start()
+	_ = err //nolint:errcheck
 	err = sched.Start()
 	if err == nil {
 		t.Error("second Start should return error")

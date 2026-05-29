@@ -155,7 +155,7 @@ func TestStripAngleBrackets(t *testing.T) {
 	}{
 		{"<content@example.com>", "content@example.com"},
 		{"no brackets", "no brackets"},
-		{"<only left>", "only left"},  // unbalanced
+		{"<only left>", "only left"}, // unbalanced
 		{"<>", ""},                   // empty inside brackets
 		{"  <spaced@example.com>  ", "spaced@example.com"},
 	}
@@ -226,9 +226,9 @@ func TestMutationPipeline_MutateItem_Basic(t *testing.T) {
 	}, "\r\n"))
 
 	in := &MutationInput{
-		MailboxID:     mboxID,
-		FolderID:      fldID,
-		RawMessage:    rawMsg,
+		MailboxID:    mboxID,
+		FolderID:     fldID,
+		RawMessage:   rawMsg,
 		InternalDate: time.Now(),
 		Actor:        "alice@local.test",
 		Source:       MutationSourceIMAP,
@@ -304,9 +304,9 @@ func TestMutationPipeline_MutateItem_WithThreadHeaders(t *testing.T) {
 	}, "\r\n"))
 
 	in := &MutationInput{
-		MailboxID:     mboxID,
-		FolderID:      fldID,
-		RawMessage:    rawMsg,
+		MailboxID:    mboxID,
+		FolderID:     fldID,
+		RawMessage:   rawMsg,
 		InternalDate: time.Now(),
 		Actor:        "alice@local.test",
 		Source:       MutationSourceIMAP,
@@ -358,9 +358,9 @@ func TestMutationPipeline_MutateItem_SameContentSameBlobKey(t *testing.T) {
 	}, "\r\n"))
 
 	in1 := &MutationInput{
-		MailboxID:     mboxID,
-		FolderID:      fldID,
-		RawMessage:    rawMsg,
+		MailboxID:    mboxID,
+		FolderID:     fldID,
+		RawMessage:   rawMsg,
 		InternalDate: time.Now(),
 		Actor:        "alice@local.test",
 		Source:       MutationSourceSMTP,
@@ -372,9 +372,9 @@ func TestMutationPipeline_MutateItem_SameContentSameBlobKey(t *testing.T) {
 
 	// Second delivery of the same content produces the same blob key.
 	in2 := &MutationInput{
-		MailboxID:     mboxID,
-		FolderID:      fldID,
-		RawMessage:    rawMsg,
+		MailboxID:    mboxID,
+		FolderID:     fldID,
+		RawMessage:   rawMsg,
 		InternalDate: time.Now(),
 		Actor:        "alice@local.test",
 		Source:       MutationSourceSMTP,
@@ -474,12 +474,12 @@ func TestMutationPipeline_UpdateInput(t *testing.T) {
 	// Create an item first.
 	rawMsg := []byte("From: alice@local.test\r\nSubject: Test\r\n\r\nBody")
 	createResult, err := pipe.MutateItem(&MutationInput{
-		MailboxID:     mboxID,
-		FolderID:      fldID,
-		RawMessage:    rawMsg,
-		InternalDate:  time.Now(),
-		Actor:         "alice@local.test",
-		Source:        MutationSourceIMAP,
+		MailboxID:    mboxID,
+		FolderID:     fldID,
+		RawMessage:   rawMsg,
+		InternalDate: time.Now(),
+		Actor:        "alice@local.test",
+		Source:       MutationSourceIMAP,
 	})
 	if err != nil {
 		t.Fatalf("MutateItem: %v", err)

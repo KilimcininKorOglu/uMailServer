@@ -121,7 +121,7 @@ func (m *SnapshotManifest) ResyncMarker() string {
 // Stored types use json.RawMessage since internal stored types are not
 // directly JSON-marshallable (private fields).
 type SnapshotIdentityLayer struct {
-	MailboxJSON        json.RawMessage `json:"mailbox"`
+	MailboxJSON       json.RawMessage `json:"mailbox"`
 	FoldersJSON       json.RawMessage `json:"folders"`
 	ItemsJSON         json.RawMessage `json:"items"`
 	ConversationsJSON json.RawMessage `json:"conversations"`
@@ -139,8 +139,8 @@ type SnapshotTombstoneLayer struct {
 
 // SnapshotLifecycleLayer captures the tail of the lifecycle event journal.
 type SnapshotLifecycleLayer struct {
-	HighSeq     uint64          `json:"high_seq"`
-	EventsJSON  json.RawMessage `json:"events"`
+	HighSeq    uint64          `json:"high_seq"`
+	EventsJSON json.RawMessage `json:"events"`
 }
 
 // SnapshotSubscriptionLayer captures active subscriptions.
@@ -150,11 +150,11 @@ type SnapshotSubscriptionLayer struct {
 
 // SnapshotPolicyLayer captures OOF, rules, notification, and delegate state.
 type SnapshotPolicyLayer struct {
-	OOFSettingsJSON        json.RawMessage `json:"oof,omitempty"`
-	RulesJSON              json.RawMessage `json:"rules,omitempty"`
-	NotificationsJSON      json.RawMessage `json:"notifications,omitempty"`
-	ResourcesJSON          json.RawMessage `json:"resources,omitempty"`
-	DelegationsJSON        json.RawMessage `json:"delegations,omitempty"`
+	OOFSettingsJSON   json.RawMessage `json:"oof,omitempty"`
+	RulesJSON         json.RawMessage `json:"rules,omitempty"`
+	NotificationsJSON json.RawMessage `json:"notifications,omitempty"`
+	ResourcesJSON     json.RawMessage `json:"resources,omitempty"`
+	DelegationsJSON   json.RawMessage `json:"delegations,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

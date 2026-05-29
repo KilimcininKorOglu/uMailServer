@@ -75,8 +75,8 @@ type TombstoneStore interface {
 // It is the canonical evidence of deletion for sync and event consumers.
 type Tombstone struct {
 	MailboxID MailboxId
-	FolderID  FolderId  // zero for mailbox-level tombstones
-	ItemID    ItemId    // zero for folder-level tombstones
+	FolderID  FolderId // zero for mailbox-level tombstones
+	ItemID    ItemId   // zero for folder-level tombstones
 
 	// Kind distinguishes the type of deletion.
 	// SoftDelete means the object was moved to Deleted Items / trash.

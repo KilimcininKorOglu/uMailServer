@@ -29,20 +29,20 @@ type convInfo struct {
 
 // FindConversationRequest is the EWS FindConversation operation request.
 type FindConversationRequest struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindConversation"`
-	ItemShape ItemShapeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
+	XMLName     xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindConversation"`
+	ItemShape   ItemShapeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
 	IndexedPage struct {
 		MaxEntriesReturned string `xml:"MaxEntriesReturned,attr"`
 		Offset             string `xml:"Offset,attr"`
 		BasePoint          string `xml:"BasePoint,attr"` // Beginning | End
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages IndexedPageFolderView,omitempty"`
-	SortOrder *SortOrderContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SortOrder,omitempty"`
-	ParentFolderIDs FolderIDsForSearch `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ParentFolderIds"`
+	SortOrder       *SortOrderContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SortOrder,omitempty"`
+	ParentFolderIDs FolderIDsForSearch  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ParentFolderIds"`
 }
 
 // FindConversationResponse is the EWS FindConversation operation response.
 type FindConversationResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindConversationResponse"`
+	XMLName          xml.Name                         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindConversationResponse"`
 	ResponseMessages FindConversationResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -53,15 +53,15 @@ type FindConversationResponseMessages struct {
 
 // FindConversationResponseMessageType is one FindConversation response.
 type FindConversationResponseMessageType struct {
-	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string   `xml:"ResponseClass,attr"`
-	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	XMLName       xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseClass string                  `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	Conversations *ConversationsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Conversations"`
 }
 
 // ConversationsContainer wraps the conversations list.
 type ConversationsContainer struct {
-	XMLName        xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Conversations"`
+	XMLName       xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Conversations"`
 	Conversations []ConversationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ConversationType"`
 }
 
@@ -218,12 +218,12 @@ func (s *Server) handleFindConversation(ctx context.Context, body []byte) []byte
 			topic = "(no subject)"
 		}
 		responseConvs = append(responseConvs, ConversationType{
-			Topic:           topic,
-			ConversationKey: c.id.String(),
+			Topic:            topic,
+			ConversationKey:  c.id.String(),
 			LastDeliveryTime: c.lastTime,
-			TotalCount:      len(c.items),
-			UnreadCount:     c.unread,
-			ItemIds:         itemIDs,
+			TotalCount:       len(c.items),
+			UnreadCount:      c.unread,
+			ItemIds:          itemIDs,
 		})
 	}
 

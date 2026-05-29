@@ -44,7 +44,7 @@ type contextKey string
 // Context keys for values stored in request context.
 const (
 	contextKeyTokenHash contextKey = "tokenHash"
-	contextKeyEmail    contextKey = "X-Email"
+	contextKeyEmail     contextKey = "X-Email"
 )
 
 // ContextKeyEmail is the string value for storing the authenticated email.

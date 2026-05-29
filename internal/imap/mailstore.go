@@ -627,13 +627,13 @@ func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, dat
 				// Log and continue without semantic identity.
 			} else {
 				in := &semcore.MutationInput{
-					MailboxID:     mboxID,
-					FolderID:      fldID,
-					RawMessage:    data,
+					MailboxID:    mboxID,
+					FolderID:     fldID,
+					RawMessage:   data,
 					InternalDate: date,
-					Actor:         user,
-					Source:        semcore.MutationSourceIMAP,
-					UserFlags:     flags,
+					Actor:        user,
+					Source:       semcore.MutationSourceIMAP,
+					UserFlags:    flags,
 				}
 				// Mutation is best-effort: even if it fails, we continue with
 				// the existing storage path. The message will be stored without

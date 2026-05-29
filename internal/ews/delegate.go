@@ -16,10 +16,10 @@ package ews
 import (
 	"bytes"
 	"context"
-	"github.com/umailserver/umailserver/internal/api"
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/umailserver/umailserver/internal/api"
 	"strings"
 	"time"
 
@@ -54,12 +54,12 @@ const (
 type DelegatePermissionsType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegatePermissions"`
 
-	CalendarFolderPermissionLevel  *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarFolderPermissionLevel,omitempty"`
-	TasksFolderPermissionLevel     *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TasksFolderPermissionLevel,omitempty"`
-	InboxFolderPermissionLevel     *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types InboxFolderPermissionLevel,omitempty"`
-	ContactsFolderPermissionLevel  *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContactsFolderPermissionLevel,omitempty"`
-	NotesFolderPermissionLevel     *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotesFolderPermissionLevel,omitempty"`
-	JournalFolderPermissionLevel    *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types JournalFolderPermissionLevel,omitempty"`
+	CalendarFolderPermissionLevel *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarFolderPermissionLevel,omitempty"`
+	TasksFolderPermissionLevel    *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TasksFolderPermissionLevel,omitempty"`
+	InboxFolderPermissionLevel    *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types InboxFolderPermissionLevel,omitempty"`
+	ContactsFolderPermissionLevel *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContactsFolderPermissionLevel,omitempty"`
+	NotesFolderPermissionLevel    *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotesFolderPermissionLevel,omitempty"`
+	JournalFolderPermissionLevel  *DelegateFolderPermissionLevelType `xml:"http://schemas.microsoft.com/exchange/services/2006/types JournalFolderPermissionLevel,omitempty"`
 }
 
 // UserIdType identifies a user in EWS delegate requests.
@@ -78,18 +78,18 @@ type UserIdType struct {
 
 // ArrayOfUserIdType holds a list of user IDs.
 type ArrayOfUserIdType struct {
-	XMLName xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserIds"`
-	Users  []UserIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserId,omitempty"`
+	XMLName xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserIds"`
+	Users   []UserIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserId,omitempty"`
 }
 
 // DelegateUserType represents a delegate user in EWS requests and responses.
 type DelegateUserType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegateUser"`
 
-	UserId           *UserIdType            `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserId"`
+	UserId              *UserIdType              `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserId"`
 	DelegatePermissions *DelegatePermissionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegatePermissions,omitempty"`
 	// ReceiveCopiesOfMeetingMessages: if true, delegate receives copies of meeting requests.
-	ReceiveCopiesOfMeetingMessages *bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReceiveCopiesOfMeetingMessages,omitempty"`
+	ReceiveCopiesOfMeetingMessages *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReceiveCopiesOfMeetingMessages,omitempty"`
 	// ViewPrivateItems: if true, delegate can see private calendar items.
 	ViewPrivateItems *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types ViewPrivateItems,omitempty"`
 	// CanSendAs grants the delegate permission to send as the owner without "on behalf of".
@@ -103,8 +103,8 @@ type DelegateUserType struct {
 
 // ArrayOfDelegateUserType holds a list of delegate users.
 type ArrayOfDelegateUserType struct {
-	XMLName xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegateUsers"`
-	Users  []DelegateUserType `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegateUser,omitempty"`
+	XMLName xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegateUsers"`
+	Users   []DelegateUserType `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegateUser,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ type BaseDelegateType struct {
 
 	Mailbox struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
-		Email  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
+		Email   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 
 	// UserIds: list of user IDs to get or remove.
@@ -185,7 +185,7 @@ type DelegateUserResponseMessageType struct {
 
 // ArrayOfDelegateUserResponseMessageType holds response messages per delegate.
 type ArrayOfDelegateUserResponseMessageType struct {
-	XMLName xml.Name                        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DelegateUserResponseMessages"`
+	XMLName  xml.Name                          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DelegateUserResponseMessages"`
 	Messages []DelegateUserResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DelegateUserResponseMessageType,omitempty"`
 }
 
@@ -194,8 +194,8 @@ type GetDelegateResponseMessageType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetDelegateResponseMessageType"`
 
 	ResponseMessageType
-	DelegateUsers          *ArrayOfDelegateUserType              `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegateUsers,omitempty"`
-	DeliverMeetingRequests string                               `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeliverMeetingRequests,omitempty"`
+	DelegateUsers          *ArrayOfDelegateUserType `xml:"http://schemas.microsoft.com/exchange/services/2006/types DelegateUsers,omitempty"`
+	DeliverMeetingRequests string                   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeliverMeetingRequests,omitempty"`
 }
 
 // AddDelegateResponseMessageType is the AddDelegate operation response.
@@ -393,7 +393,7 @@ func (s *Server) handleAddDelegate(ctx context.Context, body []byte) []byte {
 
 	// Only owner or admin can add delegates.
 	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck
-	isAdmin, _ := ctx.Value("isAdmin").(bool) //nolint:errcheck
+	isAdmin, _ := ctx.Value("isAdmin").(bool)              //nolint:errcheck
 	if authUser != email && !isAdmin {
 		return s.errorResponseXML("AddDelegate", ErrErrorAccessDenied, "not authorized to add delegates for this mailbox")
 	}
@@ -465,7 +465,7 @@ func (s *Server) addSingleDelegate(ctx context.Context, ownerID semcore.MailboxI
 			ResponseMessageType: ResponseMessageType{
 				ResponseClass: ResponseClassError,
 				ResponseCode:  ErrErrorInvalidDelegateUserId,
-				ErrorMessage: "PrimarySmtpAddress is required",
+				ErrorMessage:  "PrimarySmtpAddress is required",
 			},
 		}
 	}
@@ -477,7 +477,7 @@ func (s *Server) addSingleDelegate(ctx context.Context, ownerID semcore.MailboxI
 			ResponseMessageType: ResponseMessageType{
 				ResponseClass: ResponseClassError,
 				ResponseCode:  ErrErrorDelegateAlreadyExists,
-				ErrorMessage: "Delegate already exists for this mailbox",
+				ErrorMessage:  "Delegate already exists for this mailbox",
 			},
 		}
 	}
@@ -507,18 +507,18 @@ func (s *Server) addSingleDelegate(ctx context.Context, ownerID semcore.MailboxI
 	}
 
 	delegate := &semcore.DelegateUser{
-		OwnerID:         ownerID,
-		DelegateEmail:   eu.UserId.PrimarySmtpAddress,
-		DelegateUserID:  eu.UserId.PrimarySmtpAddress,
-		Permissions:     perms,
+		OwnerID:          ownerID,
+		DelegateEmail:    eu.UserId.PrimarySmtpAddress,
+		DelegateUserID:   eu.UserId.PrimarySmtpAddress,
+		Permissions:      perms,
 		ViewPrivateItems: viewPrivate,
-		ReceiveCopies:   receiveCopies,
-		DeliverRequests: meetingDelivery,
-		GrantedBy:      grantedBy,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-		CanSendAs:      canSendAs,
-		CanSendOnBehalf: canSendOnBehalf,
+		ReceiveCopies:    receiveCopies,
+		DeliverRequests:  meetingDelivery,
+		GrantedBy:        grantedBy,
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
+		CanSendAs:        canSendAs,
+		CanSendOnBehalf:  canSendOnBehalf,
 	}
 
 	_, err := s.delegateStore.PutDelegate(delegate)
@@ -527,7 +527,7 @@ func (s *Server) addSingleDelegate(ctx context.Context, ownerID semcore.MailboxI
 			ResponseMessageType: ResponseMessageType{
 				ResponseClass: ResponseClassError,
 				ResponseCode:  ErrErrorInternalServer,
-				ErrorMessage: err.Error(),
+				ErrorMessage:  err.Error(),
 			},
 		}
 	}
@@ -540,10 +540,10 @@ func (s *Server) addSingleDelegate(ctx context.Context, ownerID semcore.MailboxI
 			ResponseCode:  ErrNoError,
 		},
 		DelegateUser: &DelegateUserType{
-			UserId: &UserIdType{PrimarySmtpAddress: eu.UserId.PrimarySmtpAddress},
-			DelegatePermissions: respUser.DelegatePermissions,
+			UserId:                         &UserIdType{PrimarySmtpAddress: eu.UserId.PrimarySmtpAddress},
+			DelegatePermissions:            respUser.DelegatePermissions,
 			ReceiveCopiesOfMeetingMessages: &receiveCopies,
-			ViewPrivateItems: &viewPrivate,
+			ViewPrivateItems:               &viewPrivate,
 		},
 	}
 }
@@ -566,7 +566,7 @@ func (s *Server) handleUpdateDelegate(ctx context.Context, body []byte) []byte {
 	}
 
 	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck
-	isAdmin, _ := ctx.Value("isAdmin").(bool) //nolint:errcheck
+	isAdmin, _ := ctx.Value("isAdmin").(bool)              //nolint:errcheck
 	if authUser != email && !isAdmin {
 		return s.errorResponseXML("UpdateDelegate", ErrErrorAccessDenied, "not authorized to update delegates for this mailbox")
 	}
@@ -629,7 +629,7 @@ func (s *Server) updateSingleDelegate(ctx context.Context, ownerID semcore.Mailb
 			ResponseMessageType: ResponseMessageType{
 				ResponseClass: ResponseClassError,
 				ResponseCode:  ErrErrorInvalidDelegateUserId,
-				ErrorMessage: "PrimarySmtpAddress is required",
+				ErrorMessage:  "PrimarySmtpAddress is required",
 			},
 		}
 	}
@@ -641,7 +641,7 @@ func (s *Server) updateSingleDelegate(ctx context.Context, ownerID semcore.Mailb
 				ResponseMessageType: ResponseMessageType{
 					ResponseClass: ResponseClassError,
 					ResponseCode:  ErrErrorNotDelegate,
-					ErrorMessage: "Delegate does not exist",
+					ErrorMessage:  "Delegate does not exist",
 				},
 			}
 		}
@@ -649,7 +649,7 @@ func (s *Server) updateSingleDelegate(ctx context.Context, ownerID semcore.Mailb
 			ResponseMessageType: ResponseMessageType{
 				ResponseClass: ResponseClassError,
 				ResponseCode:  ErrErrorInternalServer,
-				ErrorMessage: err.Error(),
+				ErrorMessage:  err.Error(),
 			},
 		}
 	}
@@ -678,7 +678,7 @@ func (s *Server) updateSingleDelegate(ctx context.Context, ownerID semcore.Mailb
 			ResponseMessageType: ResponseMessageType{
 				ResponseClass: ResponseClassError,
 				ResponseCode:  ErrErrorInternalServer,
-				ErrorMessage: err.Error(),
+				ErrorMessage:  err.Error(),
 			},
 		}
 	}
@@ -686,7 +686,7 @@ func (s *Server) updateSingleDelegate(ctx context.Context, ownerID semcore.Mailb
 	return DelegateUserResponseMessageType{
 		ResponseMessageType: ResponseMessageType{
 			ResponseClass: ResponseClassSuccess,
-			ResponseCode: ErrNoError,
+			ResponseCode:  ErrNoError,
 		},
 	}
 }
@@ -709,7 +709,7 @@ func (s *Server) handleRemoveDelegate(ctx context.Context, body []byte) []byte {
 	}
 
 	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck
-	isAdmin, _ := ctx.Value("isAdmin").(bool) //nolint:errcheck
+	isAdmin, _ := ctx.Value("isAdmin").(bool)              //nolint:errcheck
 	if authUser != email && !isAdmin {
 		return s.errorResponseXML("RemoveDelegate", ErrErrorAccessDenied, "not authorized to remove delegates for this mailbox")
 	}
@@ -782,7 +782,7 @@ func delegateUserToEWS(d *semcore.DelegateUser, includePermissions bool) Delegat
 			PrimarySmtpAddress: d.DelegateEmail,
 		},
 		ReceiveCopiesOfMeetingMessages: &d.ReceiveCopies,
-		ViewPrivateItems:                &d.ViewPrivateItems,
+		ViewPrivateItems:               &d.ViewPrivateItems,
 		CanSendAs:                      &d.CanSendAs,
 		CanSendOnBehalf:                &d.CanSendOnBehalf,
 	}

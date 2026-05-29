@@ -21,9 +21,9 @@ import (
 // All stores are safe for concurrent use; callers must hold the appropriate
 // lock for the scope they are operating in.
 type Store struct {
-	db     *bbolt.DB
-	mu     sync.RWMutex
-	dir    string
+	db  *bbolt.DB
+	mu  sync.RWMutex
+	dir string
 
 	identity      *BoltIdentityStore
 	syncState     *BoltSyncStateStore

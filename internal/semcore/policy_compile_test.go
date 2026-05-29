@@ -208,12 +208,12 @@ func TestCompileOOFConditionalVacation_Disabled(t *testing.T) {
 
 func TestCompileOOFConditionalVacation_Basic(t *testing.T) {
 	policy := &OOFPolicy{
-		Enabled:          true,
-		Subject:          "Out of Office",
-		TextBody:         "I'm currently out of office.",
-		IgnoreLists:      true,
-		IgnoreBulk:       true,
-		IgnoreAutoReplies: true,
+		Enabled:             true,
+		Subject:             "Out of Office",
+		TextBody:            "I'm currently out of office.",
+		IgnoreLists:         true,
+		IgnoreBulk:          true,
+		IgnoreAutoReplies:   true,
 		SendIntervalSeconds: 86400, // 1 day
 	}
 
@@ -232,11 +232,11 @@ func TestCompileOOFConditionalVacation_Basic(t *testing.T) {
 
 func TestCompileOOFConditionalVacation_WithSchedule(t *testing.T) {
 	policy := &OOFPolicy{
-		Enabled:     true,
-		Subject:     "Out of Office",
-		TextBody:    "I'm currently out of office.",
-		StartTime:   time.Now().Add(-1 * time.Hour),
-		EndTime:     time.Now().Add(24 * time.Hour),
+		Enabled:             true,
+		Subject:             "Out of Office",
+		TextBody:            "I'm currently out of office.",
+		StartTime:           time.Now().Add(-1 * time.Hour),
+		EndTime:             time.Now().Add(24 * time.Hour),
 		SendIntervalSeconds: 86400,
 	}
 
@@ -257,10 +257,10 @@ func TestCompilePolicyToSieve_RulesAndOOF(t *testing.T) {
 
 	rules := []*Rule{
 		{
-			ID:       ruleID,
+			ID:        ruleID,
 			MailboxID: mboxID,
-			Enabled:  true,
-			Priority: 0,
+			Enabled:   true,
+			Priority:  0,
 			Conditions: []RuleCondition{
 				{Kind: RuleConditionKindSubject, MatchType: RuleMatchTypeContains, Value: "test"},
 			},
@@ -271,11 +271,11 @@ func TestCompilePolicyToSieve_RulesAndOOF(t *testing.T) {
 	}
 
 	oof := &OOFPolicy{
-		ID:        oofID,
-		MailboxID: mboxID,
-		Enabled:   true,
-		Subject:   "OOF",
-		TextBody:  "I'm out",
+		ID:                  oofID,
+		MailboxID:           mboxID,
+		Enabled:             true,
+		Subject:             "OOF",
+		TextBody:            "I'm out",
 		SendIntervalSeconds: 86400,
 	}
 
@@ -300,11 +300,11 @@ func TestCompilePolicyToSieve_EmptyRulesWithOOF(t *testing.T) {
 	mboxID := MustMailboxId("mbox-1")
 
 	oof := &OOFPolicy{
-		ID:        oofID,
-		MailboxID: mboxID,
-		Enabled:   true,
-		Subject:   "OOF",
-		TextBody:  "I'm out",
+		ID:                  oofID,
+		MailboxID:           mboxID,
+		Enabled:             true,
+		Subject:             "OOF",
+		TextBody:            "I'm out",
 		SendIntervalSeconds: 86400,
 	}
 

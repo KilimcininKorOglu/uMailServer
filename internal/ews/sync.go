@@ -22,11 +22,11 @@ import (
 
 // SyncFolderItemsRequest is the EWS SyncFolderItems operation request.
 type SyncFolderItemsRequest struct {
-	XMLName             xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderItems"`
-	SyncState           string   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState,omitempty"`
-	SyncScope           string   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncScope,attr,omitempty"` // NormalItems | NormalAndAssociatedItems
-	ItemShape           ItemShapeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
-	MaxChangesReturned  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MaxChangesReturned,attr,omitempty"`
+	XMLName            xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderItems"`
+	SyncState          string        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState,omitempty"`
+	SyncScope          string        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncScope,attr,omitempty"` // NormalItems | NormalAndAssociatedItems
+	ItemShape          ItemShapeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
+	MaxChangesReturned string        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MaxChangesReturned,attr,omitempty"`
 	// FolderId: the root folder to sync under.
 	SyncFolderId struct {
 		DistinguishedFolderID *DistinguishedIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
@@ -46,7 +46,7 @@ type FolderIdAttrType struct {
 
 // SyncFolderItemsResponse is the EWS SyncFolderItems operation response.
 type SyncFolderItemsResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderItemsResponse"`
+	XMLName          xml.Name                        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderItemsResponse"`
 	ResponseMessages SyncFolderItemsResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -57,46 +57,46 @@ type SyncFolderItemsResponseMessages struct {
 
 // SyncFolderItemsResponseMessageType is one SyncFolderItems response.
 type SyncFolderItemsResponseMessageType struct {
-	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string  `xml:"ResponseClass,attr"`
-	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	SyncState      string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState"`
+	XMLName       xml.Name                  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseClass string                    `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	SyncState     string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState"`
 	Items         *SyncFolderItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-	IncludesLast bool `xml:"http://schemas.microsoft.com/exchange/services/2006/messages IncludesLastItemInRange,attr"`
+	IncludesLast  bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages IncludesLastItemInRange,attr"`
 }
 
 // SyncFolderItemsContainer wraps sync item changes.
 type SyncFolderItemsContainer struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-	Creates []SyncFolderItemCreate `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
-	Updates []SyncFolderItemUpdate `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
-	Deletes []SyncFolderItemDelete `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
+	XMLName   xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	Creates   []SyncFolderItemCreate   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
+	Updates   []SyncFolderItemUpdate   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
+	Deletes   []SyncFolderItemDelete   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
 	ReadFlags []SyncFolderItemReadFlag `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReadFlagChange"`
 }
 
 // SyncFolderItemCreate wraps a created item in sync response.
 type SyncFolderItemCreate struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
+	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
 	Item    MessageTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
 }
 
 // SyncFolderItemUpdate wraps an updated item in sync response.
 type SyncFolderItemUpdate struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
+	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
 	Item    MessageTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
 }
 
 // SyncFolderItemDelete wraps a deleted item in sync response.
 type SyncFolderItemDelete struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
+	XMLName xml.Name   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
 	ItemID  ItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 }
 
 // SyncFolderItemReadFlag wraps a read flag change in sync response.
 type SyncFolderItemReadFlag struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReadFlagChange"`
+	XMLName xml.Name   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReadFlagChange"`
 	ItemID  ItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
-	IsRead  bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead,attr"`
+	IsRead  bool       `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead,attr"`
 }
 
 // handleSyncFolderItems processes an EWS SyncFolderItems SOAP request.
@@ -255,9 +255,9 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 	var container *SyncFolderItemsContainer
 	if len(creates)+len(updates)+len(deletes)+len(readFlags) > 0 {
 		container = &SyncFolderItemsContainer{
-			Creates:  creates,
-			Updates:  updates,
-			Deletes:  deletes,
+			Creates:   creates,
+			Updates:   updates,
+			Deletes:   deletes,
 			ReadFlags: readFlags,
 		}
 	}
@@ -268,7 +268,7 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
 		SyncState:     newSyncState,
 		Items:         container,
-		IncludesLast: includesLast,
+		IncludesLast:  includesLast,
 	}}
 	return buildResponseEnvelope(resp)
 }
