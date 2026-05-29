@@ -34,8 +34,14 @@ import (
 // ---------------------------------------------------------------------------
 
 // ResolveNamesType is the EWS ResolveNames request type.
+// XMLName uses "ResolveNames" (not "ResolveNamesRequest") because that is the
+// element name EWS clients actually send in SOAP requests. The handler routing
+// in handlers.go already maps both "ResolveNames" and "ResolveNamesRequest"
+// to handleResolveNames, so either variant works. The struct tag must match
+// the wire element name so xml.Decoder.DecodeElement succeeds without namespace
+// or name mismatches.
 type ResolveNamesType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResolveNamesRequest"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResolveNames"`
 
 	// UnresolvedEntry is the partial or full name/email to resolve.
 	UnresolvedEntry string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UnresolvedEntry"`
@@ -288,7 +294,7 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 
 // GetUserAvailabilityRequestType is the EWS GetUserAvailability request.
 type GetUserAvailabilityRequestType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserAvailabilityRequest"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserAvailability"`
 
 	// TimeZone: the timezone context for availability queries.
 	// Uses SerializableTimeZoneType directly to avoid XML name conflicts.
