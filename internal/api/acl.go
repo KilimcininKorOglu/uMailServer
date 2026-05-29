@@ -214,3 +214,28 @@ func (s *Server) handleGranteesMailboxesList(w http.ResponseWriter, r *http.Requ
 		"shared_as_owner": mailboxes,
 	})
 }
+
+// handleMailboxPath routes mailbox subpaths: acl, myrights
+func (s *Server) handleMailboxPath(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/mailboxes/")
+	// path is like "{owner}/{mailbox}/acl" or "{owner}/{mailbox}/myrights"
+	parts := strings.SplitN(path, "/", 3)
+	if len(parts) < 2 {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	subpath := ""
+	if len(parts) >= 3 {
+		subpath = parts[2]
+	}
+
+	switch subpath {
+	case "acl":
+		s.handleACLHandler(w, r)
+	case "myrights":
+		s.handleMyRightsHandler(w, r)
+	default:
+		http.Error(w, "Not found", http.StatusNotFound)
+	}
+}

@@ -7,6 +7,8 @@ import TwoFactorPage from './pages/TwoFactor'
 import ForwardingPage from './pages/Forwarding'
 import VacationPage from './pages/Vacation'
 import FiltersPage from './pages/Filters'
+import SharedMailboxPage from './pages/SharedMailbox'
+import SessionsPage from './pages/Sessions'
 
 function App() {
   return (
@@ -21,6 +23,8 @@ function App() {
           <Route path="forwarding" element={<ForwardingPage />} />
           <Route path="vacation" element={<VacationPage />} />
           <Route path="filters" element={<FiltersPage />} />
+          <Route path="shared-mailbox" element={<SharedMailboxPage />} />
+          <Route path="sessions" element={<SessionsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -9,7 +9,9 @@
     "2fa": "Two-Factor Auth",
     "filters": "Email Filters",
     "vacation": "Vacation Reply",
-    "logout": "Logout"
+    "logout": "Logout",
+    "sharedMailbox": "Shared Mailboxes",
+    "sessions": "Active Sessions"
   },
   "auth": {
     "login": "Account Login",
@@ -139,6 +141,27 @@
     "junk": "Junk",
     "archive": "Archive",
     "priority": "Priority"
+  },
+  "sharedMailbox": {
+    "title": "Shared Mailboxes",
+    "sharedWithMe": "Shared With Me",
+    "sharedFromMe": "Shared From Me",
+    "noSharedMailboxes": "No shared mailboxes",
+    "noSharedMailboxesHelp": "Mailboxes shared with you will appear here",
+    "noGrantedMailboxes": "No granted mailboxes",
+    "noGrantedMailboxesHelp": "Mailboxes you have shared with others will appear here",
+    "owner": "Owner",
+    "openMailbox": "Open Mailbox",
+    "manageAccess": "Manage Access"
+  },
+  "sessions": {
+    "title": "Active Sessions",
+    "noSessions": "No active sessions",
+    "noSessionsHelp": "Your active client sessions will appear here",
+    "lastActive": "Last active",
+    "unknownDevice": "Unknown Device",
+    "revoke": "Revoke session",
+    "revokeConfirm": "Are you sure you want to revoke this session?"
   },
   "common": {
     "save": "Save",

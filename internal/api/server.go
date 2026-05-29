@@ -548,6 +548,11 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/cluster/failover", s.handleClusterFailover)
 	api.HandleFunc("/api/v1/cluster/heartbeat", s.handleClusterHeartbeat)
 
+	// Mailbox ACL and shared mailbox access
+	api.HandleFunc("/api/v1/mailboxes/shared", s.handleSharedMailboxesList)
+	api.HandleFunc("/api/v1/mailboxes/shared-as-owner", s.handleGranteesMailboxesList)
+	api.HandleFunc("/api/v1/mailboxes/", s.handleMailboxPath)
+
 	// Wrap API with auth middleware and mount to main mux
 	apiHandler := s.rateLimitMiddleware(s.limitBodyMiddleware(s.securityHeadersMiddleware(s.csrfMiddleware(s.corsMiddleware(s.authMiddleware(api))))))
 	mux.Handle("/api/v1/", apiHandler)

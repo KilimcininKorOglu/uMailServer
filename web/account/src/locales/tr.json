@@ -9,7 +9,9 @@
     "2fa": "İki Faktörlü Doğrulama",
     "filters": "E-posta Filtreleri",
     "vacation": "Tatil Yanıtı",
-    "logout": "Çıkış"
+    "logout": "Çıkış",
+    "sharedMailbox": "Paylaşılan Posta Kutuları",
+    "sessions": "Aktif Oturumlar"
   },
   "auth": {
     "login": "Hesap Girişi",
@@ -103,6 +105,27 @@
     "markSpam": "Spam olarak işaretle",
     "forward": "Şuraya yönlendir",
     "priority": "Öncelik"
+  },
+  "sharedMailbox": {
+    "title": "Paylaşılan Posta Kutuları",
+    "sharedWithMe": "Benimle Paylaşılan",
+    "sharedFromMe": "Benim Paylaştığım",
+    "noSharedMailboxes": "Paylaşılan posta kutusu yok",
+    "noSharedMailboxesHelp": "Sizinle paylaşılan posta kutuları burada görünecektir",
+    "noGrantedMailboxes": "Paylaşılan posta kutusu yok",
+    "noGrantedMailboxesHelp": "Başkalarıyla paylaştığınız posta kutuları burada görünecektir",
+    "owner": "Sahip",
+    "openMailbox": "Posta Kutusunu Aç",
+    "manageAccess": "Erişimi Yönet"
+  },
+  "sessions": {
+    "title": "Aktif Oturumlar",
+    "noSessions": "Aktif oturum yok",
+    "noSessionsHelp": "Aktif istemci oturumlarınız burada görünecektir",
+    "lastActive": "Son aktivite",
+    "unknownDevice": "Bilinmeyen Cihaz",
+    "revoke": "Oturumu sonlandır",
+    "revokeConfirm": "Bu oturumu sonlandırmak istediğinize emin misiniz?"
   },
   "common": {
     "save": "Kaydet",
