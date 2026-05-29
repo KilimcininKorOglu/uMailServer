@@ -71,6 +71,13 @@ const (
 	// are advertised. This tier is active after FeatureCanonicalIdentity is
 	// enabled and the account's domain has been migrated to the semantic core.
 	TierExchange CompatibilityTier = 1
+
+	// TierOutlook is the modern Windows Outlook tier: IMAP/SMTP, EWS, plus
+	// MAPI/HTTP, NSPI (directory), and OAB (offline address book) endpoints
+	// are advertised. This tier is active when FeatureMAPIHTTP is enabled and
+	// the account is in the Exchange tier. It enables Outlook Exchange-mode
+	// provisioning without IMAP/SMTP fallback.
+	TierOutlook CompatibilityTier = 2
 )
 
 // FeatureGate holds the global feature-gate state.
@@ -165,6 +172,8 @@ func TierFromUint8(v uint8) CompatibilityTier {
 	switch v {
 	case 1:
 		return TierExchange
+	case 2:
+		return TierOutlook
 	default:
 		return TierIMAPOnly
 	}
@@ -173,12 +182,26 @@ func TierFromUint8(v uint8) CompatibilityTier {
 // AccountCompatibilityTier returns the per-account Exchange compatibility tier.
 // When a non-zero tier is explicitly stored on the account, it takes precedence
 // over the global FeatureCanonicalIdentity gate, enabling pilot cohort isolation.
-// Zero (TierIMAPOnly) falls back to the global compatibility tier decision.
+// Zero falls back to the global compatibility tier decision.
+// NOTE: For per-account tier resolution, use AccountCompatibilityTier instead.
 func AccountCompatibilityTier(tier uint8) CompatibilityTier {
 	if tier != 0 {
 		return TierFromUint8(tier)
 	}
 	// No per-account override; fall back to global gate.
+	// TierOutlook requires FeatureMAPIHTTP AND either FeatureCanonicalIdentity
+	// (global Exchange tier) OR the Exchange tier is active (canonical identity or
+	// higher). If FeatureMAPIHTTP is on but Exchange tier is not yet active,
+	// we infer TierExchange (not TierOutlook) so MAPI/HTTP is reachable without
+	// requiring a full Phase 1 migration to be complete first.
+	if Gate().IsEnabled(FeatureMAPIHTTP) {
+		if Gate().IsEnabled(FeatureCanonicalIdentity) {
+			return TierOutlook
+		}
+		// MAPI/HTTP without canonical identity still means Exchange semantics are
+		// reachable; elevate to TierExchange.
+		return TierExchange
+	}
 	return CurrentCompatibilityTier()
 }
 

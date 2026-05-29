@@ -229,6 +229,13 @@ func TestTierFromUint8_one(t *testing.T) {
 	}
 }
 
+func TestTierFromUint8_two(t *testing.T) {
+	got := TierFromUint8(2)
+	if got != TierOutlook {
+		t.Errorf("TierFromUint8(2) = %v, want TierOutlook", got)
+	}
+}
+
 func TestTierFromUint8_aboveRange(t *testing.T) {
 	got := TierFromUint8(99)
 	if got != TierIMAPOnly {
@@ -278,6 +285,35 @@ func TestAccountCompatibilityTier_noOverrideNoGlobal(t *testing.T) {
 	got := AccountCompatibilityTier(0)
 	if got != TierIMAPOnly {
 		t.Errorf("AccountCompatibilityTier(0) with no gates = %v, want TierIMAPOnly", got)
+	}
+}
+
+func TestAccountCompatibilityTier_MAPIHTTPGlobalElevates(t *testing.T) {
+	// When stored tier is 0, FeatureMAPIHTTP is enabled, and FeatureCanonicalIdentity
+	// is enabled, should return TierOutlook (not just TierExchange).
+	old := globalGate
+	globalGate = &FeatureGate{gates: make(map[FeatureName]bool)}
+	globalGate.Set(FeatureCanonicalIdentity, true)
+	globalGate.Set(FeatureMAPIHTTP, true)
+	defer func() { globalGate = old }()
+
+	got := AccountCompatibilityTier(0)
+	if got != TierOutlook {
+		t.Errorf("AccountCompatibilityTier(0) with FeatureMAPIHTTP+FeatureCanonicalIdentity = %v, want TierOutlook", got)
+	}
+}
+
+func TestAccountCompatibilityTier_MAPIHTTPWithoutCanonicalIdentity(t *testing.T) {
+	// When FeatureMAPIHTTP is enabled but FeatureCanonicalIdentity is not,
+	// should fall back to TierExchange (MAPI/HTTP requires Exchange tier).
+	old := globalGate
+	globalGate = &FeatureGate{gates: make(map[FeatureName]bool)}
+	globalGate.Set(FeatureMAPIHTTP, true)
+	defer func() { globalGate = old }()
+
+	got := AccountCompatibilityTier(0)
+	if got != TierExchange {
+		t.Errorf("AccountCompatibilityTier(0) with FeatureMAPIHTTP only = %v, want TierExchange", got)
 	}
 }
 

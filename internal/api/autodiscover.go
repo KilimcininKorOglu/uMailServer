@@ -5,8 +5,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/semcore"
 )
+
+// AccountData is a type alias for the db account data, used in Autodiscover
+// policy checks (VAL-OUTLOOK-002).
+type AccountData = db.AccountData
 
 // AutodiscoverRequest represents an Autodiscover request
 type AutodiscoverRequest struct {
@@ -32,19 +37,28 @@ type AutodiscoverResponse struct {
 			XMLName     xml.Name `xml:"Account"`
 			AccountType string   `xml:"AccountType"`
 			Action      string   `xml:"Action"`
-			Protocol    []struct {
-				XMLName   xml.Name `xml:"Protocol"`
-				Type      string   `xml:"Type"`
-				Server    string   `xml:"Server"`
-				Port      int      `xml:"Port"`
-				LoginName string   `xml:"LoginName"`
-				Domain    string   `xml:"Domain"`
-				SPA       string   `xml:"SPA"`
-				SSL       string   `xml:"SSL"`
-				Auth      string   `xml:"Auth"`
-			} `xml:"Protocol"`
+			Protocol    []AutodiscoverProtocol `xml:"Protocol"`
 		} `xml:"Account"`
 	} `xml:"Response"`
+}
+
+// AutodiscoverProtocol represents a protocol entry in the Autodiscover response.
+// It uses a flexible field map to accommodate different protocol types (IMAP, SMTP,
+// EWS, MAPI/HTTP, NSPI, OAB) that each require different subsets of fields.
+type AutodiscoverProtocol struct {
+	XMLName     xml.Name `xml:"Protocol"`
+	Type        string  `xml:"Type"`
+	Server      string  `xml:"Server,omitempty"`
+	Port        int     `xml:"Port,omitempty"`
+	LoginName   string  `xml:"LoginName,omitempty"`
+	Domain      string  `xml:"Domain,omitempty"`
+	SPA         string  `xml:"SPA,omitempty"`
+	SSL         string  `xml:"SSL,omitempty"`
+	Auth        string  `xml:"Auth,omitempty"`
+	AuthPackage string  `xml:"AuthPackage,omitempty"`
+	MapiHttp    string  `xml:"MapiHttp,omitempty"`
+	MailboxDN   string  `xml:"MailboxDN,omitempty"`
+	RedirectURL string  `xml:"RedirectUrl,omitempty"`
 }
 
 // handleAutodiscover handles Microsoft Autodiscover requests
@@ -87,6 +101,7 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 	// If the account has an explicit TierExchange (1) stored, that takes
 	// precedence over the global FeatureCanonicalIdentity gate.
 	accountTier := uint8(0) // 0 means use global tier
+	var accData *db.AccountData
 	if s.db != nil {
 		localPart := email
 		if idx := strings.Index(email, "@"); idx != -1 {
@@ -94,6 +109,21 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 		}
 		if acc, err := s.db.GetAccount(domain, localPart); err == nil && acc != nil {
 			accountTier = acc.CompatibilityTier
+			accData = acc
+		}
+	}
+
+	// VAL-OUTLOOK-002: Block policy-disabled accounts before partial provisioning.
+	// If the account is inactive or flagged for required password change, fail
+	// explicitly so Outlook cannot create a half-working Exchange profile.
+	if accData != nil {
+		if !accData.IsActive {
+			s.sendAutodiscoverError(w, http.StatusForbidden, "Account is disabled")
+			return
+		}
+		if accData.MustChangePassword {
+			s.sendAutodiscoverError(w, http.StatusForbidden, "Account requires password change before access")
+			return
 		}
 	}
 
@@ -125,6 +155,11 @@ func (s *Server) parseAutodiscoverPOST(r *http.Request) string {
 // Exchange tier receive the EWS/Exchange.asmx protocol entry, while
 // TierIMAPOnly accounts receive only IMAP and SMTP settings.
 // accountTier is the stored per-account CompatibilityTier (0 = use global gate).
+//
+// In TierOutlook (modern Windows Outlook), the response additionally includes
+// MAPI/HTTP (Outlook connector), NSPI (directory address book), and OAB
+// (offline address book) protocol entries so that Outlook can provision in
+// Exchange mode without falling back to IMAP/SMTP.
 func (s *Server) buildAutodiscoverResponse(email, domain string, accountTier uint8) *AutodiscoverResponse {
 	resp := &AutodiscoverResponse{
 		Space: "http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006",
@@ -140,47 +175,63 @@ func (s *Server) buildAutodiscoverResponse(email, domain string, accountTier uin
 	// Zero falls back to the global FeatureCanonicalIdentity decision.
 	tier := semcore.AccountCompatibilityTier(accountTier)
 	ewsgate := semcore.Gate().IsEnabled(semcore.FeatureEWS)
+	mapihTTPGate := semcore.Gate().IsEnabled(semcore.FeatureMAPIHTTP)
 
 	// Add IMAP protocol (available in all tiers)
 	imapProtocol := newProtocol("IMAP", "mail."+domain, 993, email, domain)
-	resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, *imapProtocol)
+	resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, imapProtocol)
 
 	// Add SMTP protocol (available in all tiers)
 	smtpProtocol := newProtocol("SMTP", "mail."+domain, 465, email, domain)
-	resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, *smtpProtocol)
+	resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, smtpProtocol)
 
-	// Add EWS/Exchange protocol only when in Exchange tier with EWS gate enabled
-	if tier == semcore.TierExchange && ewsgate {
+	// Add EWS/Exchange protocol only when in Exchange or Outlook tier with EWS gate enabled
+	if (tier == semcore.TierExchange || tier == semcore.TierOutlook) && ewsgate {
 		ewsProtocol := newProtocol("EWS", s.serverHost(), 443, email, domain)
-		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, *ewsProtocol)
+		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, ewsProtocol)
+	}
+
+	// Add Outlook-specific protocol entries in TierOutlook with MAPI/HTTP gate enabled.
+	// Modern Windows Outlook uses these to provision in Exchange mode without IMAP fallback.
+	if tier == semcore.TierOutlook && mapihTTPGate {
+		// MAPI/HTTP protocol entry — tells Outlook to use the Outlook connector / MAPI-over-HTTP path.
+		// Server points to the same host as EWS since MAPI/HTTP sessions are routed there.
+		mapiProtocol := AutodiscoverProtocol{
+			Type:        "MAPI",
+			Server:      s.serverHost(),
+			SSL:         "on",
+			AuthPackage: "ntlm",
+		}
+		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, mapiProtocol)
+
+		// NSPI (Name Service Provider Interface) protocol entry — provides the Outlook
+		// directory / GAL address-book lookup endpoint. The RedirectUrl is the NSPI
+		// endpoint that Outlook resolves for address-book searches.
+		nspiProtocol := AutodiscoverProtocol{
+			Type:        "NSPI",
+			Server:      s.serverHost(),
+			SSL:         "on",
+			RedirectURL: "http://" + s.serverHost() + "/mapi/nspi",
+		}
+		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, nspiProtocol)
+
+		// OAB (Offline Address Book) protocol entry — provides the OAB download URL
+		// so Outlook can download a local copy for offline address-book resolution.
+		oabProtocol := AutodiscoverProtocol{
+			Type:        "OAB",
+			Server:      s.serverHost(),
+			SSL:         "on",
+			AuthPackage: "ntlm",
+		}
+		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, oabProtocol)
 	}
 
 	return resp
 }
 
 // newProtocol creates a Protocol struct for the given type, server, port, and credentials.
-func newProtocol(protoType, server string, port int, loginName, domain string) *struct {
-	XMLName   xml.Name `xml:"Protocol"`
-	Type      string  `xml:"Type"`
-	Server    string  `xml:"Server"`
-	Port      int     `xml:"Port"`
-	LoginName string  `xml:"LoginName"`
-	Domain    string  `xml:"Domain"`
-	SPA       string  `xml:"SPA"`
-	SSL       string  `xml:"SSL"`
-	Auth      string  `xml:"Auth"`
-} {
-	return &struct {
-		XMLName   xml.Name `xml:"Protocol"`
-		Type      string  `xml:"Type"`
-		Server    string  `xml:"Server"`
-		Port      int     `xml:"Port"`
-		LoginName string  `xml:"LoginName"`
-		Domain    string  `xml:"Domain"`
-		SPA       string  `xml:"SPA"`
-		SSL       string  `xml:"SSL"`
-		Auth      string  `xml:"Auth"`
-	}{
+func newProtocol(protoType, server string, port int, loginName, domain string) AutodiscoverProtocol {
+	return AutodiscoverProtocol{
 		Type:      protoType,
 		Server:    server,
 		Port:      port,

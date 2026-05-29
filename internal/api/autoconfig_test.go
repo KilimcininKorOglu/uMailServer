@@ -271,6 +271,156 @@ func TestBuildAutodiscoverResponse_IMAPOnlyTier(t *testing.T) {
 	}
 }
 
+// TestBuildAutodiscoverResponse_TierOutlook verifies that when FeatureMAPIHTTP is
+// enabled (and FeatureCanonicalIdentity is also enabled for Exchange tier), the
+// response advertises MAPI, NSPI, and OAB protocol entries in addition to
+// IMAP/SMTP/EWS. This is the VAL-OUTLOOK-001 autodiscover expectation for modern
+// Windows Outlook provisioning in Exchange mode.
+func TestBuildAutodiscoverResponse_TierOutlook(t *testing.T) {
+	s := &Server{}
+
+	// Enable Exchange tier + MAPI/HTTP gate to enter TierOutlook.
+	semcore.Gate().Set(semcore.FeatureCanonicalIdentity, true)
+	semcore.Gate().Set(semcore.FeatureEWS, true)
+	semcore.Gate().Set(semcore.FeatureMAPIHTTP, true)
+	defer func() {
+		semcore.Gate().Set(semcore.FeatureCanonicalIdentity, false)
+		semcore.Gate().Set(semcore.FeatureEWS, false)
+		semcore.Gate().Set(semcore.FeatureMAPIHTTP, false)
+	}()
+
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
+	if resp == nil {
+		t.Fatal("Expected non-nil response")
+	}
+
+	// TierOutlook should advertise 6 protocols: IMAP, SMTP, EWS, MAPI, NSPI, OAB
+	if len(resp.Response.Account.Protocol) != 6 {
+		t.Errorf("Expected 6 protocols (IMAP+SMTP+EWS+MAPI+NSPI+OAB) in TierOutlook, got %d", len(resp.Response.Account.Protocol))
+	}
+
+	// Verify all expected protocol types are present
+	protoTypes := make([]string, len(resp.Response.Account.Protocol))
+	for i, p := range resp.Response.Account.Protocol {
+		protoTypes[i] = p.Type
+	}
+	expected := []string{"IMAP", "SMTP", "EWS", "MAPI", "NSPI", "OAB"}
+	for _, e := range expected {
+		found := false
+		for _, pt := range protoTypes {
+			if pt == e {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected protocol type %q not found in response: %v", e, protoTypes)
+		}
+	}
+}
+
+// TestBuildAutodiscoverResponse_TierOutlook_MAPIHTTPOnly verifies that when
+// FeatureMAPIHTTP is enabled but FeatureCanonicalIdentity is not, the tier
+// falls back to TierExchange (not TierOutlook), so only IMAP/SMTP/EWS are
+// advertised without MAPI/HTTP entries.
+func TestBuildAutodiscoverResponse_TierOutlook_MAPIHTTPOnly(t *testing.T) {
+	s := &Server{}
+
+	// Enable MAPI/HTTP but NOT canonical identity — should fall back to TierExchange.
+	semcore.Gate().Set(semcore.FeatureMAPIHTTP, true)
+	semcore.Gate().Set(semcore.FeatureEWS, true)
+	defer func() {
+		semcore.Gate().Set(semcore.FeatureMAPIHTTP, false)
+		semcore.Gate().Set(semcore.FeatureEWS, false)
+	}()
+
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
+	if resp == nil {
+		t.Fatal("Expected non-nil response")
+	}
+
+	// Without canonical identity, Exchange tier is active but not TierOutlook —
+	// only IMAP/SMTP/EWS (3 protocols), no MAPI/HTTP entries.
+	if len(resp.Response.Account.Protocol) != 3 {
+		t.Errorf("Expected 3 protocols (IMAP+SMTP+EWS) with MAPIHTTP only, got %d", len(resp.Response.Account.Protocol))
+	}
+
+	// Verify no MAPI, NSPI, or OAB entries
+	protoTypes := make([]string, len(resp.Response.Account.Protocol))
+	for i, p := range resp.Response.Account.Protocol {
+		protoTypes[i] = p.Type
+	}
+	for _, e := range []string{"MAPI", "NSPI", "OAB"} {
+		for _, pt := range protoTypes {
+			if pt == e {
+				t.Errorf("Unexpected protocol type %q present without canonical identity", e)
+			}
+		}
+	}
+}
+
+// TestBuildAutodiscoverResponse_TierOutlook_PerAccountOverride verifies that
+// an explicit per-account TierOutlook (2) overrides the global tier decision,
+// but the protocol set is still controlled by global feature flags. When both
+// FeatureEWS and FeatureMAPIHTTP are off globally but per-account tier is
+// TierOutlook, the response advertises only IMAP/SMTP (2 protocols) since
+// Exchange-mode and Outlook-family features are gate-controlled.
+func TestBuildAutodiscoverResponse_TierOutlook_PerAccountOverride(t *testing.T) {
+	s := &Server{}
+
+	// No global gates at all — but per-account tier is set to 2 (TierOutlook).
+	// With all gates off, only IMAP+SMTP are advertised even in TierOutlook.
+	semcore.Gate().Set(semcore.FeatureCanonicalIdentity, false)
+	semcore.Gate().Set(semcore.FeatureEWS, false)
+	semcore.Gate().Set(semcore.FeatureMAPIHTTP, false)
+	defer func() {
+		semcore.Gate().Set(semcore.FeatureCanonicalIdentity, false)
+		semcore.Gate().Set(semcore.FeatureEWS, false)
+		semcore.Gate().Set(semcore.FeatureMAPIHTTP, false)
+	}()
+
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 2)
+	if resp == nil {
+		t.Fatal("Expected non-nil response")
+	}
+
+	// With all Exchange/Outlook gates off, per-account TierOutlook gives only IMAP+SMTP.
+	if len(resp.Response.Account.Protocol) != 2 {
+		t.Errorf("Expected 2 protocols (IMAP+SMTP) with per-account TierOutlook and all gates off, got %d", len(resp.Response.Account.Protocol))
+	}
+
+	// Now enable FeatureEWS and FeatureMAPIHTTP to get the full protocol set.
+	semcore.Gate().Set(semcore.FeatureEWS, true)
+	semcore.Gate().Set(semcore.FeatureMAPIHTTP, true)
+
+	resp2 := s.buildAutodiscoverResponse("user@example.com", "example.com", 2)
+	if resp2 == nil {
+		t.Fatal("Expected non-nil response with gates on")
+	}
+
+	// With both gates on, per-account TierOutlook advertises 6 protocols.
+	if len(resp2.Response.Account.Protocol) != 6 {
+		t.Errorf("Expected 6 protocols (IMAP+SMTP+EWS+MAPI+NSPI+OAB) with per-account TierOutlook and gates on, got %d", len(resp2.Response.Account.Protocol))
+	}
+
+	protoTypes := make([]string, len(resp2.Response.Account.Protocol))
+	for i, p := range resp2.Response.Account.Protocol {
+		protoTypes[i] = p.Type
+	}
+	for _, e := range []string{"MAPI", "NSPI", "OAB"} {
+		found := false
+		for _, pt := range protoTypes {
+			if pt == e {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected protocol type %q not found in response: %v", e, protoTypes)
+		}
+	}
+}
+
 func TestExtractDomainFromRequest(t *testing.T) {
 	tests := []struct {
 		host   string
