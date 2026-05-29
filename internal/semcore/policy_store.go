@@ -28,8 +28,9 @@ type BoltPolicyStore struct {
 }
 
 // NewBoltPolicyStore opens the policy store, creating all buckets if needed.
-func NewBoltPolicyStore(db *bbolt.DB) error {
-	return db.Update(func(tx *bbolt.Tx) error {
+// It returns the store ready for use. The db should be opened with bbolt.Open.
+func NewBoltPolicyStore(db *bbolt.DB) (*BoltPolicyStore, error) {
+	if err := db.Update(func(tx *bbolt.Tx) error {
 		buckets := []string{
 			bucketRule,
 			bucketOOF,
@@ -42,7 +43,10 @@ func NewBoltPolicyStore(db *bbolt.DB) error {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("NewBoltPolicyStore: %w", err)
+	}
+	return &BoltPolicyStore{db: db}, nil
 }
 
 // ---------------------------------------------------------------------------

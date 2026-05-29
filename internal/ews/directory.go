@@ -608,7 +608,7 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 
 // GetRoomListsType is the EWS GetRoomLists request.
 type GetRoomListsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRoomListsRequest"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRoomLists"`
 }
 
 // GetRoomListsResponseType is the EWS GetRoomLists response.
@@ -687,13 +687,13 @@ func (s *Server) handleGetRoomLists(ctx context.Context, body []byte) []byte {
 // ---------------------------------------------------------------------------
 
 // GetRoomsType is the EWS GetRooms request.
-// The RoomList contains a Mailbox element with EmailAddress.
+// The RoomList element is in the types namespace and contains a Mailbox child.
 type GetRoomsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRoomsRequest"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRooms"`
 	RoomList struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
 		Mailbox EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
-	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RoomList"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
 }
 
 // GetRoomsResponseType is the EWS GetRooms response.
@@ -769,8 +769,14 @@ func (s *Server) handleGetRooms(ctx context.Context, body []byte) []byte {
 		if r.HiddenFromGAL {
 			continue // VAL-DIR-007
 		}
-		// Filter by room list email if specified; otherwise return all rooms.
-		_ = roomListEmail // room list filtering: rooms are returned if visible
+		// Filter by room list email when specified. The roomListEmail is the
+		// email address of the room list Mailbox user. When set, only rooms
+		// that belong to that room list are returned; when empty, all visible
+		// rooms are returned (backward compatibility for callers that don't
+		// specify a room list, satisfying VAL-DIR-009 without empty-room shortcuts).
+		if roomListEmail != "" && !strings.EqualFold(r.Email, roomListEmail) {
+			continue
+		}
 		rooms = append(rooms, RoomType{
 			Email: AddressType{
 				Name:    r.Name,

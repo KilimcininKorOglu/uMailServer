@@ -115,11 +115,11 @@ func NewStore(dataDir string) (*Store, error) {
 	s.subscriptions = subscriptions
 
 	// Policy store (rules, OOF, resources, notifications)
-	if err := NewBoltPolicyStore(db); err != nil {
+	s.policy, err = NewBoltPolicyStore(db)
+	if err != nil {
 		_ = db.Close() //nolint:errcheck
 		return nil, fmt.Errorf("semcore.NewStore: policy store: %w", err)
 	}
-	s.policy = &BoltPolicyStore{db: db}
 
 	// Delegation store (delegate grants per mailbox)
 	delegation, err := NewBoltDelegateStore(db)
