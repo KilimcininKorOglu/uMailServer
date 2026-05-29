@@ -694,11 +694,15 @@ func (s *Server) handleGetRoomLists(ctx context.Context, body []byte) []byte {
 
 // GetRoomsType is the EWS GetRooms request.
 // The RoomList element is in the types namespace and contains a Mailbox child.
+// We use MailboxTypeSimple (with explicit XMLName="Mailbox") instead of
+// EmailAddressType because EmailAddressType does not have an XMLName and cannot
+// be decoded properly when used as a direct (non-pointer) field - the Go XML
+// decoder cannot determine the element name for the nested struct.
 type GetRoomsType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRooms"`
 	RoomList struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
-		Mailbox EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
+		Mailbox MailboxTypeSimple `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
 }
 
@@ -754,7 +758,7 @@ func (s *Server) handleGetRooms(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("GetRooms", ErrErrorInvalidOperation, "malformed request: "+err.Error())
 	}
 
-	if req.RoomList.Mailbox.Email == "" {
+	if req.RoomList.Mailbox.EmailAddress == "" {
 		return s.errorResponseXML("GetRooms", ErrErrorInvalidOperation, "RoomList email address is required")
 	}
 
@@ -765,7 +769,7 @@ func (s *Server) handleGetRooms(ctx context.Context, body []byte) []byte {
 	}
 
 	// Filter to rooms in the specified room list.
-	roomListEmail := req.RoomList.Mailbox.Email
+	roomListEmail := req.RoomList.Mailbox.EmailAddress
 
 	var rooms []RoomType
 	for _, r := range resources {

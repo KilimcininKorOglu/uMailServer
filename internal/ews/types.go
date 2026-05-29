@@ -139,6 +139,10 @@ type MailboxType struct {
 }
 
 // DistinguishedFolderIDs maps EWS distinguished folder names to semcore folder roles.
+// NOTE: "calendar" and "contacts" are included to support EWS folder operations
+// (GetFolder, FindItem, etc.) in addition to the CalDAV/CardDAV storage paths
+// used by CreateCalendarItem/CreateContact. The calendar and contacts folders
+// are backed by the collaboration store (collabStore), not the standard message store.
 var DistinguishedFolderIDs = map[string]string{
 	"msgfolderroot": "root",
 	"inbox":         "inbox",
@@ -148,6 +152,8 @@ var DistinguishedFolderIDs = map[string]string{
 	"junkemail":     "spam",
 	"archive":       "archive",
 	"outbox":        "outbox",
+	"calendar":      "calendar",
+	"contacts":      "contacts",
 }
 
 // DistinguishedFolderIdType represents a DistinguishedFolderId element that can
