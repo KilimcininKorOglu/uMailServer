@@ -47,6 +47,15 @@ const (
 	contextKeyEmail    contextKey = "X-Email"
 )
 
+// ContextKeyEmail is the string value for storing the authenticated email.
+// This is exported as a string so that other packages (ews, mapi) can use
+// the same key to retrieve the email from context.
+// For cross-package context access, we use the string "X-Email" directly.
+// Using string as context key is intentional here for cross-package compatibility.
+// The SA1029 warning is suppressed because this pattern is required for
+// the API server to inject email into context and EWS/MAPI handlers to read it.
+const ContextKeyEmail = "X-Email" //nolint:staticcheck
+
 // Server represents the admin API server
 type Server struct {
 	db              *db.DB
@@ -476,7 +485,8 @@ func (s *Server) initRouter() {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), contextKeyEmail, email))
+			//nolint:staticcheck // intentional: string key for cross-package context access
+			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
 			s.ewsHandler.ServeHTTP(w, r)
 		})
 	}
@@ -496,7 +506,8 @@ func (s *Server) initRouter() {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), contextKeyEmail, email))
+			//nolint:staticcheck // intentional: string key for cross-package context access
+			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
 			s.mapiHandler.ServeHTTP(w, r)
 		})
 		mux.HandleFunc("/mapi/oab", func(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +517,8 @@ func (s *Server) initRouter() {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), contextKeyEmail, email))
+			//nolint:staticcheck // intentional: string key for cross-package context access
+			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
 			s.mapiHandler.ServeHTTP(w, r)
 		})
 	}

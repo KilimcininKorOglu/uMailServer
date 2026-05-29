@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
@@ -84,8 +85,18 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-account Exchange compatibility tier.
-	// The email is injected by api.server.ewsBasicAuth into r.Context as "X-Email".
-	if email, ok := r.Context().Value("X-Email").(string); ok && email != "" && s.db != nil {
+	// The email is injected by api.server.ewsBasicAuth into r.Context.
+	// Use the exported ContextKeyEmail string constant to ensure we match the key.
+	var email string
+	if e, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && e != "" {
+		email = e
+		s.logger.Info("EWS HandleHTTP: X-Email from context", "email", email)
+	} else {
+		s.logger.Warn("EWS HandleHTTP: no X-Email in context")
+		email = ""
+	}
+	
+	if email != "" && s.db != nil {
 		if localPart, domain, ok := strings.Cut(email, "@"); ok {
 			if acc, err := s.db.GetAccount(domain, localPart); err == nil && acc != nil {
 				tier := semcore.AccountCompatibilityTier(acc.CompatibilityTier)
@@ -560,6 +571,7 @@ func buildResponseEnvelope(response interface{}) []byte {
 
 // (s *Server) errorResponseXML builds an EWS SOAP error response for the given operation.
 func (s *Server) errorResponseXML(op string, code ErrorCode, message string) []byte {
+	s.logger.Info("errorResponseXML called", "op", op, "code", code, "message", message)
 	var buf bytes.Buffer
 	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
 	buf.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
@@ -749,7 +761,7 @@ type AlternateIdType struct {
 
 // ConvertIdResponseType is the EWS ConvertId response.
 type ConvertIdResponseType struct {
-	XMLName xml.Name `xml:"ConvertIdResponse"`
+	XMLName xml.Name `xml:"m:ConvertIdResponse"`
 	ResponseMessages ConvertIdResponseMessagesType `xml:"ResponseMessages"`
 }
 
@@ -841,11 +853,11 @@ func (s *Server) handleRequestServerVersion(ctx context.Context, body []byte) []
 	// This is treated as an informational request — the server version we
 	// advertise in every response's ServerVersion header is sufficient for
 	// clients that understand the SOAP header convention. We return a simple
-	// success response without making any state changes.
+	// success response with the proper messages namespace.
 	resp := struct {
-		XMLName xml.Name `xml:"RequestServerVersionResponse"`
+		XMLName xml.Name `xml:"m:RequestServerVersionResponse"`
 	}{
-		XMLName: xml.Name{Local: "RequestServerVersionResponse"},
+		XMLName: xml.Name{Local: "RequestServerVersionResponse", Space: EWSMessagesNS},
 	}
 	return buildResponseEnvelope(resp)
 }

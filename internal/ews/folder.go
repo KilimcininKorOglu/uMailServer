@@ -102,6 +102,7 @@ func (s *Server) handleGetFolder(ctx context.Context, body []byte) []byte {
 
 // resolveDistinguishedFolder resolves a distinguished folder by its name.
 // It looks up the folder by its role rather than by folder name.
+// For new accounts, it auto-creates the distinguished folder identity.
 func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.MailboxId, mboxKey, name string) FolderResponseMessageType {
 	role, ok := DistinguishedFolderIDs[name]
 	if !ok {
@@ -113,9 +114,20 @@ func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.
 	folder, err := s.identity.GetFolderByMailbox(mboxKey, role)
 	if err != nil {
 		if errors.Is(err, semcore.ErrFolderNotFound) {
-			return errorMsg("GetFolder", ErrErrorFolderNotFound, fmt.Sprintf("folder with role %q not found", role))
+			// Auto-create the distinguished folder for new accounts.
+			// Uses EnsureFolderId so the operation is idempotent for existing folders.
+			_, err := s.identity.EnsureFolderId(mboxKey, name, role)
+			if err != nil {
+				return errorMsg("GetFolder", ErrErrorInternalServer, "failed to create folder: "+err.Error())
+			}
+			// Reload the folder after creation.
+			folder, err = s.identity.GetFolderByMailbox(mboxKey, role)
+			if err != nil {
+				return errorMsg("GetFolder", ErrErrorFolderNotFound, fmt.Sprintf("folder with role %q not found after creation", role))
+			}
+		} else {
+			return errorMsg("GetFolder", ErrErrorInternalServer, err.Error())
 		}
-		return errorMsg("GetFolder", ErrErrorInternalServer, err.Error())
 	}
 
 	return s.buildFolderResponse(ctx, mboxID, mboxKey, folder.FolderID)
@@ -889,12 +901,20 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 
 // resolveMailboxFromBody resolves the mailbox for the authenticated user.
 // Email is extracted from the X-Email context value (set by HandleHTTP after auth).
+// Uses EnsureMailboxId to register the mailbox identity on first access, so that
+// newly created accounts can immediately use EWS without requiring a separate
+// identity backfill step.
 func (s *Server) resolveMailboxFromBody(ctx context.Context, body []byte) (semcore.MailboxId, string, ErrorCode) {
 	email, ok := ctx.Value("X-Email").(string)
 	if !ok || email == "" {
 		return semcore.MailboxId{}, "", ErrErrorAccessDenied
 	}
-	mboxID, err := s.identity.GetMailboxIDByEmail(email)
+	// Use EnsureMailboxId so that new accounts can immediately use EWS.
+	// The identity is created and persisted on first access; subsequent calls
+	// are idempotent and return the existing ID.
+	s.logger.Info("resolveMailboxFromBody: calling EnsureMailboxId", "email", email)
+	mboxID, err := s.identity.EnsureMailboxId(email)
+	s.logger.Info("resolveMailboxFromBody: EnsureMailboxId result", "email", email, "mboxID", mboxID, "err", err)
 	if err != nil {
 		return semcore.MailboxId{}, "", ErrErrorMailboxNotFound
 	}

@@ -107,7 +107,8 @@ func TestSubscribe_UnknownMailbox(t *testing.T) {
 	srv, cleanup := tmpEWSItemServerWithLifecycle(t)
 	defer cleanup()
 
-	// No mailbox fixtures - should fail.
+	// No mailbox fixtures - EnsureMailboxId auto-creates the mailbox identity,
+	// so the subscription should succeed (mailbox is auto-registered on first access).
 	body := ewsEnvelope("Subscribe", `
 		<PullSubscriptionRequest>
 			<SubscribeToAllFolders>true</SubscribeToAllFolders>
@@ -120,8 +121,9 @@ func TestSubscribe_UnknownMailbox(t *testing.T) {
 	}
 
 	respBody := rec.Body.String()
-	if !strings.Contains(respBody, "ErrorMailboxNotFound") {
-		t.Fatalf("Unknown mailbox should return ErrorMailboxNotFound, got: %s", respBody)
+	// With EnsureMailboxId, unknown mailboxes are auto-created and subscription succeeds.
+	if !strings.Contains(respBody, "SubscriptionId") {
+		t.Fatalf("Subscription should succeed for auto-created mailbox, got: %s", respBody)
 	}
 }
 

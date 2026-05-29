@@ -519,8 +519,11 @@ func (s *BoltIdentityStore) GetFolderByID(id FolderId) (*storedFolderIdentity, e
 // If an identity already exists, the existing ID is returned (idempotent).
 // A new identity is generated using a cryptographically random ID.
 func (s *BoltIdentityStore) EnsureFolderId(mboxKey, folderName, role string) (FolderId, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Fast path: existing identity.
-	if id, err := s.GetFolderID(mboxKey, folderName); err == nil {
+	if id, err := s.GetFolderID_Locked(mboxKey, folderName); err == nil {
 		return id, nil
 	}
 
@@ -530,14 +533,60 @@ func (s *BoltIdentityStore) EnsureFolderId(mboxKey, folderName, role string) (Fo
 		return FolderId{}, fmt.Errorf("EnsureFolderId: generate ID: %w", err)
 	}
 
-	if err := s.PutFolderIdentity(mboxKey, folderName, id, role); err != nil {
+	if err := s.PutFolderIdentity_Locked(mboxKey, folderName, id, role); err != nil {
 		// Race: another goroutine may have created it. Check again.
 		if err == ErrIdentityExists {
-			return s.GetFolderID(mboxKey, folderName)
+			return s.GetFolderID_Locked(mboxKey, folderName)
 		}
 		return FolderId{}, fmt.Errorf("EnsureFolderId: put identity: %w", err)
 	}
+
 	return id, nil
+}
+
+// GetFolderID_Locked is like GetFolderID but requires caller to hold s.mu.
+func (s *BoltIdentityStore) GetFolderID_Locked(mboxKey, folderName string) (FolderId, error) {
+	var id FolderId
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketFolder))
+		data := b.Get([]byte(folderKey(mboxKey, folderName)))
+		if data == nil {
+			return ErrFolderNotFound
+		}
+		var rec storedFolderIdentity
+		if err := json.Unmarshal(data, &rec); err != nil {
+			return fmt.Errorf("unmarshal folder: %w", err)
+		}
+		id = rec.FolderID
+		return nil
+	})
+	return id, err
+}
+
+// PutFolderIdentity_Locked is like PutFolderIdentity but requires caller to hold s.mu.
+func (s *BoltIdentityStore) PutFolderIdentity_Locked(mboxKey, folderName string, id FolderId, role string) error {
+	if id.IsZero() {
+		return errors.New("PutFolderIdentity: zero FolderId")
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketFolder))
+		k := folderKey(mboxKey, folderName)
+		if b.Get([]byte(k)) != nil {
+			return ErrIdentityExists
+		}
+		rec := storedFolderIdentity{
+			FolderID:       id,
+			MailboxID:      MailboxId{raw: mboxKey},
+			Role:           role,
+			HighestModSeq:  0,
+			IsSubscribed:   true,
+		}
+		data, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("marshal folder identity: %w", err)
+		}
+		return b.Put([]byte(k), data)
+	})
 }
 
 // SetFolderParent implements IdentityStore.
