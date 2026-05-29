@@ -68,12 +68,28 @@ func tmpItemStores(t *testing.T) (*semcore.BoltIdentityStore, *semcore.BoltSyncS
 func tmpEWSItemServer(t *testing.T) (*Server, func()) {
 	identity, sync, tomb, msgStore, cleanup := tmpItemStores(t)
 
+	// Create delegate store for permission enforcement tests.
+	delegateDB, err := bbolt.Open(filepath.Join(t.TempDir(), "delegate.db"), 0o600, nil)
+	if err != nil {
+		cleanup()
+		t.Fatalf("bbolt.Open delegate: %v", err)
+	}
+	delegateStore, err := semcore.NewBoltDelegateStore(delegateDB)
+	if err != nil {
+		_ = delegateDB.Close() //nolint:errcheck
+		cleanup()
+		t.Fatalf("NewBoltDelegateStore: %v", err)
+	}
+
 	// Mutation pipeline needs the identity store.
 	pipe := semcore.NewMutationPipeline(identity, nil)
 
-	srv := NewServer(identity, sync, tomb, msgStore, nil, pipe, nil, nil, nil, nil, nil, nil)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, pipe, nil, nil, nil, nil, delegateStore, nil)
 
-	return srv, cleanup
+	return srv, func() {
+		cleanup()
+		_ = delegateDB.Close() //nolint:errcheck
+	}
 }
 
 // ewsItemRequest posts a SOAP request with email injected into context.
@@ -93,6 +109,13 @@ func ewsItemRequest(t *testing.T, srv *Server, email, body string) *httptest.Res
 // ewsEnvelope wraps a bare EWS operation XML in a SOAP envelope.
 func ewsEnvelope(op string, body string) string {
 	return `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><soap:Body><m:` + op + `>` + body + `</m:` + op + `></soap:Body></soap:Envelope>`
+}
+
+// ewsEnvelopeWithAttrs wraps an EWS operation with additional attributes appended
+// to the operation element. Used when SaveItemToFolder must be an ATTRIBUTE (not
+// a child element) so Go's xml.Unmarshal parses it correctly.
+func ewsEnvelopeWithAttrs(op string, attrs string, body string) string {
+	return `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><soap:Body><m:` + op + attrs + `>` + body + `</m:` + op + `></soap:Body></soap:Envelope>`
 }
 
 // ensureMailboxFixtures creates test mailbox and standard folder identities.
@@ -819,3 +842,205 @@ func TestDeleteItem_DifferentModes(t *testing.T) {
 	// by examining the tombstone store.
 }
 
+
+// ---------------------------------------------------------------------------
+// Delegate permission enforcement tests (VAL-DIR-002, VAL-DIR-014)
+// ---------------------------------------------------------------------------
+
+// TestCheckDelegatePermission_DeniesUnprivilegedActor verifies that a delegate
+// without write permission is denied on CreateItem. This satisfies VAL-DIR-002.
+func TestCheckDelegatePermission_DeniesUnprivilegedActor(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	ownerEmail := "owner@local.test"
+	delegateEmail := "delegate@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+	ensureMailboxFixtures(t, srv, delegateEmail)
+
+	// Register owner and delegate with delegate store.
+	if srv.delegateStore != nil {
+		ownerID, _ := srv.identity.GetMailboxIDByEmail(ownerEmail) //nolint:errcheck
+		delegate := &semcore.DelegateUser{
+			OwnerID:       ownerID,
+			DelegateEmail: delegateEmail,
+			Permissions: semcore.DelegateFolderPermissions{
+				Calendar: semcore.DelegateFolderPermissionNone,
+				Inbox:    semcore.DelegateFolderPermissionNone,
+			},
+			GrantedBy: ownerEmail,
+		}
+		_, _ = srv.delegateStore.PutDelegate(delegate) //nolint:errcheck
+	}
+
+	// Delegate attempts to create an item in owner's mailbox via SavedItemFolderId.
+	// DelegateMailbox is a uMailServer EWS extension. SaveItemToFolder must be an
+	// ATTRIBUTE on CreateItem (not a child element) for Go's xml.Unmarshal to parse
+	// it, so the test uses <m:CreateItem SaveItemToFolder="true">.
+	createBody := ewsEnvelopeWithAttrs("CreateItem", ` SaveItemToFolder="true"`, `
+		<m:SavedItemFolderId Id="drafts"/>
+		<m:DelegateMailbox>`+ownerEmail+`</m:DelegateMailbox>
+		<m:Items>
+			<t:Message>
+				<t:Subject>Delegate Attempt</t:Subject>
+				<t:Body BodyType="Text">Should be denied</t:Body>
+			</t:Message>
+		</m:Items>
+	`)
+	rec := ewsItemRequest(t, srv, delegateEmail, createBody)
+	respBody := rec.Body.String()
+
+	// Must receive ErrorAccessDenied, not Success.
+	if !strings.Contains(respBody, "ErrorAccessDenied") {
+		t.Fatalf("Expected ErrorAccessDenied for unprivileged delegate, got: %s", respBody)
+	}
+}
+
+// TestCheckDelegatePermission_AllowsPrivilegedDelegate verifies that a delegate
+// with Author permission on Inbox can create items. This satisfies VAL-DIR-002.
+func TestCheckDelegatePermission_AllowsPrivilegedDelegate(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	ownerEmail := "owner2@local.test"
+	delegateEmail := "delegate2@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+	ensureMailboxFixtures(t, srv, delegateEmail)
+
+	// Register owner and delegate with inbox Author permission.
+	if srv.delegateStore != nil {
+		ownerID, _ := srv.identity.GetMailboxIDByEmail(ownerEmail) //nolint:errcheck
+		delegate := &semcore.DelegateUser{
+			OwnerID:       ownerID,
+			DelegateEmail: delegateEmail,
+			Permissions: semcore.DelegateFolderPermissions{
+				Calendar: semcore.DelegateFolderPermissionNone,
+				Inbox:    semcore.DelegateFolderPermissionAuthor,
+			},
+			GrantedBy: ownerEmail,
+		}
+		_, _ = srv.delegateStore.PutDelegate(delegate) //nolint:errcheck
+	}
+
+	// Privileged delegate creates an item in owner's mailbox.
+	// DelegateMailbox namespaced element carries the owner's email.
+	createBody := ewsEnvelopeWithAttrs("CreateItem", ` SaveItemToFolder="true"`, `
+		<m:SavedItemFolderId Id="drafts"/>
+		<m:DelegateMailbox>`+ownerEmail+`</m:DelegateMailbox>
+		<m:Items>
+			<t:Message>
+				<t:Subject>Delegated Item</t:Subject>
+				<t:Body BodyType="Text">Allowed</t:Body>
+			</t:Message>
+		</m:Items>
+	`)
+	rec := ewsItemRequest(t, srv, delegateEmail, createBody)
+	respBody := rec.Body.String()
+
+	// Must receive Success, not access denied.
+	if !strings.Contains(respBody, `ResponseClass="Success"`) {
+		t.Fatalf("Expected Success for privileged delegate, got: %s", respBody)
+	}
+}
+
+// TestDelegateAuditContext_PresentInLifecycle verifies that when a delegate
+// acts on behalf of an owner, the lifecycle event carries the delegate's
+// identity in the Actor field. This satisfies VAL-DIR-014.
+func TestDelegateAuditContext_PresentInLifecycle(t *testing.T) {
+	// Set up with lifecycle store and delegate store.
+	tmpDir := t.TempDir()
+	identity, _ := semcore.NewBoltIdentityStore(tmpDir)              //nolint:errcheck
+	syncDB, _ := bbolt.Open(filepath.Join(tmpDir, "sync.db"), 0o600, nil)   //nolint:errcheck
+	sync, _ := semcore.NewBoltSyncStateStore(syncDB)                     //nolint:errcheck
+	tombDB, _ := bbolt.Open(filepath.Join(tmpDir, "tomb.db"), 0o600, nil)   //nolint:errcheck
+	tomb, _ := semcore.NewBoltTombstoneStore(tombDB)                       //nolint:errcheck
+	msgStore, _ := storage.NewMessageStore(filepath.Join(tmpDir, "msgs"))   //nolint:errcheck
+	lifecycleDB, _ := bbolt.Open(filepath.Join(tmpDir, "lifecycle.db"), 0o600, nil) //nolint:errcheck
+	lifecycle, errLifecycle := semcore.NewBoltLifecycleStore(lifecycleDB)
+	if errLifecycle != nil {
+		t.Fatalf("NewBoltLifecycleStore: %v", errLifecycle)
+	}
+	delegateDB, _ := bbolt.Open(filepath.Join(tmpDir, "delegate.db"), 0o600, nil) //nolint:errcheck
+	delegateStore, _ := semcore.NewBoltDelegateStore(delegateDB) //nolint:errcheck
+
+	pipe := semcore.NewMutationPipeline(identity, lifecycle)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, pipe, nil, lifecycle, nil, nil, delegateStore, nil)
+
+	ownerEmail := "owner3@local.test"
+	delegateEmail := "delegate3@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+	ensureMailboxFixtures(t, srv, delegateEmail)
+
+	// Register delegate with write permission.
+	ownerID, _ := srv.identity.GetMailboxIDByEmail(ownerEmail) //nolint:errcheck
+	delegate := &semcore.DelegateUser{
+		OwnerID:       ownerID,
+		DelegateEmail: delegateEmail,
+		Permissions: semcore.DelegateFolderPermissions{
+			Inbox: semcore.DelegateFolderPermissionAuthor,
+		},
+		GrantedBy: ownerEmail,
+	}
+	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
+
+	// Delegate creates an item in owner's mailbox.
+	// DelegateMailbox namespaced element carries the owner's email.
+	createBody := ewsEnvelopeWithAttrs("CreateItem", ` SaveItemToFolder="true"`, `
+		<m:SavedItemFolderId Id="drafts"/>
+		<m:DelegateMailbox>`+ownerEmail+`</m:DelegateMailbox>
+		<m:Items>
+			<t:Message>
+				<t:Subject>Audit Test</t:Subject>
+				<t:Body BodyType="Text">Check audit context</t:Body>
+			</t:Message>
+		</m:Items>
+	`)
+	_ = ewsItemRequest(t, srv, delegateEmail, createBody)
+
+	// Poll lifecycle events for the owner's mailbox.
+	events, _, _ := lifecycle.PollEvents(ownerID, 0, 10) //nolint:errcheck
+	found := false
+	for _, e := range events {
+		if strings.Contains(e.Actor, "delegate:") && strings.Contains(e.Actor, "@owner:") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Expected lifecycle event with delegate audit context in owner mailbox, but found none. Events: %+v", events)
+	}
+
+	_ = identity.Close() //nolint:errcheck
+	_ = syncDB.Close()    //nolint:errcheck
+	_ = tombDB.Close()    //nolint:errcheck
+	_ = msgStore.Close()  //nolint:errcheck
+	_ = lifecycleDB.Close() //nolint:errcheck
+	_ = delegateDB.Close() //nolint:errcheck
+}
+
+// TestCheckDelegatePermission_OwnerBypassesCheck verifies that the mailbox
+// owner does not need a delegate grant to act on their own mailbox.
+func TestCheckDelegatePermission_OwnerBypassesCheck(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	ownerEmail := "owner4@local.test"
+	ensureMailboxFixtures(t, srv, ownerEmail)
+
+	// Owner creates an item — no delegate record required.
+	createBody := ewsEnvelope("CreateItem", `
+		<SaveItemToFolder>true</SaveItemToFolder>
+		<Items>
+			<t:Message>
+				<t:Subject>Owner Item</t:Subject>
+				<t:Body BodyType="Text">Owner has access</t:Body>
+			</t:Message>
+		</Items>
+	`)
+	rec := ewsItemRequest(t, srv, ownerEmail, createBody)
+	respBody := rec.Body.String()
+
+	if !strings.Contains(respBody, `ResponseClass="Success"`) {
+		t.Fatalf("Owner should have access without delegate grant, got: %s", respBody)
+	}
+}

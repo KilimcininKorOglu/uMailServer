@@ -4,6 +4,7 @@ package ews
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -29,8 +30,8 @@ type Server struct {
 	collabStore   *semcore.BoltCollaborationStore
 	policyStore   *semcore.BoltPolicyStore
 	delegateStore *semcore.BoltDelegateStore
-	sieveMgr     *sieve.Manager
-	logger       *slog.Logger
+	sieveMgr      *sieve.Manager
+	logger        *slog.Logger
 }
 
 // NewServer creates an EWS handler wired to the canonical semcore stores and storage.
@@ -53,8 +54,8 @@ func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncS
 		collabStore:   collabStore,
 		policyStore:   policyStore,
 		delegateStore: delegateStore,
-		sieveMgr:     sieveMgr,
-		logger:       slog.Default(),
+		sieveMgr:      sieveMgr,
+		logger:        slog.Default(),
 	}
 }
 
@@ -260,6 +261,7 @@ func decodeRequest(syntheticEnv []byte, req interface{}) error {
 		}
 	}
 }
+
 // rewriteEWSMessagePrefix adds the m: prefix to bare EWS message elements (those without m: or t: prefix
 // and without an explicit xmlns declaration). This is needed because Go's xml decoder requires elements
 // to have a namespace (either via prefix or explicit xmlns declaration) for struct tag matching with
@@ -457,7 +459,6 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 	return result
 }
 
-
 // writeSOAPError writes a SOAP fault with the given HTTP status and EWS error code.
 func writeSOAPError(w http.ResponseWriter, status int, code ErrorCode, message string) {
 	env := SOAPEnvelope{
@@ -466,18 +467,18 @@ func writeSOAPError(w http.ResponseWriter, status int, code ErrorCode, message s
 	detail := struct {
 		XMLName xml.Name `xml:"detail"`
 		Value   struct {
-			XMLName      xml.Name `xml:"ResponseCode"`
-			ErrorCode   ErrorCode `xml:"ErrorCode"`
-			ErrorMessage string   `xml:"ErrorMessage"`
+			XMLName      xml.Name  `xml:"ResponseCode"`
+			ErrorCode    ErrorCode `xml:"ErrorCode"`
+			ErrorMessage string    `xml:"ErrorMessage"`
 		} `xml:"ResponseCode"`
 	}{
 		Value: struct {
-			XMLName      xml.Name `xml:"ResponseCode"`
-			ErrorCode   ErrorCode `xml:"ErrorCode"`
-			ErrorMessage string   `xml:"ErrorMessage"`
+			XMLName      xml.Name  `xml:"ResponseCode"`
+			ErrorCode    ErrorCode `xml:"ErrorCode"`
+			ErrorMessage string    `xml:"ErrorMessage"`
 		}{
 			XMLName:      xml.Name{Local: "ResponseCode"},
-			ErrorCode:   code,
+			ErrorCode:    code,
 			ErrorMessage: message,
 		},
 	}
@@ -528,6 +529,85 @@ func (s *Server) errorResponseXML(op string, code ErrorCode, message string) []b
 	buf.WriteString(`</m:` + op + `ResponseMessage>`)
 	buf.WriteString(`</soap:Body>`)
 	buf.WriteString(`</soap:Envelope>`)
+
 	return buf.Bytes()
 }
 
+// ---------------------------------------------------------------------------
+// Delegate permission enforcement helpers
+// ---------------------------------------------------------------------------
+
+// checkDelegatePermission verifies whether the authenticated acting user
+// (actorEmail) has sufficient permission to perform the requested action on
+// the target mailbox (ownerID). It returns an error message and ErrorCode when
+// access is denied, or "" when access is granted.
+//
+// The permission check is scoped to the specific action:
+//   - "read"  — at least Reviewer on the target folder
+//   - "write" — at least Author on the target folder
+//   - "delete" — Author or Delegate permission on the target folder
+//
+// When no delegate grant exists for actorEmail on ownerID, the function
+// returns ErrErrorAccessDenied, satisfying VAL-DIR-002.
+func (s *Server) checkDelegatePermission(ownerID semcore.MailboxId, ownerEmail, actorEmail, action string) (string, ErrorCode) {
+	if s.delegateStore == nil {
+		return "", ""
+	}
+
+	if actorEmail == ownerEmail {
+		return "", ""
+	}
+
+	delegate, err := s.delegateStore.GetDelegateForUser(ownerID, actorEmail)
+	if err != nil {
+		return "no delegate permission for " + actorEmail + " on " + ownerEmail, ErrErrorAccessDenied
+	}
+
+	switch action {
+	case "read":
+		if !delegate.CanActAsDelegate() {
+			return "delegate " + actorEmail + " has no read access on " + ownerEmail, ErrErrorAccessDenied
+		}
+	case "write":
+		if !delegate.Permissions.CanWriteInbox() {
+			return "delegate " + actorEmail + " has no write access on " + ownerEmail, ErrErrorAccessDenied
+		}
+	case "write_calendar":
+		if !delegate.Permissions.CanWriteCalendar() {
+			return "delegate " + actorEmail + " has no calendar write access on " + ownerEmail, ErrErrorAccessDenied
+		}
+	case "delete":
+		if !delegate.Permissions.CanWriteInbox() && !delegate.Permissions.CanWriteCalendar() {
+			return "delegate " + actorEmail + " has no delete access on " + ownerEmail, ErrErrorAccessDenied
+		}
+	}
+
+	return "", ""
+}
+
+// getActingEmail extracts the authenticated user's email from the request context.
+func (s *Server) getActingEmail(ctx context.Context) string {
+	if email, ok := ctx.Value("X-Email").(string); ok && email != "" {
+		return email
+	}
+	return "unknown"
+}
+
+// buildDelegateAuditContext constructs a DelegateAuditContext from the current
+// actor and the mailbox owner. It returns nil when the actor is the mailbox owner
+// (no delegation in play) or when the delegate store is unavailable.
+func (s *Server) buildDelegateAuditContext(ctx context.Context, ownerID semcore.MailboxId, ownerEmail string) *semcore.DelegateAuditContext {
+	actorEmail := s.getActingEmail(ctx)
+	if actorEmail == ownerEmail || actorEmail == "unknown" {
+		return nil
+	}
+	if s.delegateStore == nil {
+		return nil
+	}
+	delegate, err := s.delegateStore.GetDelegateForUser(ownerID, actorEmail)
+	if err != nil {
+		return nil
+	}
+	audit := semcore.NewDelegateAuditContext(ownerID, ownerEmail, actorEmail, delegate.ID)
+	return &audit
+}

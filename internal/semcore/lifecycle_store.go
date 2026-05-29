@@ -69,14 +69,16 @@ const bucketLifecycle = "__semcore_lifecycle"
 const lifecycleBucketSeql = "__semcore_lifecycle_seql"
 
 type storedLifecycleEvent struct {
-	Seq      uint64      `json:"seq"`
-	MailboxID MailboxId  `json:"mailbox_id"`
-	FolderID  FolderId   `json:"folder_id"`
-	ItemID    ItemId    `json:"item_id"`
-	Kind      LifecycleKind `json:"kind"`
-	At        time.Time `json:"at"`
-	Actor     string    `json:"actor"`
-	ChangeKey ChangeKey `json:"change_key"`
+	Seq          uint64        `json:"seq"`
+	MailboxID    MailboxId     `json:"mailbox_id"`
+	FolderID     FolderId      `json:"folder_id"`
+	ItemID       ItemId        `json:"item_id"`
+	Kind         LifecycleKind `json:"kind"`
+	At           time.Time    `json:"at"`
+	Actor        string       `json:"actor"`
+	ChangeKey    ChangeKey    `json:"change_key"`
+	DelegateEmail string      `json:"delegate_email,omitempty"`
+	DelegateID   DelegateId   `json:"delegate_id,omitempty"`
 }
 
 // BoltLifecycleStore persists Lifecycle events in a dedicated bbolt bucket.
@@ -124,33 +126,39 @@ func (s *BoltLifecycleStore) AppendLifecycle(event Lifecycle) error {
 			}
 		}
 		n++
-		// Encode big-endian back.
-		buf := make([]byte, 8)
+		// Encode big-endian bytes for seqB and for the DB key.
+		seqBytes := make([]byte, 8)
+		seqv := n
 		for i := 7; i >= 0; i-- {
-			buf[i] = byte(n)
-			n >>= 8
+			seqBytes[i] = byte(seqv)
+			seqv >>= 8
 		}
-		if err := seqB.Put(k, buf); err != nil {
+		// Update the sequence counter in BE format.
+		if err := seqB.Put(k, seqBytes); err != nil {
 			return fmt.Errorf("update seq: %w", err)
 		}
 
 		rec := storedLifecycleEvent{
-			Seq:       n,
-			MailboxID: event.MailboxID,
-			FolderID:  event.FolderID,
-			ItemID:    event.ItemID,
-			Kind:      event.Kind,
-			At:        event.At,
-			Actor:     event.Actor,
-			ChangeKey: event.ChangeKey,
+			Seq:           n,
+			MailboxID:     event.MailboxID,
+			FolderID:      event.FolderID,
+			ItemID:        event.ItemID,
+			Kind:          event.Kind,
+			At:            event.At,
+			Actor:         event.Actor,
+			ChangeKey:     event.ChangeKey,
+			DelegateEmail: event.DelegateEmail,
+			DelegateID:    event.DelegateID,
 		}
 		data, err := json.Marshal(rec)
 		if err != nil {
 			return fmt.Errorf("marshal lifecycle: %w", err)
 		}
-		// Key format: mailboxID|seq big-endian.
-		key := fmt.Sprintf("%s\x00\x00\x00\x00\x00\x00\x00\x00%08x", event.MailboxID.String(), n)
-		return b.Put([]byte(key), data)
+		// Key: mboxID || seqBigEndian for range scan ordering.
+		key := make([]byte, 0, len(event.MailboxID.String())+8)
+		key = append(key, []byte(event.MailboxID.String())...)
+		key = append(key, seqBytes...)
+		return b.Put(key, data)
 	})
 }
 
@@ -161,15 +169,18 @@ func (s *BoltLifecycleStore) PollEvents(mboxID MailboxId, sinceSeq uint64, limit
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	var result []Lifecycle
 	var highest uint64
 
-	mboxPrefix := mboxID.String()
-	prefix := []byte(mboxPrefix + "\x00\x00\x00\x00\x00\x00\x00\x00")
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketLifecycle))
 		c := b.Cursor()
-		for k, v := c.Seek(prefix); k != nil && bytesHasPrefix(k, prefix); k, v = c.Next() {
+
+		// Use mboxID.String() as the binary prefix for range scan.
+		mboxStr := []byte(mboxID.String())
+		// Seek to first key with this prefix.
+		for k, v := c.Seek(mboxStr); k != nil && len(k) >= len(mboxStr) && string(k[:len(mboxStr)]) == mboxID.String(); k, v = c.Next() {
 			var rec storedLifecycleEvent
 			if err := json.Unmarshal(v, &rec); err != nil {
 				continue
@@ -178,13 +189,15 @@ func (s *BoltLifecycleStore) PollEvents(mboxID MailboxId, sinceSeq uint64, limit
 				continue
 			}
 			result = append(result, Lifecycle{
-				MailboxID:  rec.MailboxID,
-				FolderID:   rec.FolderID,
-				ItemID:     rec.ItemID,
-				Kind:       rec.Kind,
-				At:         rec.At,
-				Actor:      rec.Actor,
-				ChangeKey:  rec.ChangeKey,
+				MailboxID:     rec.MailboxID,
+				FolderID:      rec.FolderID,
+				ItemID:        rec.ItemID,
+				Kind:          rec.Kind,
+				At:            rec.At,
+				Actor:         rec.Actor,
+				ChangeKey:     rec.ChangeKey,
+				DelegateEmail: rec.DelegateEmail,
+				DelegateID:    rec.DelegateID,
 			})
 			if rec.Seq > highest {
 				highest = rec.Seq

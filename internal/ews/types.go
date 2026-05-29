@@ -146,6 +146,29 @@ var DistinguishedFolderIDs = map[string]string{
 	"outbox":        "outbox",
 }
 
+// DistinguishedFolderIdType represents a DistinguishedFolderId element that can
+// optionally carry a Mailbox child element for delegate targeting.
+// When the Mailbox element is present, it indicates the target owner's mailbox
+// that the authenticated delegate is acting on behalf of.
+type DistinguishedFolderIdType struct {
+	XMLName          xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+	ID               string   `xml:"Id,attr"`
+	Mailbox          *MailboxTypeSimple `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
+}
+
+// SavedDistinguishedFolderIdType wraps DistinguishedFolderId for use in
+// SavedItemFolderId, avoiding namespace/tag conflicts with the types variant.
+type SavedDistinguishedFolderIdType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DistinguishedFolderId"`
+	ID     string   `xml:"Id,attr"`
+}
+
+// MailboxTypeSimple holds an email address for delegate mailbox targeting.
+type MailboxTypeSimple struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
+	EmailAddress string `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress,omitempty"`
+}
+
 // FolderResponseShape defines the folder properties to return.
 type FolderResponseShape struct {
 	// BaseShape: IdOnly, Default, AllProperties.

@@ -133,18 +133,27 @@ type Conversation struct {
 // ---------------------------------------------------------------------------
 
 // Lifecycle records a single canonical state transition for an object.
-// All mutations in the canonical pipeline must emit one Lifecycle entry
-// per object changed. Downstream consumers (sync, events, search) derive
-// their view from these entries rather than inferring state from timestamps
-// or filesystem artifacts.
+// Lifecycle records a canonical state transition for a mailbox, folder, or item.
+// It is the authoritative source for sync and event consumers. Every mutation in the
+// canonical pipeline must emit one Lifecycle entry per object changed. Downstream
+// consumers (sync, events, search) derive their view from these entries rather than
+// inferring state from timestamps or filesystem artifacts.
 type Lifecycle struct {
-	MailboxID  MailboxId
-	FolderID   FolderId // zero for mailbox-scoped events
-	ItemID     ItemId   // zero for folder-scoped events
+	MailboxID  MailboxId  // mailbox owning this event
+	FolderID   FolderId   // zero for mailbox-scoped events
+	ItemID     ItemId     // zero for folder-scoped events
 	Kind       LifecycleKind
 	At         time.Time
-	Actor      string // user or system actor that triggered the change
+	Actor      string // user or system actor that triggered the change; for delegate
+	           // actions this carries "delegate:<del>@owner:<owner>" in readable form
 	ChangeKey  ChangeKey
+
+	// DelegateEmail records the delegate's email when a delegate acted on behalf
+	// of a mailbox owner. This allows audit logs and sync consumers to distinguish
+	// delegate actions from direct owner actions (VAL-DIR-014).
+	DelegateEmail string
+	// DelegateID is the delegate grant ID (DelegateId) that authorized the action.
+	DelegateID DelegateId
 }
 
 // IsZero returns true when the entry has no identity set.

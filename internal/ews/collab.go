@@ -45,8 +45,8 @@ import (
 type CreateCalendarItemRequest struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateCalendarItem"`
 	Items   struct {
-		XMLName xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-		Item   []CalendarItemTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
+		XMLName xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+		Item    []CalendarItemTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	SavedItemFolderID struct {
 		DistinguishedFolderID *string `xml:"Id,attr,omitempty"`
@@ -56,42 +56,42 @@ type CreateCalendarItemRequest struct {
 
 // CalendarItemTypeNew is a calendar item in CreateCalendarItem requests.
 type CalendarItemTypeNew struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
-	Subject      string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Body         *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
-	Start        string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start"`
-	End          string `xml:"http://schemas.microsoft.com/exchange/services/2006/types End"`
-	IsAllDay     bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAllDay,attr,omitempty"`
-	Location     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
-	Organizer    *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Organizer,omitempty"`
+	XMLName   xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
+	Subject   string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body      *BodyType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	Start     string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start"`
+	End       string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types End"`
+	IsAllDay  bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAllDay,attr,omitempty"`
+	Location  string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
+	Organizer *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Organizer,omitempty"`
 	//nolint:staticcheck // EWS uses RequiredAttendees as the element name for attendee list.
-	Attendees    *AttendeesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequiredAttendees,omitempty"`
+	Attendees    *AttendeesType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequiredAttendees,omitempty"`
 	Recurrence   *RecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
-	ReminderSet *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/typesReminderSet,attr,omitempty"`
-	Reminder    *ReminderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder,omitempty"`
-	CalendarType *int `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarType,attr,omitempty"`
-	TimeZone     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
+	ReminderSet  *bool           `xml:"http://schemas.microsoft.com/exchange/services/2006/typesReminderSet,attr,omitempty"`
+	Reminder     *ReminderType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder,omitempty"`
+	CalendarType *int            `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarType,attr,omitempty"`
+	TimeZone     string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
 }
 
 // RecurrenceType represents iCal recurrence data in EWS.
 type RecurrenceType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence"`
 	//nolint:staticcheck // govulncheck: EWS requires these specific element names.
-	WeeklyRecurrence       *WeeklyRecurrenceType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types WeeklyRecurrence,omitempty"`
-	DailyRecurrence        *DailyRecurrenceType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types DailyRecurrence,omitempty"`
-	MonthlyRecurrence      *MonthlyRecurrenceType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types MonthlyRecurrence,omitempty"`
-	YearlyRecurrence       *YearlyRecurrenceType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types YearlyRecurrence,omitempty"`
+	WeeklyRecurrence         *WeeklyRecurrenceType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types WeeklyRecurrence,omitempty"`
+	DailyRecurrence          *DailyRecurrenceType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types DailyRecurrence,omitempty"`
+	MonthlyRecurrence        *MonthlyRecurrenceType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types MonthlyRecurrence,omitempty"`
+	YearlyRecurrence         *YearlyRecurrenceType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types YearlyRecurrence,omitempty"`
 	RelativeYearlyRecurrence *RelativeYearlyRecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RelativeYearlyRecurrence,omitempty"`
-	EndDateRecurrence      *EndDateRecurrenceType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndDateRecurrence,omitempty"`
-	NumberedRecurrence     *NumberedRecurrenceType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types NumberedRecurrence,omitempty"`
+	EndDateRecurrence        *EndDateRecurrenceType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndDateRecurrence,omitempty"`
+	NumberedRecurrence       *NumberedRecurrenceType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types NumberedRecurrence,omitempty"`
 }
 
 // WeeklyRecurrenceType represents weekly recurrence.
 type WeeklyRecurrenceType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types WeeklyRecurrence"`
-	Interval   int      `xml:"Interval,attr,omitempty"`
-	DaysOfWeek  string   `xml:"DaysOfWeek,attr,omitempty"`
-	FirstDayOfWeek string `xml:"FirstDayOfWeek,attr,omitempty"`
+	XMLName        xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types WeeklyRecurrence"`
+	Interval       int      `xml:"Interval,attr,omitempty"`
+	DaysOfWeek     string   `xml:"DaysOfWeek,attr,omitempty"`
+	FirstDayOfWeek string   `xml:"FirstDayOfWeek,attr,omitempty"`
 }
 
 // DailyRecurrenceType represents daily recurrence.
@@ -102,66 +102,66 @@ type DailyRecurrenceType struct {
 
 // MonthlyRecurrenceType represents monthly recurrence.
 type MonthlyRecurrenceType struct {
-	XMLName      xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types MonthlyRecurrence"`
-	Interval     int      `xml:"Interval,attr,omitempty"`
-	DayOfMonth   int      `xml:"DayOfMonth,attr,omitempty"`
-	DaysOfWeek   string   `xml:"DaysOfWeek,attr,omitempty"`
-	DayOfWeekIndex string `xml:"DayOfWeekIndex,attr,omitempty"`
+	XMLName        xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types MonthlyRecurrence"`
+	Interval       int      `xml:"Interval,attr,omitempty"`
+	DayOfMonth     int      `xml:"DayOfMonth,attr,omitempty"`
+	DaysOfWeek     string   `xml:"DaysOfWeek,attr,omitempty"`
+	DayOfWeekIndex string   `xml:"DayOfWeekIndex,attr,omitempty"`
 }
 
 // YearlyRecurrenceType represents yearly recurrence.
 type YearlyRecurrenceType struct {
-	XMLName    xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types YearlyRecurrence"`
-	Interval   int      `xml:"Interval,attr,omitempty"`
-	Month      int      `xml:"Month,attr,omitempty"`
-	DayOfMonth  int      `xml:"DayOfMonth,attr,omitempty"`
-	DaysOfWeek  string   `xml:"DaysOfWeek,attr,omitempty"`
-	DayOfWeekIndex string `xml:"DayOfWeekIndex,attr,omitempty"`
+	XMLName        xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types YearlyRecurrence"`
+	Interval       int      `xml:"Interval,attr,omitempty"`
+	Month          int      `xml:"Month,attr,omitempty"`
+	DayOfMonth     int      `xml:"DayOfMonth,attr,omitempty"`
+	DaysOfWeek     string   `xml:"DaysOfWeek,attr,omitempty"`
+	DayOfWeekIndex string   `xml:"DayOfWeekIndex,attr,omitempty"`
 }
 
 // RelativeYearlyRecurrenceType represents relative yearly recurrence.
 type RelativeYearlyRecurrenceType struct {
-	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RelativeYearlyRecurrence"`
-	Interval      int      `xml:"Interval,attr,omitempty"`
-	Month         int      `xml:"Month,attr,omitempty"`
-	DayOfWeek     string   `xml:"DayOfWeek,attr,omitempty"`
-	DayOfWeekIndex string  `xml:"DayOfWeekIndex,attr,omitempty"`
+	XMLName        xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RelativeYearlyRecurrence"`
+	Interval       int      `xml:"Interval,attr,omitempty"`
+	Month          int      `xml:"Month,attr,omitempty"`
+	DayOfWeek      string   `xml:"DayOfWeek,attr,omitempty"`
+	DayOfWeekIndex string   `xml:"DayOfWeekIndex,attr,omitempty"`
 }
 
 // EndDateRecurrenceType represents recurrence with end date.
 type EndDateRecurrenceType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndDateRecurrence"`
-	StartDate string `xml:"StartDate,attr,omitempty"`
-	EndDate  string `xml:"EndDate,attr,omitempty"`
+	XMLName   xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndDateRecurrence"`
+	StartDate string   `xml:"StartDate,attr,omitempty"`
+	EndDate   string   `xml:"EndDate,attr,omitempty"`
 }
 
 // NumberedRecurrenceType represents recurrence with count.
 type NumberedRecurrenceType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types NumberedRecurrence"`
-	StartDate string `xml:"StartDate,attr,omitempty"`
-	NumberOfOccurrences int `xml:"NumberOfOccurrences,attr,omitempty"`
+	XMLName             xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types NumberedRecurrence"`
+	StartDate           string   `xml:"StartDate,attr,omitempty"`
+	NumberOfOccurrences int      `xml:"NumberOfOccurrences,attr,omitempty"`
 }
 
 // AttendeesType holds the attendee list in calendar requests.
 type AttendeesType struct {
-	XMLName   xml.Name        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attendees"`
+	XMLName  xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attendees"`
 	Attendee []AttendeeType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attendee"`
 }
 
 // AttendeeType represents a calendar attendee.
 type AttendeeType struct {
-	XMLName    xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attendee"`
-	Mailbox    EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
-	ResponseRequested *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types ResponseRequested,attr,omitempty"`
+	XMLName           xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attendee"`
+	Mailbox           EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
+	ResponseRequested *bool            `xml:"http://schemas.microsoft.com/exchange/services/2006/types ResponseRequested,attr,omitempty"`
 }
 
 // ReminderType represents a reminder trigger.
 type ReminderType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder"`
-	StartTime string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartTime"`
-	OriginalStart string `xml:"http://schemas.microsoft.com/exchange/services/2006/types OriginalStart"`
-	IsSet    bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsSet,attr,omitempty"`
-	MinutesBeforeStart int `xml:"http://schemas.microsoft.com/exchange/services/2006/types MinutesBeforeStart,attr,omitempty"`
+	XMLName            xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder"`
+	StartTime          string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartTime"`
+	OriginalStart      string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types OriginalStart"`
+	IsSet              bool     `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsSet,attr,omitempty"`
+	MinutesBeforeStart int      `xml:"http://schemas.microsoft.com/exchange/services/2006/types MinutesBeforeStart,attr,omitempty"`
 }
 
 // CreateCalendarItemResponse is the EWS CreateCalendarItem operation response.
@@ -177,15 +177,15 @@ type CreateCalendarItemResponseMessages struct {
 
 // CalendarItemResponseMessageType is one calendar item's result in a response.
 type CalendarItemResponseMessageType struct {
-	XMLName       xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string              `xml:"ResponseClass,attr"`
-	ResponseCode  ResponseCodeType    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	Items        *CalendarItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	XMLName       xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseClass string                  `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	Items         *CalendarItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 }
 
 // CalendarItemsContainer wraps calendar items in response messages.
 type CalendarItemsContainer struct {
-	XMLName xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	XMLName xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	Items   []CalendarItemTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
 }
 
@@ -193,23 +193,23 @@ type CalendarItemsContainer struct {
 type CalendarItemTypeResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
 	//nolint:staticcheck // EWS uses ItemId element name in responses; type is CalendarItemIdType.
-	ItemID   CalendarItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
+	ItemID         CalendarItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	ParentFolderID FolderIdComponents `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
-	Subject      string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Start        string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start,omitempty"`
-	End          string `xml:"http://schemas.microsoft.com/exchange/services/2006/types End,omitempty"`
-	IsAllDay     bool   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAllDay,attr,omitempty"`
-	Location     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
-	CalendarType *int   `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarType,attr,omitempty"`
-	Recurrence   *RecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
-	UID         string `xml:"http://schemas.microsoft.com/exchange/services/2006/types UID,omitempty"`
+	Subject        string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Start          string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start,omitempty"`
+	End            string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types End,omitempty"`
+	IsAllDay       bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAllDay,attr,omitempty"`
+	Location       string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
+	CalendarType   *int               `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarType,attr,omitempty"`
+	Recurrence     *RecurrenceType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
+	UID            string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types UID,omitempty"`
 }
 
 // CalendarItemIdType is the EWS CalendarItemId element.
 type CalendarItemIdType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItemId"`
-	ID      string  `xml:"Id,attr"`
-	CK      string  `xml:"ChangeKey,attr,omitempty"`
+	ID      string   `xml:"Id,attr"`
+	CK      string   `xml:"ChangeKey,attr,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -218,15 +218,15 @@ type CalendarItemIdType struct {
 
 // GetCalendarItemRequest is the EWS GetCalendarItem operation request.
 type GetCalendarItemRequest struct {
-	XMLName     xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetCalendarItem"`
-	ItemShapeDef ItemShapeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
-	ItemIDs    CalendarItemIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+	XMLName      xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetCalendarItem"`
+	ItemShapeDef ItemShapeType       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
+	ItemIDs      CalendarItemIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
 }
 
 // CalendarItemIdsType is a list of calendar item IDs.
 type CalendarItemIdsType struct {
-	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
-	Item   []CalendarItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItemId"`
+	XMLName xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+	Item    []CalendarItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItemId"`
 }
 
 // GetCalendarItemResponse is the EWS GetCalendarItem operation response.
@@ -246,13 +246,13 @@ type GetCalendarItemResponseMessages struct {
 
 // UpdateCalendarItemRequest is the EWS UpdateCalendarItem operation request.
 type UpdateCalendarItemRequest struct {
-	XMLName    xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateCalendarItem"`
+	XMLName     xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateCalendarItem"`
 	ItemChanges CalendarItemChangesList `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
 }
 
 // CalendarItemChangesList wraps the calendar ItemChange list.
 type CalendarItemChangesList struct {
-	XMLName  xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
+	XMLName xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
 	Changes []CalendarItemChangeOp `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemChange"`
 }
 
@@ -261,15 +261,15 @@ type CalendarItemChangeOp struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemChange"`
 	ItemID  struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
-		ID     string   `xml:"Id,attr"`
-		CK     string   `xml:"ChangeKey,attr,omitempty"`
+		ID      string   `xml:"Id,attr"`
+		CK      string   `xml:"ChangeKey,attr,omitempty"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	Updates ItemUpdatesOp `xml:"http://schemas.microsoft.com/exchange/services/2006/types Updates"`
 }
 
 // UpdateCalendarItemResponse is the EWS UpdateCalendarItem operation response.
 type UpdateCalendarItemResponse struct {
-	XMLName xml.Name                          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateCalendarItemResponse"`
+	XMLName xml.Name                           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateCalendarItemResponse"`
 	Msgs    UpdateCalendarItemResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -284,9 +284,9 @@ type UpdateCalendarItemResponseMessages struct {
 
 // DeleteCalendarItemRequest is the EWS DeleteCalendarItem operation request.
 type DeleteCalendarItemRequest struct {
-	XMLName   xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteCalendarItem"`
-	ItemIDs   CalendarItemIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
-	DeleteType string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteType,attr,omitempty"`
+	XMLName    xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteCalendarItem"`
+	ItemIDs    CalendarItemIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+	DeleteType string              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteType,attr,omitempty"`
 }
 
 // DeleteCalendarItemResponse is the EWS DeleteCalendarItem operation response.
@@ -294,8 +294,8 @@ type DeleteCalendarItemResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteCalendarItemResponse"`
 	Msgs    struct {
 		Messages []struct {
-			XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-			ResponseClass string          `xml:"ResponseClass,attr"`
+			XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+			ResponseClass string           `xml:"ResponseClass,attr"`
 			ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 		} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteCalendarItemResponseMessage"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
@@ -310,7 +310,7 @@ type CreateContactRequest struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateContact"`
 	Items   struct {
 		XMLName xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-		Item   []ContactTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+		Item    []ContactTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	SavedItemFolderID struct {
 		DistinguishedFolderID *string `xml:"Id,attr,omitempty"`
@@ -320,57 +320,57 @@ type CreateContactRequest struct {
 
 // ContactTypeNew is a contact item in CreateContact requests.
 type ContactTypeNew struct {
-	XMLName    xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
-	FullName   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
-	GivenName  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
-	Surname    string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
+	XMLName        xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+	FullName       string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
+	GivenName      string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
+	Surname        string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
 	EmailAddresses *EmailAddressesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
-	PhoneNumbers   *PhoneNumbersType `xml:"http://schemas.microsoft.com/exchange/services/2006/types PhoneNumbers,omitempty"`
+	PhoneNumbers   *PhoneNumbersType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types PhoneNumbers,omitempty"`
 	//nolint:staticcheck // EWS uses HomeAddress/WorkAddress as element names; type is PhysicalAddressType.
-	HomeAddress    *PhysicalAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types HomeAddress,omitempty"`
+	HomeAddress *PhysicalAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types HomeAddress,omitempty"`
 	//nolint:staticcheck // EWS uses WorkAddress as element name; type is PhysicalAddressType.
-	WorkAddress    *PhysicalAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkAddress,omitempty"`
-	Organization   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompanyName,omitempty"`
-	Title          string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Title,omitempty"`
-	JobTitle       string `xml:"http://schemas.microsoft.com/exchange/services/2006/types JobTitle,omitempty"`
-	Department     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Department,omitempty"`
-	Notes          string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	WorkAddress  *PhysicalAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkAddress,omitempty"`
+	Organization string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompanyName,omitempty"`
+	Title        string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Title,omitempty"`
+	JobTitle     string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types JobTitle,omitempty"`
+	Department   string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Department,omitempty"`
+	Notes        string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
 }
 
 // EmailAddressesType holds email address entries.
 type EmailAddressesType struct {
-	XMLName xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses"`
-	Entry  []EmailAddressEntry `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
+	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses"`
+	Entry   []EmailAddressEntry `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
 }
 
 // EmailAddressEntry is one email address entry.
 type EmailAddressEntry struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
-	Key    string   `xml:"Key,attr"`
-	Value  string   `xml:",chardata"`
+	Key     string   `xml:"Key,attr"`
+	Value   string   `xml:",chardata"`
 }
 
 // PhoneNumbersType holds phone number entries.
 type PhoneNumbersType struct {
 	XMLName xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/types PhoneNumbers"`
-	Entry  []PhoneNumberEntry `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
+	Entry   []PhoneNumberEntry `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
 }
 
 // PhoneNumberEntry is one phone number entry.
 type PhoneNumberEntry struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
-	Key    string   `xml:"Key,attr"`
-	Value  string   `xml:",chardata"`
+	Key     string   `xml:"Key,attr"`
+	Value   string   `xml:",chardata"`
 }
 
 // PhysicalAddressType represents a structured postal address.
 type PhysicalAddressType struct {
-	XMLName     xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types PhysicalAddress"`
-	Street      string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Street,omitempty"`
-	City        string `xml:"http://schemas.microsoft.com/exchange/services/2006/types City,omitempty"`
-	State       string `xml:"http://schemas.microsoft.com/exchange/services/2006/types State,omitempty"`
-	PostalCode  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types PostalCode,omitempty"`
-	Country     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Country,omitempty"`
+	XMLName    xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types PhysicalAddress"`
+	Street     string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Street,omitempty"`
+	City       string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types City,omitempty"`
+	State      string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types State,omitempty"`
+	PostalCode string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types PostalCode,omitempty"`
+	Country    string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Country,omitempty"`
 }
 
 // CreateContactResponse is the EWS CreateContact operation response.
@@ -386,15 +386,15 @@ type CreateContactResponseMessages struct {
 
 // ContactResponseMessageType is one contact's result in a response.
 type ContactResponseMessageType struct {
-	XMLName       xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string            `xml:"ResponseClass,attr"`
-	ResponseCode  ResponseCodeType   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	Items        *ContactsItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	XMLName       xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseClass string                  `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	Items         *ContactsItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 }
 
 // ContactsItemsContainer wraps contacts in response messages.
 type ContactsItemsContainer struct {
-	XMLName xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	XMLName xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	Items   []ContactTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
 }
 
@@ -402,20 +402,20 @@ type ContactsItemsContainer struct {
 type ContactTypeResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
 	//nolint:staticcheck // EWS uses ItemId element name in responses; type is ContactIdType.
-	ItemID  ContactIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
-	ParentFolderID FolderIdComponents `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
-	FullName  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
-	GivenName string `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
-	Surname   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
+	ItemID         ContactIdType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
+	ParentFolderID FolderIdComponents  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+	FullName       string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
+	GivenName      string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
+	Surname        string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
 	EmailAddresses *EmailAddressesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
-	CompanyName string `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompanyName,omitempty"`
+	CompanyName    string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompanyName,omitempty"`
 }
 
 // ContactIdType is the EWS ContactId element.
 type ContactIdType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContactId"`
-	ID      string  `xml:"Id,attr"`
-	CK      string  `xml:"ChangeKey,attr,omitempty"`
+	ID      string   `xml:"Id,attr"`
+	CK      string   `xml:"ChangeKey,attr,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -424,20 +424,20 @@ type ContactIdType struct {
 
 // GetContactRequest is the EWS GetContact operation request.
 type GetContactRequest struct {
-	XMLName     xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetContact"`
-	ItemShapeDef ItemShapeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
-	ItemIDs    ContactIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+	XMLName      xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetContact"`
+	ItemShapeDef ItemShapeType  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
+	ItemIDs      ContactIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
 }
 
 // ContactIdsType is a list of contact IDs.
 type ContactIdsType struct {
 	XMLName xml.Name        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
-	Item   []ContactIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContactId"`
+	Item    []ContactIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContactId"`
 }
 
 // GetContactResponse is the EWS GetContact operation response.
 type GetContactResponse struct {
-	XMLName xml.Name                    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetContactResponse"`
+	XMLName xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetContactResponse"`
 	Msgs    GetContactResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -452,13 +452,13 @@ type GetContactResponseMessages struct {
 
 // UpdateContactRequest is the EWS UpdateContact operation request.
 type UpdateContactRequest struct {
-	XMLName    xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateContact"`
+	XMLName     xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateContact"`
 	ItemChanges ContactChangesList `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
 }
 
 // ContactChangesList wraps the contact ItemChange list.
 type ContactChangesList struct {
-	XMLName  xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
+	XMLName xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
 	Changes []ContactChangeOp `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemChange"`
 }
 
@@ -467,15 +467,15 @@ type ContactChangeOp struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemChange"`
 	ItemID  struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
-		ID     string   `xml:"Id,attr"`
-		CK     string   `xml:"ChangeKey,attr,omitempty"`
+		ID      string   `xml:"Id,attr"`
+		CK      string   `xml:"ChangeKey,attr,omitempty"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	Updates ItemUpdatesOp `xml:"http://schemas.microsoft.com/exchange/services/2006/types Updates"`
 }
 
 // UpdateContactResponse is the EWS UpdateContact operation response.
 type UpdateContactResponse struct {
-	XMLName xml.Name                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateContactResponse"`
+	XMLName xml.Name                      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateContactResponse"`
 	Msgs    UpdateContactResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -490,9 +490,9 @@ type UpdateContactResponseMessages struct {
 
 // DeleteContactRequest is the EWS DeleteContact operation request.
 type DeleteContactRequest struct {
-	XMLName   xml.Name        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteContact"`
-	ItemIDs   ContactIdsType  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
-	DeleteType string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteType,attr,omitempty"`
+	XMLName    xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteContact"`
+	ItemIDs    ContactIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+	DeleteType string         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteType,attr,omitempty"`
 }
 
 // DeleteContactResponse is the EWS DeleteContact operation response.
@@ -500,8 +500,8 @@ type DeleteContactResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteContactResponse"`
 	Msgs    struct {
 		Messages []struct {
-			XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-			ResponseClass string          `xml:"ResponseClass,attr"`
+			XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+			ResponseClass string           `xml:"ResponseClass,attr"`
 			ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 		} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteContactResponseMessage"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
@@ -515,8 +515,8 @@ type DeleteContactResponse struct {
 type CreateTaskRequest struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateTask"`
 	Items   struct {
-		XMLName xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-		Item   []TaskTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
+		XMLName xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+		Item    []TaskTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	SavedItemFolderID struct {
 		DistinguishedFolderID *string `xml:"Id,attr,omitempty"`
@@ -526,16 +526,16 @@ type CreateTaskRequest struct {
 
 // TaskTypeNew is a task item in CreateTask requests.
 type TaskTypeNew struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
-	Subject      string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Body         *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
-	StartDate    string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartDate,omitempty"`
-	DueDate      string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
-	Status       string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
-	PercentComplete *float64 `xml:"http://schemas.microsoft.com/exchange/services/2006/types PercentComplete,attr,omitempty"`
-	Recurrence   *RecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
-	ReminderSet *bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReminderSet,attr,omitempty"`
-	Reminder    *ReminderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder,omitempty"`
+	XMLName         xml.Name        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
+	Subject         string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body            *BodyType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	StartDate       string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartDate,omitempty"`
+	DueDate         string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
+	Status          string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
+	PercentComplete *float64        `xml:"http://schemas.microsoft.com/exchange/services/2006/types PercentComplete,attr,omitempty"`
+	Recurrence      *RecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
+	ReminderSet     *bool           `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReminderSet,attr,omitempty"`
+	Reminder        *ReminderType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder,omitempty"`
 }
 
 // CreateTaskResponse is the EWS CreateTask operation response.
@@ -551,15 +551,15 @@ type CreateTaskResponseMessages struct {
 
 // TaskResponseMessageType is one task's result in a response.
 type TaskResponseMessageType struct {
-	XMLName       xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string            `xml:"ResponseClass,attr"`
-	ResponseCode  ResponseCodeType   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	Items        *TasksItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	XMLName       xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseClass string               `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	Items         *TasksItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 }
 
 // TasksItemsContainer wraps tasks in response messages.
 type TasksItemsContainer struct {
-	XMLName xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	XMLName xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	Items   []TaskTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
 }
 
@@ -567,21 +567,21 @@ type TasksItemsContainer struct {
 type TaskTypeResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
 	//nolint:staticcheck // EWS uses ItemId element name in responses; type is TaskIdType.
-	ItemID  TaskIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
-	ParentFolderID FolderIdComponents `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
-	Subject   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	StartDate string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartDate,omitempty"`
-	DueDate   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
-	Status    string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
-	PercentComplete float64 `xml:"http://schemas.microsoft.com/exchange/services/2006/types PercentComplete,attr,omitempty"`
-	Recurrence *RecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
+	ItemID          TaskIdType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
+	ParentFolderID  FolderIdComponents `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+	Subject         string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	StartDate       string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartDate,omitempty"`
+	DueDate         string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
+	Status          string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
+	PercentComplete float64            `xml:"http://schemas.microsoft.com/exchange/services/2006/types PercentComplete,attr,omitempty"`
+	Recurrence      *RecurrenceType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
 }
 
 // TaskIdType is the EWS TaskId element.
 type TaskIdType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TaskId"`
-	ID      string  `xml:"Id,attr"`
-	CK      string  `xml:"ChangeKey,attr,omitempty"`
+	ID      string   `xml:"Id,attr"`
+	CK      string   `xml:"ChangeKey,attr,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -590,20 +590,20 @@ type TaskIdType struct {
 
 // GetTaskRequest is the EWS GetTask operation request.
 type GetTaskRequest struct {
-	XMLName     xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetTask"`
+	XMLName      xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetTask"`
 	ItemShapeDef ItemShapeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemShape"`
-	ItemIDs    TaskIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+	ItemIDs      TaskIdsType   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
 }
 
 // TaskIdsType is a list of task IDs.
 type TaskIdsType struct {
-	XMLName xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
-	Item   []TaskIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TaskId"`
+	XMLName xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+	Item    []TaskIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TaskId"`
 }
 
 // GetTaskResponse is the EWS GetTask operation response.
 type GetTaskResponse struct {
-	XMLName xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetTaskResponse"`
+	XMLName xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetTaskResponse"`
 	Msgs    GetTaskResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -618,13 +618,13 @@ type GetTaskResponseMessages struct {
 
 // UpdateTaskRequest is the EWS UpdateTask operation request.
 type UpdateTaskRequest struct {
-	XMLName    xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateTask"`
+	XMLName     xml.Name        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateTask"`
 	ItemChanges TaskChangesList `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
 }
 
 // TaskChangesList wraps the task ItemChange list.
 type TaskChangesList struct {
-	XMLName  xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
+	XMLName xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemChanges"`
 	Changes []TaskChangeOp `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemChange"`
 }
 
@@ -633,15 +633,15 @@ type TaskChangeOp struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemChange"`
 	ItemID  struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
-		ID     string   `xml:"Id,attr"`
-		CK     string   `xml:"ChangeKey,attr,omitempty"`
+		ID      string   `xml:"Id,attr"`
+		CK      string   `xml:"ChangeKey,attr,omitempty"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	Updates ItemUpdatesOp `xml:"http://schemas.microsoft.com/exchange/services/2006/types Updates"`
 }
 
 // UpdateTaskResponse is the EWS UpdateTask operation response.
 type UpdateTaskResponse struct {
-	XMLName xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateTaskResponse"`
+	XMLName xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateTaskResponse"`
 	Msgs    UpdateTaskResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -656,9 +656,9 @@ type UpdateTaskResponseMessages struct {
 
 // DeleteTaskRequest is the EWS DeleteTask operation request.
 type DeleteTaskRequest struct {
-	XMLName   xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteTask"`
-	ItemIDs   TaskIdsType  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
-	DeleteType string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteType,attr,omitempty"`
+	XMLName    xml.Name    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteTask"`
+	ItemIDs    TaskIdsType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+	DeleteType string      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteType,attr,omitempty"`
 }
 
 // DeleteTaskResponse is the EWS DeleteTask operation response.
@@ -666,8 +666,8 @@ type DeleteTaskResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteTaskResponse"`
 	Msgs    struct {
 		Messages []struct {
-			XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-			ResponseClass string          `xml:"ResponseClass,attr"`
+			XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+			ResponseClass string           `xml:"ResponseClass,attr"`
 			ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 		} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteTaskResponseMessage"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
@@ -695,6 +695,15 @@ func (s *Server) handleCreateCalendarItem(ctx context.Context, body []byte) []by
 		return s.errorResponseXML("CreateCalendarItem", ErrErrorInternalServer, "collaboration store not available")
 	}
 
+	// Delegate enforcement (VAL-DIR-002): check calendar write permission for non-owners.
+	actorEmail := s.getActingEmail(ctx)
+	if msg, code := s.checkDelegatePermission(mboxID, mailboxKey, actorEmail, "write_calendar"); code != "" {
+		return s.errorResponseXML("CreateCalendarItem", code, msg)
+	}
+
+	// Build delegate audit context for lifecycle emission (VAL-DIR-014).
+	delegateCtx := s.buildDelegateAuditContext(ctx, mboxID, mailboxKey)
+
 	// Resolve calendar folder ID.
 	folderID, err := s.identity.GetFolderID(mailboxKey, "calendar")
 	if err != nil {
@@ -710,7 +719,7 @@ func (s *Server) handleCreateCalendarItem(ctx context.Context, body []byte) []by
 	msgs := make([]CalendarItemResponseMessageType, 0, len(req.Items.Item))
 	for range req.Items.Item {
 		item := &req.Items.Item[0] // safe: process one at a time
-		msg := s.createCalendarItemInFolder(ctx, mboxID, mailboxKey, folderID, item)
+		msg := s.createCalendarItemInFolder(ctx, mboxID, mailboxKey, folderID, item, delegateCtx)
 		msgs = append(msgs, msg)
 	}
 
@@ -720,7 +729,7 @@ func (s *Server) handleCreateCalendarItem(ctx context.Context, body []byte) []by
 }
 
 // createCalendarItemInFolder creates a calendar item in the target folder.
-func (s *Server) createCalendarItemInFolder(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *CalendarItemTypeNew) CalendarItemResponseMessageType {
+func (s *Server) createCalendarItemInFolder(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *CalendarItemTypeNew, delegateCtx *semcore.DelegateAuditContext) CalendarItemResponseMessageType {
 	if folderID.IsZero() {
 		return errorCalendarMsg("CreateCalendarItem", ErrErrorInternalServer, "no target folder")
 	}
@@ -757,15 +766,20 @@ func (s *Server) createCalendarItemInFolder(ctx context.Context, mboxID semcore.
 		return errorCalendarMsg("CreateCalendarItem", ErrErrorInternalServer, "failed to store identity: "+err.Error())
 	}
 
-	// Emit lifecycle event.
+	// Emit lifecycle event with delegate audit context (VAL-DIR-014).
 	if s.lifecycle != nil {
 		lc := semcore.Lifecycle{
 			MailboxID: mboxID,
-			FolderID: folderID,
-			Kind:     semcore.LifecycleKindCreated,
-			At:       time.Now(),
-			Actor:    mailboxKey,
+			FolderID:  folderID,
+			Kind:      semcore.LifecycleKindCreated,
+			At:        time.Now(),
+			Actor:     mailboxKey,
 			ChangeKey: semcore.ChangeKey{},
+		}
+		if delegateCtx != nil {
+			lc.Actor = fmt.Sprintf("delegate:%s@owner:%s", delegateCtx.DelegateEmail, delegateCtx.OwnerEmail)
+			lc.DelegateEmail = delegateCtx.DelegateEmail
+			lc.DelegateID = delegateCtx.DelegateID
 		}
 		_ = lc // lifecycle used for sync/event consumers
 	}
@@ -774,14 +788,14 @@ func (s *Server) createCalendarItemInFolder(ctx context.Context, mboxID semcore.
 		ResponseClass: "Success",
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
 		Items: &CalendarItemsContainer{Items: []CalendarItemTypeResponse{{
-			ItemID:   CalendarItemIdType{ID: calItemID.String(), CK: calCK.String()},
+			ItemID:         CalendarItemIdType{ID: calItemID.String(), CK: calCK.String()},
 			ParentFolderID: FolderIdComponents{ID: folderID.String()},
-			Subject:  item.Subject,
-			Start:    FormatEWSDateTime(start),
-			End:      FormatEWSDateTime(end),
-			IsAllDay:  item.IsAllDay,
-			Location:  item.Location,
-			UID:      uid,
+			Subject:        item.Subject,
+			Start:          FormatEWSDateTime(start),
+			End:            FormatEWSDateTime(end),
+			IsAllDay:       item.IsAllDay,
+			Location:       item.Location,
+			UID:            uid,
 		}}},
 	}
 }
@@ -838,9 +852,9 @@ func (s *Server) getCalendarItemByID(ctx context.Context, mboxID semcore.Mailbox
 		ResponseClass: "Success",
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
 		Items: &CalendarItemsContainer{Items: []CalendarItemTypeResponse{{
-			ItemID:   CalendarItemIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+			ItemID:         CalendarItemIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
 			ParentFolderID: FolderIdComponents{ID: rec.FolderID.String()},
-			UID: rec.IcalUID,
+			UID:            rec.IcalUID,
 		}}},
 	}
 }
@@ -852,15 +866,24 @@ func (s *Server) handleUpdateCalendarItem(ctx context.Context, body []byte) []by
 		return s.errorResponseXML("UpdateCalendarItem", ErrErrorInvalidOperation, "malformed request: "+err.Error())
 	}
 
-	_, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	mboxID, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
 	if errCode != "" {
 		return s.errorResponseXML("UpdateCalendarItem", errCode, "could not resolve mailbox")
 	}
-	_ = mboxKey // unused but required by resolveMailboxFromBody contract
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
 
 	if s.collabStore == nil {
 		return s.errorResponseXML("UpdateCalendarItem", ErrErrorInternalServer, "collaboration store not available")
 	}
+
+	// Delegate enforcement (VAL-DIR-002): check calendar write permission for non-owners.
+	actorEmail := s.getActingEmail(ctx)
+	if msg, code := s.checkDelegatePermission(mboxID, mailboxKey, actorEmail, "write_calendar"); code != "" {
+		return s.errorResponseXML("UpdateCalendarItem", code, msg)
+	}
+
+	// Build delegate audit context for lifecycle emission (VAL-DIR-014).
+	delegateCtx := s.buildDelegateAuditContext(ctx, mboxID, mailboxKey)
 
 	messages := make([]CalendarItemResponseMessageType, 0, len(req.ItemChanges.Changes))
 	for _, ic := range req.ItemChanges.Changes {
@@ -904,11 +927,32 @@ func (s *Server) handleUpdateCalendarItem(ctx context.Context, body []byte) []by
 			continue
 		}
 
+		// Emit lifecycle event with delegate audit context (VAL-DIR-014).
+		// Note: Calendar items use CalendarChangeKey, not ChangeKey, so we
+		// use zero value here to avoid type mismatch. Calendar lifecycle
+		// events carry the collab object identity rather than mail ItemId.
+		if s.lifecycle != nil {
+			lc := semcore.Lifecycle{
+				MailboxID: mboxID,
+				FolderID:  rec.FolderID,
+				Kind:      semcore.LifecycleKindUpdated,
+				At:        time.Now(),
+				Actor:     mailboxKey,
+				ChangeKey: semcore.ChangeKey{},
+			}
+			if delegateCtx != nil {
+				lc.Actor = fmt.Sprintf("delegate:%s@owner:%s", delegateCtx.DelegateEmail, delegateCtx.OwnerEmail)
+				lc.DelegateEmail = delegateCtx.DelegateEmail
+				lc.DelegateID = delegateCtx.DelegateID
+			}
+			_ = s.lifecycle.AppendLifecycle(lc) //nolint:errcheck
+		}
+
 		messages = append(messages, CalendarItemResponseMessageType{
 			ResponseClass: "Success",
 			ResponseCode:  ResponseCodeType{Value: ErrNoError},
 			Items: &CalendarItemsContainer{Items: []CalendarItemTypeResponse{{
-				ItemID:   CalendarItemIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+				ItemID:         CalendarItemIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
 				ParentFolderID: FolderIdComponents{ID: rec.FolderID.String()},
 			}}},
 		})
@@ -926,19 +970,28 @@ func (s *Server) handleDeleteCalendarItem(ctx context.Context, body []byte) []by
 		return s.errorResponseXML("DeleteCalendarItem", ErrErrorInvalidOperation, "malformed request: "+err.Error())
 	}
 
-	_, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	mboxID, rawKey, errCode := s.resolveMailboxFromBody(ctx, body)
 	if errCode != "" {
 		return s.errorResponseXML("DeleteCalendarItem", errCode, "could not resolve mailbox")
 	}
-	_ = mboxKey
+	mailboxKey := strings.TrimPrefix(rawKey, "e:")
 
 	if s.collabStore == nil {
 		return s.errorResponseXML("DeleteCalendarItem", ErrErrorInternalServer, "collaboration store not available")
 	}
 
+	// Delegate enforcement (VAL-DIR-002): check delete permission for non-owners.
+	actorEmail := s.getActingEmail(ctx)
+	if msg, code := s.checkDelegatePermission(mboxID, mailboxKey, actorEmail, "delete"); code != "" {
+		return s.errorResponseXML("DeleteCalendarItem", code, msg)
+	}
+
+	// Build delegate audit context for lifecycle emission (VAL-DIR-014).
+	delegateCtx := s.buildDelegateAuditContext(ctx, mboxID, mailboxKey)
+
 	responses := make([]struct {
-		XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-		ResponseClass string          `xml:"ResponseClass,attr"`
+		XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+		ResponseClass string           `xml:"ResponseClass,attr"`
 		ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	}, 0, len(req.ItemIDs.Item))
 
@@ -967,6 +1020,23 @@ func (s *Server) handleDeleteCalendarItem(ctx context.Context, body []byte) []by
 			continue
 		}
 
+		// Emit lifecycle event with delegate audit context (VAL-DIR-014).
+		if s.lifecycle != nil {
+			lc := semcore.Lifecycle{
+				MailboxID: mboxID,
+				FolderID:  rec.FolderID,
+				Kind:      semcore.LifecycleKindSoftDeleted,
+				At:        time.Now(),
+				Actor:     mailboxKey,
+			}
+			if delegateCtx != nil {
+				lc.Actor = fmt.Sprintf("delegate:%s@owner:%s", delegateCtx.DelegateEmail, delegateCtx.OwnerEmail)
+				lc.DelegateEmail = delegateCtx.DelegateEmail
+				lc.DelegateID = delegateCtx.DelegateID
+			}
+			_ = s.lifecycle.AppendLifecycle(lc) //nolint:errcheck
+		}
+
 		responses = append(responses, deleteCalErrMsg("Success", ResponseCodeType{Value: ErrNoError}))
 	}
 
@@ -976,13 +1046,13 @@ func (s *Server) handleDeleteCalendarItem(ctx context.Context, body []byte) []by
 }
 
 func deleteCalErrMsg(class string, code ResponseCodeType) struct {
-	XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string          `xml:"ResponseClass,attr"`
+	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseClass string           `xml:"ResponseClass,attr"`
 	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 } {
 	return struct {
-		XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-		ResponseClass string          `xml:"ResponseClass,attr"`
+		XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+		ResponseClass string           `xml:"ResponseClass,attr"`
 		ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	}{
 		ResponseClass: class,
@@ -1067,11 +1137,11 @@ func (s *Server) createContactInFolder(ctx context.Context, mboxID semcore.Mailb
 		ResponseClass: "Success",
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
 		Items: &ContactsItemsContainer{Items: []ContactTypeResponse{{
-			ItemID:   ContactIdType{ID: contactID.String(), CK: contactCK.String()},
+			ItemID:         ContactIdType{ID: contactID.String(), CK: contactCK.String()},
 			ParentFolderID: FolderIdComponents{ID: folderID.String()},
-			FullName:  item.FullName,
-			GivenName: item.GivenName,
-			Surname:   item.Surname,
+			FullName:       item.FullName,
+			GivenName:      item.GivenName,
+			Surname:        item.Surname,
 		}}},
 	}
 }
@@ -1127,7 +1197,7 @@ func (s *Server) getContactByID(ctx context.Context, mboxID semcore.MailboxId, i
 		ResponseClass: "Success",
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
 		Items: &ContactsItemsContainer{Items: []ContactTypeResponse{{
-			ItemID:   ContactIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+			ItemID:         ContactIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
 			ParentFolderID: FolderIdComponents{ID: rec.FolderID.String()},
 		}}},
 	}
@@ -1192,7 +1262,7 @@ func (s *Server) handleUpdateContact(ctx context.Context, body []byte) []byte {
 			ResponseClass: "Success",
 			ResponseCode:  ResponseCodeType{Value: ErrNoError},
 			Items: &ContactsItemsContainer{Items: []ContactTypeResponse{{
-				ItemID:   ContactIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+				ItemID:         ContactIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
 				ParentFolderID: FolderIdComponents{ID: rec.FolderID.String()},
 			}}},
 		})
@@ -1221,8 +1291,8 @@ func (s *Server) handleDeleteContact(ctx context.Context, body []byte) []byte {
 	}
 
 	responses := make([]struct {
-		XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-		ResponseClass string          `xml:"ResponseClass,attr"`
+		XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+		ResponseClass string           `xml:"ResponseClass,attr"`
 		ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	}, 0, len(req.ItemIDs.Item))
 
@@ -1259,13 +1329,13 @@ func (s *Server) handleDeleteContact(ctx context.Context, body []byte) []byte {
 }
 
 func deleteContactErrMsg(class string, code ResponseCodeType) struct {
-	XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string          `xml:"ResponseClass,attr"`
+	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseClass string           `xml:"ResponseClass,attr"`
 	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 } {
 	return struct {
-		XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-		ResponseClass string          `xml:"ResponseClass,attr"`
+		XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+		ResponseClass string           `xml:"ResponseClass,attr"`
 		ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	}{
 		ResponseClass: class,
@@ -1357,11 +1427,11 @@ func (s *Server) createTaskInFolder(ctx context.Context, mboxID semcore.MailboxI
 		ResponseClass: "Success",
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
 		Items: &TasksItemsContainer{Items: []TaskTypeResponse{{
-			ItemID:   TaskIdType{ID: taskID.String(), CK: taskCK.String()},
+			ItemID:         TaskIdType{ID: taskID.String(), CK: taskCK.String()},
 			ParentFolderID: FolderIdComponents{ID: folderID.String()},
-			Subject:   item.Subject,
-			DueDate:   FormatEWSDateTime(dueDate),
-			Status:    item.Status,
+			Subject:        item.Subject,
+			DueDate:        FormatEWSDateTime(dueDate),
+			Status:         item.Status,
 		}}},
 	}
 }
@@ -1417,7 +1487,7 @@ func (s *Server) getTaskByID(ctx context.Context, mboxID semcore.MailboxId, id T
 		ResponseClass: "Success",
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
 		Items: &TasksItemsContainer{Items: []TaskTypeResponse{{
-			ItemID:   TaskIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+			ItemID:         TaskIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
 			ParentFolderID: FolderIdComponents{ID: rec.FolderID.String()},
 		}}},
 	}
@@ -1482,7 +1552,7 @@ func (s *Server) handleUpdateTask(ctx context.Context, body []byte) []byte {
 			ResponseClass: "Success",
 			ResponseCode:  ResponseCodeType{Value: ErrNoError},
 			Items: &TasksItemsContainer{Items: []TaskTypeResponse{{
-				ItemID:   TaskIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+				ItemID:         TaskIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
 				ParentFolderID: FolderIdComponents{ID: rec.FolderID.String()},
 			}}},
 		})
@@ -1511,8 +1581,8 @@ func (s *Server) handleDeleteTask(ctx context.Context, body []byte) []byte {
 	}
 
 	responses := make([]struct {
-		XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-		ResponseClass string          `xml:"ResponseClass,attr"`
+		XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+		ResponseClass string           `xml:"ResponseClass,attr"`
 		ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	}, 0, len(req.ItemIDs.Item))
 
@@ -1549,13 +1619,13 @@ func (s *Server) handleDeleteTask(ctx context.Context, body []byte) []byte {
 }
 
 func deleteTaskErrMsg(class string, code ResponseCodeType) struct {
-	XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string          `xml:"ResponseClass,attr"`
+	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	ResponseClass string           `xml:"ResponseClass,attr"`
 	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 } {
 	return struct {
-		XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-		ResponseClass string          `xml:"ResponseClass,attr"`
+		XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+		ResponseClass string           `xml:"ResponseClass,attr"`
 		ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	}{
 		ResponseClass: class,
@@ -1857,6 +1927,7 @@ func recurrenceRange(s string) semcore.RecurrenceRange {
 // reminderFromEWSTrigger converts an EWS ReminderType to a ReminderTrigger.
 // VAL-COLLAB-012: reminder and notification lifecycle persist across edits,
 // recurrence, and projection rereads.
+//
 //nolint:unused
 func reminderFromEWSTrigger(r *ReminderType) *semcore.ReminderTrigger {
 	if r == nil {
@@ -1874,6 +1945,7 @@ func reminderFromEWSTrigger(r *ReminderType) *semcore.ReminderTrigger {
 }
 
 // ParseEWSDuration parses an EWS duration string (e.g., "PT5M", "P1D").
+//
 //nolint:unused
 var durationRE = regexp.MustCompile(`^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?$`)
 
@@ -1907,6 +1979,7 @@ func parseEWSDuration(s string) time.Duration {
 
 // sortAttendees sorts attendees deterministically by email address.
 // Satisfies VAL-COLLAB-004: attendee state transitions converge.
+//
 //nolint:unused
 func sortAttendees(attendees []semcore.Attendee) {
 	sort.Slice(attendees, func(i, j int) bool {

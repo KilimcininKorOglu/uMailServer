@@ -86,6 +86,11 @@ type MutationInput struct {
 	// (e.g., \Recent for IMAP append). These are stored as keywords,
 	// not as canonical semantic state — the pipeline does not interpret them.
 	UserFlags []string
+
+	// DelegateAuditContext is set when a delegate is acting on behalf of a mailbox owner.
+	// It is used to populate the Lifecycle event Actor field so that audit logs and
+	// sync consumers can distinguish delegate actions from direct owner actions.
+	DelegateAuditContext *DelegateAuditContext
 }
 
 // MutationResult contains the canonical identities and metadata assigned
@@ -304,8 +309,10 @@ func generateID() string {
 // emitLifecycle creates a Lifecycle event for a new item creation.
 // The event uses the item's own ItemID and the folder's FolderID so that
 // sync and event consumers can attribute the change correctly.
-func emitLifecycle(mboxID MailboxId, folderID FolderId, itemID ItemId, ck ChangeKey, actor string) Lifecycle {
-	return Lifecycle{
+// When delegateCtx is provided, the actor field carries both the acting delegate
+// and the represented mailbox owner in auditable form.
+func emitLifecycle(mboxID MailboxId, folderID FolderId, itemID ItemId, ck ChangeKey, actor string, delegateCtx *DelegateAuditContext) Lifecycle {
+	lc := Lifecycle{
 		MailboxID: mboxID,
 		FolderID:  folderID,
 		ItemID:    itemID,
@@ -314,6 +321,14 @@ func emitLifecycle(mboxID MailboxId, folderID FolderId, itemID ItemId, ck Change
 		Actor:     actor,
 		ChangeKey: ck,
 	}
+	if delegateCtx != nil {
+		// Encode delegate context in Actor field: "delegate:<email>@owner:<email>".
+		// This is human-readable and can be parsed by audit consumers.
+		lc.Actor = fmt.Sprintf("delegate:%s@owner:%s", delegateCtx.DelegateEmail, delegateCtx.OwnerEmail)
+		lc.DelegateEmail = delegateCtx.DelegateEmail
+		lc.DelegateID = delegateCtx.DelegateID
+	}
+	return lc
 }
 
 // ---------------------------------------------------------------------------
@@ -392,7 +407,9 @@ func (p *MutationPipeline) MutateItem(in *MutationInput) (*MutationResult, error
 	}
 
 	// 7. Emit lifecycle event for the change journal.
-	lifecycle := emitLifecycle(in.MailboxID, in.FolderID, itemID, ck, in.Actor)
+	// DelegateAuditContext is threaded through so audit consumers can distinguish
+	// delegate actions from direct owner actions.
+	lifecycle := emitLifecycle(in.MailboxID, in.FolderID, itemID, ck, in.Actor, in.DelegateAuditContext)
 
 	// 8. Return result for downstream consumers.
 	return &MutationResult{
@@ -431,6 +448,9 @@ type UpdateInput struct {
 
 	// Subject update (normalized before storage).
 	Subject *string
+
+	// DelegateAuditContext is set when a delegate is acting on behalf of a mailbox owner.
+	DelegateAuditContext *DelegateAuditContext
 }
 
 // UpdateResult contains the updated state after a canonical mutation.
@@ -477,15 +497,21 @@ func (p *MutationPipeline) MutateUpdate(in *UpdateInput) (*UpdateResult, error) 
 		return nil, fmt.Errorf("MutateUpdate: put ChangeKey: %w", err)
 	}
 
-	// Emit lifecycle event.
+	// Emit lifecycle event with delegate audit context when present.
 	lifecycle := Lifecycle{
-		MailboxID: in.MailboxID,
-		FolderID:  in.FolderID,
-		ItemID:    in.ItemID,
-		Kind:      LifecycleKindUpdated,
-		At:        time.Now(),
-		Actor:     in.Actor,
-		ChangeKey: newCK,
+		MailboxID:     in.MailboxID,
+		FolderID:      in.FolderID,
+		ItemID:        in.ItemID,
+		Kind:          LifecycleKindUpdated,
+		At:            time.Now(),
+		Actor:         in.Actor,
+		ChangeKey:     newCK,
+		DelegateEmail: "",
+	}
+	if in.DelegateAuditContext != nil {
+		lifecycle.Actor = fmt.Sprintf("delegate:%s@owner:%s", in.DelegateAuditContext.DelegateEmail, in.DelegateAuditContext.OwnerEmail)
+		lifecycle.DelegateEmail = in.DelegateAuditContext.DelegateEmail
+		lifecycle.DelegateID = in.DelegateAuditContext.DelegateID
 	}
 
 	// Persist lifecycle event if store is wired.
@@ -513,6 +539,9 @@ type DeleteInput struct {
 	Actor      string
 	Source     MutationSource
 	HardDelete bool // true = permanent; false = soft-delete (move to trash)
+
+	// DelegateAuditContext is set when a delegate is acting on behalf of a mailbox owner.
+	DelegateAuditContext *DelegateAuditContext
 }
 
 // MutateDelete performs a canonical item delete: recording a tombstone
@@ -553,14 +582,21 @@ func (p *MutationPipeline) MutateDelete(in *DeleteInput, tombstore *BoltTombston
 	}
 
 	// Persist lifecycle event so GetEvents and sync consumers see the deletion.
+	// DelegateAuditContext is threaded through for VAL-DIR-014 audit trail.
 	if p.lifecycle != nil {
 		lifecycle := Lifecycle{
-			MailboxID: in.MailboxID,
-			FolderID:  in.FolderID,
-			ItemID:    in.ItemID,
-			Kind:      kind,
-			At:        time.Now(),
-			Actor:     in.Actor,
+			MailboxID:     in.MailboxID,
+			FolderID:      in.FolderID,
+			ItemID:        in.ItemID,
+			Kind:          kind,
+			At:            time.Now(),
+			Actor:         in.Actor,
+			DelegateEmail: "",
+		}
+		if in.DelegateAuditContext != nil {
+			lifecycle.Actor = fmt.Sprintf("delegate:%s@owner:%s", in.DelegateAuditContext.DelegateEmail, in.DelegateAuditContext.OwnerEmail)
+			lifecycle.DelegateEmail = in.DelegateAuditContext.DelegateEmail
+			lifecycle.DelegateID = in.DelegateAuditContext.DelegateID
 		}
 		//nolint:errcheck
 		_ = p.lifecycle.AppendLifecycle(lifecycle) // best-effort
@@ -581,6 +617,9 @@ type MoveInput struct {
 	DestFolder    FolderId
 	Actor         string
 	Source        MutationSource
+
+	// DelegateAuditContext is set when a delegate is acting on behalf of a mailbox owner.
+	DelegateAuditContext *DelegateAuditContext
 }
 
 // MutateMove performs a canonical item move: recording a LifecycleKindMoved
@@ -631,6 +670,12 @@ func (p *MutationPipeline) MutateMove(in *MoveInput) error {
 		At:        time.Now(),
 		Actor:     in.Actor,
 		ChangeKey: current.ChangeKey,
+		DelegateEmail: "",
+	}
+	if in.DelegateAuditContext != nil {
+		lifecycle.Actor = fmt.Sprintf("delegate:%s@owner:%s", in.DelegateAuditContext.DelegateEmail, in.DelegateAuditContext.OwnerEmail)
+		lifecycle.DelegateEmail = in.DelegateAuditContext.DelegateEmail
+		lifecycle.DelegateID = in.DelegateAuditContext.DelegateID
 	}
 
 	// Persist lifecycle event if store is wired.
