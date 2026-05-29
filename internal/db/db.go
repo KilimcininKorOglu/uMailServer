@@ -39,27 +39,28 @@ type DB struct {
 
 // AccountData holds account information
 type AccountData struct {
-	Email              string    `json:"email"`
-	LocalPart          string    `json:"local_part"`
-	Domain             string    `json:"domain"`
-	PasswordHash       string    `json:"password_hash"`
-	APOPHash           string    `json:"apop_hash,omitempty"` // SHA-256(password) for APOP authentication
-	TOTPSecret         string    `json:"totp_secret,omitempty"`
-	TOTPEnabled        bool      `json:"totp_enabled"`
-	TOTPLastUsedStep   int64     `json:"totp_last_used_step,omitempty"`
-	QuotaUsed          int64     `json:"quota_used"`
-	QuotaLimit         int64     `json:"quota_limit"`
-	MaxMessageSize     int64     `json:"max_message_size"`
-	ForwardTo          string    `json:"forward_to,omitempty"`
-	ForwardKeepCopy    bool      `json:"forward_keep_copy"`
-	SieveScript        string    `json:"sieve_script,omitempty"`
-	VacationSettings   string    `json:"vacation_settings,omitempty"`
-	MustChangePassword bool      `json:"must_change_password"`
-	IsAdmin            bool      `json:"is_admin"`
-	IsActive           bool      `json:"is_active"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
-	LastLoginAt        time.Time `json:"last_login_at,omitempty"`
+	Email               string    `json:"email"`
+	LocalPart           string    `json:"local_part"`
+	Domain              string    `json:"domain"`
+	PasswordHash        string    `json:"password_hash"`
+	APOPHash            string    `json:"apop_hash,omitempty"` // SHA-256(password) for APOP authentication
+	TOTPSecret          string    `json:"totp_secret,omitempty"`
+	TOTPEnabled         bool      `json:"totp_enabled"`
+	TOTPLastUsedStep    int64     `json:"totp_last_used_step,omitempty"`
+	QuotaUsed           int64     `json:"quota_used"`
+	QuotaLimit          int64     `json:"quota_limit"`
+	MaxMessageSize      int64     `json:"max_message_size"`
+	ForwardTo           string    `json:"forward_to,omitempty"`
+	ForwardKeepCopy     bool      `json:"forward_keep_copy"`
+	SieveScript         string    `json:"sieve_script,omitempty"`
+	VacationSettings    string    `json:"vacation_settings,omitempty"`
+	MustChangePassword  bool      `json:"must_change_password"`
+	IsAdmin             bool      `json:"is_admin"`
+	IsActive            bool      `json:"is_active"`
+	CompatibilityTier   uint8     `json:"compatibility_tier"` // per-account Exchange compatibility tier; 0 = TierIMAPOnly, 1 = TierExchange; defaults to 0
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+	LastLoginAt         time.Time `json:"last_login_at,omitempty"`
 }
 
 // ClientSession holds HTTP/API client session information for the account portal.

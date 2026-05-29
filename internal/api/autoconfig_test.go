@@ -190,7 +190,7 @@ func TestHandleAutoconfig_EmptyDomain(t *testing.T) {
 func TestBuildAutodiscoverResponse(t *testing.T) {
 	s := &Server{}
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com")
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}
@@ -221,7 +221,7 @@ func TestBuildAutodiscoverResponse_ExchangeTier(t *testing.T) {
 		semcore.Gate().Set(semcore.FeatureEWS, false)
 	}()
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com")
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}
@@ -260,7 +260,7 @@ func TestBuildAutodiscoverResponse_IMAPOnlyTier(t *testing.T) {
 		semcore.Gate().Set(semcore.FeatureEWS, false)
 	}()
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com")
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}

@@ -83,8 +83,22 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Look up per-account compatibility tier for pilot cohort isolation.
+	// If the account has an explicit TierExchange (1) stored, that takes
+	// precedence over the global FeatureCanonicalIdentity gate.
+	accountTier := uint8(0) // 0 means use global tier
+	if s.db != nil {
+		localPart := email
+		if idx := strings.Index(email, "@"); idx != -1 {
+			localPart = email[:idx]
+		}
+		if acc, err := s.db.GetAccount(domain, localPart); err == nil && acc != nil {
+			accountTier = acc.CompatibilityTier
+		}
+	}
+
 	// Build response
-	resp := s.buildAutodiscoverResponse(email, domain)
+	resp := s.buildAutodiscoverResponse(email, domain, accountTier)
 
 	// Set headers
 	w.Header().Set("Content-Type", "application/xml")
@@ -110,7 +124,8 @@ func (s *Server) parseAutodiscoverPOST(r *http.Request) string {
 // active compatibility tier. When FeatureEWS is enabled, accounts in the
 // Exchange tier receive the EWS/Exchange.asmx protocol entry, while
 // TierIMAPOnly accounts receive only IMAP and SMTP settings.
-func (s *Server) buildAutodiscoverResponse(email, domain string) *AutodiscoverResponse {
+// accountTier is the stored per-account CompatibilityTier (0 = use global gate).
+func (s *Server) buildAutodiscoverResponse(email, domain string, accountTier uint8) *AutodiscoverResponse {
 	resp := &AutodiscoverResponse{
 		Space: "http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006",
 	}
@@ -121,9 +136,9 @@ func (s *Server) buildAutodiscoverResponse(email, domain string) *AutodiscoverRe
 	resp.Response.Account.Action = "settings"
 
 	// Determine the effective compatibility tier.
-	// TierIMAPOnly (default) advertises only IMAP/SMTP.
-	// TierExchange additionally advertises EWS when FeatureEWS is enabled.
-	tier := semcore.CurrentCompatibilityTier()
+	// If accountTier is non-zero, it overrides the global gate (pilot cohort isolation).
+	// Zero falls back to the global FeatureCanonicalIdentity decision.
+	tier := semcore.AccountCompatibilityTier(accountTier)
 	ewsgate := semcore.Gate().IsEnabled(semcore.FeatureEWS)
 
 	// Add IMAP protocol (available in all tiers)

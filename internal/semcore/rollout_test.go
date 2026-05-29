@@ -211,6 +211,76 @@ func TestErrRollbackNotReady(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Compatibility tier tests (VAL-CROSS-006 pilot cohort isolation)
+// ---------------------------------------------------------------------------
+
+func TestTierFromUint8_zero(t *testing.T) {
+	got := TierFromUint8(0)
+	if got != TierIMAPOnly {
+		t.Errorf("TierFromUint8(0) = %v, want TierIMAPOnly", got)
+	}
+}
+
+func TestTierFromUint8_one(t *testing.T) {
+	got := TierFromUint8(1)
+	if got != TierExchange {
+		t.Errorf("TierFromUint8(1) = %v, want TierExchange", got)
+	}
+}
+
+func TestTierFromUint8_aboveRange(t *testing.T) {
+	got := TierFromUint8(99)
+	if got != TierIMAPOnly {
+		t.Errorf("TierFromUint8(99) = %v, want TierIMAPOnly (maps to default)", got)
+	}
+}
+
+func TestAccountCompatibilityTier_explicitIMAPOnly(t *testing.T) {
+	// When stored tier is non-zero but maps to TierIMAPOnly, should return TierIMAPOnly.
+	got := AccountCompatibilityTier(0) // 0 means "use global gate"
+	if got != TierIMAPOnly {
+		t.Errorf("AccountCompatibilityTier(0) = %v, want TierIMAPOnly (no per-account override)", got)
+	}
+}
+
+func TestAccountCompatibilityTier_explicitExchange(t *testing.T) {
+	// When stored tier is 1 (TierExchange), should return TierExchange regardless of global gate.
+	old := globalGate
+	globalGate = &FeatureGate{gates: make(map[FeatureName]bool)} // global gate: all off
+	defer func() { globalGate = old }()
+
+	got := AccountCompatibilityTier(1)
+	if got != TierExchange {
+		t.Errorf("AccountCompatibilityTier(1) = %v, want TierExchange (per-account override)", got)
+	}
+}
+
+func TestAccountCompatibilityTier_fallsBackToGlobal(t *testing.T) {
+	// When stored tier is 0, falls back to global gate (FeatureCanonicalIdentity).
+	old := globalGate
+	globalGate = &FeatureGate{gates: make(map[FeatureName]bool)}
+	globalGate.Set(FeatureCanonicalIdentity, true)
+	defer func() { globalGate = old }()
+
+	got := AccountCompatibilityTier(0)
+	if got != TierExchange {
+		t.Errorf("AccountCompatibilityTier(0) with FeatureCanonicalIdentity=true = %v, want TierExchange", got)
+	}
+}
+
+func TestAccountCompatibilityTier_noOverrideNoGlobal(t *testing.T) {
+	// When stored tier is 0 and global gate is off, returns TierIMAPOnly.
+	old := globalGate
+	globalGate = &FeatureGate{gates: make(map[FeatureName]bool)}
+	defer func() { globalGate = old }()
+
+	got := AccountCompatibilityTier(0)
+	if got != TierIMAPOnly {
+		t.Errorf("AccountCompatibilityTier(0) with no gates = %v, want TierIMAPOnly", got)
+	}
+}
+
 type customBackfill struct{}
 
 func (customBackfill) Run(context.Context, BackfillTarget, MailboxId) error { return nil }

@@ -159,10 +159,34 @@ func CurrentRolloutPhase() RolloutPhase {
 	}
 }
 
+// TierFromUint8 converts a uint8 (e.g., from db.AccountData.CompatibilityTier) to a
+// CompatibilityTier value. Values outside the defined range map to TierIMAPOnly.
+func TierFromUint8(v uint8) CompatibilityTier {
+	switch v {
+	case 1:
+		return TierExchange
+	default:
+		return TierIMAPOnly
+	}
+}
+
+// AccountCompatibilityTier returns the per-account Exchange compatibility tier.
+// When a non-zero tier is explicitly stored on the account, it takes precedence
+// over the global FeatureCanonicalIdentity gate, enabling pilot cohort isolation.
+// Zero (TierIMAPOnly) falls back to the global compatibility tier decision.
+func AccountCompatibilityTier(tier uint8) CompatibilityTier {
+	if tier != 0 {
+		return TierFromUint8(tier)
+	}
+	// No per-account override; fall back to global gate.
+	return CurrentCompatibilityTier()
+}
+
 // CurrentCompatibilityTier returns the effective Exchange compatibility tier.
 // When canonical identity is enabled (Phase 1+ migration starting), accounts
 // enter the Exchange tier and will see EWS endpoints in Autodiscover responses.
 // Until that gate is passed, all accounts remain at TierIMAPOnly.
+// NOTE: For per-account tier resolution, use AccountCompatibilityTier instead.
 func CurrentCompatibilityTier() CompatibilityTier {
 	if Gate().IsEnabled(FeatureCanonicalIdentity) {
 		return TierExchange

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/semcore"
@@ -80,6 +81,23 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeSOAPError(w, http.StatusMethodNotAllowed, ErrErrorInvalidOperation, "EWS requires POST")
 		return
+	}
+
+	// Check per-account Exchange compatibility tier.
+	// The email is injected by api.server.ewsBasicAuth into r.Context as "X-Email".
+	if email, ok := r.Context().Value("X-Email").(string); ok && email != "" && s.db != nil {
+		if localPart, domain, ok := strings.Cut(email, "@"); ok {
+			if acc, err := s.db.GetAccount(domain, localPart); err == nil && acc != nil {
+				tier := semcore.AccountCompatibilityTier(acc.CompatibilityTier)
+				if tier == semcore.TierIMAPOnly && !semcore.Gate().IsEnabled(semcore.FeatureEWS) {
+					// Account is in TierIMAPOnly and the global EWS gate is disabled.
+					// Reject with a policy-consistent error before any mailbox data is exposed.
+					writeSOAPError(w, http.StatusForbidden, ErrErrorInternalServer,
+						"Exchange services are not enabled for this account")
+					return
+				}
+			}
+		}
 	}
 
 	// Read the full SOAP body.
