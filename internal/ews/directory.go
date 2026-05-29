@@ -91,7 +91,7 @@ type ResolutionType struct {
 
 	// Mailbox: the resolved email address.
 	//nolint:staticcheck // SA5008: EWS uses "Mailbox" element name for directory resolution results.
-	Mailbox DirectoryAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
+	Mailbox directoryMailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 
 	// Contact: optional contact details when ReturnFullContactData is true.
 	Contact *ContactTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact,omitempty"`
@@ -104,6 +104,18 @@ type DirectoryAddressType struct {
 
 	Name    string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
 	Address string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
+}
+
+// directoryMailboxType is the resolved mailbox entry in ResolveNames responses.
+// We use an anonymous struct to avoid the XML name conflict that arises when
+// DirectoryAddressType has XMLName xml:"... EmailAddress" and is used as
+// Mailbox xml:"... Mailbox" — Go's xml encoder reports:
+//   name "Mailbox" in tag conflicts with name "EmailAddress" in XMLName
+// This type is used only inside ResolutionType.Mailbox.
+type directoryMailboxType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
+	Name    string  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
+	Address string  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
 }
 
 // handleResolveNames implements the EWS ResolveNames operation.
@@ -131,7 +143,7 @@ func (s *Server) handleResolveNames(ctx context.Context, body []byte) []byte {
 	resolutions := make([]ResolutionType, 0, len(candidates))
 	for _, c := range candidates {
 		resolutions = append(resolutions, ResolutionType{
-			Mailbox: DirectoryAddressType{
+			Mailbox: directoryMailboxType{
 				Name:    c.DisplayName,
 				Address: c.Email,
 			},
@@ -322,8 +334,15 @@ type MailboxDataType struct {
 type FreeBusyViewOptionsType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FreeBusyViewOptions"`
 
-	//nolint:staticcheck // SA5008: EWS requires element name "TimeWindow" for the duration window.
-	TimeWindow *DurationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeWindow"`
+	// TimeWindow: anonymous struct to avoid the XML name conflict between
+	// FreeBusyViewOptionsType.TimeWindow's "TimeWindow" tag and
+	// DurationType.XMLName's "Duration" — Go's xml encoder rejects
+	// name "TimeWindow" in tag conflicting with name "Duration" in XMLName.
+	TimeWindow struct {
+		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeWindow"`
+		StartTime string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartTime"`
+		EndTime   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndTime"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeWindow"`
 	MergedFreeBusyIntervalInMinutes int `xml:"http://schemas.microsoft.com/exchange/services/2006/types MergedFreeBusyIntervalInMinutes,omitempty"`
 	RequestedView string `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequestedView,omitempty"` // "MergedOnly", "FreeBusy", "FreeBusyMerged", "Detailed", "DetailedMerged"
 }
@@ -433,7 +452,7 @@ func (s *Server) handleGetUserAvailability(ctx context.Context, body []byte) []b
 
 	// Parse time window.
 	var startTime, endTime time.Time
-	if req.FreeBusyViewOptions != nil && req.FreeBusyViewOptions.TimeWindow != nil {
+	if req.FreeBusyViewOptions != nil && req.FreeBusyViewOptions.TimeWindow.StartTime != "" {
 		var err error
 		startTime, err = ParseEWSDateTime(req.FreeBusyViewOptions.TimeWindow.StartTime)
 		if err != nil || startTime.IsZero() {
@@ -589,7 +608,7 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 
 // GetRoomListsType is the EWS GetRoomLists request.
 type GetRoomListsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRoomLists"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRoomListsRequest"`
 }
 
 // GetRoomListsResponseType is the EWS GetRoomLists response.
@@ -670,7 +689,7 @@ func (s *Server) handleGetRoomLists(ctx context.Context, body []byte) []byte {
 // GetRoomsType is the EWS GetRooms request.
 // The RoomList contains a Mailbox element with EmailAddress.
 type GetRoomsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRooms"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRoomsRequest"`
 	RoomList struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
 		Mailbox EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`

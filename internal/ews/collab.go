@@ -719,6 +719,33 @@ func (s *Server) handleCreateCalendarItem(ctx context.Context, body []byte) []by
 	msgs := make([]CalendarItemResponseMessageType, 0, len(req.Items.Item))
 	for range req.Items.Item {
 		item := &req.Items.Item[0] // safe: process one at a time
+
+		// VAL-DIR-010, VAL-COLLAB-010: enforce resource booking policy before
+		// creating the calendar item. Check auto-accept, auto-decline, and
+		// delegate-review decisions for any resource attendees.
+		var attendeeList []AttendeeType
+		if item.Attendees != nil {
+			attendeeList = item.Attendees.Attendee
+		}
+		if s.policyStore != nil && len(attendeeList) > 0 {
+			decisions, err := s.checkResourceBookingPolicy(ctx, attendeeList)
+			if err == nil {
+				allAccepted, policyMsgs := s.applyResourceBookingPolicy(decisions, attendeeList)
+				if !allAccepted {
+					// At least one resource auto-declined: reject this item.
+					for _, pm := range policyMsgs {
+						msgs = append(msgs, CalendarItemResponseMessageType{
+							ResponseClass: pm.ResponseClass,
+							ResponseCode:  pm.ResponseCode,
+						})
+					}
+					continue
+				}
+				// Policy applied; proceed with creation.
+				_ = policyMsgs
+			}
+		}
+
 		msg := s.createCalendarItemInFolder(ctx, mboxID, mailboxKey, folderID, item, delegateCtx)
 		msgs = append(msgs, msg)
 	}

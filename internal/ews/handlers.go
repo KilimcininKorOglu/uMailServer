@@ -291,6 +291,14 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"GetFolder", "FindFolder", "CreateFolder", "UpdateFolder", "DeleteFolder",
 		"SyncFolderHierarchy", "SyncFolderItems", "GetItem", "UpdateItem", "DeleteItem",
 		"CreateItem", "SendItem", "MoveItem", "CopyItem", "MarkAllItemsAsRead",
+		// ResolveNames variants
+		"ResolveNames", "ResolveNamesRequest",
+		// GetUserAvailability variants
+		"GetUserAvailability", "GetUserAvailabilityRequest",
+		// GetRoomLists variants
+		"GetRoomLists", "GetRoomListsRequest",
+		// GetRooms variants
+		"GetRooms", "GetRoomsRequest",
 		// Child elements in EWSMessagesNS
 		"FolderShape", "FolderIds", "ParentFolderIds", "DistinguishedFolderId",
 		"SyncState", "Folders", "RootFolder", "Changes", "Create", "Update", "Delete",
