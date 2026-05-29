@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider, useAuth } from "@/contexts/AuthContext"
+import { MailboxProvider } from "@/contexts/MailboxContext"
 import { Layout } from "@/components/layout/layout"
 import { InboxPage } from "@/pages/inbox"
 import { EmailDetailPage } from "@/pages/email-detail"
@@ -37,6 +38,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
+  const { user } = useAuth()
   useKeyboardShortcuts()
 
   return (
@@ -47,7 +49,9 @@ function AppContent() {
           path="/"
           element={
             <ProtectedRoute>
-              <Layout />
+              <MailboxProvider personalEmail={user?.email || ""}>
+                <Layout />
+              </MailboxProvider>
             </ProtectedRoute>
           }
         >

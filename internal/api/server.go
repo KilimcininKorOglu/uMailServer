@@ -547,6 +547,7 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/mail/spam", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/send", http.HandlerFunc(s.mailHandler.handleMailSend).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/delete", http.HandlerFunc(s.mailHandler.handleMailDelete).ServeHTTP)
+	api.HandleFunc("/api/v1/mail/diagnostics", s.handleMailDiagnostics)
 
 	// Backup management
 	api.HandleFunc("/api/v1/backups", s.handleBackupList)

@@ -34,6 +34,7 @@ type SendMailRequest struct {
 	BCC     []string `json:"bcc"`
 	Subject string   `json:"subject"`
 	Body    string   `json:"body"`
+	From    string   `json:"from,omitempty"` // Sender identity for send-as or send-on-behalf
 }
 
 // MailHandler handles mail-related API requests
@@ -409,6 +410,23 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine the sender identity
+	// If req.From is provided and differs from user's own email, validate send-as permission
+	senderEmail := userEmail
+	if req.From != "" && req.From != userEmail {
+		// User wants to send as a different identity - validate permission
+		canSend, authErr := h.validateSendAs(userEmail, req.From)
+		if authErr != nil {
+			h.sendError(w, http.StatusForbidden, authErr.Error())
+			return
+		}
+		if !canSend {
+			h.sendError(w, http.StatusForbidden, "You don't have permission to send as this identity. Request send-as or send-on-behalf access from the mailbox owner.")
+			return
+		}
+		senderEmail = req.From
+	}
+
 	// Build RFC 2822 email
 	now := time.Now()
 	dateStr := now.Format("Mon, 02 Jan 2006 15:04:05 -0700")
@@ -420,7 +438,7 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 
 	// Build headers
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("From: %s\r\n", userEmail))
+	fmt.Fprintf(&sb, "From: %s\r\n", senderEmail)
 	sb.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(safeTo, ", ")))
 	if len(safeCC) > 0 {
 		sb.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(safeCC, ", ")))
@@ -576,6 +594,37 @@ func (h *MailHandler) deleteMessageMetadata(userEmail, messageID string) {
 			}
 		}
 	}
+}
+
+// validateSendAs checks if user has permission to send as the specified identity.
+// Returns (canSend, error). If error is non-nil, it's an auth error. If canSend is false,
+// the user doesn't have send-as or send-on-behalf permission.
+func (h *MailHandler) validateSendAs(user, targetIdentity string) (bool, error) {
+	// If targeting own identity, always allowed
+	if user == targetIdentity {
+		return true, nil
+	}
+
+	// If mailDB is not available, deny by default
+	if h.mailDB == nil {
+		return false, fmt.Errorf("mail storage not available")
+	}
+
+	// Check if user has ACL write rights on the target mailbox
+	// The targetIdentity is the owner's email, and we check ACL on INBOX
+	rights, err := h.mailDB.GetACL(targetIdentity, "INBOX", user)
+	if err != nil {
+		return false, fmt.Errorf("failed to check permissions: %v", err)
+	}
+
+	// ACLWrite is bit 3 (value 8) - user needs write rights to send
+	// For send-on-behalf, ACLWrite is sufficient
+	// For send-as, we would need additional validation (not yet implemented in ACL model)
+	if rights&storage.ACLWrite != 0 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // InitDemoEmails is a no-op - demo emails are now stored in real storage

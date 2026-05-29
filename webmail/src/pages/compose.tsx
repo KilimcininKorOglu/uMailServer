@@ -17,6 +17,9 @@ import {
   Maximize2,
   Clock,
   Check,
+  AlertTriangle,
+  Mail,
+  ChevronDown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,6 +34,9 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import api, { SenderIdentity, DiagnosticEntry } from "@/utils/api"
+import { useAuth } from "@/contexts/AuthContext"
+import { useMailbox } from "@/contexts/MailboxContext"
 
 interface Attachment {
   id: string
@@ -55,13 +61,79 @@ const mockContacts: Recipient[] = [
 export function ComposePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { user } = useAuth()
+  const { currentMailbox, isInSharedMailbox } = useMailbox()
+  
   const [to, setTo] = useState<Recipient[]>([])
   const [cc, setCc] = useState<Recipient[]>([])
   const [bcc, setBcc] = useState<Recipient[]>([])
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-
+  
+  // Sender identity state
+  const [senderIdentities, setSenderIdentities] = useState<SenderIdentity[]>([])
+  const [selectedSender, setSelectedSender] = useState<SenderIdentity | null>(null)
+  const [showSenderDropdown, setShowSenderDropdown] = useState(false)
+  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([])
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
+  
+  // Load sender identities on mount
+  useEffect(() => {
+    const loadSenderIdentities = async () => {
+      try {
+        const identities = await api.getSenderIdentities(user?.email || '')
+        setSenderIdentities(identities)
+        
+        // Set default sender based on current mailbox context
+        if (isInSharedMailbox() && currentMailbox.owner) {
+          // Default to the shared mailbox identity when in shared context
+          const sharedIdentity = identities.find(
+            (id: SenderIdentity) => id.email === currentMailbox.owner && id.type !== 'personal'
+          )
+          if (sharedIdentity) {
+            setSelectedSender(sharedIdentity)
+          } else if (identities.length > 0) {
+            setSelectedSender(identities[0])
+          }
+        } else if (identities.length > 0) {
+          // Default to personal identity
+          const personalIdentity = identities.find((id: SenderIdentity) => id.type === 'personal')
+          setSelectedSender(personalIdentity || identities[0])
+        }
+      } catch (err) {
+        console.error('Failed to load sender identities:', err)
+        // Fallback to personal identity
+        if (user?.email) {
+          setSelectedSender({
+            email: user.email,
+            displayName: user.email,
+            type: 'personal',
+            canSend: true
+          })
+        }
+      }
+    }
+    
+    loadSenderIdentities()
+  }, [user, currentMailbox, isInSharedMailbox])
+  
+  // Load diagnostics
+  useEffect(() => {
+    const loadDiagnostics = async () => {
+      try {
+        const result = await api.getDiagnostics()
+        if (result.errors) {
+          setDiagnostics(result.errors)
+        }
+      } catch (err) {
+        console.error('Failed to load diagnostics:', err)
+      }
+    }
+    
+    loadDiagnostics()
+  }, [])
+  
   useEffect(() => {
     const replyTo = searchParams.get("replyTo")
     if (replyTo) {
@@ -174,7 +246,13 @@ export function ComposePage() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [to, subject, body])
 
-  const handleSend = () => {
+  // Check if selected sender can send
+  const canSendAsSelected = selectedSender?.canSend ?? true
+  const sendError = !canSendAsSelected && selectedSender
+    ? `You don't have permission to send as ${selectedSender.email}. Contact the mailbox owner for send-as or send-on-behalf access.`
+    : null
+  
+  const handleSend = async () => {
     if (to.length === 0) {
       toast.error("Please select a recipient")
       return
@@ -183,13 +261,43 @@ export function ComposePage() {
       toast.error("Please enter a subject")
       return
     }
+    
+    // Check if sender is allowed
+    if (!canSendAsSelected) {
+      toast.error(sendError || "Cannot send with selected identity")
+      return
+    }
+    
+    // Check for policy errors from diagnostics
+    const policyErrors = diagnostics.filter(d => d.category === 'policy' && d.severity === 'error')
+    if (policyErrors.length > 0) {
+      setShowDiagnostics(true)
+      toast.error("Please resolve the issues before sending")
+      return
+    }
+    
     setSending(true)
     toast.success("Sending email...")
-    setTimeout(() => {
-      setSending(false)
+    
+    try {
+      // Use the actual API with sender identity
+      const senderEmail = selectedSender?.email || user?.email || ''
+      await api.sendMail({
+        to: to.map(r => r.email),
+        cc: cc.map(r => r.email),
+        bcc: bcc.map(r => r.email),
+        subject,
+        body,
+        from: senderEmail, // Pass sender identity to API
+      })
+      
       toast.success("Email sent successfully")
       navigate("/sent")
-    }, 1500)
+    } catch (err) {
+      console.error('Failed to send email:', err)
+      toast.error("Failed to send email. Please try again.")
+      setSending(false)
+    }
   }
 
   const handleSaveDraft = () => {
@@ -435,6 +543,161 @@ export function ComposePage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+          </div>
+        )}
+        
+        {/* Sender Identity Selector */}
+        <div className="flex items-center gap-2">
+          <span className="w-12 text-sm text-muted-foreground flex items-center gap-1">
+            <Mail className="h-3 w-3" />
+            From:
+          </span>
+          <div className="flex-1 flex items-center gap-2">
+            <DropdownMenu open={showSenderDropdown} onOpenChange={setShowSenderDropdown}>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className={cn(
+                    "h-7 text-xs gap-1",
+                    !canSendAsSelected && "border-red-500 text-red-500"
+                  )}
+                >
+                  {selectedSender ? (
+                    <>
+                      <span className="truncate max-w-[150px]">
+                        {selectedSender.displayName || selectedSender.email}
+                      </span>
+                      {selectedSender.type !== 'personal' && (
+                        <Badge variant="secondary" className="text-[10px] h-4 ml-1">
+                          {selectedSender.type === 'send-on-behalf' ? 'On behalf' : 'Send as'}
+                        </Badge>
+                      )}
+                    </>
+                  ) : (
+                    <span>Select sender</span>
+                  )}
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-80">
+                <div className="p-2 text-xs text-muted-foreground">
+                  Select the sender identity for this message
+                </div>
+                <Separator />
+                <div className="max-h-60 overflow-auto">
+                  {senderIdentities.map((identity) => (
+                    <DropdownMenuItem
+                      key={identity.email}
+                      onClick={() => {
+                        setSelectedSender(identity)
+                        setShowSenderDropdown(false)
+                      }}
+                      className={cn(
+                        "flex flex-col items-start py-2 cursor-pointer",
+                        !identity.canSend && "opacity-50"
+                      )}
+                      disabled={!identity.canSend}
+                    >
+                      <div className="flex items-center gap-2 w-full">
+                        <span className="font-medium text-sm">{identity.displayName || identity.email}</span>
+                        {identity.type === 'personal' && (
+                          <Badge variant="default" className="text-[10px] h-4">Personal</Badge>
+                        )}
+                        {identity.type === 'send-on-behalf' && (
+                          <Badge variant="secondary" className="text-[10px] h-4">On behalf</Badge>
+                        )}
+                        {identity.type === 'send-as' && (
+                          <Badge variant="outline" className="text-[10px] h-4">Send as</Badge>
+                        )}
+                      </div>
+                      {identity.mailboxOwner && (
+                        <span className="text-xs text-muted-foreground">
+                          Shared mailbox: {identity.mailboxOwner}
+                        </span>
+                      )}
+                      {!identity.canSend && (
+                        <span className="text-xs text-red-500 flex items-center gap-1 mt-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          No send permission
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            
+            {/* Show permission error inline */}
+            {sendError && (
+              <div className="flex items-center gap-1 text-xs text-red-500">
+                <AlertTriangle className="h-3 w-3" />
+                <span className="truncate max-w-[200px]">{sendError}</span>
+              </div>
+            )}
+            
+            {/* Diagnostics toggle */}
+            {diagnostics.length > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setShowDiagnostics(!showDiagnostics)}
+                title="View mail diagnostics"
+              >
+                <AlertTriangle className={cn(
+                  "h-4 w-4",
+                  diagnostics.some(d => d.severity === 'error') && "text-red-500"
+                )} />
+              </Button>
+            )}
+          </div>
+        </div>
+        
+        {/* Diagnostics Panel */}
+        {showDiagnostics && diagnostics.length > 0 && (
+          <div className="border rounded-md bg-muted/30 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Mailbox Diagnostics</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5"
+                onClick={() => setShowDiagnostics(false)}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+            {diagnostics.map((entry) => (
+              <div 
+                key={entry.id}
+                className={cn(
+                  "text-xs p-2 rounded border-l-2",
+                  entry.severity === 'error' && "bg-red-50 border-red-500 text-red-700 dark:bg-red-950 dark:text-red-400",
+                  entry.severity === 'warning' && "bg-yellow-50 border-yellow-500 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-400",
+                  entry.severity === 'info' && "bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-950 dark:text-blue-400"
+                )}
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-medium">{entry.message}</div>
+                    {entry.mailbox && (
+                      <div className="text-muted-foreground mt-0.5">Mailbox: {entry.mailbox}</div>
+                    )}
+                    {entry.nextStep && (
+                      <div className="text-muted-foreground mt-1 flex items-center gap-1">
+                        <span>Next step:</span>
+                        <span className="font-medium">{entry.nextStep}</span>
+                      </div>
+                    )}
+                    <div className="text-muted-foreground mt-1">
+                      {new Date(entry.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

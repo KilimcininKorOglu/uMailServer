@@ -26,6 +26,7 @@ export interface SendMailRequest {
   bcc?: string[]
   subject: string
   body: string
+  from?: string // Sender identity for send-as or send-on-behalf
 }
 
 export interface AuthLoginRequest {
@@ -93,6 +94,33 @@ export interface Thread {
   participants: string[]
   lastDate: string
   unread: boolean
+}
+
+// Shared mailbox and sender identity types
+export interface SharedMailbox {
+  owner: string
+  mailbox: string
+  displayName?: string
+  rights?: string
+}
+
+export interface SenderIdentity {
+  email: string
+  displayName?: string
+  type: 'personal' | 'send-as' | 'send-on-behalf'
+  mailboxOwner?: string // for shared mailbox identities
+  canSend: boolean
+}
+
+export interface DiagnosticEntry {
+  id: string
+  severity: 'error' | 'warning' | 'info'
+  category: 'policy' | 'sync' | 'delivery' | 'auth' | 'access'
+  message: string
+  mailbox?: string
+  timestamp: string
+  retryable: boolean
+  nextStep?: string
 }
 
 // ============================================================================
@@ -240,6 +268,58 @@ class API {
 
   async getPushSubscriptions(): Promise<{ subscriptions?: PushSubscription[] }> {
     return this.get<{ subscriptions?: PushSubscription[] }>('/push/subscriptions')
+  }
+
+  // Shared mailboxes
+  async getSharedMailboxes(): Promise<{ shared_mailboxes?: SharedMailbox[] }> {
+    return this.get<{ shared_mailboxes?: SharedMailbox[] }>('/mailboxes/shared')
+  }
+
+  async getSharedAsOwner(): Promise<{ shared_as_owner?: string[] }> {
+    return this.get<{ shared_as_owner?: string[] }>('/mailboxes/shared-as-owner')
+  }
+
+  // Sender identities for compose
+  async getSenderIdentities(personalEmail: string): Promise<SenderIdentity[]> {
+    const [sharedResult] = await Promise.all([
+      this.getSharedMailboxes()
+    ])
+
+    const identities: SenderIdentity[] = []
+
+    // Add personal identity (user's own mailbox)
+    identities.push({
+      email: personalEmail,
+      displayName: personalEmail,
+      type: 'personal',
+      canSend: true
+    })
+
+    // Add identities from shared mailboxes
+    if (sharedResult.shared_mailboxes) {
+      for (const mb of sharedResult.shared_mailboxes) {
+        // User has access to this shared mailbox
+        // They can send on behalf of the owner if they have write rights
+        identities.push({
+          email: mb.owner,
+          displayName: `${mb.mailbox} (${mb.owner})`,
+          type: 'send-on-behalf',
+          mailboxOwner: mb.owner,
+          canSend: true // Permission will be validated server-side on send
+        })
+      }
+    }
+
+    return identities
+  }
+
+  // Diagnostics
+  async getDiagnostics(): Promise<{ errors?: DiagnosticEntry[] }> {
+    return this.get<{ errors?: DiagnosticEntry[] }>('/mail/diagnostics')
+  }
+
+  async getMailboxDiagnostics(mailbox: string): Promise<{ errors?: DiagnosticEntry[] }> {
+    return this.get<{ errors?: DiagnosticEntry[] }>(`/mail/diagnostics?mailbox=${encodeURIComponent(mailbox)}`)
   }
 
   // Generic methods
