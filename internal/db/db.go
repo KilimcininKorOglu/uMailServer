@@ -18,17 +18,18 @@ import (
 
 // Bucket names
 const (
-	BucketAccounts      = "accounts"
-	BucketDomains       = "domains"
-	BucketQueue         = "queue"
+	BucketAccounts       = "accounts"
+	BucketDomains        = "domains"
+	BucketQueue          = "queue"
 	BucketSpam          = "spam"
-	BucketMetrics       = "metrics"
-	BucketMessageMeta   = "messagemeta"
-	BucketIndex         = "index"
-	BucketAliases       = "aliases"
-	BucketContacts      = "contacts"
-	BucketFilters       = "filters"
-	BucketRevokedTokens = "revoked_tokens"
+	BucketMetrics        = "metrics"
+	BucketMessageMeta    = "messagemeta"
+	BucketIndex          = "index"
+	BucketAliases        = "aliases"
+	BucketContacts       = "contacts"
+	BucketFilters        = "filters"
+	BucketRevokedTokens  = "revoked_tokens"
+	BucketClientSessions = "client_sessions"
 )
 
 // DB wraps bbolt database
@@ -59,6 +60,19 @@ type AccountData struct {
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	LastLoginAt        time.Time `json:"last_login_at,omitempty"`
+}
+
+// ClientSession holds HTTP/API client session information for the account portal.
+type ClientSession struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`     // owner of this session
+	TokenHash string    `json:"token_hash"` // hash of the JWT token
+	DeviceType string   `json:"device_type"` // "desktop", "mobile", "tablet", "unknown"
+	ClientIP  string    `json:"client_ip"`
+	UserAgent string    `json:"user_agent"`
+	CreatedAt time.Time `json:"created_at"`
+	LastActive time.Time `json:"last_active"`
+	Revoked   bool      `json:"revoked"`    // true if session was manually revoked
 }
 
 // DomainData holds domain information
@@ -671,4 +685,116 @@ func (d *DB) UpdateAlias(alias *AliasData) error {
 func (d *DB) DeleteAlias(domain, localPart string) error {
 	key := domain + ":" + strings.ToLower(localPart)
 	return d.Delete(BucketAliases, key)
+}
+
+// --- Client Session Operations ---
+
+// CreateClientSession stores a new client session.
+func (d *DB) CreateClientSession(session *ClientSession) error {
+	if session.CreatedAt.IsZero() {
+		session.CreatedAt = time.Now()
+	}
+	session.LastActive = session.CreatedAt
+	data, err := json.Marshal(session)
+	if err != nil {
+		return fmt.Errorf("failed to marshal session: %w", err)
+	}
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(BucketClientSessions))
+		if err != nil {
+			return fmt.Errorf("failed to create bucket: %w", err)
+		}
+		return b.Put([]byte(session.ID), data)
+	})
+}
+
+// GetClientSession retrieves a client session by ID.
+func (d *DB) GetClientSession(id string) (*ClientSession, error) {
+	var session ClientSession
+	if err := d.Get(BucketClientSessions, id, &session); err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+// UpdateClientSession updates an existing client session.
+func (d *DB) UpdateClientSession(session *ClientSession) error {
+	data, err := json.Marshal(session)
+	if err != nil {
+		return fmt.Errorf("failed to marshal session: %w", err)
+	}
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketClientSessions))
+		if b == nil {
+			return fmt.Errorf("bucket not found: %s", BucketClientSessions)
+		}
+		return b.Put([]byte(session.ID), data)
+	})
+}
+
+// DeleteClientSession removes a client session.
+func (d *DB) DeleteClientSession(id string) error {
+	return d.Delete(BucketClientSessions, id)
+}
+
+// ListClientSessionsByEmail returns all non-revoked sessions for an email.
+func (d *DB) ListClientSessionsByEmail(email string) ([]*ClientSession, error) {
+	var sessions []*ClientSession
+	err := d.ForEach(BucketClientSessions, func(key string, value []byte) error {
+		var session ClientSession
+		if err := json.Unmarshal(value, &session); err != nil {
+			return err
+		}
+		if session.Email == email && !session.Revoked {
+			sessions = append(sessions, &session)
+		}
+		return nil
+	})
+	// If bucket doesn't exist yet, return empty list instead of error
+	if err != nil && strings.Contains(err.Error(), "bucket not found: "+BucketClientSessions) {
+		return sessions, nil
+	}
+	return sessions, err
+}
+
+// RevokeClientSession marks a session as revoked.
+func (d *DB) RevokeClientSession(id string) error {
+	session, err := d.GetClientSession(id)
+	if err != nil {
+		return err
+	}
+	session.Revoked = true
+	return d.UpdateClientSession(session)
+}
+
+// CleanupExpiredSessions removes sessions older than maxAge and revoked sessions.
+// Sessions are considered expired if they haven't been active within maxAge.
+func (d *DB) CleanupExpiredSessions(maxAge time.Duration) error {
+	cutoff := time.Now().Add(-maxAge)
+	var toDelete []string
+	err := d.ForEach(BucketClientSessions, func(key string, value []byte) error {
+		var session ClientSession
+		if err := json.Unmarshal(value, &session); err != nil {
+			return err
+		}
+		// Delete revoked sessions or sessions past their activity cutoff
+		if session.Revoked || session.LastActive.Before(cutoff) {
+			toDelete = append(toDelete, key)
+		}
+		return nil
+	})
+	// If bucket doesn't exist, nothing to cleanup
+	if err != nil && strings.Contains(err.Error(), "bucket not found: "+BucketClientSessions) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, id := range toDelete {
+		if err := d.Delete(BucketClientSessions, id); err != nil {
+			// Best-effort cleanup; session will be retried on next cleanup
+			_ = err
+		}
+	}
+	return nil
 }

@@ -34,6 +34,16 @@ type HealthMonitor interface {
 	HTTPHandler() http.HandlerFunc
 }
 
+// contextKey is a custom type for context values to avoid collisions.
+// Using string directly as context keys is discouraged because different
+// packages could use the same key, causing collisions.
+type contextKey string
+
+// Context keys for values stored in request context.
+const (
+	contextKeyTokenHash contextKey = "tokenHash"
+)
+
 // Server represents the admin API server
 type Server struct {
 	db              *db.DB
@@ -519,6 +529,10 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/filters/reorder", s.handleFilterReorder)
 	api.HandleFunc("/api/v1/filters/", s.handleFilterPath)
 
+	// Client sessions (account portal)
+	api.HandleFunc("/api/v1/sessions", s.handleSessions)
+	api.HandleFunc("/api/v1/sessions/", s.handleSessionRevoke)
+
 	// Mail (user-facing, uses same auth as API)
 	// Ensure mailHandler is initialized
 	if s.mailHandler == nil {
@@ -905,6 +919,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), "user", user)
 		ctx = context.WithValue(ctx, "isAdmin", isAdmin)
 		ctx = context.WithValue(ctx, "mustChangePassword", mustChangePassword)
+		ctx = context.WithValue(ctx, contextKeyTokenHash, tokenHash)
 
 		if mustChangePassword && !isPasswordChangeOnlyRoute(r, user) {
 			s.sendJSON(w, http.StatusForbidden, map[string]interface{}{

@@ -510,6 +510,26 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create client session record for account portal session management
+	tokenHash := fmt.Sprintf("%x", sha256.Sum256([]byte(tokenString)))
+	if s.db != nil {
+		session := &db.ClientSession{
+			ID:         generateSessionID(),
+			Email:      account.Email,
+			TokenHash:  tokenHash,
+			DeviceType: detectDeviceType(r.Header.Get("User-Agent")),
+			ClientIP:   ip,
+			UserAgent:  r.Header.Get("User-Agent"),
+			CreatedAt:  time.Now(),
+			LastActive: time.Now(),
+			Revoked:    false,
+		}
+		if err := s.db.CreateClientSession(session); err != nil {
+			// Log but don't fail login if session creation fails
+			s.logger.Error("failed to create session record", "error", err, "email", account.Email)
+		}
+	}
+
 	// Set JWT as HttpOnly cookie for web clients
 	isSecure := r.TLS != nil
 	http.SetCookie(w, &http.Cookie{
