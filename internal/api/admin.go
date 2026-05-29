@@ -79,6 +79,13 @@ func (s *AdminServer) router() http.Handler {
 	// Admin panel static files
 	mux.HandleFunc("/admin/", s.handleAdmin)
 
+	// Admin assets (JS, CSS, fonts, images) - needed because the SPA build uses absolute /assets/ paths
+	mux.HandleFunc("/assets/", s.handleAdminAssets)
+
+	// Root-level static files referenced by index.html (favicon, icons)
+	mux.HandleFunc("/favicon.svg", s.handleAdminRootFile)
+	mux.HandleFunc("/icons.svg", s.handleAdminRootFile)
+
 	// Health check - delegate to embedded server's handler
 	mux.HandleFunc("/health", s.Server.handleHealth)
 
@@ -192,7 +199,7 @@ func writeError(w http.ResponseWriter, errCode, message string, status int) {
 
 // handleAdmin serves the admin panel static files
 func (s *AdminServer) handleAdmin(w http.ResponseWriter, r *http.Request) {
-	if s.Server.adminFS == nil {
+	if s.adminFS == nil {
 		http.Error(w, "Admin filesystem not configured", http.StatusInternalServerError)
 		return
 	}
@@ -209,10 +216,10 @@ func (s *AdminServer) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try to serve the file
-	data, err := s.Server.adminFS.Open(filePath)
+	data, err := s.adminFS.Open(filePath)
 	if err != nil {
 		// Try index.html for SPA routing
-		data, err = s.Server.adminFS.Open("index.html")
+		data, err = s.adminFS.Open("index.html")
 		if err != nil {
 			http.Error(w, "Admin panel not found", http.StatusNotFound)
 			return
@@ -223,7 +230,69 @@ func (s *AdminServer) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	contentType := getContentType(filePath)
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, data)
+	_, _ = io.Copy(w, data) //nolint:errcheck // write already started, error logged by caller if critical
+}
+
+// handleAdminAssets serves JS, CSS, fonts, and image assets from the admin build
+func (s *AdminServer) handleAdminAssets(w http.ResponseWriter, r *http.Request) {
+	if s.adminFS == nil {
+		http.Error(w, "Admin filesystem not configured", http.StatusInternalServerError)
+		return
+	}
+
+	// The adminFS sub-path is already at web/admin/dist, so we strip only
+	// the leading slash to get the path within that sub-FS.
+	// e.g. /assets/index-CViSAfD-.js -> assets/index-CViSAfD-.js
+	filePath := strings.TrimPrefix(r.URL.Path, "/")
+	if filePath == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	file, err := s.adminFS.Open(filePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	stat, err := file.Stat()
+	if err != nil {
+		_ = file.Close() //nolint:errcheck // closing after stat error, nothing more we can do
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeContent(w, r, filePath, stat.ModTime(), file.(io.ReadSeeker)) //nolint:errcheck // ServeContent handles close internally
+}
+
+// handleAdminRootFile serves root-level static files (favicon, icons) from the admin build
+func (s *AdminServer) handleAdminRootFile(w http.ResponseWriter, r *http.Request) {
+	if s.adminFS == nil {
+		http.Error(w, "Admin filesystem not configured", http.StatusInternalServerError)
+		return
+	}
+
+	// Strip leading slash to get file path
+	filePath := strings.TrimPrefix(r.URL.Path, "/")
+	if filePath == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	file, err := s.adminFS.Open(filePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	stat, err := file.Stat()
+	if err != nil {
+		_ = file.Close() //nolint:errcheck // closing after stat error, nothing more we can do
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeContent(w, r, filePath, stat.ModTime(), file.(io.ReadSeeker)) //nolint:errcheck // ServeContent handles close internally
 }
 
 // getContentType returns MIME type for static files
