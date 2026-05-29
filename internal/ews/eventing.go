@@ -257,6 +257,13 @@ func (s *Server) handleGetEvents(ctx context.Context, body []byte) []byte {
 	subID := semcore.SubscriptionId{ID: req.SubscriptionID.ID}
 	sub, err := s.subscriptions.GetSubscription(subID)
 	if err != nil {
+		// Distinguish a drained subscription from a generic not-found error.
+		// A drained subscription was invalidated by a server drain/restart
+		// and the client must perform a fresh Subscribe call.
+		if err == semcore.ErrSubscriptionDrained {
+			return s.errorResponseXML("GetEvents", ErrErrorSubscriptionDrained,
+				"subscription was invalidated by server restart; please subscribe again")
+		}
 		return s.errorResponseXML("GetEvents", ErrErrorInternalServer, "subscription not found or expired")
 	}
 

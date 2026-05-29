@@ -116,6 +116,21 @@ func (s *Server) Stop() error {
 	// Wait for search index workers to drain before closing databases
 	s.wg.Wait()
 
+	// Drain all EWS subscriptions so that long-lived sync clients
+	// receive an explicit termination signal on next GetEvents call.
+	// This prevents clients from silently continuing with stale watermarks
+	// after a server restart (VAL-CROSS-008).
+	if s.semcoreStore != nil {
+		if subs := s.semcoreStore.Subscriptions(); subs != nil {
+			n, err := subs.ExpireAllSubscriptions()
+			if err != nil {
+				s.logger.Warn("Failed to drain subscriptions during shutdown", "error", err)
+			} else if n > 0 {
+				s.logger.Info("Drained subscriptions during shutdown", "count", n)
+			}
+		}
+	}
+
 	// Close message store
 	if s.msgStore != nil {
 		_ = s.msgStore.Close()

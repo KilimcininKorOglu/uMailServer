@@ -10,6 +10,7 @@ package semcore
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -29,6 +30,8 @@ type SubscriptionStore interface {
 	CreateSubscription(sub Subscription) (SubscriptionId, error)
 
 	// GetSubscription retrieves a subscription by ID.
+	// Returns ErrSubscriptionDrained if the subscription was invalidated
+	// by a server drain or restart action.
 	GetSubscription(id SubscriptionId) (*Subscription, error)
 
 	// RenewSubscription extends the subscription expiry window.
@@ -39,6 +42,13 @@ type SubscriptionStore interface {
 
 	// RemoveSubscription deletes a subscription (Unsubscribe).
 	RemoveSubscription(id SubscriptionId) error
+
+	// ExpireAllSubscriptions marks every active subscription as drained.
+	// This is called during server drain or restart so that long-lived
+	// sync clients receive an explicit termination signal instead of silently
+	// continuing with stale watermarks.
+	// Returns the count of subscriptions that were drained.
+	ExpireAllSubscriptions() (int, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +87,10 @@ func (s SubscriptionId) IsZero() bool {
 	return s.ID == ""
 }
 
+// ErrSubscriptionDrained is returned by GetSubscription when the subscription
+// was invalidated by a server drain or restart action.
+var ErrSubscriptionDrained = errors.New("subscription was invalidated by server drain")
+
 // Subscription records one event subscription for a mailbox.
 type Subscription struct {
 	ID        SubscriptionId
@@ -84,21 +98,35 @@ type Subscription struct {
 	Kind      SubscriptionKind
 	FolderIDs []FolderId // subscribed folders; empty = all folders
 
-	// Waterfall watermark: sequence number of the last event delivered.
+	// LastSeq is the sequence number of the last event delivered.
 	LastSeq uint64
 
-	// URL for push notifications.
+	// PushURL for push notifications.
 	PushURL string
 
-	// Subscription expiry.
+	// ExpiresAt is the natural subscription expiry.
 	ExpiresAt time.Time
+
+	// DrainedAt is set when the subscription was invalidated by a server
+	// drain or restart action. This is distinct from natural expiry so that
+	// callers can distinguish a user-initiated Unsubscribe from a server-side
+	// session termination. When DrainedAt is set, callers MUST treat the
+	// subscription as permanently invalid and require explicit re-subscribe.
+	DrainedAt time.Time
 
 	CreatedAt time.Time
 }
 
-// IsExpired returns true when the subscription has passed its expiry time.
+// IsExpired returns true when the subscription has passed its natural expiry time.
 func (s *Subscription) IsExpired() bool {
 	return !s.ExpiresAt.IsZero() && time.Now().After(s.ExpiresAt)
+}
+
+// IsDrained returns true when the subscription was invalidated by a server
+// drain or restart action. A drained subscription MUST NOT be renewed
+// or reused; the client must perform a fresh Subscribe call.
+func (s *Subscription) IsDrained() bool {
+	return !s.DrainedAt.IsZero()
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +143,7 @@ type storedSubscription struct {
 	LastSeq   uint64           `json:"last_seq"`
 	PushURL   string           `json:"push_url"`
 	ExpiresAt time.Time        `json:"expires_at"`
+	DrainedAt time.Time        `json:"drained_at,omitempty"`
 	CreatedAt time.Time        `json:"created_at"`
 }
 
@@ -124,6 +153,7 @@ func (s *storedSubscription) toSubscription() *Subscription {
 		Kind:      s.Kind,
 		PushURL:   s.PushURL,
 		ExpiresAt: s.ExpiresAt,
+		DrainedAt: s.DrainedAt,
 		CreatedAt: s.CreatedAt,
 		LastSeq:   s.LastSeq,
 	}
@@ -145,6 +175,7 @@ func storedSubscriptionFrom(sub *Subscription) storedSubscription {
 		LastSeq:   sub.LastSeq,
 		PushURL:   sub.PushURL,
 		ExpiresAt: sub.ExpiresAt,
+		DrainedAt: sub.DrainedAt,
 		CreatedAt: sub.CreatedAt,
 	}
 	if !sub.MailboxID.IsZero() {
@@ -237,6 +268,10 @@ func (s *BoltSubscriptionStore) GetSubscription(id SubscriptionId) (*Subscriptio
 		return nil, err
 	}
 	sub := rec.toSubscription()
+	// A drained subscription must not be renewed or reused.
+	if sub.IsDrained() {
+		return sub, ErrSubscriptionDrained
+	}
 	return sub, nil
 }
 
@@ -294,6 +329,44 @@ func (s *BoltSubscriptionStore) RemoveSubscription(id SubscriptionId) error {
 		b := tx.Bucket([]byte(bucketSubscriptions))
 		return b.Delete([]byte(id.ID))
 	})
+}
+
+// ExpireAllSubscriptions implements SubscriptionStore.
+// It marks every active subscription as drained so that long-lived sync
+// clients receive an explicit termination signal during server drain or restart.
+func (s *BoltSubscriptionStore) ExpireAllSubscriptions() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	drainedAt := time.Now().UTC()
+	var count int
+
+	err := s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketSubscriptions))
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var r storedSubscription
+			if err := json.Unmarshal(v, &r); err != nil {
+				continue
+			}
+			// Skip already drained subscriptions.
+			if !r.DrainedAt.IsZero() {
+				continue
+			}
+			r.DrainedAt = drainedAt
+			out, err := json.Marshal(r)
+			if err != nil {
+				continue
+			}
+			if err := b.Put(k, out); err != nil {
+				continue
+			}
+			count++
+		}
+		return nil
+	})
+
+	return count, err
 }
 
 

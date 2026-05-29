@@ -114,6 +114,8 @@ const (
 	ErrErrorRemoveDelegatesFailed      ErrorCode = "ErrorRemoveDelegatesFailed"
 	ErrErrorUpdateDelegatesFailed       ErrorCode = "ErrorUpdateDelegatesFailed"
 	ErrErrorDelegateValidationFailed    ErrorCode = "ErrorDelegateValidationFailed"
+	// Subscription and sync session error codes (VAL-CROSS-008)
+	ErrErrorSubscriptionDrained         ErrorCode = "ErrorSubscriptionDrained"
 )
 
 // ---------------------------------------------------------------------------
