@@ -179,11 +179,13 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleRemoveDelegate(ctx, soapBody)
 	case "ResolveNames":
 		response = s.handleResolveNames(ctx, soapBody)
-	case "GetUserAvailability":
+	case "ResolveNamesRequest":
+		response = s.handleResolveNames(ctx, soapBody)
+	case "GetUserAvailability", "GetUserAvailabilityRequest":
 		response = s.handleGetUserAvailability(ctx, soapBody)
-	case "GetRoomLists":
+	case "GetRoomLists", "GetRoomListsRequest":
 		response = s.handleGetRoomLists(ctx, soapBody)
-	case "GetRooms":
+	case "GetRooms", "GetRoomsRequest":
 		response = s.handleGetRooms(ctx, soapBody)
 	default:
 		response = s.errorResponseXML(op, ErrErrorNotImplemented, fmt.Sprintf("operation %q not implemented", op))
