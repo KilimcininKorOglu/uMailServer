@@ -190,11 +190,11 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleUpdateTask(ctx, soapBody)
 	case "DeleteTask":
 		response = s.handleDeleteTask(ctx, soapBody)
-	case "GetUserOofSettings":
+	case "GetUserOofSettings", "GetUserOofSettingsRequest":
 		response = s.handleGetUserOofSettings(ctx, soapBody)
-	case "SetUserOofSettings":
+	case "SetUserOofSettings", "SetUserOofSettingsRequest":
 		response = s.handleSetUserOofSettings(ctx, soapBody)
-	case "GetInboxRules":
+	case "GetInboxRules", "GetInboxRulesRequest":
 		response = s.handleGetInboxRules(ctx, soapBody)
 	case "UpdateInboxRules":
 		response = s.handleUpdateInboxRules(ctx, soapBody)

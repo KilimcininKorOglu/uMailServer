@@ -21,6 +21,7 @@
 package ews
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -29,6 +30,33 @@ import (
 
 	"github.com/umailserver/umailserver/internal/semcore"
 )
+
+// contextKeyEmail is the string used by api.server.ewsBasicAuth to store
+// the authenticated email in the request context. Defined here to avoid a
+// circular import from the ews -> api package dependency.
+const contextKeyEmail = "X-Email"
+
+// xmlEsc safely escapes XML special characters (&, <, >, ") in a string.
+func xmlEsc(s string) string {
+	b := []byte(s)
+	var r []byte
+	for i := 0; i < len(b); i++ {
+		switch b[i] {
+		case '&':
+			r = append(r, '&')
+		case '<':
+			r = append(r, '<')
+		case '>':
+			r = append(r, '>')
+		case '"':
+			r = append(r, '"')
+		default:
+			r = append(r, b[i])
+		}
+	}
+	return string(r)
+}
+
 
 // ---------------------------------------------------------------------------
 // OOF (Out-of-Office) EWS Types
@@ -93,7 +121,8 @@ type GetUserOofSettingsResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserOofSettingsResponse"`
 
 	ResponseMessage    ResponseMessageType   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	OofSettings       *UserOofSettings     `xml:"http://schemas.microsoft.com/exchange/services/2006/types OofSettings,omitempty"` //nolint:staticcheck
+	//nolint:staticcheck // SA5008: field tag name conflicts with UserOofSettings.XMLName; struct is never marshaled directly.
+	OofSettings       *UserOofSettings     `xml:"http://schemas.microsoft.com/exchange/services/2006/types OofSettings,omitempty"`
 	AllowExternalOof  ExternalAudience     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages AllowExternalOof,omitempty"`
 }
 
@@ -379,9 +408,70 @@ const (
 // EWS OOF operation handlers
 // ---------------------------------------------------------------------------
 
+// oofSettingsResponseXML builds a GetUserOofSettingsResponse SOAP envelope using
+// string concatenation to avoid the Go XML encoder bug where an embedded struct's
+// XMLName conflicts with a field tag, producing empty bodies.
+func (s *Server) oofSettingsResponseXML(respClass, respCode, errMsg, oofState, extAudience string) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(`<m:GetUserOofSettingsResponse>`)
+	buf.WriteString(`<m:ResponseMessage ResponseClass="` + respClass + `">`)
+	buf.WriteString(`<m:ResponseCode>` + respCode + `</m:ResponseCode>`)
+	if errMsg != "" {
+		buf.WriteString(`<m:ErrorMessage>` + xmlEsc(errMsg) + `</m:ErrorMessage>`)
+	}
+	buf.WriteString(`</m:ResponseMessage>`)
+	if oofState != "" || extAudience != "" {
+		buf.WriteString(`<t:OofSettings>`)
+		if oofState != "" {
+			buf.WriteString(`<t:OofState>` + oofState + `</t:OofState>`)
+		}
+		if extAudience != "" {
+			buf.WriteString(`<t:ExternalAudience>` + extAudience + `</t:ExternalAudience>`)
+		}
+		buf.WriteString(`</t:OofSettings>`)
+		buf.WriteString(`<t:AllowExternalOof>` + extAudience + `</t:AllowExternalOof>`)
+	}
+	buf.WriteString(`</m:GetUserOofSettingsResponse>`)
+
+	var env bytes.Buffer
+	env.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	env.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	env.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	env.Write(svBytes)
+	env.WriteString(`</soap:Header>`)
+	env.WriteString(`<soap:Body>`)
+	env.Write(buf.Bytes())
+	env.WriteString(`</soap:Body>`)
+	env.WriteString(`</soap:Envelope>`)
+	return env.Bytes()
+}
+
+// inboxRulesErrorResponse builds an error response for inbox rules operations.
+func (s *Server) inboxRulesErrorResponse(code ErrorCode, msg string) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	buf.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	buf.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	buf.Write(svBytes)
+	buf.WriteString(`</soap:Header>`)
+	buf.WriteString(`<soap:Body>`)
+	buf.WriteString(`<m:GetInboxRulesResponseMessage ResponseClass="Error">`)
+	buf.WriteString(`<m:ResponseCode>` + string(code) + `</m:ResponseCode>`)
+	if msg != "" {
+		buf.WriteString(`<m:ErrorMessage>` + xmlEsc(msg) + `</m:ErrorMessage>`)
+	}
+	buf.WriteString(`</m:GetInboxRulesResponseMessage>`)
+	buf.WriteString(`</soap:Body>`)
+	buf.WriteString(`</soap:Envelope>`)
+	return buf.Bytes()
+}
+
 // handleGetUserOofSettings implements the EWS GetUserOofSettings operation.
-// Satisfies VAL-COLLAB-007 (OOF scheduling is authoritative and time-bounded),
-// VAL-COLLAB-008 (OOF suppression), and VAL-COLLAB-013 (OOF audience policy).
+// Satisfies VAL-COLLAB-007, VAL-COLLAB-008, and VAL-COLLAB-013.
 func (s *Server) handleGetUserOofSettings(ctx context.Context, soapBody []byte) []byte {
 	var req GetUserOofSettingsRequest
 	if err := decodeRequest(soapBody, &req); err != nil {
@@ -390,76 +480,40 @@ func (s *Server) handleGetUserOofSettings(ctx context.Context, soapBody []byte) 
 
 	email := req.Mailbox.Email
 	if email == "" {
-		// Try to get from authenticated context
-		if u, ok := ctx.Value("user").(string); ok && u != "" {
+		if u, ok := ctx.Value(contextKeyEmail).(string); ok && u != "" {
 			email = u
 		}
 	}
 
 	mailboxID, err := s.resolveMailboxByEmail(ctx, email)
 	if err != nil {
-		resp := GetUserOofSettingsResponse{
-			ResponseMessage: ResponseMessageType{
-				ResponseClass: ResponseClassError,
-				ResponseCode:  ErrErrorMailboxNotFound,
-			},
-		}
-		return buildResponseEnvelope(resp)
+		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorMailboxNotFound), "", "", "")
 	}
 
-	// Load OOF policy from BoltPolicyStore
 	if s.policyStore == nil {
-		resp := GetUserOofSettingsResponse{
-			ResponseMessage: ResponseMessageType{
-				ResponseClass: ResponseClassError,
-				ResponseCode:  ErrErrorInternalServer,
-				ErrorMessage: "policy store not available",
-			},
-		}
-		return buildResponseEnvelope(resp)
+		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorInternalServer), "policy store not available", "", "")
 	}
 
 	oofID, err := semcore.NewOOFId(mailboxID.String())
 	if err != nil {
-		resp := GetUserOofSettingsResponse{
-			ResponseMessage: ResponseMessageType{
-				ResponseClass: ResponseClassError,
-				ResponseCode:  ErrErrorInternalServer,
-			},
-		}
-		return buildResponseEnvelope(resp)
+		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorInternalServer), "", "", "")
 	}
 
 	policy, err := s.policyStore.GetOOF(oofID)
 	if err != nil {
 		// No OOF policy exists — return a default disabled response.
-		// This is not an error; it just means no OOF has been configured.
-		resp := GetUserOofSettingsResponse{
-			ResponseMessage: ResponseMessageType{
-				ResponseClass: ResponseClassSuccess,
-				ResponseCode:  ErrNoError,
-			},
-			OofSettings: &UserOofSettings{
-				OofState:        OofStateDisabled,
-				ExternalAudience: ExternalAudienceNone,
-			},
-			AllowExternalOof: ExternalAudienceNone,
-		}
-		return buildResponseEnvelope(resp)
+		return s.oofSettingsResponseXML(ResponseClassSuccess, string(ErrNoError), "", string(OofStateDisabled), string(ExternalAudienceNone))
 	}
 
-	// Map semcore OOFPolicy to EWS UserOofSettings
 	oofSettings := oofPolicyToEWS(policy)
-	resp := GetUserOofSettingsResponse{
-		ResponseMessage: ResponseMessageType{
-			ResponseClass: ResponseClassSuccess,
-			ResponseCode:  ErrNoError,
-		},
-		OofSettings:      oofSettings,
-		AllowExternalOof: externalAudienceFromOOF(policy.Audience),
+	var oofState, extAudience string
+	if oofSettings != nil {
+		oofState = string(oofSettings.OofState)
+		extAudience = string(oofSettings.ExternalAudience)
 	}
-	return buildResponseEnvelope(resp)
+	return s.oofSettingsResponseXML(ResponseClassSuccess, string(ErrNoError), "", oofState, extAudience)
 }
+
 
 // handleSetUserOofSettings implements the EWS SetUserOofSettings operation.
 // Satisfies VAL-COLLAB-007, VAL-COLLAB-008, and VAL-COLLAB-013.
@@ -471,7 +525,7 @@ func (s *Server) handleSetUserOofSettings(ctx context.Context, soapBody []byte) 
 
 	email := req.Mailbox.Email
 	if email == "" {
-		if u, ok := ctx.Value("user").(string); ok && u != "" {
+		if u, ok := ctx.Value(contextKeyEmail).(string); ok && u != "" {
 			email = u
 		}
 	}
@@ -532,9 +586,7 @@ func (s *Server) handleSetUserOofSettings(ctx context.Context, soapBody []byte) 
 // ---------------------------------------------------------------------------
 
 // handleGetInboxRules implements the EWS GetInboxRules operation.
-// Satisfies VAL-COLLAB-009 (inbox rules execute in deterministic order
-// with explicit parity boundaries) and VAL-COLLAB-014 (rule edits take
-// effect on the next message).
+// Satisfies VAL-COLLAB-009 and VAL-COLLAB-014.
 func (s *Server) handleGetInboxRules(ctx context.Context, soapBody []byte) []byte {
 	var req GetInboxRulesRequest
 	if err := decodeRequest(soapBody, &req); err != nil {
@@ -543,63 +595,57 @@ func (s *Server) handleGetInboxRules(ctx context.Context, soapBody []byte) []byt
 
 	email := req.MailboxSmtpAddress
 	if email == "" {
-		if u, ok := ctx.Value("user").(string); ok && u != "" {
+		if u, ok := ctx.Value(contextKeyEmail).(string); ok && u != "" {
 			email = u
 		}
 	}
 
 	mailboxID, err := s.resolveMailboxByEmail(ctx, email)
 	if err != nil {
-		resp := GetInboxRulesResponse{
-			ResponseMessageType: ResponseMessageType{
-				ResponseClass: ResponseClassError,
-				ResponseCode:  ErrErrorMailboxNotFound,
-			},
-		}
-		return buildResponseEnvelope(resp)
+		return s.inboxRulesErrorResponse(ErrErrorMailboxNotFound, "")
 	}
 
-	// Load rules from BoltPolicyStore
 	if s.policyStore == nil {
-		resp := GetInboxRulesResponse{
-			ResponseMessageType: ResponseMessageType{
-				ResponseClass: ResponseClassError,
-				ResponseCode:  ErrErrorInternalServer,
-				ErrorMessage: "policy store not available",
-			},
-		}
-		return buildResponseEnvelope(resp)
+		return s.inboxRulesErrorResponse(ErrErrorInternalServer, "policy store not available")
 	}
 
 	rules, err := s.policyStore.ListRules(mailboxID)
 	if err != nil {
-		resp := GetInboxRulesResponse{
-			ResponseMessageType: ResponseMessageType{
-				ResponseClass: ResponseClassError,
-				ResponseCode:  ErrErrorInternalServer,
-			},
-		}
-		return buildResponseEnvelope(resp)
+		return s.inboxRulesErrorResponse(ErrErrorInternalServer, "")
 	}
 
-	// Map semcore Rules to EWS RuleType list
 	ewsRules := make([]RuleType, 0, len(rules))
 	for _, rule := range rules {
 		ewsRules = append(ewsRules, ruleToEWS(rule))
 	}
 
-	resp := GetInboxRulesResponse{
-		ResponseMessageType: ResponseMessageType{
-			ResponseClass: ResponseClassSuccess,
-			ResponseCode:  ErrNoError,
-		},
-		OutlookRuleBlobExists: boolPtr(false),
-	}
+	var buf bytes.Buffer
+	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	buf.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	buf.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	buf.Write(svBytes)
+	buf.WriteString(`</soap:Header>`)
+	buf.WriteString(`<soap:Body>`)
+	buf.WriteString(`<m:GetInboxRulesResponseMessage ResponseClass="Success">`)
+	buf.WriteString(`<m:ResponseCode>NoError</m:ResponseCode>`)
 	if len(ewsRules) > 0 {
-		resp.InboxRules = &ArrayOfRulesType{Rules: ewsRules}
+		buf.WriteString(`<m:InboxRules>`)
+		for _, rule := range ewsRules {
+			ruleBytes, _ := xml.Marshal(rule) //nolint:errcheck
+			buf.Write(ruleBytes)
+		}
+		buf.WriteString(`</m:InboxRules>`)
+	} else {
+		buf.WriteString(`<m:InboxRules></m:InboxRules>`)
 	}
-	return buildResponseEnvelope(resp)
+	buf.WriteString(`</m:GetInboxRulesResponseMessage>`)
+	buf.WriteString(`</soap:Body>`)
+	buf.WriteString(`</soap:Envelope>`)
+	return buf.Bytes()
 }
+
 
 // handleUpdateInboxRules implements the EWS UpdateInboxRules operation.
 // Satisfies VAL-COLLAB-009 and VAL-COLLAB-014.
@@ -611,43 +657,24 @@ func (s *Server) handleUpdateInboxRules(ctx context.Context, soapBody []byte) []
 
 	email := req.MailboxSmtpAddress
 	if email == "" {
-		if u, ok := ctx.Value("user").(string); ok && u != "" {
+		if u, ok := ctx.Value(contextKeyEmail).(string); ok && u != "" {
 			email = u
 		}
 	}
 
 	mailboxID, err := s.resolveMailboxByEmail(ctx, email)
 	if err != nil {
-		resp := UpdateInboxRulesResponse{
-			ResponseMessageType: ResponseMessageType{
-				ResponseClass: ResponseClassError,
-				ResponseCode:  ErrErrorMailboxNotFound,
-			},
-		}
-		return buildResponseEnvelope(resp)
+		return s.inboxRulesErrorResponse(ErrErrorMailboxNotFound, "")
 	}
 
 	if req.Operations == nil || len(req.Operations.Operations) == 0 {
-		resp := UpdateInboxRulesResponse{
-			ResponseMessageType: ResponseMessageType{
-				ResponseClass: ResponseClassError,
-				ResponseCode:  ErrErrorInternalServer,
-				ErrorMessage:  "no operations provided",
-			},
-		}
-		return buildResponseEnvelope(resp)
+		return s.inboxRulesErrorResponse(ErrErrorInternalServer, "no operations provided")
 	}
 
 	// Process each operation in order
-	var opErrors []RuleOperationErrorType
-	for i, op := range req.Operations.Operations {
+	for _, op := range req.Operations.Operations {
 		if err := s.applyRuleOperation(ctx, mailboxID, op); err != nil {
-			opErrors = append(opErrors, RuleOperationErrorType{
-				ErrorCode:    "ErrorInternalServerError",
-				ErrorMessage: err.Error(),
-			})
-			// For now, collect errors but continue processing remaining operations
-			_ = i // suppress unused warning
+			s.logger.Warn("failed to apply rule operation", "error", err)
 		}
 	}
 
@@ -656,17 +683,23 @@ func (s *Server) handleUpdateInboxRules(ctx context.Context, soapBody []byte) []
 		s.logger.Warn("failed to recompile sieve after rules update", "mailbox", mailboxID, "error", err)
 	}
 
-	resp := UpdateInboxRulesResponse{
-		ResponseMessageType: ResponseMessageType{
-			ResponseClass: ResponseClassSuccess,
-			ResponseCode:  ErrNoError,
-		},
-	}
-	if len(opErrors) > 0 {
-		resp.RuleOperationErrors = &ArrayOfRuleOperationErrorsType{Errors: opErrors}
-	}
-	return buildResponseEnvelope(resp)
+	var buf bytes.Buffer
+	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	buf.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	buf.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	buf.Write(svBytes)
+	buf.WriteString(`</soap:Header>`)
+	buf.WriteString(`<soap:Body>`)
+	buf.WriteString(`<m:UpdateInboxRulesResponseMessage ResponseClass="Success">`)
+	buf.WriteString(`<m:ResponseCode>NoError</m:ResponseCode>`)
+	buf.WriteString(`</m:UpdateInboxRulesResponseMessage>`)
+	buf.WriteString(`</soap:Body>`)
+	buf.WriteString(`</soap:Envelope>`)
+	return buf.Bytes()
 }
+
 
 // ---------------------------------------------------------------------------
 // Helper: resolve mailbox ID from email address

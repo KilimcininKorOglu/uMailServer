@@ -16,6 +16,7 @@ package ews
 import (
 	"bytes"
 	"context"
+	"github.com/umailserver/umailserver/internal/api"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -126,6 +127,7 @@ type BaseDelegateType struct {
 
 // GetDelegateType is the EWS GetDelegate operation request.
 type GetDelegateType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetDelegate"`
 	BaseDelegateType
 
 	// IncludePermissions: if true, include per-folder permission levels.
@@ -134,6 +136,7 @@ type GetDelegateType struct {
 
 // AddDelegateType is the EWS AddDelegate operation request.
 type AddDelegateType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages AddDelegate"`
 	BaseDelegateType
 
 	// DelegateUsers: list of delegates to add.
@@ -144,6 +147,7 @@ type AddDelegateType struct {
 
 // UpdateDelegateType is the EWS UpdateDelegate operation request.
 type UpdateDelegateType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateDelegate"`
 	BaseDelegateType
 
 	// DelegateUsers: list of delegates to update.
@@ -154,6 +158,7 @@ type UpdateDelegateType struct {
 
 // RemoveDelegateType is the EWS RemoveDelegate operation request.
 type RemoveDelegateType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RemoveDelegate"`
 	BaseDelegateType
 }
 
@@ -241,7 +246,7 @@ func (s *Server) handleGetDelegate(ctx context.Context, body []byte) []byte {
 	}
 
 	// Verify the authenticated user is the owner or an admin.
-	authUser, _ := ctx.Value("user").(string) //nolint:errcheck
+	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck
 	if authUser != email {
 		isAdmin, _ := ctx.Value("isAdmin").(bool) //nolint:errcheck
 		if !isAdmin {
@@ -387,7 +392,7 @@ func (s *Server) handleAddDelegate(ctx context.Context, body []byte) []byte {
 	}
 
 	// Only owner or admin can add delegates.
-	authUser, _ := ctx.Value("user").(string) //nolint:errcheck
+	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck
 	isAdmin, _ := ctx.Value("isAdmin").(bool) //nolint:errcheck
 	if authUser != email && !isAdmin {
 		return s.errorResponseXML("AddDelegate", ErrErrorAccessDenied, "not authorized to add delegates for this mailbox")
@@ -560,7 +565,7 @@ func (s *Server) handleUpdateDelegate(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("UpdateDelegate", ErrErrorInvalidId, err.Error())
 	}
 
-	authUser, _ := ctx.Value("user").(string) //nolint:errcheck
+	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck
 	isAdmin, _ := ctx.Value("isAdmin").(bool) //nolint:errcheck
 	if authUser != email && !isAdmin {
 		return s.errorResponseXML("UpdateDelegate", ErrErrorAccessDenied, "not authorized to update delegates for this mailbox")
@@ -703,7 +708,7 @@ func (s *Server) handleRemoveDelegate(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("RemoveDelegate", ErrErrorInvalidId, err.Error())
 	}
 
-	authUser, _ := ctx.Value("user").(string) //nolint:errcheck
+	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck
 	isAdmin, _ := ctx.Value("isAdmin").(bool) //nolint:errcheck
 	if authUser != email && !isAdmin {
 		return s.errorResponseXML("RemoveDelegate", ErrErrorAccessDenied, "not authorized to remove delegates for this mailbox")
