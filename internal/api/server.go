@@ -1200,6 +1200,13 @@ func (s *Server) ewsBasicAuth(w http.ResponseWriter, r *http.Request) string {
 	if !account.IsActive {
 		return ""
 	}
+	// Block accounts flagged for required password change. This enforces the
+	// account-state gate at the EWS entry point so that inactive or
+	// password-change-required principals cannot access Exchange-facing
+	// surfaces even when delegate rights exist (VAL-DIR-012).
+	if account.MustChangePassword {
+		return ""
+	}
 	matches, _ := s.verifyPassword(password, account.PasswordHash)
 	if !matches {
 		return ""

@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -2831,5 +2832,128 @@ func TestListQueueEmpty(t *testing.T) {
 	}
 	if len(result) != 0 {
 		t.Errorf("Expected 0 queue entries, got %d", len(result))
+	}
+}
+
+// TestEWSAuthBlocksMustChangePassword verifies that ewsBasicAuth rejects
+// accounts flagged for required password change. This enforces VAL-DIR-012:
+// account-state and auth gates override delegation at the EWS entry point.
+func TestEWSAuthBlocksMustChangePassword(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer database.Close()
+
+	domain := &db.DomainData{
+		Name:        "ewspolicy.com",
+		MaxAccounts: 10,
+		IsActive:    true,
+	}
+	if err := database.CreateDomain(domain); err != nil {
+		t.Fatalf("failed to create domain: %v", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("validpassword"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+	account := &db.AccountData{
+		Email:              "user@ewspolicy.com",
+		LocalPart:          "user",
+		Domain:             "ewspolicy.com",
+		PasswordHash:       string(hash),
+		IsActive:           true,
+		MustChangePassword: false,
+	}
+	if err := database.CreateAccount(account); err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+
+	server := NewServer(database, nil, Config{})
+
+	// Helper to make Basic Auth header
+	makeBasicReq := func(email, password string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/EWS/Exchange.asmx", nil)
+		creds := base64.StdEncoding.EncodeToString([]byte(email + ":" + password))
+		req.Header.Set("Authorization", "Basic "+creds)
+		return req
+	}
+
+	// First verify valid credentials work when MustChangePassword is false
+	rec := httptest.NewRecorder()
+	req := makeBasicReq("user@ewspolicy.com", "validpassword")
+	email := server.ewsBasicAuth(rec, req)
+	if email == "" {
+		t.Error("Expected ewsBasicAuth to succeed with valid credentials and MustChangePassword=false")
+	}
+
+	// Now flip MustChangePassword to true
+	account, err = database.GetAccount("ewspolicy.com", "user")
+	if err != nil {
+		t.Fatalf("failed to reload account: %v", err)
+	}
+	account.MustChangePassword = true
+	if err := database.UpdateAccount(account); err != nil {
+		t.Fatalf("failed to set MustChangePassword: %v", err)
+	}
+
+	// Verify ewsBasicAuth now blocks the account even with valid password
+	rec = httptest.NewRecorder()
+	req = makeBasicReq("user@ewspolicy.com", "validpassword")
+	email = server.ewsBasicAuth(rec, req)
+	if email != "" {
+		t.Error("Expected ewsBasicAuth to reject MustChangePassword=true, but it returned email")
+	}
+}
+
+// TestEWSAuthBlocksInactiveAccount verifies that ewsBasicAuth rejects
+// inactive accounts. This is a prerequisite for VAL-DIR-012.
+func TestEWSAuthBlocksInactiveAccount(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer database.Close()
+
+	domain := &db.DomainData{
+		Name:        "inactive.com",
+		MaxAccounts: 10,
+		IsActive:    true,
+	}
+	if err := database.CreateDomain(domain); err != nil {
+		t.Fatalf("failed to create domain: %v", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("validpassword"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+	account := &db.AccountData{
+		Email:              "user@inactive.com",
+		LocalPart:          "user",
+		Domain:             "inactive.com",
+		PasswordHash:       string(hash),
+		IsActive:           false, // explicitly inactive
+		MustChangePassword: false,
+	}
+	if err := database.CreateAccount(account); err != nil {
+		t.Fatalf("failed to create inactive account: %v", err)
+	}
+
+	server := NewServer(database, nil, Config{})
+
+	makeBasicReq := func(email, password string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/EWS/Exchange.asmx", nil)
+		creds := base64.StdEncoding.EncodeToString([]byte(email + ":" + password))
+		req.Header.Set("Authorization", "Basic "+creds)
+		return req
+	}
+
+	rec := httptest.NewRecorder()
+	req := makeBasicReq("user@inactive.com", "validpassword")
+	email := server.ewsBasicAuth(rec, req)
+	if email != "" {
+		t.Error("Expected ewsBasicAuth to reject inactive account, but it returned email")
 	}
 }
