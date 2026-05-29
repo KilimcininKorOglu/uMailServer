@@ -26,7 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/semcore"
 )
 
@@ -91,6 +90,7 @@ type ResolutionType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Resolution"`
 
 	// Mailbox: the resolved email address.
+	//nolint:staticcheck // SA5008: EWS uses "Mailbox" element name for directory resolution results.
 	Mailbox DirectoryAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 
 	// Contact: optional contact details when ReturnFullContactData is true.
@@ -197,6 +197,7 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 			}
 
 			// Check if this account is a resource and its policy visibility.
+			//nolint:errcheck
 			resourcePolicy, _ := s.policyStore.GetResource(semcore.MustResourceId(acc.Email))
 			if resourcePolicy != nil && resourcePolicy.HiddenFromGAL {
 				// HiddenFromGAL: skip from GAL lookups (VAL-DIR-007).
@@ -269,14 +270,6 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 	return allCandidates
 }
 
-// ListDomains returns all domain records from the database.
-func (s *Server) listDomainsFromDB() ([]*db.DomainData, error) {
-	if s.db == nil {
-		return nil, nil
-	}
-	return s.db.ListDomains()
-}
-
 // ---------------------------------------------------------------------------
 // Directory: GetUserAvailability (free/busy)
 // ---------------------------------------------------------------------------
@@ -293,17 +286,18 @@ type GetUserAvailabilityRequestType struct {
 // TimeZoneContextType is the EWS TimeZone context.
 type TimeZoneContextType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZoneContext"`
-	TimeZone *SerializableTimeZoneType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
+	//nolint:staticcheck // SA5008: EWS requires element name "TimeZone" inside TimeZoneContext.
+	TZ *SerializableTimeZoneType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
 }
 
 // SerializableTimeZoneType is the EWS serializable time zone.
 type SerializableTimeZoneType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone"`
 
-	Bias       int    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Bias,omitempty"`
-	StandardBias string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StandardBias,omitempty"`
-	DaylightBias string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DaylightBias,omitempty"`
-	TimeZoneName string `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZoneName,omitempty"`
+	Bias          int    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Bias,omitempty"`
+	StandardBias  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StandardBias,omitempty"`
+	DaylightBias  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DaylightBias,omitempty"`
+	TimeZoneName  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZoneName,omitempty"`
 }
 
 // ArrayOfMailboxDataType is the EWS MailboxDataArray.
@@ -325,6 +319,7 @@ type MailboxDataType struct {
 type FreeBusyViewOptionsType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FreeBusyViewOptions"`
 
+	//nolint:staticcheck // SA5008: EWS requires element name "TimeWindow" for the duration window.
 	TimeWindow *DurationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeWindow"`
 	MergedFreeBusyIntervalInMinutes int `xml:"http://schemas.microsoft.com/exchange/services/2006/types MergedFreeBusyIntervalInMinutes,omitempty"`
 	RequestedView string `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequestedView,omitempty"` // "MergedOnly", "FreeBusy", "FreeBusyMerged", "Detailed", "DetailedMerged"
@@ -498,6 +493,7 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 	// Get the calendar folder for this mailbox.
 	folderID, err := s.identity.GetFolderID(mailboxKey, "calendar")
 	if err != nil {
+		//nolint:errcheck
 		folderID, _ = s.identity.GetFolderID(mailboxKey, "calendars")
 	}
 	if folderID.IsZero() {
@@ -885,33 +881,4 @@ func (s *Server) applyResourceBookingPolicy(
 	}
 
 	return allAccepted, messages
-}
-
-// resolveNamesInBody extracts the acting user's email from the SOAP body by looking
-// for a Mailbox element with an EmailAddress child. This is a simplified approach
-// used when the context does not carry the authenticated email.
-func extractMailboxFromBody(body []byte) (email string) {
-	// Try to parse the body to find a Mailbox/EmailAddress element.
-	var parsed struct {
-		Mailbox struct {
-			Email string `xml:"EmailAddress"`
-		} `xml:"Mailbox"`
-	}
-	if err := xml.Unmarshal(body, &parsed); err == nil && parsed.Mailbox.Email != "" {
-		return parsed.Mailbox.Email
-	}
-	return ""
-}
-
-// formatMergedFreeBusy formats busy slots as a MergedFreeBusy string.
-// Each busy slot is formatted as StartUTC/EndUTC: with times in UTC.
-func formatMergedFreeBusy(slots []CalendarEventType) string {
-	if len(slots) == 0 {
-		return ""
-	}
-	var parts []string
-	for _, slot := range slots {
-		parts = append(parts, slot.Start+"/"+slot.End)
-	}
-	return strings.Join(parts, ":")
 }
