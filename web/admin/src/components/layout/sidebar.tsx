@@ -6,6 +6,11 @@ import {
   Mail,
   Settings,
   Server,
+  Shield,
+  UsersRound,
+  ActivitySquare,
+  FolderSearch,
+  Briefcase,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -32,6 +37,11 @@ const menuItems = [
   { path: "/domains", icon: Globe, label: "Domains" },
   { path: "/accounts", icon: Users, label: "Accounts" },
   { path: "/queue", icon: Mail, label: "Queue" },
+  { path: "/policies", icon: Shield, label: "Policies" },
+  { path: "/delegation", icon: UsersRound, label: "Delegation" },
+  { path: "/diagnostics", icon: ActivitySquare, label: "Diagnostics" },
+  { path: "/directory", icon: FolderSearch, label: "Directory" },
+  { path: "/jobs", icon: Briefcase, label: "Jobs" },
   { path: "/settings", icon: Settings, label: "Settings" },
 ];
 

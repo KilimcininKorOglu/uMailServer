@@ -10,6 +10,11 @@ import { Domains } from "@/pages/Domains";
 import { Accounts } from "@/pages/Accounts";
 import { Queue } from "@/pages/Queue";
 import { SettingsPage } from "@/pages/Settings";
+import { Policies } from "@/pages/Policies";
+import { Delegation } from "@/pages/Delegation";
+import { Diagnostics } from "@/pages/Diagnostics";
+import { Directory } from "@/pages/Directory";
+import { Jobs } from "@/pages/Jobs";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { User, Activity, RealtimeMetrics } from "@/types";
 
@@ -157,6 +162,11 @@ function App() {
             <Route path="/domains" element={<Domains />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/policies" element={<Policies />} />
+            <Route path="/delegation" element={<Delegation />} />
+            <Route path="/diagnostics" element={<Diagnostics />} />
+            <Route path="/directory" element={<Directory />} />
+            <Route path="/jobs" element={<Jobs />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
