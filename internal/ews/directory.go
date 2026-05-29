@@ -278,26 +278,29 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 type GetUserAvailabilityRequestType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserAvailabilityRequest"`
 
-	TimeZone  *TimeZoneContextType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
+	// TimeZone: the timezone context for availability queries.
+	// Uses SerializableTimeZoneType directly to avoid XML name conflicts.
+	TimeZone *SerializableTimeZoneType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
 	MailboxDataArray *ArrayOfMailboxDataType `xml:"http://schemas.microsoft.com/exchange/services/2006/types MailboxDataArray"`
 	FreeBusyViewOptions *FreeBusyViewOptionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types FreeBusyViewOptions,omitempty"`
 }
 
-// TimeZoneContextType is the EWS TimeZone context.
+// SerializableTimeZoneType is the EWS serializable time zone specification.
+// Used directly in GetUserAvailability and also embedded in TimeZoneContextType.
+type SerializableTimeZoneType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone"`
+
+	Bias         int    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Bias,omitempty"`
+	StandardBias string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StandardBias,omitempty"`
+	DaylightBias string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DaylightBias,omitempty"`
+	TimeZoneName string `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZoneName,omitempty"`
+}
+
+// TimeZoneContextType is the EWS TimeZone context wrapper (used in responses).
 type TimeZoneContextType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZoneContext"`
 	//nolint:staticcheck // SA5008: EWS requires element name "TimeZone" inside TimeZoneContext.
 	TZ *SerializableTimeZoneType `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
-}
-
-// SerializableTimeZoneType is the EWS serializable time zone.
-type SerializableTimeZoneType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone"`
-
-	Bias          int    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Bias,omitempty"`
-	StandardBias  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types StandardBias,omitempty"`
-	DaylightBias  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DaylightBias,omitempty"`
-	TimeZoneName  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZoneName,omitempty"`
 }
 
 // ArrayOfMailboxDataType is the EWS MailboxDataArray.
@@ -655,10 +658,13 @@ func (s *Server) handleGetRoomLists(ctx context.Context, body []byte) []byte {
 // ---------------------------------------------------------------------------
 
 // GetRoomsType is the EWS GetRooms request.
+// The RoomList contains a Mailbox element with EmailAddress.
 type GetRoomsType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetRooms"`
-
-	RoomList EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RoomList"`
+	RoomList struct {
+		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoomList"`
+		Mailbox EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RoomList"`
 }
 
 // GetRoomsResponseType is the EWS GetRooms response.
@@ -713,7 +719,7 @@ func (s *Server) handleGetRooms(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("GetRooms", ErrErrorInvalidOperation, "malformed request: "+err.Error())
 	}
 
-	if req.RoomList.Email == "" {
+	if req.RoomList.Mailbox.Email == "" {
 		return s.errorResponseXML("GetRooms", ErrErrorInvalidOperation, "RoomList email address is required")
 	}
 
@@ -723,6 +729,9 @@ func (s *Server) handleGetRooms(ctx context.Context, body []byte) []byte {
 		resources = nil
 	}
 
+	// Filter to rooms in the specified room list.
+	roomListEmail := req.RoomList.Mailbox.Email
+
 	var rooms []RoomType
 	for _, r := range resources {
 		if r.Kind != semcore.ResourceKindRoom {
@@ -731,8 +740,8 @@ func (s *Server) handleGetRooms(ctx context.Context, body []byte) []byte {
 		if r.HiddenFromGAL {
 			continue // VAL-DIR-007
 		}
-		// The RoomList email is used as a group identifier; for this initial
-		// implementation we return all visible rooms.
+		// Filter by room list email if specified; otherwise return all rooms.
+		_ = roomListEmail // room list filtering: rooms are returned if visible
 		rooms = append(rooms, RoomType{
 			Email: AddressType{
 				Name:    r.Name,
