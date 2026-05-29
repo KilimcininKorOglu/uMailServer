@@ -381,6 +381,7 @@ type UpdateInboxRuleOperationType struct {
 	IsEnabled    *bool    `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEnabled,omitempty"`
 	IsDefault    *bool    `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDefault,omitempty"`
 	RemoveAfter  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RemoveAfterDate,omitempty"`
+	//nolint:staticcheck // SA5008: RulePredicatesType.XMLName conflicts with element name but Go XML encoder uses tag element name.
 	Conditions   *RulePredicatesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Conditions,omitempty"`
 	Exceptions   *ExceptionsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exceptions,omitempty"`
 	//nolint:staticcheck // SA5008: RuleActionsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
@@ -997,11 +998,6 @@ func (s *Server) ruleFromUpdateOp(op UpdateInboxRuleOperationType) RuleType {
 	}
 	if op.Conditions != nil {
 		ewsRule.Conditions = &ConditionsType{RulePredicatesType: op.Conditions}
-	}
-	if op.Exceptions != nil && op.Exceptions.RulePredicatesType != nil {
-		// Exceptions uses the same embedded RulePredicatesType.
-		// Map exceptions conditions into a conditions-type structure for now.
-		// The semcore rule model treats exceptions as negated conditions.
 	}
 	if op.Actions != nil {
 		ewsRule.Actions = op.Actions
