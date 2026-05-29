@@ -454,6 +454,16 @@ func (s *Server) handleGetUserAvailability(ctx context.Context, body []byte) []b
 	}
 
 	// Process each mailbox.
+	if req.MailboxDataArray == nil || len(req.MailboxDataArray.MailboxData) == 0 {
+		// No mailboxes to query: return empty response.
+		resp := GetUserAvailabilityResponseType{
+			FreeBusyResponseArray: &ArrayOfFreeBusyResponseType{
+				Responses: []FreeBusyResponseType{},
+			},
+		}
+		return buildResponseEnvelope(resp)
+	}
+
 	responses := make([]FreeBusyResponseType, 0, len(req.MailboxDataArray.MailboxData))
 	for _, mb := range req.MailboxDataArray.MailboxData {
 		fbResp := s.computeFreeBusy(ctx, mb.Email.Email, mb.Email.Name, startTime, endTime, requestedView)
