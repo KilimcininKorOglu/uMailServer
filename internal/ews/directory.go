@@ -20,6 +20,7 @@
 package ews
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"sort"
@@ -758,18 +759,18 @@ func (s *Server) handleGetRooms(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("GetRooms", ErrErrorInvalidOperation, "malformed request: "+err.Error())
 	}
 
-	if req.RoomList.Mailbox.EmailAddress == "" {
-		return s.errorResponseXML("GetRooms", ErrErrorInvalidOperation, "RoomList email address is required")
-	}
+	// Extract room list email directly from the raw body XML. The nested
+	// t:Mailbox/t:EmailAddress structure inside m:RoomList is tricky for the Go
+	// XML decoder because the t: prefix creates a nested namespace context that
+	// doesn't propagate through the MailboxTypeSimple decode path. Using direct
+	// string extraction avoids the namespace aliasing issue.
+	roomListEmail := extractRoomListEmail(body)
 
 	// List all resources and filter to rooms in the specified room list (by email).
 	resources, err := s.policyStore.ListResources()
 	if err != nil {
 		resources = nil
 	}
-
-	// Filter to rooms in the specified room list.
-	roomListEmail := req.RoomList.Mailbox.EmailAddress
 
 	var rooms []RoomType
 	for _, r := range resources {
@@ -935,4 +936,43 @@ func (s *Server) applyResourceBookingPolicy(
 	}
 
 	return allAccepted, messages
+}
+
+// extractRoomListEmail extracts the RoomList email address from a GetRooms request body.
+// This is a fallback for the Go XML decoder which fails to populate the nested
+// t:Mailbox/t:EmailAddress structure inside m:RoomList due to namespace
+// prefix aliasing issues in the nested decode context.
+func extractRoomListEmail(body []byte) string {
+	// Look for <t:EmailAddress>...</t:EmailAddress> inside a RoomList context.
+	// The email is the text content of the EmailAddress element.
+	// Strategy: find "RoomList" then search for "EmailAddress" after it.
+	roomListIdx := bytes.Index(body, []byte("RoomList"))
+	if roomListIdx == -1 {
+		// Also try with m: prefix in case the body hasn't been rewritten yet
+		roomListIdx = bytes.Index(body, []byte(":RoomList"))
+		if roomListIdx == -1 {
+			return ""
+		}
+		roomListIdx++ // skip the ':'
+	}
+
+	afterRoomList := body[roomListIdx:]
+	emailStart := bytes.Index(afterRoomList, []byte("EmailAddress>"))
+	if emailStart == -1 {
+		return ""
+	}
+
+	// Skip the "EmailAddress>" tag and find the content.
+	// After the opening tag <t:EmailAddress>, the text content starts immediately
+	// (no '>' to skip since we're already past the '>' of the opening tag).
+	// The content ends at '<' which starts the end tag </t:EmailAddress>.
+	content := afterRoomList[emailStart+len("EmailAddress>"):]
+
+	// Read until we hit '<' (start of end tag)
+	endIdx := 0
+	for endIdx < len(content) && content[endIdx] != '<' {
+		endIdx++
+	}
+
+	return strings.TrimSpace(string(content[:endIdx]))
 }

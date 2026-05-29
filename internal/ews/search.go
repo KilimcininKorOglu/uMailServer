@@ -266,53 +266,100 @@ func (s *Server) handleFindItem(ctx context.Context, body []byte) []byte {
 }
 
 // collectFolderItems retrieves items from one folder, optionally filtered.
+// For mail folders (inbox, drafts, sent, etc.) it queries the identity store + msgStore.
+// For collaboration folders (calendar, contacts, tasks) it queries the collab store.
 func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId, restriction *RestrictionContainer) ([]MessageTypeResponse, error) {
-	// Get all item identities for this folder.
-	items, err := s.identity.ListItemIdentitiesByFolder(folderID)
-	if err != nil {
-		return nil, err
+	// Check if this is a collaboration folder (calendar, contacts, tasks).
+	// Collaboration items are stored in the collab store, not the identity store.
+	// We detect the folder type by looking at the role stored on the folder record.
+	folderRec, err := s.identity.GetFolderByID(folderID)
+	isCollabFolder := false
+	if err == nil && folderRec != nil {
+		role := folderRec.Role
+		isCollabFolder = role == "calendar" || role == "contacts" || role == "tasks"
 	}
 
 	var results []MessageTypeResponse
-	for _, rec := range items {
-		// Retrieve raw MIME content.
-		rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
-		if err != nil {
-			continue
-		}
 
-		subject, _, dateStr, bodyType, bodyText, toAddrs := parseMimeHeaders(rawMsg)
-
-		toRecipients := make([]MailboxTypeResponse, 0, len(toAddrs))
-		for _, addr := range toAddrs {
-			toRecipients = append(toRecipients, MailboxTypeResponse{EmailAddress: addr})
-		}
-
-		msgResp := MessageTypeResponse{
-			ItemID: ItemIdType{
-				ID: rec.ItemID.String(),
-				CK: rec.ChangeKey.String(),
-			},
-			ParentFolderID:   FolderIdComponents{ID: folderID.String()},
-			Subject:          subject,
-			DateTimeReceived: dateStr,
-			Size:             len(rawMsg),
-			Body: BodyTypeResponse{
-				BodyType: bodyType,
-				Text:     truncateBody(bodyText, 100),
-			},
-			ToRecipients: toRecipients,
-		}
-
-		// Apply restriction filter if present.
-		if restriction != nil {
-			headers := parseMimeHeadersForFilter(rawMsg)
-			if !evaluateRestriction(restriction, headers, subject, dateStr, len(rawMsg) > 0) {
-				continue
+	if isCollabFolder {
+		// Query collaboration store items.
+		// Calendar items.
+		calItems, err := s.collabStore.ListCalendarItemsByFolder(folderID)
+		if err == nil {
+			for _, rec := range calItems {
+				item := s.collabCalendarItemToResponse(rec, folderID)
+				if item != nil {
+					results = append(results, *item)
+				}
 			}
 		}
+		// Contact items.
+		contactItems, err := s.collabStore.ListContactsByFolder(folderID)
+		if err == nil {
+			for _, rec := range contactItems {
+				item := s.collabContactItemToResponse(rec, folderID)
+				if item != nil {
+					results = append(results, *item)
+				}
+			}
+		}
+		// Task items.
+		taskItems, err := s.collabStore.ListTasksByFolder(folderID)
+		if err == nil {
+			for _, rec := range taskItems {
+				item := s.collabTaskItemToResponse(rec, folderID)
+				if item != nil {
+					results = append(results, *item)
+				}
+			}
+		}
+	} else {
+		// Standard mail folder: query identity store + msgStore.
+		items, err := s.identity.ListItemIdentitiesByFolder(folderID)
+		if err != nil {
+			return nil, err
+		}
 
-		results = append(results, msgResp)
+		for _, rec := range items {
+			// Retrieve raw MIME content.
+			rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
+			if err != nil {
+				continue
+			}
+
+			subject, _, dateStr, bodyType, bodyText, toAddrs := parseMimeHeaders(rawMsg)
+
+			toRecipients := make([]MailboxTypeResponse, 0, len(toAddrs))
+			for _, addr := range toAddrs {
+				toRecipients = append(toRecipients, MailboxTypeResponse{EmailAddress: addr})
+			}
+
+			msgResp := MessageTypeResponse{
+				ItemID: ItemIdType{
+					ID: rec.ItemID.String(),
+					CK: rec.ChangeKey.String(),
+				},
+				ParentFolderID:   FolderIdComponents{ID: folderID.String()},
+				Subject:          subject,
+				DateTimeReceived: dateStr,
+				Size:             len(rawMsg),
+				Body: BodyTypeResponse{
+					BodyType: bodyType,
+					Text:     truncateBody(bodyText, 100),
+				},
+				ToRecipients: toRecipients,
+			}
+
+			// Apply restriction filter if present.
+			if restriction != nil {
+				headers := parseMimeHeadersForFilter(rawMsg)
+				if !evaluateRestriction(restriction, headers, subject, dateStr, len(rawMsg) > 0) {
+					continue
+				}
+			}
+
+			results = append(results, msgResp)
+		}
 	}
 
 	return results, nil
@@ -516,6 +563,47 @@ func sortFindItemResults(items []MessageTypeResponse, fields []SortByField) {
 		}
 		return false
 	})
+}
+
+// collabCalendarItemToResponse converts a StoredCalendarItemIdentity to a MessageTypeResponse.
+// Returns nil if conversion fails.
+func (s *Server) collabCalendarItemToResponse(rec semcore.StoredCalendarItemIdentity, folderID semcore.FolderId) *MessageTypeResponse {
+	// For calendar items, we don't have MIME blobs in the msgStore.
+	// Return a minimal response with the identity info.
+	return &MessageTypeResponse{
+		ItemID: ItemIdType{
+			ID: rec.ID.String(),
+			CK: rec.ChangeKey.String(),
+		},
+		ParentFolderID: FolderIdComponents{ID: folderID.String()},
+		Subject:         rec.IcalUID, // UID as subject placeholder
+	}
+}
+
+// collabContactItemToResponse converts a StoredContactIdentity to a MessageTypeResponse.
+// Returns nil if conversion fails.
+func (s *Server) collabContactItemToResponse(rec semcore.StoredContactIdentity, folderID semcore.FolderId) *MessageTypeResponse {
+	return &MessageTypeResponse{
+		ItemID: ItemIdType{
+			ID: rec.ID.String(),
+			CK: rec.ChangeKey.String(),
+		},
+		ParentFolderID:   FolderIdComponents{ID: folderID.String()},
+		Subject:         rec.IcalUID, // UID as subject placeholder
+	}
+}
+
+// collabTaskItemToResponse converts a StoredTaskIdentity to a MessageTypeResponse.
+// Returns nil if conversion fails.
+func (s *Server) collabTaskItemToResponse(rec semcore.StoredTaskIdentity, folderID semcore.FolderId) *MessageTypeResponse {
+	return &MessageTypeResponse{
+		ItemID: ItemIdType{
+			ID: rec.ID.String(),
+			CK: rec.ChangeKey.String(),
+		},
+		ParentFolderID:   FolderIdComponents{ID: folderID.String()},
+		Subject:         rec.IcalUID, // UID as subject placeholder
+	}
 }
 
 // truncateBody returns a truncated body preview.

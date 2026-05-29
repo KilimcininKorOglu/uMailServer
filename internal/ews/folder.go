@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
@@ -109,19 +110,24 @@ func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.
 		return errorMsg("GetFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+name)
 	}
 
+	// Strip "e:" prefix to match the key format used by all other handlers.
+	// resolveMailboxFromBody returns mboxKey = "e:" + email, but folder/identity
+	// operations use the raw email as the mailbox key.
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+
 	// Look up by role — the role is stored in the identity record when
 	// EnsureFolderId was called with a role.
-	folder, err := s.identity.GetFolderByMailbox(mboxKey, role)
+	folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
 	if err != nil {
 		if errors.Is(err, semcore.ErrFolderNotFound) {
 			// Auto-create the distinguished folder for new accounts.
 			// Uses EnsureFolderId so the operation is idempotent for existing folders.
-			_, err := s.identity.EnsureFolderId(mboxKey, name, role)
+			_, err := s.identity.EnsureFolderId(mailboxKey, name, role)
 			if err != nil {
 				return errorMsg("GetFolder", ErrErrorInternalServer, "failed to create folder: "+err.Error())
 			}
 			// Reload the folder after creation.
-			folder, err = s.identity.GetFolderByMailbox(mboxKey, role)
+			folder, err = s.identity.GetFolderByMailbox(mailboxKey, role)
 			if err != nil {
 				return errorMsg("GetFolder", ErrErrorFolderNotFound, fmt.Sprintf("folder with role %q not found after creation", role))
 			}
@@ -157,7 +163,10 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 	// Verify mailbox ownership.
 	// Note: rec.MailboxID stores the mboxKey when using EnsureFolderId, not a
 	// stable MailboxId. Compare as strings so e:alice@example.com == e:alice@example.com.
-	if !rec.MailboxID.IsZero() && rec.MailboxID.String() != "" && rec.MailboxID.String() != mboxKey {
+	// Strip "e:" prefix for the comparison to handle records created with or without it.
+	ownerKey := strings.TrimPrefix(rec.MailboxID.String(), "e:")
+	checkKey := strings.TrimPrefix(mboxKey, "e:")
+	if !rec.MailboxID.IsZero() && rec.MailboxID.String() != "" && ownerKey != checkKey {
 		return errorMsg("GetFolder", ErrErrorAccessDenied, "folder belongs to a different mailbox")
 	}
 
@@ -238,6 +247,9 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("FindFolder", errCode, "could not resolve mailbox")
 	}
 
+	// Strip "e:" prefix: folder/identity operations use raw email as mailbox key.
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+
 	// Determine the parent folder to enumerate under.
 	var parentID semcore.FolderId
 	var enumerateRoot bool
@@ -247,7 +259,7 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		if !ok {
 			return s.errorResponseXML("FindFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+d.ID)
 		}
-		folder, err := s.identity.GetFolderByMailbox(mboxKey, role)
+		folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
 		if err == nil {
 			parentID = folder.FolderID
 		} else if errors.Is(err, semcore.ErrFolderNotFound) {
@@ -269,7 +281,7 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 	}
 
 	// List all folders for this mailbox.
-	allFolders, err := s.identity.ListFolderIdentitiesForMailbox(mboxKey)
+	allFolders, err := s.identity.ListFolderIdentitiesForMailbox(mailboxKey)
 	if err != nil {
 		return s.errorResponseXML("FindFolder", ErrErrorInternalServer, err.Error())
 	}
@@ -367,6 +379,9 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("CreateFolder", errCode, "could not resolve mailbox")
 	}
 
+	// Strip "e:" prefix: folder/identity operations use raw email as mailbox key.
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+
 	// Resolve parent folder.
 	var parentID semcore.FolderId
 	if req.ParentFolderID.Distinguished != "" {
@@ -374,7 +389,7 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 		if !ok {
 			return s.errorResponseXML("CreateFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+req.ParentFolderID.Distinguished)
 		}
-		folder, err := s.identity.GetFolderByMailbox(mboxKey, role)
+		folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
 		if err == nil {
 			parentID = folder.FolderID
 		} else if errors.Is(err, semcore.ErrFolderNotFound) {
@@ -391,7 +406,7 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 	}
 
 	// Ensure mailbox identity exists.
-	if _, err := s.identity.EnsureMailboxId(mboxKey); err != nil {
+	if _, err := s.identity.EnsureMailboxId(mailboxKey); err != nil {
 		return s.errorResponseXML("CreateFolder", ErrErrorInternalServer, err.Error())
 	}
 
@@ -402,7 +417,7 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
-		folderID, err := s.identity.EnsureFolderId(mboxKey, f.DisplayName, "")
+		folderID, err := s.identity.EnsureFolderId(mailboxKey, f.DisplayName, "")
 		if err != nil {
 			msgs = append(msgs, errorMsg("CreateFolder", ErrErrorInternalServer, err.Error()))
 			continue
