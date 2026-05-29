@@ -44,7 +44,7 @@ func tmpEWSItemServerWithLifecycle(t *testing.T) (*Server, func()) {
 
 	pipe := semcore.NewMutationPipeline(identity, lifecycle)
 
-	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, subs, lifecycle, nil, nil, nil, nil)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, subs, lifecycle, nil, nil, nil, nil, nil)
 
 	cleanup := func() {
 		//nolint:errcheck
@@ -404,37 +404,37 @@ func TestSyncFolderHierarchy_IncrementalWithValidToken(t *testing.T) {
 
 func TestParseSyncStateForInvalidCheck(t *testing.T) {
 	tests := []struct {
-		name       string
-		state      string
-		folderID   string
-		mboxKey    string
+		name        string
+		state       string
+		folderID    string
+		mboxKey     string
 		wantInvalid bool
 	}{
 		{
-			name:       "empty is valid (initial sync)",
-			state:      "",
+			name:        "empty is valid (initial sync)",
+			state:       "",
 			wantInvalid: false,
 		},
 		{
-			name:       "valid state",
-			state:      "v5:inbox-folder-id:1234567890",
-			folderID:   "inbox-folder-id",
+			name:        "valid state",
+			state:       "v5:inbox-folder-id:1234567890",
+			folderID:    "inbox-folder-id",
 			wantInvalid: false,
 		},
 		{
-			name:       "malformed format",
-			state:      "NOTAVALIDSTATE",
+			name:        "malformed format",
+			state:       "NOTAVALIDSTATE",
 			wantInvalid: true,
 		},
 		{
-			name:       "folder mismatch",
-			state:      "v5:other-folder:1234567890",
-			folderID:   "my-folder",
+			name:        "folder mismatch",
+			state:       "v5:other-folder:1234567890",
+			folderID:    "my-folder",
 			wantInvalid: true,
 		},
 		{
-			name:       "missing version prefix",
-			state:      "5:folder:1234567890",
+			name:        "missing version prefix",
+			state:       "5:folder:1234567890",
 			wantInvalid: true,
 		},
 	}

@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/mail"
+	"net/smtp"
 	"strings"
 	"time"
 
@@ -25,15 +27,21 @@ import (
 type CreateItemRequest struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateItem"`
 	Items   struct {
-		XMLName xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-		Item    []MessageTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+		XMLName      xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+		Item         []MessageTypeNew      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+		ReplyToItem  []ReplyCreateItemType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyToItem"`
+		ReplyAllItem []ReplyCreateItemType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyAllToItem"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	SavedItemFolderID struct {
-		DistinguishedFolderID *string `xml:"Id,attr,omitempty"`
+		DistinguishedFolderID *struct {
+			ID string `xml:"Id,attr"`
+		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId,omitempty"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SavedItemFolderId,omitempty"`
 	// SaveItemToFolder: bool attribute. Uses bare attr name because Go's xml decoder
 	// doesn't match default-namespace attributes against namespace URLs in struct tags.
-	SaveItemToFolder *bool `xml:"SaveItemToFolder,attr"`
+	MessageDisposition      string `xml:"MessageDisposition,attr,omitempty"`
+	SaveItemToFolder        *bool  `xml:"SaveItemToFolder,attr"`
+	SaveItemToFolderElement *bool  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SaveItemToFolder,omitempty"`
 	// DelegateMailbox is a uMailServer EWS extension. When an authenticated
 	// delegate acts on behalf of an owner, this namespaced child element specifies
 	// the owner's email so the permission check uses the owner's mailbox instead
@@ -43,15 +51,29 @@ type CreateItemRequest struct {
 
 // MessageTypeNew is a message item in a CreateItem request.
 type MessageTypeNew struct {
-	XMLName       xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
-	Subject       string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Body          *BodyType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
-	ToRecipients  RawRecipients     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
-	CcRecipients  RawRecipients     `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
-	BccRecipients RawRecipients     `xml:"http://schemas.microsoft.com/exchange/services/2006/types BccRecipients,omitempty"`
+	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	Subject       string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body          *BodyType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	ToRecipients  RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
+	CcRecipients  RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
+	BccRecipients RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types BccRecipients,omitempty"`
 	From          *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
 	Sender        *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sender,omitempty"`
-	IsDraft       bool              `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDraft,attr"`
+	IsDraft       bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDraft,attr"`
+}
+
+type ReplyCreateItemType struct {
+	XMLName         xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyToItem"`
+	Subject         string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	NewBodyContent  *BodyType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types NewBodyContent,omitempty"`
+	ToRecipients    RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
+	CcRecipients    RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
+	BccRecipients   RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types BccRecipients,omitempty"`
+	From            *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
+	ReferenceItemID struct {
+		ID string `xml:"Id,attr"`
+		CK string `xml:"ChangeKey,attr,omitempty"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReferenceItemId"`
 }
 
 // RawRecipients holds raw XML for recipient lists (To/Cc/Bcc).
@@ -116,7 +138,6 @@ type CreateItemResponseMessages struct {
 
 // ItemResponseMessageType is one item's result in a response.
 type ItemResponseMessageType struct {
-	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
 	ResponseClass string           `xml:"ResponseClass,attr"`
 	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	Items         ItemsContainer   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
@@ -138,6 +159,13 @@ type MessageTypeResponse struct {
 	Size             int                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
 	Body             BodyTypeResponse      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
 	ToRecipients     []MailboxTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
+	IsRead           bool                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
+	Categories       *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
+}
+
+type MessageCategoriesType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories"`
+	Strings []string `xml:"http://schemas.microsoft.com/exchange/services/2006/types String,omitempty"`
 }
 
 // MailboxTypeResponse is a mailbox entry in responses.
@@ -227,10 +255,19 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 
 	// Determine target folder: Sent Items by default, or SavedItemFolderId.
 	var folderID semcore.FolderId
+	sendAndSaveCopy := strings.EqualFold(req.MessageDisposition, "SendAndSaveCopy")
+	sendOnly := strings.EqualFold(req.MessageDisposition, "SendOnly")
 	targetRole := "drafts"
-	if req.SaveItemToFolder != nil && *req.SaveItemToFolder {
+	if sendAndSaveCopy {
+		targetRole = "sent"
+	}
+	saveItemToFolder := req.SaveItemToFolder != nil && *req.SaveItemToFolder
+	if req.SaveItemToFolderElement != nil {
+		saveItemToFolder = *req.SaveItemToFolderElement
+	}
+	if saveItemToFolder {
 		if req.SavedItemFolderID.DistinguishedFolderID != nil {
-			role, ok := DistinguishedFolderIDs[*req.SavedItemFolderID.DistinguishedFolderID]
+			role, ok := DistinguishedFolderIDs[req.SavedItemFolderID.DistinguishedFolderID.ID]
 			if ok {
 				fld, err := s.identity.GetFolderByMailbox(ownerEmail, role)
 				if err == nil {
@@ -254,9 +291,9 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 		}
 	}
 
-	msgs := make([]ItemResponseMessageType, 0, len(req.Items.Item))
-	for range req.Items.Item {
-		item := &req.Items.Item[0] // safe: we process one at a time
+	msgs := make([]ItemResponseMessageType, 0, len(req.Items.Item)+len(req.Items.ReplyToItem)+len(req.Items.ReplyAllItem))
+	for i := range req.Items.Item {
+		item := &req.Items.Item[i]
 		// Detect which mode each item uses. Check send-as first (VAL-DIR-004);
 		// if that is authorized, use plain From. Otherwise check send-on-behalf
 		// (VAL-DIR-005) and set isSendOnBehalf so MIME builder adds Sender header.
@@ -271,8 +308,26 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 				}
 			}
 		}
-		msg := s.createItemInFolder(ctx, mboxID, ownerEmail, folderID, item, delegateCtx, itemIsSendOnBehalf)
+		var msg ItemResponseMessageType
+		if sendAndSaveCopy || sendOnly {
+			msg = s.submitMessageItem(ctx, mboxID, ownerEmail, folderID, item, nil, delegateCtx, itemIsSendOnBehalf, sendAndSaveCopy)
+		} else {
+			msg = s.createItemInFolder(ctx, mboxID, ownerEmail, folderID, item, delegateCtx, itemIsSendOnBehalf)
+		}
 		msgs = append(msgs, msg)
+	}
+	for i := range req.Items.ReplyToItem {
+		msgs = append(msgs, s.submitReplyCreateItem(ctx, mboxID, ownerEmail, folderID, &req.Items.ReplyToItem[i], delegateCtx, sendAndSaveCopy))
+	}
+	for i := range req.Items.ReplyAllItem {
+		msgs = append(msgs, s.submitReplyCreateItem(ctx, mboxID, ownerEmail, folderID, &req.Items.ReplyAllItem[i], delegateCtx, sendAndSaveCopy))
+	}
+
+	if len(msgs) == 0 && (sendAndSaveCopy || sendOnly) {
+		msgs = append(msgs, ItemResponseMessageType{
+			ResponseClass: "Success",
+			ResponseCode:  ResponseCodeType{Value: ErrNoError},
+		})
 	}
 
 	resp := CreateItemResponse{}
@@ -289,9 +344,16 @@ func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxI
 
 	// Build RFC 5322 MIME from the EWS item.
 	// isSendOnBehalf controls whether Sender header is included (VAL-DIR-005).
-	rawMsg := buildMimeMessage(item, isSendOnBehalf)
+	rawMsg := buildMimeMessageWithHeaders(item, mailboxKey, isSendOnBehalf, nil)
 	if rawMsg == nil {
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, "failed to build message")
+	}
+	return s.createRawItemInFolder(ctx, mboxID, mailboxKey, folderID, item.Subject, rawMsg, delegateCtx)
+}
+
+func (s *Server) createRawItemInFolder(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, subject string, rawMsg []byte, delegateCtx *semcore.DelegateAuditContext) ItemResponseMessageType {
+	if folderID.IsZero() {
+		return errorItemMsg("CreateItem", ErrErrorInternalServer, "no target folder")
 	}
 
 	// Store raw MIME blob.
@@ -339,7 +401,7 @@ func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxI
 			CK: result.ChangeKey.String(),
 		},
 		ParentFolderID:   FolderIdComponents{ID: folderID.String()},
-		Subject:          item.Subject,
+		Subject:          subject,
 		DateTimeReceived: FormatEWSDateTime(result.Lifecycle.At),
 		Size:             len(rawMsg),
 	}
@@ -351,12 +413,7 @@ func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxI
 	}
 }
 
-// buildMimeMessage constructs RFC 5322 MIME bytes from an EWS Message item.
-// If isSendOnBehalf is true, the Sender header is added to identify the acting
-// delegate and the From header identifies the owner mailbox (send-on-behalf
-// semantics per VAL-DIR-005). If isSendOnBehalf is false and send-as is used,
-// only the From header is set without a Sender (send-as semantics per VAL-DIR-004).
-func buildMimeMessage(item *MessageTypeNew, isSendOnBehalf bool) []byte {
+func buildMimeMessageWithHeaders(item *MessageTypeNew, defaultFrom string, isSendOnBehalf bool, extraHeaders map[string]string) []byte {
 	var buf bytes.Buffer
 	now := time.Now().UTC().Format(time.RFC1123Z)
 
@@ -372,6 +429,8 @@ func buildMimeMessage(item *MessageTypeNew, isSendOnBehalf bool) []byte {
 			buf.WriteString(item.From.Mailbox.Email)
 		}
 		buf.WriteString("\r\n")
+	} else if defaultFrom != "" {
+		buf.WriteString("From: " + defaultFrom + "\r\n")
 	}
 
 	// VAL-DIR-005: send-on-behalf preserves represented identity distinctly.
@@ -419,8 +478,29 @@ func buildMimeMessage(item *MessageTypeNew, isSendOnBehalf bool) []byte {
 		buf.WriteString("\r\n")
 	}
 
+	if len(item.BccRecipients.Recipients()) > 0 {
+		buf.WriteString("Bcc: ")
+		addrs := make([]string, 0, len(item.BccRecipients.Recipients()))
+		for _, r := range item.BccRecipients.Recipients() {
+			if r.Email != "" {
+				if r.Name != "" {
+					addrs = append(addrs, r.Name+" <"+r.Email+">")
+				} else {
+					addrs = append(addrs, r.Email)
+				}
+			}
+		}
+		buf.WriteString(strings.Join(addrs, ", "))
+		buf.WriteString("\r\n")
+	}
+
 	if item.Subject != "" {
 		buf.WriteString("Subject: " + item.Subject + "\r\n")
+	}
+	for _, name := range []string{"In-Reply-To", "References"} {
+		if value := strings.TrimSpace(extraHeaders[name]); value != "" {
+			buf.WriteString(name + ": " + value + "\r\n")
+		}
 	}
 
 	buf.WriteString("MIME-Version: 1.0\r\n")
@@ -448,6 +528,78 @@ func buildMimeMessage(item *MessageTypeNew, isSendOnBehalf bool) []byte {
 // generateMessageID generates a unique Message-ID.
 func generateMessageID() string {
 	return fmt.Sprintf("%d.%d@umailserver.local", time.Now().UnixNano(), time.Now().UnixNano()%1000000)
+}
+
+func (s *Server) submitMessageItem(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *MessageTypeNew, extraHeaders map[string]string, delegateCtx *semcore.DelegateAuditContext, isSendOnBehalf bool, saveCopy bool) ItemResponseMessageType {
+	rawMsg := buildMimeMessageWithHeaders(item, mailboxKey, isSendOnBehalf, extraHeaders)
+	if rawMsg == nil {
+		return errorItemMsg("CreateItem", ErrErrorInternalServer, "failed to build message")
+	}
+
+	from, recipients, sanitized, err := prepareMessageForSubmission(rawMsg)
+	if err != nil {
+		return errorItemMsg("CreateItem", ErrErrorInvalidOperation, err.Error())
+	}
+	if err := s.submitOutboundMessage(from, recipients, sanitized); err != nil {
+		return errorItemMsg("CreateItem", ErrErrorInternalServer, err.Error())
+	}
+
+	if !saveCopy {
+		return ItemResponseMessageType{
+			ResponseClass: "Success",
+			ResponseCode:  ResponseCodeType{Value: ErrNoError},
+		}
+	}
+	return s.createRawItemInFolder(ctx, mboxID, mailboxKey, folderID, item.Subject, rawMsg, delegateCtx)
+}
+
+func (s *Server) submitReplyCreateItem(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *ReplyCreateItemType, delegateCtx *semcore.DelegateAuditContext, saveCopy bool) ItemResponseMessageType {
+	extraHeaders, err := s.replyHeadersForReference(item.ReferenceItemID.ID)
+	if err != nil {
+		return errorItemMsg("CreateItem", ErrErrorItemNotFound, err.Error())
+	}
+	replyMessage := &MessageTypeNew{
+		Subject:       item.Subject,
+		Body:          item.NewBodyContent,
+		ToRecipients:  item.ToRecipients,
+		CcRecipients:  item.CcRecipients,
+		BccRecipients: item.BccRecipients,
+		From:          item.From,
+	}
+	return s.submitMessageItem(ctx, mboxID, mailboxKey, folderID, replyMessage, extraHeaders, delegateCtx, false, saveCopy)
+}
+
+func (s *Server) replyHeadersForReference(itemID string) (map[string]string, error) {
+	id, err := semcore.NewItemId(itemID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid reference item id: %w", err)
+	}
+	rec, err := s.identity.GetItemIdentity(id)
+	if err != nil {
+		return nil, err
+	}
+	rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
+	if err != nil {
+		return nil, err
+	}
+	msg, err := mail.ReadMessage(bytes.NewReader(rawMsg))
+	if err != nil {
+		return nil, err
+	}
+	messageID := strings.TrimSpace(msg.Header.Get("Message-ID"))
+	if messageID == "" {
+		return nil, nil
+	}
+	references := strings.TrimSpace(msg.Header.Get("References"))
+	if references != "" {
+		references = references + " " + messageID
+	} else {
+		references = messageID
+	}
+	return map[string]string{
+		"In-Reply-To": messageID,
+		"References":  references,
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +638,7 @@ type GetItemResponse struct {
 
 // GetItemResponseMessages wraps GetItem response messages.
 type GetItemResponseMessages struct {
-	Messages []ItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	Messages []ItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetItemResponseMessage"`
 }
 
 // handleGetItem processes an EWS GetItem SOAP request.
@@ -568,6 +720,8 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 			Text:     bodyText,
 		},
 		ToRecipients: toRecipients,
+		IsRead:       rec.IsRead,
+		Categories:   categoriesResponse(rec.Categories),
 	}
 
 	return ItemResponseMessageType{
@@ -614,6 +768,153 @@ func parseMimeHeaders(data []byte) (subject, from, date, bodyType, body string, 
 	return strings.TrimSpace(h.Get("Subject")), h.Get("From"), h.Get("Date"), bodyType, body, toAddrs
 }
 
+func prepareMessageForSubmission(data []byte) (from string, recipients []string, sanitized []byte, err error) {
+	if len(data) == 0 {
+		return "", nil, nil, errors.New("empty message")
+	}
+	msg, err := mail.ReadMessage(bytes.NewReader(data))
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("parse message: %w", err)
+	}
+
+	for _, headerName := range []string{"To", "Cc", "Bcc"} {
+		headerValue := msg.Header.Get(headerName)
+		if headerValue == "" {
+			continue
+		}
+		addrs, err := mail.ParseAddressList(headerValue)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("parse %s header: %w", headerName, err)
+		}
+		for _, addr := range addrs {
+			recipients = append(recipients, addr.Address)
+		}
+	}
+	if len(recipients) == 0 {
+		return "", nil, nil, errors.New("message has no recipients")
+	}
+
+	fromAddrs, err := mail.ParseAddressList(msg.Header.Get("From"))
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("parse From header: %w", err)
+	}
+	if len(fromAddrs) == 0 {
+		return "", nil, nil, errors.New("message has no From header")
+	}
+
+	return fromAddrs[0].Address, recipients, stripBccHeader(data), nil
+}
+
+func (s *Server) submitOutboundMessage(from string, recipients []string, data []byte) error {
+	if s.submitMessage != nil {
+		return s.submitMessage(from, recipients, data)
+	}
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:25", 5*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close() //nolint:errcheck
+
+	client, err := smtp.NewClient(conn, "127.0.0.1")
+	if err != nil {
+		return err
+	}
+	defer client.Close() //nolint:errcheck
+
+	if err := client.Hello("localhost"); err != nil {
+		return err
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	for _, recipient := range recipients {
+		if err := client.Rcpt(recipient); err != nil {
+			return err
+		}
+	}
+
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(data); err != nil {
+		_ = writer.Close() //nolint:errcheck
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
+}
+
+func stripBccHeader(data []byte) []byte {
+	headerSep := []byte("\r\n\r\n")
+	lineSep := []byte("\r\n")
+	parts := bytes.SplitN(data, headerSep, 2)
+	if len(parts) != 2 {
+		headerSep = []byte("\n\n")
+		lineSep = []byte("\n")
+		parts = bytes.SplitN(data, headerSep, 2)
+		if len(parts) != 2 {
+			return data
+		}
+	}
+
+	lines := bytes.Split(parts[0], lineSep)
+	filtered := make([][]byte, 0, len(lines))
+	skippingBccContinuation := false
+	for _, line := range lines {
+		if skippingBccContinuation {
+			if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+				continue
+			}
+			skippingBccContinuation = false
+		}
+		if bytes.HasPrefix(bytes.ToLower(line), []byte("bcc:")) {
+			skippingBccContinuation = true
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	sanitized := bytes.Join(filtered, lineSep)
+	sanitized = append(sanitized, headerSep...)
+	sanitized = append(sanitized, parts[1]...)
+	return sanitized
+}
+
+func prependHeader(data []byte, name, value string) []byte {
+	if len(data) == 0 {
+		return data
+	}
+	headerSep := []byte("\r\n\r\n")
+	lineBreak := "\r\n"
+	parts := bytes.SplitN(data, headerSep, 2)
+	if len(parts) != 2 {
+		headerSep = []byte("\n\n")
+		lineBreak = "\n"
+		parts = bytes.SplitN(data, headerSep, 2)
+		if len(parts) != 2 {
+			return data
+		}
+	}
+	headerLine := []byte(name + ": " + value + lineBreak)
+	out := make([]byte, 0, len(data)+len(headerLine))
+	out = append(out, parts[0]...)
+	out = append(out, []byte(lineBreak)...)
+	out = append(out, headerLine...)
+	out = append(out, headerSep...)
+	out = append(out, parts[1]...)
+	return out
+}
+
+func categoriesResponse(categories []string) *MessageCategoriesType {
+	if len(categories) == 0 {
+		return nil
+	}
+	return &MessageCategoriesType{Strings: append([]string(nil), categories...)}
+}
+
 // ---------------------------------------------------------------------------
 // UpdateItem
 // ---------------------------------------------------------------------------
@@ -654,13 +955,20 @@ type ItemUpdateField struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
 		URI     string   `xml:"uri,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
-	Item struct {
-		Subject *struct {
-			XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject"`
-			Value   string   `xml:",chardata"`
-		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject"`
-		Body *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
-	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Item"`
+	Message ItemUpdateValue `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+}
+
+type ItemUpdateValue struct {
+	Subject *struct {
+		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject"`
+		Value   string   `xml:",chardata"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject"`
+	Body *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
+	IsRead *struct {
+		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
+		Value   bool     `xml:",chardata"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
+	Categories *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories"`
 }
 
 // UpdateItemResponse is the EWS UpdateItem operation response.
@@ -671,7 +979,7 @@ type UpdateItemResponse struct {
 
 // UpdateItemResponseMessages wraps UpdateItem response messages.
 type UpdateItemResponseMessages struct {
-	Messages []ItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	Messages []ItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateItemResponseMessage"`
 }
 
 // handleUpdateItem processes an EWS UpdateItem SOAP request.
@@ -730,6 +1038,25 @@ func (s *Server) handleUpdateItem(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
+		nextIsRead := rec.IsRead
+		nextCategories := append([]string(nil), rec.Categories...)
+		var updatedIsRead *bool
+		var updatedCategories []string
+		for _, op := range ic.Updates.Ops {
+			switch op.FieldURI.URI {
+			case "message:IsRead", "item:IsRead":
+				if op.Message.IsRead != nil {
+					nextIsRead = op.Message.IsRead.Value
+					updatedIsRead = &nextIsRead
+				}
+			case "item:Categories":
+				if op.Message.Categories != nil {
+					nextCategories = append([]string(nil), op.Message.Categories.Strings...)
+					updatedCategories = nextCategories
+				}
+			}
+		}
+
 		// Advance ChangeKey through update mutation, with delegate audit context (VAL-DIR-014).
 		in := &semcore.UpdateInput{
 			ItemID:               itemID,
@@ -744,6 +1071,12 @@ func (s *Server) handleUpdateItem(ctx context.Context, body []byte) []byte {
 			msgs = append(msgs, errorItemMsg("UpdateItem", ErrErrorInternalServer, err.Error()))
 			continue
 		}
+		if updatedIsRead != nil || updatedCategories != nil {
+			if err := s.identity.UpdateItemState(itemID, updatedIsRead, updatedCategories); err != nil {
+				msgs = append(msgs, errorItemMsg("UpdateItem", ErrErrorInternalServer, err.Error()))
+				continue
+			}
+		}
 
 		msgResp := MessageTypeResponse{
 			ItemID: ItemIdType{
@@ -751,6 +1084,8 @@ func (s *Server) handleUpdateItem(ctx context.Context, body []byte) []byte {
 				CK: result.ChangeKey.String(),
 			},
 			ParentFolderID: FolderIdComponents{ID: rec.FolderID.String()},
+			IsRead:         nextIsRead,
+			Categories:     categoriesResponse(nextCategories),
 		}
 		msgs = append(msgs, ItemResponseMessageType{
 			ResponseClass: "Success",
@@ -898,7 +1233,7 @@ type SendItemRequest struct {
 		XMLName xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
 		Item    []ItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
-	SaveItemToFolder *bool `xml:"SaveItemToFolder,attr"`
+	SaveItemToFolder  *bool `xml:"SaveItemToFolder,attr"`
 	SavedItemFolderID struct {
 		DistinguishedFolderID *string `xml:"Id,attr,omitempty"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SavedItemFolderId,omitempty"`
@@ -909,12 +1244,14 @@ type SendItemRequest struct {
 type SendItemResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SendItemResponse"`
 	Msgs    struct {
-		Messages []struct {
-			XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-			ResponseClass string           `xml:"ResponseClass,attr"`
-			ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-		} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SendItemResponseMessage"`
+		Messages []SendItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SendItemResponseMessage"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
+}
+
+type SendItemResponseMessageType struct {
+	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SendItemResponseMessage"`
+	ResponseClass string           `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 }
 
 // handleSendItem processes an EWS SendItem SOAP request.
@@ -942,11 +1279,7 @@ func (s *Server) handleSendItem(ctx context.Context, body []byte) []byte {
 		return s.errorItemResponseXML("SendItem", ErrErrorInternalServer, "could not find Sent Items folder: "+err.Error())
 	}
 
-	responses := make([]struct {
-		XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-		ResponseClass string           `xml:"ResponseClass,attr"`
-		ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	}, 0, len(req.ItemIDs.Item))
+	responses := make([]SendItemResponseMessageType, 0, len(req.ItemIDs.Item))
 
 	for _, id := range req.ItemIDs.Item {
 		itemID, err := semcore.NewItemId(id.ID)
@@ -966,14 +1299,29 @@ func (s *Server) handleSendItem(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
+		rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
+		if err != nil {
+			responses = append(responses, sendErrMsg(ResponseCodeType{Value: ErrErrorInternalServer}))
+			continue
+		}
+
+		from, recipients, sanitized, err := prepareMessageForSubmission(rawMsg)
+		if err != nil {
+			s.logger.Error("SendItem preparation failed", "error", err)
+			responses = append(responses, sendErrMsg(ResponseCodeType{Value: ErrErrorInvalidOperation}))
+			continue
+		}
+
+		if err := s.submitOutboundMessage(from, recipients, sanitized); err != nil {
+			s.logger.Error("SendItem submission failed", "from", from, "recipients", recipients, "error", err)
+			responses = append(responses, sendErrMsg(ResponseCodeType{Value: ErrErrorInternalServer}))
+			continue
+		}
+
 		// Move from current folder to Sent Items.
 		resultMsg := s.moveItemToFolder(ctx, mboxID, mboxKey, rec.FolderID, sentFolder.FolderID, itemID)
 		if resultMsg.ResponseClass == "Error" {
-			responses = append(responses, struct {
-				XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-				ResponseClass string           `xml:"ResponseClass,attr"`
-				ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-			}{
+			responses = append(responses, SendItemResponseMessageType{
 				ResponseClass: "Error",
 				ResponseCode:  resultMsg.ResponseCode,
 			})
@@ -988,17 +1336,13 @@ func (s *Server) handleSendItem(ctx context.Context, body []byte) []byte {
 	return buildResponseEnvelope(resp)
 }
 
-func sendErrMsg(code ResponseCodeType) struct {
-	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string           `xml:"ResponseClass,attr"`
-	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-} {
-	return struct {
-		XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-		ResponseClass string           `xml:"ResponseClass,attr"`
-		ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	}{
-		ResponseClass: "Success",
+func sendErrMsg(code ResponseCodeType) SendItemResponseMessageType {
+	responseClass := "Success"
+	if code.Value != ErrNoError {
+		responseClass = "Error"
+	}
+	return SendItemResponseMessageType{
+		ResponseClass: responseClass,
 		ResponseCode:  code,
 	}
 }
@@ -1034,7 +1378,7 @@ type DistFolderIdType struct {
 type MoveItemResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MoveItemResponse"`
 	Msgs    struct {
-		Messages []ItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+		Messages []ItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MoveItemResponseMessage"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -1125,7 +1469,7 @@ type CopyItemRequest struct {
 type CopyItemResponse struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CopyItemResponse"`
 	Msgs    struct {
-		Messages []ItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+		Messages []ItemResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CopyItemResponseMessage"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -1177,46 +1521,19 @@ func (s *Server) handleCopyItem(ctx context.Context, body []byte) []byte {
 			msgs = append(msgs, errorItemMsg("CopyItem", ErrErrorInvalidId, err.Error()))
 			continue
 		}
-
-		// Generate new ItemId and ChangeKey for the copy.
-		newItemID, err := semcore.NewItemId(generateID())
-		if err != nil {
-			msgs = append(msgs, errorItemMsg("CopyItem", ErrErrorInternalServer, err.Error()))
-			continue
-		}
-		newCK, err := semcore.NewChangeKey(generateID())
-		if err != nil {
-			msgs = append(msgs, errorItemMsg("CopyItem", ErrErrorInternalServer, err.Error()))
-			continue
-		}
-
-		// Register copy under new identity with same conversation if source had one.
 		rec, err := s.identity.GetItemIdentity(itemID)
 		if err != nil {
 			msgs = append(msgs, errorItemMsg("CopyItem", ErrErrorItemNotFound, err.Error()))
 			continue
 		}
-
-		copyMsgKey := fmt.Sprintf("copy:%s:%s", itemID.String(), newItemID.String())
-		if err := s.identity.PutItemIdentity(copyMsgKey, rec.Email, newItemID, mboxID, destFolder, newCK, rec.ConversationID); err != nil {
-			if !errors.Is(err, semcore.ErrIdentityExists) {
-				msgs = append(msgs, errorItemMsg("CopyItem", ErrErrorInternalServer, err.Error()))
-				continue
-			}
+		rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
+		if err != nil {
+			msgs = append(msgs, errorItemMsg("CopyItem", ErrErrorInternalServer, err.Error()))
+			continue
 		}
-
-		msgResp := MessageTypeResponse{
-			ItemID: ItemIdType{
-				ID: newItemID.String(),
-				CK: newCK.String(),
-			},
-			ParentFolderID: FolderIdComponents{ID: destFolder.String()},
-		}
-		msgs = append(msgs, ItemResponseMessageType{
-			ResponseClass: "Success",
-			ResponseCode:  ResponseCodeType{Value: ErrNoError},
-			Items:         ItemsContainer{Items: []MessageTypeResponse{msgResp}},
-		})
+		copiedRaw := prependHeader(rawMsg, "X-uMailServer-Copy-ID", generateID())
+		subject, _, _, _, _, _ := parseMimeHeaders(rawMsg)
+		msgs = append(msgs, s.createRawItemInFolder(ctx, mboxID, mailboxKey, destFolder, subject, copiedRaw, nil))
 	}
 
 	resp := CopyItemResponse{}
@@ -1391,6 +1708,9 @@ func (s *Server) moveItemToFolder(ctx context.Context, mboxID semcore.MailboxId,
 		Source:       semcore.MutationSourceEWS,
 	}
 	if err := s.mutationPipe.MutateMove(in); err != nil {
+		return errorItemMsg("MoveItem", ErrErrorInternalServer, err.Error())
+	}
+	if err := s.identity.SetItemFolder(itemID, destFolder); err != nil {
 		return errorItemMsg("MoveItem", ErrErrorInternalServer, err.Error())
 	}
 

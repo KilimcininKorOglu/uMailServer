@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"go.etcd.io/bbolt"
@@ -352,6 +353,48 @@ func TestBoltIdentityStore_GetFolderByID(t *testing.T) {
 	}
 }
 
+func TestBoltIdentityStore_EnsureFolderId_reusesRoleMatch(t *testing.T) {
+	store := tmpBoltStore(t)
+	defer closeStore(store, t)
+
+	mboxKey := "e:role-match@local.test"
+	inboxID := MustFolderId("fld-role-match")
+	if err := store.PutFolderIdentity(mboxKey, "INBOX", inboxID, "inbox"); err != nil {
+		t.Fatalf("PutFolderIdentity: %v", err)
+	}
+
+	got, err := store.EnsureFolderId(mboxKey, "inbox", "inbox")
+	if err != nil {
+		t.Fatalf("EnsureFolderId: %v", err)
+	}
+	if !got.Equal(inboxID) {
+		t.Fatalf("EnsureFolderId returned %v, want %v", got, inboxID)
+	}
+}
+
+func TestBoltIdentityStore_GetFolderByMailbox_prefersCanonicalRoleName(t *testing.T) {
+	store := tmpBoltStore(t)
+	defer closeStore(store, t)
+
+	mboxKey := "e:canonical-role@local.test"
+	legacyID := MustFolderId("fld-legacy-inbox")
+	canonicalID := MustFolderId("fld-canonical-inbox")
+	if err := store.PutFolderIdentity(mboxKey, "inbox", legacyID, "inbox"); err != nil {
+		t.Fatalf("PutFolderIdentity legacy: %v", err)
+	}
+	if err := store.PutFolderIdentity(mboxKey, "INBOX", canonicalID, "inbox"); err != nil {
+		t.Fatalf("PutFolderIdentity canonical: %v", err)
+	}
+
+	got, err := store.GetFolderByMailbox(mboxKey, "inbox")
+	if err != nil {
+		t.Fatalf("GetFolderByMailbox: %v", err)
+	}
+	if !got.FolderID.Equal(canonicalID) {
+		t.Fatalf("GetFolderByMailbox returned %v, want canonical %v", got.FolderID, canonicalID)
+	}
+}
+
 func TestBoltIdentityStore_SetFolderParent(t *testing.T) {
 	store := tmpBoltStore(t)
 	defer closeStore(store, t)
@@ -521,6 +564,32 @@ func TestBoltIdentityStore_PutItemIdentity_duplicate(t *testing.T) {
 	}
 }
 
+func TestBoltIdentityStore_PutItemIdentity_sameMsgKeyDifferentEmail(t *testing.T) {
+	store := tmpBoltStore(t)
+	defer closeStore(store, t)
+
+	mboxID := MustMailboxId("mbx-item-multi")
+	fldID := MustFolderId("fld-item-multi")
+	firstID := MustItemId("item-multi-1")
+	secondID := MustItemId("item-multi-2")
+	ck := MustChangeKey("CK-MULTI")
+
+	if err := store.PutItemIdentity("k:msg-shared", "alice@example.com", firstID, mboxID, fldID, ck, ConversationId{}); err != nil {
+		t.Fatalf("first PutItemIdentity: %v", err)
+	}
+	if err := store.PutItemIdentity("k:msg-shared", "bob@example.com", secondID, mboxID, fldID, ck, ConversationId{}); err != nil {
+		t.Fatalf("second PutItemIdentity: %v", err)
+	}
+
+	got, err := store.GetItemIDByKey("k:msg-shared")
+	if err != nil {
+		t.Fatalf("GetItemIDByKey: %v", err)
+	}
+	if got.IsZero() {
+		t.Fatal("GetItemIDByKey returned zero ItemId")
+	}
+}
+
 func TestBoltIdentityStore_PutItemIdentity_zeroID(t *testing.T) {
 	store := tmpBoltStore(t)
 	defer closeStore(store, t)
@@ -676,6 +745,62 @@ func TestBoltIdentityStore_SetItemConversation(t *testing.T) {
 	}
 	if !got.ConversationID.Equal(newConvID) {
 		t.Errorf("ConversationID = %v, want %v", got.ConversationID, newConvID)
+	}
+}
+
+func TestBoltIdentityStore_SetItemFolder(t *testing.T) {
+	store := tmpBoltStore(t)
+	defer closeStore(store, t)
+
+	mboxID := MustMailboxId("mbx-sif")
+	sourceFolderID := MustFolderId("fld-sif-src")
+	destFolderID := MustFolderId("fld-sif-dst")
+	itemID := MustItemId("item-sif")
+
+	if err := store.PutItemIdentity("k:sif", "", itemID, mboxID, sourceFolderID, MustChangeKey("CK-SIF"), ConversationId{}); err != nil {
+		t.Fatalf("PutItemIdentity: %v", err)
+	}
+
+	if err := store.SetItemFolder(itemID, destFolderID); err != nil {
+		t.Fatalf("SetItemFolder: %v", err)
+	}
+
+	got, err := store.GetItemIdentity(itemID)
+	if err != nil {
+		t.Fatalf("GetItemIdentity after SetItemFolder: %v", err)
+	}
+	if !got.FolderID.Equal(destFolderID) {
+		t.Fatalf("FolderID = %v, want %v", got.FolderID, destFolderID)
+	}
+}
+
+func TestBoltIdentityStore_UpdateItemState(t *testing.T) {
+	store := tmpBoltStore(t)
+	defer closeStore(store, t)
+
+	mboxID := MustMailboxId("mbx-sis")
+	fldID := MustFolderId("fld-sis")
+	itemID := MustItemId("item-sis")
+
+	if err := store.PutItemIdentity("k:sis", "", itemID, mboxID, fldID, MustChangeKey("CK-SIS"), ConversationId{}); err != nil {
+		t.Fatalf("PutItemIdentity: %v", err)
+	}
+
+	isRead := true
+	categories := []string{"qa", "ews"}
+	if err := store.UpdateItemState(itemID, &isRead, categories); err != nil {
+		t.Fatalf("UpdateItemState: %v", err)
+	}
+
+	got, err := store.GetItemIdentity(itemID)
+	if err != nil {
+		t.Fatalf("GetItemIdentity after UpdateItemState: %v", err)
+	}
+	if !got.IsRead {
+		t.Fatal("IsRead should be true after UpdateItemState")
+	}
+	if !reflect.DeepEqual(got.Categories, categories) {
+		t.Fatalf("Categories = %v, want %v", got.Categories, categories)
 	}
 }
 
@@ -1052,7 +1177,6 @@ func TestBoltIdentityStore_externalBoltAccess(t *testing.T) {
 		t.Errorf("id = %v, want mbx-ext", id)
 	}
 }
-
 
 func TestBoltIdentityStore_requiresExplicitDir(t *testing.T) {
 	// Store should create the directory if it doesn't exist.

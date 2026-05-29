@@ -15,7 +15,6 @@ import (
 
 //nolint:errcheck,staticcheck // Test fixtures intentionally skip error checks on store setup.
 
-
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -57,9 +56,9 @@ func tmpItemStores(t *testing.T) (*semcore.BoltIdentityStore, *semcore.BoltSyncS
 
 	cleanup := func() {
 		_ = identity.Close() //nolint:errcheck
-		_ = syncDB.Close()    //nolint:errcheck
-		_ = tombDB.Close()    //nolint:errcheck
-		_ = msgStore.Close()  //nolint:errcheck
+		_ = syncDB.Close()   //nolint:errcheck
+		_ = tombDB.Close()   //nolint:errcheck
+		_ = msgStore.Close() //nolint:errcheck
 	}
 
 	return identity, sync, tomb, msgStore, cleanup
@@ -84,7 +83,7 @@ func tmpEWSItemServer(t *testing.T) (*Server, func()) {
 	// Mutation pipeline needs the identity store.
 	pipe := semcore.NewMutationPipeline(identity, nil)
 
-	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, nil, nil, nil, nil, delegateStore, nil)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, nil, nil, nil, nil, delegateStore, nil, nil)
 
 	return srv, func() {
 		cleanup()
@@ -319,7 +318,7 @@ func TestUpdateItem_ChangeKeyMismatch(t *testing.T) {
 	email := "alice@local.test"
 	ensureMailboxFixtures(t, srv, email)
 	//nolint:errcheck
-			_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
+	_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
 
 	// Create an item.
 	createBody := ewsEnvelope("CreateItem", `
@@ -430,7 +429,7 @@ func TestDeleteItem_HardDelete(t *testing.T) {
 	email := "alice@local.test"
 	ensureMailboxFixtures(t, srv, email)
 	//nolint:errcheck
-			_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
+	_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
 
 	// Create an item.
 	createBody := ewsEnvelope("CreateItem", `
@@ -474,12 +473,25 @@ func TestSendItem_Basic(t *testing.T) {
 	email := "alice@local.test"
 	ensureMailboxFixtures(t, srv, email)
 
+	var submittedFrom string
+	var submittedTo []string
+	var submittedRaw string
+	srv.SetSubmitMessageFunc(func(from string, to []string, data []byte) error {
+		submittedFrom = from
+		submittedTo = append([]string(nil), to...)
+		submittedRaw = string(data)
+		return nil
+	})
+
 	// Create a draft.
 	createBody := ewsEnvelope("CreateItem", `
 		<Items>
 			<t:Message>
 				<t:Subject>Send Test</t:Subject>
 				<t:Body BodyType="Text">Sending this</t:Body>
+				<t:BccRecipients>
+					<t:Mailbox><t:EmailAddress>hidden@local.test</t:EmailAddress></t:Mailbox>
+				</t:BccRecipients>
 				<t:ToRecipients>
 					<t:Mailbox><t:EmailAddress>bob@local.test</t:EmailAddress></t:Mailbox>
 				</t:ToRecipients>
@@ -517,6 +529,32 @@ func TestSendItem_Basic(t *testing.T) {
 	if !strings.Contains(respBody, `ResponseClass="Success"`) {
 		t.Fatalf("Response should indicate Success, got: %s", respBody)
 	}
+
+	if submittedFrom != email {
+		t.Fatalf("submittedFrom = %q, want %q", submittedFrom, email)
+	}
+	if len(submittedTo) != 2 || submittedTo[0] != "bob@local.test" || submittedTo[1] != "hidden@local.test" {
+		t.Fatalf("submittedTo = %v, want bob and hidden recipients", submittedTo)
+	}
+	if strings.Contains(strings.ToLower(submittedRaw), "\nbcc:") || strings.Contains(strings.ToLower(submittedRaw), "\r\nbcc:") {
+		t.Fatalf("submitted raw message should not contain Bcc header: %q", submittedRaw)
+	}
+
+	storedID, err := semcore.NewItemId(itemID)
+	if err != nil {
+		t.Fatalf("NewItemId: %v", err)
+	}
+	stored, err := srv.identity.GetItemIdentity(storedID)
+	if err != nil {
+		t.Fatalf("GetItemIdentity after SendItem: %v", err)
+	}
+	sentFolder, err := srv.identity.GetFolderByMailbox(email, "sent")
+	if err != nil {
+		t.Fatalf("GetFolderByMailbox(sent): %v", err)
+	}
+	if !stored.FolderID.Equal(sentFolder.FolderID) {
+		t.Fatalf("FolderID after SendItem = %v, want %v", stored.FolderID, sentFolder.FolderID)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -530,9 +568,9 @@ func TestMoveItem_ToTrash(t *testing.T) {
 	email := "alice@local.test"
 	ensureMailboxFixtures(t, srv, email)
 	//nolint:errcheck
-			_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
+	_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
 	//nolint:errcheck
-			_, _ = srv.identity.EnsureFolderId("e:"+email, "trash", "trash") //nolint:errcheck //nolint:errcheck
+	_, _ = srv.identity.EnsureFolderId("e:"+email, "trash", "trash") //nolint:errcheck //nolint:errcheck
 
 	// Create an item in drafts.
 	createBody := ewsEnvelope("CreateItem", `
@@ -574,7 +612,22 @@ func TestMoveItem_ToTrash(t *testing.T) {
 	if !strings.Contains(respBody, `ResponseClass="Success"`) {
 		t.Fatalf("Response should indicate Success, got: %s", respBody)
 	}
-	// Parent folder updated: verified by Success response above.
+
+	storedID, err := semcore.NewItemId(itemID)
+	if err != nil {
+		t.Fatalf("NewItemId: %v", err)
+	}
+	stored, err := srv.identity.GetItemIdentity(storedID)
+	if err != nil {
+		t.Fatalf("GetItemIdentity after MoveItem: %v", err)
+	}
+	trashFolder, err := srv.identity.GetFolderByMailbox(email, "trash")
+	if err != nil {
+		t.Fatalf("GetFolderByMailbox(trash): %v", err)
+	}
+	if !stored.FolderID.Equal(trashFolder.FolderID) {
+		t.Fatalf("FolderID after MoveItem = %v, want %v", stored.FolderID, trashFolder.FolderID)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -705,7 +758,7 @@ func TestCreateItem_DraftReadableAfterCreation(t *testing.T) {
 	email := "alice@local.test"
 	ensureMailboxFixtures(t, srv, email)
 	//nolint:errcheck
-			_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
+	_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
 
 	// Create draft.
 	createBody := ewsEnvelope("CreateItem", `
@@ -763,7 +816,7 @@ func TestCreateItem_MIMEContentPreserved(t *testing.T) {
 	email := "alice@local.test"
 	ensureMailboxFixtures(t, srv, email)
 	//nolint:errcheck
-			_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
+	_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
 
 	// Create draft with To recipient.
 	createBody := ewsEnvelope("CreateItem", `
@@ -821,7 +874,7 @@ func TestDeleteItem_DifferentModes(t *testing.T) {
 	email := "alice@local.test"
 	ensureMailboxFixtures(t, srv, email)
 	//nolint:errcheck
-			_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
+	_, _ = srv.identity.EnsureFolderId("e:"+email, "drafts", "drafts") //nolint:errcheck //nolint:errcheck
 
 	// Create two items.
 	createBody := ewsEnvelope("CreateItem", `
@@ -841,7 +894,6 @@ func TestDeleteItem_DifferentModes(t *testing.T) {
 	// produces a valid response. Full distinctness is validated
 	// by examining the tombstone store.
 }
-
 
 // ---------------------------------------------------------------------------
 // Delegate permission enforcement tests (VAL-DIR-002, VAL-DIR-014)
@@ -949,22 +1001,22 @@ func TestCheckDelegatePermission_AllowsPrivilegedDelegate(t *testing.T) {
 func TestDelegateAuditContext_PresentInLifecycle(t *testing.T) {
 	// Set up with lifecycle store and delegate store.
 	tmpDir := t.TempDir()
-	identity, _ := semcore.NewBoltIdentityStore(tmpDir)              //nolint:errcheck
-	syncDB, _ := bbolt.Open(filepath.Join(tmpDir, "sync.db"), 0o600, nil)   //nolint:errcheck
-	sync, _ := semcore.NewBoltSyncStateStore(syncDB)                     //nolint:errcheck
-	tombDB, _ := bbolt.Open(filepath.Join(tmpDir, "tomb.db"), 0o600, nil)   //nolint:errcheck
-	tomb, _ := semcore.NewBoltTombstoneStore(tombDB)                       //nolint:errcheck
-	msgStore, _ := storage.NewMessageStore(filepath.Join(tmpDir, "msgs"))   //nolint:errcheck
+	identity, _ := semcore.NewBoltIdentityStore(tmpDir)                             //nolint:errcheck
+	syncDB, _ := bbolt.Open(filepath.Join(tmpDir, "sync.db"), 0o600, nil)           //nolint:errcheck
+	sync, _ := semcore.NewBoltSyncStateStore(syncDB)                                //nolint:errcheck
+	tombDB, _ := bbolt.Open(filepath.Join(tmpDir, "tomb.db"), 0o600, nil)           //nolint:errcheck
+	tomb, _ := semcore.NewBoltTombstoneStore(tombDB)                                //nolint:errcheck
+	msgStore, _ := storage.NewMessageStore(filepath.Join(tmpDir, "msgs"))           //nolint:errcheck
 	lifecycleDB, _ := bbolt.Open(filepath.Join(tmpDir, "lifecycle.db"), 0o600, nil) //nolint:errcheck
 	lifecycle, errLifecycle := semcore.NewBoltLifecycleStore(lifecycleDB)
 	if errLifecycle != nil {
 		t.Fatalf("NewBoltLifecycleStore: %v", errLifecycle)
 	}
 	delegateDB, _ := bbolt.Open(filepath.Join(tmpDir, "delegate.db"), 0o600, nil) //nolint:errcheck
-	delegateStore, _ := semcore.NewBoltDelegateStore(delegateDB) //nolint:errcheck
+	delegateStore, _ := semcore.NewBoltDelegateStore(delegateDB)                  //nolint:errcheck
 
 	pipe := semcore.NewMutationPipeline(identity, lifecycle)
-	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, nil, lifecycle, nil, nil, delegateStore, nil)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, nil, lifecycle, nil, nil, delegateStore, nil, nil)
 
 	ownerEmail := "owner3@local.test"
 	delegateEmail := "delegate3@local.test"
@@ -1010,12 +1062,12 @@ func TestDelegateAuditContext_PresentInLifecycle(t *testing.T) {
 		t.Fatalf("Expected lifecycle event with delegate audit context in owner mailbox, but found none. Events: %+v", events)
 	}
 
-	_ = identity.Close() //nolint:errcheck
-	_ = syncDB.Close()    //nolint:errcheck
-	_ = tombDB.Close()    //nolint:errcheck
-	_ = msgStore.Close()  //nolint:errcheck
+	_ = identity.Close()    //nolint:errcheck
+	_ = syncDB.Close()      //nolint:errcheck
+	_ = tombDB.Close()      //nolint:errcheck
+	_ = msgStore.Close()    //nolint:errcheck
 	_ = lifecycleDB.Close() //nolint:errcheck
-	_ = delegateDB.Close() //nolint:errcheck
+	_ = delegateDB.Close()  //nolint:errcheck
 }
 
 // TestCheckDelegatePermission_OwnerBypassesCheck verifies that the mailbox
@@ -1072,7 +1124,7 @@ func TestSendAs_RequiresExplicitGrant(t *testing.T) {
 		},
 		CanSendAs:       false, // explicit: no send-as
 		CanSendOnBehalf: false,
-		GrantedBy:      ownerEmail,
+		GrantedBy:       ownerEmail,
 	}
 	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
 
@@ -1117,7 +1169,7 @@ func TestSendAs_WithExplicitGrant(t *testing.T) {
 		},
 		CanSendAs:       true, // explicit send-as grant
 		CanSendOnBehalf: false,
-		GrantedBy:      ownerEmail,
+		GrantedBy:       ownerEmail,
 	}
 	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
 
@@ -1167,7 +1219,7 @@ func TestSendOnBehalf_RequiresExplicitGrant(t *testing.T) {
 		},
 		CanSendAs:       false, // no send-as
 		CanSendOnBehalf: false, // explicit: no send-on-behalf
-		GrantedBy:      ownerEmail,
+		GrantedBy:       ownerEmail,
 	}
 	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
 
@@ -1214,7 +1266,7 @@ func TestSendOnBehalf_WithExplicitGrant(t *testing.T) {
 		},
 		CanSendAs:       false,
 		CanSendOnBehalf: true, // explicit send-on-behalf grant
-		GrantedBy:      ownerEmail,
+		GrantedBy:       ownerEmail,
 	}
 	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
 
@@ -1262,7 +1314,7 @@ func TestSendAs_NotImpliedByGeneralMailboxAccess(t *testing.T) {
 		},
 		CanSendAs:       false, // explicit absence
 		CanSendOnBehalf: false,
-		GrantedBy:      ownerEmail,
+		GrantedBy:       ownerEmail,
 	}
 	_, _ = delegateStore.PutDelegate(delegate) //nolint:errcheck
 

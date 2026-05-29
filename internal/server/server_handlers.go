@@ -348,11 +348,12 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, targetFold
 					"email", email, "folder", folder, "error", fldErr)
 			} else {
 				in := &semcore.MutationInput{
-					MailboxID:     mboxID,
-					FolderID:      fldID,
-					RawMessage:    data,
+					MailboxID:    mboxID,
+					FolderID:     fldID,
+					RawMessage:   data,
 					InternalDate: time.Now(),
 					Actor:        from,
+					Email:        email,
 					Source:       semcore.MutationSourceSMTP,
 				}
 				mutationResult, mboxErr = s.mutationPipe.MutateItem(in)

@@ -2000,6 +2000,24 @@ func TestDeliverLocal_SuccessWithQuotaHeadroom(t *testing.T) {
 	if account.QuotaUsed != int64(len(msgData)) {
 		t.Errorf("expected QuotaUsed=%d, got %d", len(msgData), account.QuotaUsed)
 	}
+
+	mboxID, err := srv.semcoreStore.Identity().GetMailboxIDByEmail("alice@test.example.com")
+	if err != nil {
+		t.Fatalf("GetMailboxIDByEmail failed: %v", err)
+	}
+	items, err := srv.semcoreStore.Identity().ListItemIdentitiesByMailbox(mboxID)
+	if err != nil {
+		t.Fatalf("ListItemIdentitiesByMailbox failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 semantic item, got %d", len(items))
+	}
+	if items[0].Email != "alice@test.example.com" {
+		t.Fatalf("semantic item email = %q, want alice@test.example.com", items[0].Email)
+	}
+	if _, err := srv.msgStore.ReadMessage(items[0].Email, items[0].MsgKey); err != nil {
+		t.Fatalf("ReadMessage via semantic item identity failed: %v", err)
+	}
 }
 
 func TestDeliverLocal_QuotaExceededEqual(t *testing.T) {

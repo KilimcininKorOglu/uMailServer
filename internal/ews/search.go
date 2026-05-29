@@ -37,7 +37,7 @@ type FindItemRequest struct {
 		Denominator string `xml:"Denominator,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FractionalPageFolderView,omitempty"`
 	// Restrictions: optional field-based filter.
-	Restrictions *RestrictionContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Restriction,omitempty"`
+	Restrictions *RestrictionContainer `xml:"Restriction,omitempty"`
 	// SortOrder: optional result ordering.
 	SortOrder *SortOrderContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SortOrder,omitempty"`
 	// ParentFolderIds: which folders to search.
@@ -49,39 +49,39 @@ type FolderIDsForSearch struct {
 	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ParentFolderIds"`
 	Distinguished []struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
-		ID     string   `xml:"Id,attr"`
+		ID      string   `xml:"Id,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
 	Folder []struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
-		ID     string   `xml:"Id,attr"`
+		ID      string   `xml:"Id,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 }
 
 // RestrictionContainer wraps the t:Restriction element.
 type RestrictionContainer struct {
-	XMLName      xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Restriction"`
+	XMLName      xml.Name     `xml:"Restriction"`
 	SearchFilter SearchFilter `xml:",any"` // supported filter types
 }
 
 // SearchFilter is a disjunction (OR) or conjunction (AND) of search conditions.
 // Only one of the fields is populated at a time based on the XML element name.
 type SearchFilter struct {
-	And    *SearchFilter `xml:"and"`
-	Or     *SearchFilter `xml:"or"`
-	Not    *SearchFilter `xml:"not"`
-	IsEqualTo      *ComparisonFilter `xml:"IsEqualTo"`
-	Contains       *ContainsFilter `xml:"Contains"`
-	Exists         *ExistsFilter `xml:"Exists"`
+	And       *SearchFilter     `xml:"And"`
+	Or        *SearchFilter     `xml:"Or"`
+	Not       *SearchFilter     `xml:"Not"`
+	IsEqualTo *ComparisonFilter `xml:"IsEqualTo"`
+	Contains  *ContainsFilter   `xml:"Contains"`
+	Exists    *ExistsFilter     `xml:"Exists"`
 	// Relational comparisons.
-	IsGreaterThan  *ComparisonFilter `xml:"IsGreaterThan"`
-	IsLessThan     *ComparisonFilter `xml:"IsLessThan"`
+	IsGreaterThan          *ComparisonFilter `xml:"IsGreaterThan"`
+	IsLessThan             *ComparisonFilter `xml:"IsLessThan"`
 	IsGreaterThanOrEqualTo *ComparisonFilter `xml:"IsGreaterThanOrEqualTo"`
 	IsLessThanOrEqualTo    *ComparisonFilter `xml:"IsLessThanOrEqualTo"`
 }
 
 // ContainsFilter represents the EWS Contains element.
 type ContainsFilter struct {
-	Path      ContainsPathType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Path"`
+	Path      ContainsPathType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Path"`
 	Constant  ContainsConstType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Constant"`
 	Traversal string            `xml:"Traversal,attr"` //string, item, shallow, deep
 }
@@ -103,7 +103,7 @@ type ExistsFilter struct {
 
 // ComparisonFilter is a common comparison type (IsEqualTo, IsGreaterThan, etc.).
 type ComparisonFilter struct {
-	Path     ComparisonPathType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Path"`
+	Path     ComparisonPathType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Path"`
 	Constant ComparisonConstType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Constant"`
 }
 
@@ -127,7 +127,7 @@ type FieldURIOrConstant struct {
 
 // SortOrderContainer wraps field URIs for ordering.
 type SortOrderContainer struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SortOrder"`
+	XMLName xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SortOrder"`
 	Fields  []SortByField `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
 }
 
@@ -141,7 +141,7 @@ type SortByField struct {
 
 // FindItemResponse is the EWS FindItem operation response.
 type FindItemResponse struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindItemResponse"`
+	XMLName          xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindItemResponse"`
 	ResponseMessages FindItemResponseMessages `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
@@ -152,22 +152,24 @@ type FindItemResponseMessages struct {
 
 // FindItemResponseMessageType is one FindItem response.
 type FindItemResponseMessageType struct {
-	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
-	ResponseClass string   `xml:"ResponseClass,attr"`
+	ResponseClass string           `xml:"ResponseClass,attr"`
 	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	Items         *ItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	RootFolder    *RootFolderType  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RootFolder"`
+}
+
+type SearchItemsContainer struct {
+	XMLName xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Items"`
+	Items   []MessageTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
 }
 
 // RootFolderType wraps the paged result set.
 type RootFolderType struct {
-	XMLName          xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RootFolder"`
-	TotalItems       int      `xml:"TotalItemsInResponse,attr"`
-	IncludesLastItem bool     `xml:"IncludesLastItemInRange,attr"`
-	IndexedPage      struct {
-		Offset string `xml:"IndexedPageOffset,attr,omitempty"`
-	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages IndexedPageFolderView,omitempty"`
-	Items []MessageTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	XMLName             xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RootFolder"`
+	TotalItems          int                  `xml:"TotalItemsInView,attr"`
+	TotalItemsResponse  int                  `xml:"TotalItemsInResponse,attr"`
+	IncludesLastItem    bool                 `xml:"IncludesLastItemInRange,attr"`
+	IndexedPagingOffset string               `xml:"IndexedPagingOffset,attr,omitempty"`
+	Items               SearchItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/types Items"`
 }
 
 // handleFindItem processes an EWS FindItem SOAP request.
@@ -230,7 +232,7 @@ func (s *Server) handleFindItem(ctx context.Context, body []byte) []byte {
 	total := len(allItems)
 	pageOffset := 0
 	maxEntries := 0
-	var includesLast bool
+	includesLast := true
 
 	if req.IndexedPage.MaxEntriesReturned != "" {
 		maxEntries, _ = strconv.Atoi(req.IndexedPage.MaxEntriesReturned)
@@ -256,12 +258,17 @@ func (s *Server) handleFindItem(ctx context.Context, body []byte) []byte {
 	resp.ResponseMessages.Messages = []FindItemResponseMessageType{{
 		ResponseClass: "Success",
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
-		Items:         &ItemsContainer{Items: allItems},
 		RootFolder: &RootFolderType{
-			TotalItems:       total,
-			IncludesLastItem: includesLast,
+			TotalItems:         total,
+			TotalItemsResponse: total,
+			IncludesLastItem:   includesLast,
+			Items:              SearchItemsContainer{Items: allItems},
 		},
 	}}
+	if maxEntries > 0 && !includesLast {
+		nextOffset := pageOffset + len(allItems)
+		resp.ResponseMessages.Messages[0].RootFolder.IndexedPagingOffset = strconv.Itoa(nextOffset)
+	}
 	return buildResponseEnvelope(resp)
 }
 
@@ -385,10 +392,10 @@ func parseMimeHeadersForFilter(data []byte) filterFields {
 
 // filterFields holds the parsed headers needed for restriction evaluation.
 type filterFields struct {
-	From            string
-	Subject         string
-	Date            string
-	HasAttachment   bool
+	From          string
+	Subject       string
+	Date          string
+	HasAttachment bool
 	// body content checked separately
 }
 
@@ -576,7 +583,7 @@ func (s *Server) collabCalendarItemToResponse(rec semcore.StoredCalendarItemIden
 			CK: rec.ChangeKey.String(),
 		},
 		ParentFolderID: FolderIdComponents{ID: folderID.String()},
-		Subject:         rec.IcalUID, // UID as subject placeholder
+		Subject:        rec.IcalUID, // UID as subject placeholder
 	}
 }
 
@@ -588,8 +595,8 @@ func (s *Server) collabContactItemToResponse(rec semcore.StoredContactIdentity, 
 			ID: rec.ID.String(),
 			CK: rec.ChangeKey.String(),
 		},
-		ParentFolderID:   FolderIdComponents{ID: folderID.String()},
-		Subject:         rec.IcalUID, // UID as subject placeholder
+		ParentFolderID: FolderIdComponents{ID: folderID.String()},
+		Subject:        rec.IcalUID, // UID as subject placeholder
 	}
 }
 
@@ -601,8 +608,8 @@ func (s *Server) collabTaskItemToResponse(rec semcore.StoredTaskIdentity, folder
 			ID: rec.ID.String(),
 			CK: rec.ChangeKey.String(),
 		},
-		ParentFolderID:   FolderIdComponents{ID: folderID.String()},
-		Subject:         rec.IcalUID, // UID as subject placeholder
+		ParentFolderID: FolderIdComponents{ID: folderID.String()},
+		Subject:        rec.IcalUID, // UID as subject placeholder
 	}
 }
 

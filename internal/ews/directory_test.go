@@ -84,8 +84,8 @@ func tmpDirectoryStores(t *testing.T) (
 
 	cleanup := func() {
 		_ = identity.Close() //nolint:errcheck
-		_ = syncDB.Close()  //nolint:errcheck
-		_ = tombDB.Close()  //nolint:errcheck
+		_ = syncDB.Close()   //nolint:errcheck
+		_ = tombDB.Close()   //nolint:errcheck
 		_ = msgStore.Close() //nolint:errcheck
 		_ = policyDB.Close() //nolint:errcheck
 		_ = collabDB.Close() //nolint:errcheck
@@ -112,7 +112,7 @@ func tmpDirectoryEWSServer(t *testing.T) *Server {
 	}
 
 	pipe := semcore.NewMutationPipeline(identity, nil)
-	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, nil, nil, collabStore, policyStore, delegateStore, nil)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, pipe, nil, nil, collabStore, policyStore, delegateStore, nil, nil)
 
 	// Clean up delegate DB when test completes.
 	t.Cleanup(func() {
@@ -150,9 +150,9 @@ func ensureResourcePolicy(t *testing.T, policyStore *semcore.BoltPolicyStore, em
 		ID:        resourceID,
 		MailboxID: mailboxID,
 		Name:      name,
-		Kind:     kind,
-		Email:    email,
-		Decision: semcore.BookingDecisionAutoAccept,
+		Kind:      kind,
+		Email:     email,
+		Decision:  semcore.BookingDecisionAutoAccept,
 	}
 	if err := policyStore.PutResource(policy); err != nil {
 		t.Fatalf("PutResource: %v", err)
@@ -275,15 +275,15 @@ func TestGetRooms_ExcludesHiddenRooms(t *testing.T) {
 
 	// Add a visible room and a hidden room.
 	ensureResourcePolicy(t, srv.policyStore, "visible-room@local.test", "Visible Room", semcore.ResourceKindRoom)
-	hiddenID, _ := semcore.NewResourceId("hidden-room@local.test") //nolint:errcheck
+	hiddenID, _ := semcore.NewResourceId("hidden-room@local.test")       //nolint:errcheck
 	hiddenMailboxID, _ := semcore.NewMailboxId("hidden-room@local.test") //nolint:errcheck
 	hiddenPolicy := &semcore.ResourcePolicy{
-		ID:        hiddenID,
-		MailboxID: hiddenMailboxID,
-		Name:      "Hidden Room",
-		Kind:      semcore.ResourceKindRoom,
-		Email:     "hidden-room@local.test",
-		Decision:  semcore.BookingDecisionAutoAccept,
+		ID:            hiddenID,
+		MailboxID:     hiddenMailboxID,
+		Name:          "Hidden Room",
+		Kind:          semcore.ResourceKindRoom,
+		Email:         "hidden-room@local.test",
+		Decision:      semcore.BookingDecisionAutoAccept,
 		HiddenFromGAL: true,
 	}
 	_ = srv.policyStore.PutResource(hiddenPolicy) //nolint:errcheck
@@ -375,15 +375,15 @@ func TestGetRoomLists_ExcludesHiddenRooms(t *testing.T) {
 
 	// Add a visible room and a hidden room.
 	ensureResourcePolicy(t, srv.policyStore, "visible@local.test", "Visible Room", semcore.ResourceKindRoom)
-	hiddenID, _ := semcore.NewResourceId("hidden@local.test") //nolint:errcheck
+	hiddenID, _ := semcore.NewResourceId("hidden@local.test")       //nolint:errcheck
 	hiddenMailboxID, _ := semcore.NewMailboxId("hidden@local.test") //nolint:errcheck
 	hiddenPolicy := &semcore.ResourcePolicy{
-		ID:        hiddenID,
-		MailboxID: hiddenMailboxID,
-		Name:      "Hidden Room",
-		Kind:      semcore.ResourceKindRoom,
-		Email:     "hidden@local.test",
-		Decision:  semcore.BookingDecisionAutoAccept,
+		ID:            hiddenID,
+		MailboxID:     hiddenMailboxID,
+		Name:          "Hidden Room",
+		Kind:          semcore.ResourceKindRoom,
+		Email:         "hidden@local.test",
+		Decision:      semcore.BookingDecisionAutoAccept,
 		HiddenFromGAL: true,
 	}
 	_ = srv.policyStore.PutResource(hiddenPolicy) //nolint:errcheck

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/api"
@@ -35,6 +36,7 @@ type Server struct {
 	policyStore   *semcore.BoltPolicyStore
 	delegateStore *semcore.BoltDelegateStore
 	sieveMgr      *sieve.Manager
+	submitMessage func(from string, to []string, data []byte) error
 	logger        *slog.Logger
 }
 
@@ -46,7 +48,7 @@ type Server struct {
 // RemoveDelegate, GetDelegate) and shared mailbox discovery.
 // The sieveMgr is used to recompile the Sieve script after policy changes.
 // The db parameter provides account/domain lookups for GAL directory operations.
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, db *db.DB, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, delegateStore *semcore.BoltDelegateStore, sieveMgr *sieve.Manager) *Server {
+func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, db *db.DB, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, delegateStore *semcore.BoltDelegateStore, sieveMgr *sieve.Manager, submitMessage func(from string, to []string, data []byte) error) *Server {
 	return &Server{
 		identity:      identity,
 		sync:          syncState,
@@ -61,6 +63,7 @@ func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncS
 		policyStore:   policyStore,
 		delegateStore: delegateStore,
 		sieveMgr:      sieveMgr,
+		submitMessage: submitMessage,
 		logger:        slog.Default(),
 	}
 }
@@ -68,6 +71,11 @@ func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncS
 // SetLogger sets the logger for the EWS server.
 func (s *Server) SetLogger(logger *slog.Logger) {
 	s.logger = logger
+}
+
+// SetSubmitMessageFunc wires the outbound submission path used by SendItem.
+func (s *Server) SetSubmitMessageFunc(fn func(from string, to []string, data []byte) error) {
+	s.submitMessage = fn
 }
 
 // HandleHTTP is the http.Handler entry point for /EWS/Exchange.asmx.
@@ -95,7 +103,7 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("EWS HandleHTTP: no X-Email in context")
 		email = ""
 	}
-	
+
 	if email != "" && s.db != nil {
 		if localPart, domain, ok := strings.Cut(email, "@"); ok {
 			if acc, err := s.db.GetAccount(domain, localPart); err == nil && acc != nil {
@@ -237,12 +245,10 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 func parseSOAPOperation(body []byte) (string, []byte) {
 	// Extract soap:Body content using simple string manipulation.
 	// Handle both full SOAP envelopes and bare EWS operation XML.
-	bodyStart := bytes.Index(body, []byte("<soap:Body>"))
-	bodyEnd := bytes.Index(body, []byte("</soap:Body>"))
 	var bodyContent []byte
-	if bodyStart != -1 && bodyEnd != -1 {
-		// Full SOAP envelope: extract body content.
-		bodyContent = bytes.TrimSpace(body[bodyStart+len("<soap:Body>") : bodyEnd])
+	bodyMatcher := regexp.MustCompile(`(?s)<(?:\w+:)?Body[^>]*>(.*)</(?:\w+:)?Body>`)
+	if matches := bodyMatcher.FindSubmatch(body); len(matches) == 2 {
+		bodyContent = bytes.TrimSpace(matches[1])
 	} else {
 		// Bare EWS message (no SOAP envelope): use the entire body.
 		bodyContent = bytes.TrimSpace(body)
@@ -266,6 +272,7 @@ func parseSOAPOperation(body []byte) (string, []byte) {
 	syntheticEnv = append(syntheticEnv, []byte(`</soap:Body></soap:Envelope>`)...)
 
 	decoder := xml.NewDecoder(bytes.NewReader(syntheticEnv))
+	inBody := false
 	for {
 		tok, err := decoder.Token()
 		if err != nil {
@@ -277,11 +284,21 @@ func parseSOAPOperation(body []byte) (string, []byte) {
 		switch v := tok.(type) {
 		case xml.StartElement:
 			name := v.Name.Local
-			// Skip SOAP envelope wrappers.
-			if name == "Envelope" || name == "Header" || name == "Body" {
+			if name == "Body" {
+				inBody = true
+				continue
+			}
+			if !inBody {
+				continue
+			}
+			if name == "Envelope" || name == "Header" {
 				continue
 			}
 			return name, syntheticEnv
+		case xml.EndElement:
+			if v.Name.Local == "Body" {
+				inBody = false
+			}
 		}
 	}
 }
@@ -290,6 +307,7 @@ func parseSOAPOperation(body []byte) (string, []byte) {
 // It uses xml.Decoder with DecodeElement to properly resolve namespace prefixes (m:, t:).
 func decodeRequest(syntheticEnv []byte, req interface{}) error {
 	decoder := xml.NewDecoder(bytes.NewReader(syntheticEnv))
+	inBody := false
 	for {
 		tok, err := decoder.Token()
 		if err != nil {
@@ -300,11 +318,21 @@ func decodeRequest(syntheticEnv []byte, req interface{}) error {
 		}
 		switch elem := tok.(type) {
 		case xml.StartElement:
-			// Skip SOAP envelope wrappers.
-			if elem.Name.Local == "Envelope" || elem.Name.Local == "Header" || elem.Name.Local == "Body" {
+			if elem.Name.Local == "Body" {
+				inBody = true
+				continue
+			}
+			if !inBody {
+				continue
+			}
+			if elem.Name.Local == "Envelope" || elem.Name.Local == "Header" {
 				continue
 			}
 			return decoder.DecodeElement(req, &elem)
+		case xml.EndElement:
+			if elem.Name.Local == "Body" {
+				inBody = false
+			}
 		}
 	}
 }
@@ -744,7 +772,7 @@ type ConvertIdType struct {
 
 // ConvertIdSourceIdsType wraps the list of IDs to convert.
 type ConvertIdSourceIdsType struct {
-	XMLName xml.Name `xml:"SourceIds"`
+	XMLName xml.Name          `xml:"SourceIds"`
 	IDs     []AlternateIdType `xml:"AlternateId"`
 }
 
@@ -754,14 +782,14 @@ type AlternateIdType struct {
 	ID      string   `xml:"Id,attr"`
 	// Format: "EwsId", "EntryId", "HexEntryId", "StoreId", "OWAId", "PRecordId",
 	// "EWSLegacyId", "WebClientReadFormQueryString", "WebClientEditFormQueryString"
-	Format string   `xml:"Format,attr"`
+	Format string `xml:"Format,attr"`
 	// Mailbox for cross-mailbox ID conversions (optional).
 	Mailbox string `xml:"Mailbox,attr,omitempty"`
 }
 
 // ConvertIdResponseType is the EWS ConvertId response.
 type ConvertIdResponseType struct {
-	XMLName xml.Name `xml:"m:ConvertIdResponse"`
+	XMLName          xml.Name                      `xml:"m:ConvertIdResponse"`
 	ResponseMessages ConvertIdResponseMessagesType `xml:"ResponseMessages"`
 }
 
@@ -783,7 +811,7 @@ type ConvertIdResponseMessageType struct {
 
 // ConvertIdResultsType holds converted ID results.
 type ConvertIdResultsType struct {
-	XMLName xml.Name `xml:"ConversionResults"`
+	XMLName xml.Name          `xml:"ConversionResults"`
 	IDs     []ConvertedIdType `xml:"AlternateId"`
 }
 
@@ -813,7 +841,7 @@ func (s *Server) handleConvertId(ctx context.Context, body []byte) []byte {
 		// EWS legacy IDs and the current format.
 		messages = append(messages, ConvertIdResponseMessageType{
 			ResponseClass: "Success",
-			ResponseCode:   "NoError",
+			ResponseCode:  "NoError",
 			ConversionResults: &ConvertIdResultsType{
 				IDs: []ConvertedIdType{
 					{

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"go.etcd.io/bbolt"
@@ -32,10 +33,10 @@ import (
 // ---------------------------------------------------------------------------
 
 var (
-	ErrMailboxNotFound     = errors.New("mailbox identity not found")
-	ErrFolderNotFound      = errors.New("folder identity not found")
-	ErrItemNotFound        = errors.New("item identity not found")
-	ErrIdentityExists      = errors.New("identity already assigned")
+	ErrMailboxNotFound      = errors.New("mailbox identity not found")
+	ErrFolderNotFound       = errors.New("folder identity not found")
+	ErrItemNotFound         = errors.New("item identity not found")
+	ErrIdentityExists       = errors.New("identity already assigned")
 	ErrChangeKeyNotStorable = errors.New("ChangeKey cannot be replaced once set")
 )
 
@@ -49,30 +50,30 @@ type storedMailboxIdentity struct {
 	Email         string    // primary account email (used as human-readable key)
 	UIDValidity   uint32    // mirrors current IMAP UIDVALIDITY
 	HighestModSeq uint64    // mirrors current modseq for sync baseline
-	_storageKey  string    // internal: raw storage key (e.g. mboxKey prefixed)
 }
 
 // storedFolderIdentity is what we persist for a canonical FolderId.
 type storedFolderIdentity struct {
-	FolderID       FolderId // stable canonical ID
-	MailboxID      MailboxId
-	ParentID       FolderId // zero for top-level folders
-	Role           string   // e.g. "inbox", "drafts", "sent" — empty for user folders
-	SortOrder      int
-	HighestModSeq  uint64
-	IsSubscribed   bool
-	_storageKey   string   // internal: raw storage key (e.g. mboxKey+folderName)
+	FolderID      FolderId // stable canonical ID
+	MailboxID     MailboxId
+	ParentID      FolderId // zero for top-level folders
+	Role          string   // e.g. "inbox", "drafts", "sent" — empty for user folders
+	SortOrder     int
+	HighestModSeq uint64
+	IsSubscribed  bool
 }
 
 // StoredItemIdentity is what we persist for a canonical ItemId + ChangeKey.
 type StoredItemIdentity struct {
-	ItemID          ItemId
-	MailboxID       MailboxId
-	FolderID        FolderId
-	ChangeKey       ChangeKey
-	ConversationID  ConversationId
-	MsgKey          string // blob key used to look up raw message in msgStore
-	Email           string // raw email (user key) for msgStore lookups
+	ItemID         ItemId
+	MailboxID      MailboxId
+	FolderID       FolderId
+	ChangeKey      ChangeKey
+	ConversationID ConversationId
+	MsgKey         string // blob key used to look up raw message in msgStore
+	Email          string // raw email (user key) for msgStore lookups
+	IsRead         bool
+	Categories     []string
 }
 
 // storedConversationIdentity is what we persist for a ConversationId.
@@ -176,6 +177,9 @@ type IdentityStore interface {
 	// GetItemIdentity retrieves the full item identity record by ItemId.
 	GetItemIdentity(id ItemId) (*StoredItemIdentity, error)
 
+	// SetItemFolder updates the FolderId for an existing item.
+	SetItemFolder(id ItemId, folderID FolderId) error
+
 	// PutChangeKey sets the ChangeKey for an existing ItemId.
 	// Returns ErrItemNotFound if the item is not registered.
 	// Returns ErrChangeKeyNotStorable if a non-empty ChangeKey already exists.
@@ -226,10 +230,10 @@ type IdentityStore interface {
 
 // bucket names in the identity DB
 const (
-	bucketMailbox     = "__semcore_mbox"
-	bucketFolder      = "__semcore_folder"
-	bucketItem        = "__semcore_item"
-	bucketAttachment  = "__semcore_attachment"
+	bucketMailbox      = "__semcore_mbox"
+	bucketFolder       = "__semcore_folder"
+	bucketItem         = "__semcore_item"
+	bucketAttachment   = "__semcore_attachment"
 	bucketConversation = "__semcore_conv"
 )
 
@@ -433,6 +437,76 @@ func folderKey(mboxKey, folderName string) string {
 	return mboxKey + "\x00" + folderName
 }
 
+func canonicalFolderNameForRole(role string) string {
+	switch role {
+	case "inbox":
+		return "INBOX"
+	case "drafts":
+		return "Drafts"
+	case "sent":
+		return "Sent"
+	case "trash":
+		return "Trash"
+	case "junk":
+		return "Junk"
+	case "archive":
+		return "Archive"
+	default:
+		return ""
+	}
+}
+
+func folderNameFromStorageKey(mboxKey string, key []byte) string {
+	return strings.TrimPrefix(string(key), mboxKey+"\x00")
+}
+
+func itemStorageKey(msgKey, email string) string {
+	if email == "" {
+		return msgKey
+	}
+	return email + "\x00" + msgKey
+}
+
+func (s *BoltIdentityStore) getFolderByRoleLocked(mboxKey, role string) (*storedFolderIdentity, error) {
+	prefix := mboxKey + "\x00"
+	var result *storedFolderIdentity
+	var resultName string
+	canonicalName := canonicalFolderNameForRole(role)
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketFolder))
+		return b.ForEach(func(k, v []byte) error {
+			if !bytes.HasPrefix(k, []byte(prefix)) {
+				return nil
+			}
+			var rec storedFolderIdentity
+			if err := json.Unmarshal(v, &rec); err != nil {
+				return nil
+			}
+			if rec.Role != role {
+				return nil
+			}
+
+			name := folderNameFromStorageKey(mboxKey, k)
+			if result == nil {
+				recCopy := rec
+				result = &recCopy
+				resultName = name
+				return nil
+			}
+			if canonicalName != "" && strings.EqualFold(name, canonicalName) && !strings.EqualFold(resultName, canonicalName) {
+				recCopy := rec
+				result = &recCopy
+				resultName = name
+			}
+			return nil
+		})
+	})
+	if result == nil {
+		return nil, ErrFolderNotFound
+	}
+	return result, err
+}
+
 // PutFolderIdentity implements IdentityStore.
 func (s *BoltIdentityStore) PutFolderIdentity(mboxKey, folderName string, id FolderId, role string) error {
 	if id.IsZero() {
@@ -447,11 +521,11 @@ func (s *BoltIdentityStore) PutFolderIdentity(mboxKey, folderName string, id Fol
 			return ErrIdentityExists
 		}
 		rec := storedFolderIdentity{
-			FolderID:       id,
-			MailboxID:      MailboxId{raw: mboxKey},
-			Role:           role,
-			HighestModSeq:  0,
-			IsSubscribed:   true,
+			FolderID:      id,
+			MailboxID:     MailboxId{raw: mboxKey},
+			Role:          role,
+			HighestModSeq: 0,
+			IsSubscribed:  true,
 		}
 		if role != "" {
 			rec.IsSubscribed = true
@@ -526,6 +600,11 @@ func (s *BoltIdentityStore) EnsureFolderId(mboxKey, folderName, role string) (Fo
 	if id, err := s.GetFolderID_Locked(mboxKey, folderName); err == nil {
 		return id, nil
 	}
+	if role != "" {
+		if existing, err := s.getFolderByRoleLocked(mboxKey, role); err == nil {
+			return existing.FolderID, nil
+		}
+	}
 
 	// Slow path: create new identity.
 	id, err := NewFolderId(generateID())
@@ -575,11 +654,11 @@ func (s *BoltIdentityStore) PutFolderIdentity_Locked(mboxKey, folderName string,
 			return ErrIdentityExists
 		}
 		rec := storedFolderIdentity{
-			FolderID:       id,
-			MailboxID:      MailboxId{raw: mboxKey},
-			Role:           role,
-			HighestModSeq:  0,
-			IsSubscribed:   true,
+			FolderID:      id,
+			MailboxID:     MailboxId{raw: mboxKey},
+			Role:          role,
+			HighestModSeq: 0,
+			IsSubscribed:  true,
 		}
 		data, err := json.Marshal(rec)
 		if err != nil {
@@ -688,7 +767,6 @@ func (s *BoltIdentityStore) ListFolderIdentities() ([]storedFolderIdentity, erro
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil // skip corrupted entries
 			}
-			rec._storageKey = string(k)
 			result = append(result, rec)
 			return nil
 		})
@@ -712,7 +790,6 @@ func (s *BoltIdentityStore) ListFolderIdentitiesForMailbox(mboxKey string) ([]st
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil // skip corrupted entries
 			}
-			rec._storageKey = string(k)
 			result = append(result, rec)
 			return nil
 		})
@@ -724,33 +801,7 @@ func (s *BoltIdentityStore) ListFolderIdentitiesForMailbox(mboxKey string) ([]st
 func (s *BoltIdentityStore) GetFolderByMailbox(mboxKey, role string) (*storedFolderIdentity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	var result *storedFolderIdentity
-	prefix := mboxKey + "\x00"
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(bucketFolder))
-		return b.ForEach(func(k, v []byte) error {
-			if !bytes.HasPrefix(k, []byte(prefix)) {
-				return nil
-			}
-			var rec storedFolderIdentity
-			if err := json.Unmarshal(v, &rec); err != nil {
-				return nil // skip corrupted entries
-			}
-			rec._storageKey = string(k)
-			if rec.Role == role {
-				if result != nil {
-					return fmt.Errorf("GetFolderByMailbox: multiple folders with role %q", role)
-				}
-				result = &rec
-			}
-			return nil
-		})
-	})
-	if result == nil {
-		return nil, ErrFolderNotFound
-	}
-	return result, err
+	return s.getFolderByRoleLocked(mboxKey, role)
 }
 
 // ---------------------------------------------------------------------------
@@ -766,7 +817,8 @@ func (s *BoltIdentityStore) PutItemIdentity(msgKey string, email string, id Item
 	defer s.mu.Unlock()
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketItem))
-		if b.Get([]byte(msgKey)) != nil {
+		storageKey := itemStorageKey(msgKey, email)
+		if b.Get([]byte(storageKey)) != nil {
 			return ErrIdentityExists
 		}
 		rec := StoredItemIdentity{
@@ -775,14 +827,14 @@ func (s *BoltIdentityStore) PutItemIdentity(msgKey string, email string, id Item
 			FolderID:       folderID,
 			ChangeKey:      ck,
 			ConversationID: convID,
-			MsgKey:        msgKey,
-			Email:         email,
+			MsgKey:         msgKey,
+			Email:          email,
 		}
 		data, err := json.Marshal(rec)
 		if err != nil {
 			return fmt.Errorf("marshal item identity: %w", err)
 		}
-		return b.Put([]byte(msgKey), data)
+		return b.Put([]byte(storageKey), data)
 	})
 }
 
@@ -795,7 +847,17 @@ func (s *BoltIdentityStore) GetItemIDByKey(msgKey string) (ItemId, error) {
 		b := tx.Bucket([]byte(bucketItem))
 		data := b.Get([]byte(msgKey))
 		if data == nil {
-			return ErrItemNotFound
+			c := b.Cursor()
+			suffix := []byte("\x00" + msgKey)
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				if bytes.HasSuffix(k, suffix) {
+					data = v
+					break
+				}
+			}
+			if data == nil {
+				return ErrItemNotFound
+			}
 		}
 		var rec StoredItemIdentity
 		if err := json.Unmarshal(data, &rec); err != nil {
@@ -828,6 +890,36 @@ func (s *BoltIdentityStore) GetItemIdentity(id ItemId) (*StoredItemIdentity, err
 		return ErrItemNotFound
 	})
 	return rec, err
+}
+
+// SetItemFolder implements IdentityStore.
+func (s *BoltIdentityStore) SetItemFolder(id ItemId, folderID FolderId) error {
+	if id.IsZero() {
+		return errors.New("SetItemFolder: zero ItemId")
+	}
+	if folderID.IsZero() {
+		return errors.New("SetItemFolder: zero FolderId")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		c := tx.Bucket([]byte(bucketItem)).Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var it StoredItemIdentity
+			if err := json.Unmarshal(v, &it); err != nil {
+				continue
+			}
+			if it.ItemID.Equal(id) {
+				it.FolderID = folderID
+				out, err := json.Marshal(it)
+				if err != nil {
+					return fmt.Errorf("marshal updated item: %w", err)
+				}
+				return tx.Bucket([]byte(bucketItem)).Put(k, out)
+			}
+		}
+		return ErrItemNotFound
+	})
 }
 
 // PutChangeKey implements IdentityStore.
@@ -876,6 +968,38 @@ func (s *BoltIdentityStore) SetItemConversation(id ItemId, convID ConversationId
 			}
 			if it.ItemID.Equal(id) {
 				it.ConversationID = convID
+				out, err := json.Marshal(it)
+				if err != nil {
+					return fmt.Errorf("marshal updated item: %w", err)
+				}
+				return tx.Bucket([]byte(bucketItem)).Put(k, out)
+			}
+		}
+		return ErrItemNotFound
+	})
+}
+
+// UpdateItemState stores read/category state for an existing item identity.
+func (s *BoltIdentityStore) UpdateItemState(id ItemId, isRead *bool, categories []string) error {
+	if id.IsZero() {
+		return errors.New("UpdateItemState: zero ItemId")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		c := tx.Bucket([]byte(bucketItem)).Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var it StoredItemIdentity
+			if err := json.Unmarshal(v, &it); err != nil {
+				continue
+			}
+			if it.ItemID.Equal(id) {
+				if isRead != nil {
+					it.IsRead = *isRead
+				}
+				if categories != nil {
+					it.Categories = append([]string(nil), categories...)
+				}
 				out, err := json.Marshal(it)
 				if err != nil {
 					return fmt.Errorf("marshal updated item: %w", err)

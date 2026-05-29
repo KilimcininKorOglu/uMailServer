@@ -92,6 +92,7 @@ func (s *Server) startAPI() {
 			s.semcoreStore.Policy(),
 			s.semcoreStore.Delegation(),
 			s.sieveManager,
+			s.deliverMessage,
 		)
 		ewsServer.SetLogger(s.logger)
 		s.apiServer.SetEWSHandler(ewsServer)
