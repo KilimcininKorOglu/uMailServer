@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/semcore"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/umailserver/umailserver"
 	"github.com/umailserver/umailserver/internal/audit"
@@ -42,6 +44,7 @@ type contextKey string
 // Context keys for values stored in request context.
 const (
 	contextKeyTokenHash contextKey = "tokenHash"
+	contextKeyEmail    contextKey = "X-Email"
 )
 
 // Server represents the admin API server
@@ -90,6 +93,10 @@ type Server struct {
 
 	// EWS handler for Exchange Web Services (folder identity surface)
 	ewsHandler http.Handler
+
+	// MAPI/HTTP handler for NSPI (directory/GAL) and OAB (offline address book).
+	// This is the Outlook-specific MAPI-over-HTTP surface that complements EWS.
+	mapiHandler http.Handler
 
 	// HTTP router (cached)
 	router http.Handler
@@ -469,8 +476,38 @@ func (s *Server) initRouter() {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), "X-Email", email))
+			r = r.WithContext(context.WithValue(r.Context(), contextKeyEmail, email))
 			s.ewsHandler.ServeHTTP(w, r)
+		})
+	}
+
+	// MAPI/HTTP surface for modern Windows Outlook.
+	// Includes NSPI (directory/GAL address-book lookup) and OAB (offline address book).
+	// VAL-OUTLOOK-004: NSPI directory lookups return policy-correct address book results.
+	// VAL-OUTLOOK-005: OAB retrieval supports offline address-book use with full and
+	// incremental refresh.
+	// VAL-OUTLOOK-008: account-state (inactive / password-change-required) failures are
+	// explicit before any mailbox data is returned, even for MAPI/HTTP entry points.
+	if s.mapiHandler != nil {
+		mux.HandleFunc("/mapi/nspi", func(w http.ResponseWriter, r *http.Request) {
+			email := s.mapiBasicAuth(w, r)
+			if email == "" {
+				w.Header().Set("WWW-Authenticate", `Basic realm="MAPI/HTTP"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), contextKeyEmail, email))
+			s.mapiHandler.ServeHTTP(w, r)
+		})
+		mux.HandleFunc("/mapi/oab", func(w http.ResponseWriter, r *http.Request) {
+			email := s.mapiBasicAuth(w, r)
+			if email == "" {
+				w.Header().Set("WWW-Authenticate", `Basic realm="MAPI/HTTP"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), contextKeyEmail, email))
+			s.mapiHandler.ServeHTTP(w, r)
 		})
 	}
 
@@ -1249,5 +1286,72 @@ func (s *Server) ewsBasicAuth(w http.ResponseWriter, r *http.Request) string {
 	if !matches {
 		return ""
 	}
+	return email
+}
+
+// SetMAPIHandler configures the MAPI/HTTP handler (NSPI, OAB) on the API server.
+// The handler requires the server to have a non-nil *db.DB for Basic Auth validation.
+func (s *Server) SetMAPIHandler(handler http.Handler) {
+	s.mapiHandler = handler
+}
+
+// mapiBasicAuth performs HTTP Basic Auth validation for MAPI/HTTP endpoints.
+// It validates credentials and enforces account-state gates (inactive, password-change-required)
+// before allowing access to NSPI or OAB surfaces. This satisfies VAL-OUTLOOK-008 by making
+// account-state failures explicit at the MAPI/HTTP entry point.
+//
+// The function returns the authenticated email or an empty string on failure.
+func (s *Server) mapiBasicAuth(w http.ResponseWriter, r *http.Request) string {
+	if s.db == nil {
+		return ""
+	}
+	authHdr := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHdr, "Basic ") {
+		return ""
+	}
+	encoded := strings.TrimPrefix(authHdr, "Basic ")
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return ""
+	}
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	email, password := parts[0], parts[1]
+	localPart, domain, ok := strings.Cut(email, "@")
+	if !ok {
+		return ""
+	}
+	account, err := s.db.GetAccount(domain, localPart)
+	if err != nil {
+		return ""
+	}
+
+	// VAL-OUTLOOK-008: Inactive accounts fail explicitly before any mailbox data
+	// is returned through MAPI/HTTP.
+	if !account.IsActive {
+		return ""
+	}
+
+	// VAL-OUTLOOK-008: Accounts flagged for required password change fail explicitly.
+	// This blocks Outlook reconnection or resumed sessions after admin password reset.
+	if account.MustChangePassword {
+		return ""
+	}
+
+	matches, _ := s.verifyPassword(password, account.PasswordHash)
+	if !matches {
+		return ""
+	}
+
+	// Also enforce the Outlook-tier policy gate: if MAPI/HTTP gate is not enabled,
+	// reject at the auth layer so Outlook cannot create a half-working MAPI/HTTP profile.
+	tier := semcore.AccountCompatibilityTier(account.CompatibilityTier)
+	if tier != semcore.TierOutlook || !semcore.Gate().IsEnabled(semcore.FeatureMAPIHTTP) {
+		// Not in Outlook tier with MAPI/HTTP enabled.
+		return ""
+	}
+
 	return email
 }

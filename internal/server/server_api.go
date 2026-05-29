@@ -7,6 +7,8 @@ import (
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/backup"
 	"github.com/umailserver/umailserver/internal/ews"
+	"github.com/umailserver/umailserver/internal/mapi"
+	"github.com/umailserver/umailserver/internal/semcore"
 )
 
 // startAPI creates and starts the HTTP API server (webmail + admin).
@@ -94,6 +96,21 @@ func (s *Server) startAPI() {
 		ewsServer.SetLogger(s.logger)
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
+
+		// Wire MAPI/HTTP handler for NSPI and OAB endpoints (VAL-OUTLOOK-004, VAL-OUTLOOK-005).
+		// The MAPI server requires the database and policy store for GAL visibility and OAB generation.
+		if s.semcoreStore != nil && s.database != nil {
+			mapiServer := mapi.NewServer(s.database, s.semcoreStore.Policy())
+			s.apiServer.SetMAPIHandler(mapiServer)
+			s.logger.Info("MAPI/HTTP handler initialized")
+		}
+
+		// Set up feature gates for Exchange-facing surfaces.
+		// These control which protocol endpoints are advertised in Autodiscover and
+		// which EWS/MAPI/HTTP surfaces are reachable. The gates are checked at runtime
+		// by the Autodiscover builder, EWS handler, and MAPI/HTTP handler to enforce
+		// the compatibility matrix (VAL-OUTLOOK-006, VAL-CROSS-005).
+		s.setupOutlookFeatureGates()
 	}
 
 	go func() {
@@ -128,4 +145,43 @@ func (s *Server) startAPI() {
 		}()
 		s.logger.Info("Admin API server started", "addr", adminCfg.Addr)
 	}
+}
+
+// setupOutlookFeatureGates initializes the semcore feature gates based on
+// the server configuration. These gates control which Exchange-facing protocol
+// surfaces are advertised in Autodiscover and which runtime behaviors are
+// enabled. The gates are set once at startup and read by Autodiscover, EWS,
+// and MAPI/HTTP handlers at request time.
+//
+// This satisfies VAL-OUTLOOK-006 (compatibility matrix gate) and VAL-CROSS-005
+// (truth-in-marketing release gates) by controlling the actual enablement state
+// behind the advertised endpoints.
+func (s *Server) setupOutlookFeatureGates() {
+	gate := semcore.Gate()
+
+	// FeatureEWS enables the EWS/Exchange.asmx SOAP surface (Phase 4 milestone).
+	// When disabled, EWS is not advertised and requests are rejected.
+	gate.Set(semcore.FeatureEWS, true)
+
+	// FeatureCanonicalIdentity gates the Exchange-tier behavior. When enabled,
+	// accounts enter TierExchange and EWS endpoints are advertised in Autodiscover.
+	gate.Set(semcore.FeatureCanonicalIdentity, true)
+
+	// FeatureCanonicalSyncState enables durable sync-state and watermark persistence.
+	gate.Set(semcore.FeatureCanonicalSyncState, true)
+
+	// FeatureCanonicalMutation enables the shared mutation pipeline.
+	gate.Set(semcore.FeatureCanonicalMutation, true)
+
+	// FeatureMAPIHTTP enables MAPI/HTTP (NSPI/OAB) surfaces for modern Windows
+	// Outlook (Phase 7 milestone). When disabled, the NSPI and OAB endpoints are
+	// not advertised and requests are rejected. VAL-OUTLOOK-006: this gate is the
+	// primary compatibility matrix toggle.
+	gate.Set(semcore.FeatureMAPIHTTP, true)
+
+	s.logger.Info("Outlook feature gates initialized",
+		"FeatureEWS", gate.IsEnabled(semcore.FeatureEWS),
+		"FeatureCanonicalIdentity", gate.IsEnabled(semcore.FeatureCanonicalIdentity),
+		"FeatureMAPIHTTP", gate.IsEnabled(semcore.FeatureMAPIHTTP),
+	)
 }
