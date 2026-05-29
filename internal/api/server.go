@@ -75,6 +75,9 @@ type Server struct {
 	// Mail handler for user email operations
 	mailHandler *MailHandler
 
+	// Contacts handler for contact operations via CardDAV
+	contactsHandler *ContactsHandler
+
 	// Audit logger for security events
 	auditLogger *audit.Logger
 
@@ -567,6 +570,15 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/mailboxes/shared", s.handleSharedMailboxesList)
 	api.HandleFunc("/api/v1/mailboxes/shared-as-owner", s.handleGranteesMailboxesList)
 	api.HandleFunc("/api/v1/mailboxes/", s.handleMailboxPath)
+
+	// Contacts API (CardDAV-backed)
+	if s.contactsHandler == nil && s.config.DataDir != "" {
+		s.contactsHandler = NewContactsHandler(s.config.DataDir)
+	}
+	if s.contactsHandler != nil {
+		api.HandleFunc("/api/v1/contacts", s.contactsHandler.handleContactsList)
+		api.HandleFunc("/api/v1/contacts/", s.contactsHandler.handleContactDelete)
+	}
 
 	// Wrap API with auth middleware and mount to main mux
 	apiHandler := s.rateLimitMiddleware(s.limitBodyMiddleware(s.securityHeadersMiddleware(s.csrfMiddleware(s.corsMiddleware(s.authMiddleware(api))))))
@@ -1127,6 +1139,11 @@ func (s *Server) initMailHandler() {
 	} else if s.mailHandler != nil {
 		s.mailHandler.SetStorage(s.msgStore, s.mailDB)
 	}
+}
+
+// SetContactsDataDir initializes the contacts handler with the data directory
+func (s *Server) SetContactsDataDir(dataDir string) {
+	s.contactsHandler = NewContactsHandler(dataDir)
 }
 
 // SetAPIRateLimit sets the HTTP API rate limit (requests per minute, 0 = disabled)

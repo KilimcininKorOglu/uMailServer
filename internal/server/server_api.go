@@ -63,6 +63,8 @@ func (s *Server) startAPI() {
 	if s.msgStore != nil {
 		s.apiServer.SetMsgStore(s.msgStore)
 	}
+	// Set contacts handler data directory for CardDAV-backed contacts API
+	s.apiServer.SetContactsDataDir(s.config.Server.DataDir)
 	// Set backup manager for backup/restore operations
 	if s.storageDB != nil {
 		backupMgr := backup.NewManager(s.config.Server.DataDir, s.storageDB, s.msgStore)

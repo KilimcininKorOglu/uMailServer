@@ -123,6 +123,17 @@ export interface DiagnosticEntry {
   nextStep?: string
 }
 
+// Contact type for address book
+export interface Contact {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  company?: string
+  labels?: string[]
+  display_as?: string
+}
+
 // ============================================================================
 // API Client
 // ============================================================================
@@ -320,6 +331,23 @@ class API {
 
   async getMailboxDiagnostics(mailbox: string): Promise<{ errors?: DiagnosticEntry[] }> {
     return this.get<{ errors?: DiagnosticEntry[] }>(`/mail/diagnostics?mailbox=${encodeURIComponent(mailbox)}`)
+  }
+
+  // Contacts (CardDAV-backed)
+  async getContacts(): Promise<{ contacts?: Contact[]; total?: number }> {
+    return this.get<{ contacts?: Contact[]; total?: number }>('/contacts')
+  }
+
+  async createContact(contact: { name: string; email: string; phone?: string; company?: string }): Promise<{ contact?: Contact; status?: string }> {
+    return this.post<{ contact?: Contact; status?: string }>('/contacts', contact)
+  }
+
+  async updateContact(id: string, contact: { name: string; email: string; phone?: string; company?: string }): Promise<{ contact?: Contact; status?: string }> {
+    return this.put<{ contact?: Contact; status?: string }>(`/contacts/${id}`, contact)
+  }
+
+  async deleteContact(id: string): Promise<void> {
+    await this.delete(`/contacts/${id}`)
   }
 
   // Generic methods

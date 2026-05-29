@@ -34,7 +34,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import api, { SenderIdentity, DiagnosticEntry } from "@/utils/api"
+import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 
@@ -50,13 +50,6 @@ interface Recipient {
   name: string
   email: string
 }
-
-const mockContacts: Recipient[] = [
-  { id: "1", name: "John Smith", email: "john@example.com" },
-  { id: "2", name: "Sarah Johnson", email: "sarah.johnson@company.com" },
-  { id: "3", name: "Mike Wilson", email: "mike.wilson@gmail.com" },
-  { id: "4", name: "Emily Brown", email: "emily.brown@outlook.com" },
-]
 
 export function ComposePage() {
   const navigate = useNavigate()
@@ -133,18 +126,6 @@ export function ComposePage() {
     
     loadDiagnostics()
   }, [])
-  
-  useEffect(() => {
-    const replyTo = searchParams.get("replyTo")
-    if (replyTo) {
-      const contact = mockContacts.find((c) => c.email === replyTo)
-      if (contact) {
-        setTo([contact])
-      } else {
-        setTo([{ id: "reply", name: replyTo, email: replyTo }])
-      }
-    }
-  }, [searchParams])
 
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
@@ -155,8 +136,46 @@ export function ComposePage() {
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  
+  // Contacts loaded from API for recipient selection
+  const [contacts, setContacts] = useState<Recipient[]>([])
+  
+  // Load contacts from API on mount
+  useEffect(() => {
+    const loadContacts = async () => {
+      try {
+        const result = await api.getContacts()
+        if (result.contacts) {
+          const recipients: Recipient[] = result.contacts.map((c: ContactType) => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+          }))
+          setContacts(recipients)
+        }
+      } catch (err) {
+        console.error('Failed to load contacts:', err)
+      }
+    }
+    loadContacts()
+  }, [])
+  
+  // Handle replyTo param after contacts are loaded
+  useEffect(() => {
+    const replyTo = searchParams.get("replyTo")
+    if (replyTo && contacts.length > 0) {
+      const contact = contacts.find((c) => c.email === replyTo)
+      if (contact) {
+        setTo([contact])
+      } else {
+        setTo([{ id: "reply", name: replyTo, email: replyTo }])
+      }
+    } else if (replyTo) {
+      setTo([{ id: "reply", name: replyTo, email: replyTo }])
+    }
+  }, [searchParams, contacts])
 
-  const filteredContacts = mockContacts.filter(
+  const filteredContacts = contacts.filter(
     (c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.email.toLowerCase().includes(searchQuery.toLowerCase())

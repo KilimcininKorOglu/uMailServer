@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import {
   ArrowLeft,
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
 import { sanitizeHTML } from "@/utils/sanitize"
+import api, { Mail } from "@/utils/api"
 
 interface Attachment {
   name: string
@@ -44,41 +45,62 @@ interface EmailDetail {
   attachments?: Attachment[]
 }
 
-const mockEmailDetail: EmailDetail = {
-  id: "1",
-  from: "John Smith",
-  fromEmail: "john@example.com",
-  to: ["user@example.com"],
-  cc: ["mike@example.com"],
-  subject: "Project Meeting Discussion",
-  date: "April 4, 2025, 10:30",
-  starred: true,
-  content: `
-    <p>Hi,</p>
-
-    <p>I wanted to remind you about the meeting tomorrow at 2pm. There are important topics to discuss:</p>
-
-    <ul>
-      <li>Q1 report evaluation</li>
-      <li>New project planning</li>
-      <li>Budget revision</li>
-    </ul>
-
-    <p>Please come prepared. You can find the relevant documents attached.</p>
-
-    <p>Best regards,<br>John</p>
-  `,
-  attachments: [
-    { name: "Q1_Report.pdf", size: "2.4 MB", type: "pdf" },
-    { name: "Project_Plan.xlsx", size: "156 KB", type: "xlsx" },
-  ],
-}
-
 export function EmailDetailPage() {
-  const { id: _id } = useParams()
+  const { id } = useParams()
   const navigate = useNavigate()
-  const email = mockEmailDetail
-  const [isStarred, setIsStarred] = useState(email.starred)
+  const [email, setEmail] = useState<EmailDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [isStarred, setIsStarred] = useState(false)
+  const [folder, setFolder] = useState("inbox")
+  
+  // Load email from API
+  useEffect(() => {
+    const loadEmail = async () => {
+      if (!id) {
+        setLoading(false)
+        return
+      }
+      
+      try {
+        setLoading(true)
+        // Extract folder from URL path for proper API call
+        // The email id contains info about which folder it belongs to
+        // For now, try inbox as default
+        const result = await api.get<Mail>(`/mail/${folder}?id=${id}`)
+        
+        if (result && result.id) {
+          // Parse email address from From field
+          const fromParts = result.from.split('<')
+          const fromEmail = fromParts.length > 1 ? fromParts[1].replace('>', '') : result.from
+          const fromName = fromParts.length > 1 ? fromParts[0].trim() : result.from
+          
+          setEmail({
+            id: result.id,
+            from: fromName,
+            fromEmail: fromEmail,
+            to: result.to,
+            subject: result.subject,
+            date: result.date,
+            content: result.body,
+            starred: result.starred,
+            attachments: result.hasAttachments ? [] : undefined,
+          })
+          setIsStarred(result.starred)
+        } else {
+          toast.error("Email not found")
+          navigate("/inbox")
+        }
+      } catch (err) {
+        console.error('Failed to load email:', err)
+        toast.error("Failed to load email")
+        navigate("/inbox")
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadEmail()
+  }, [id, folder, navigate])
 
   const handleArchive = () => {
     toast.success("Email archived")
@@ -122,6 +144,21 @@ export function EmailDetailPage() {
 
   return (
     <div className="space-y-4">
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      ) : !email ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="rounded-full bg-muted p-4">
+            <Archive className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 className="mt-4 text-lg font-semibold">Email not found</h3>
+          <p className="text-sm text-muted-foreground">This email may have been deleted or moved.</p>
+          <Button className="mt-4" onClick={() => navigate("/inbox")}>Back to Inbox</Button>
+        </div>
+      ) : (
+        <>
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1">
@@ -249,29 +286,8 @@ export function EmailDetailPage() {
           </>
         )}
       </div>
-
-      {/* Reply Actions */}
-      <div className="flex items-center gap-2 pl-2">
-        <Button
-          className="gap-2"
-          onClick={() =>
-            navigate(`/compose?replyTo=${encodeURIComponent(email.fromEmail)}&subject=${encodeURIComponent("Re: " + email.subject)}`)
-          }
-        >
-          <Reply className="h-4 w-4" />
-          Reply
-        </Button>
-        <Button
-          variant="outline"
-          className="gap-2"
-          onClick={() =>
-            navigate(`/compose?forward=true&subject=${encodeURIComponent("Fwd: " + email.subject)}`)
-          }
-        >
-          <Forward className="h-4 w-4" />
-          Forward
-        </Button>
-      </div>
+        </>
+      )}
     </div>
   )
 }

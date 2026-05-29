@@ -49,89 +49,71 @@ interface Email {
 type ViewMode = "list" | "compact"
 type SortOption = "date" | "from" | "subject"
 
-const mockEmails: Email[] = [
-  {
-    id: "1",
-    from: "John Smith",
-    fromEmail: "john@example.com",
-    subject: "Project Meeting Discussion",
-    preview: "I wanted to remind you about the meeting tomorrow at 2pm. There are important topics to discuss...",
-    date: "10:30",
-    read: false,
-    starred: true,
-    hasAttachments: true,
-    folder: "inbox",
-    labels: ["work", "important"],
-  },
-  {
-    id: "2",
-    from: "Tech Newsletter",
-    fromEmail: "newsletter@tech.com",
-    subject: "Weekly Tech Digest",
-    preview: "This week's top stories: AI, cloud computing and more...",
-    date: "09:15",
-    read: true,
-    starred: false,
-    hasAttachments: false,
-    folder: "inbox",
-    labels: [],
-  },
-  {
-    id: "3",
-    from: "Sarah Johnson",
-    fromEmail: "sarah.johnson@company.com",
-    subject: "Invoice Approval",
-    preview: "Please approve the invoice payment for March. Details attached...",
-    date: "Yesterday",
-    read: false,
-    starred: false,
-    hasAttachments: true,
-    folder: "inbox",
-    labels: ["invoice"],
-  },
-  {
-    id: "4",
-    from: "System",
-    fromEmail: "noreply@umailserver.com",
-    subject: "Security Alert",
-    preview: "New device sign-in detected. If this wasn't you, please review your account activity...",
-    date: "Yesterday",
-    read: true,
-    starred: false,
-    hasAttachments: false,
-    folder: "inbox",
-    labels: ["security"],
-  },
-  {
-    id: "5",
-    from: "Mike Wilson",
-    fromEmail: "mike.wilson@gmail.com",
-    subject: "Weekend Party",
-    preview: "Everyone is invited to my party this Saturday. Can you make it? It will be fun...",
-    date: "2 days ago",
-    read: true,
-    starred: true,
-    hasAttachments: false,
-    folder: "inbox",
-    labels: ["personal"],
-  },
-]
-
 interface InboxPageProps {
   folder?: string
 }
 
 export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   const navigate = useNavigate()
-  const [emails, setEmails] = useState<Email[]>(
-    mockEmails.filter((e) => e.folder === folder || (folder === "starred" && e.starred))
-  )
+  const [emails, setEmails] = useState<Email[]>([])
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set())
   const [activeFilter, setActiveFilter] = useState("all")
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>("list")
   const [sortBy, setSortBy] = useState<SortOption>("date")
   const [showWelcome, setShowWelcome] = useState(true)
+
+  // Load emails from API
+  useEffect(() => {
+    const loadEmails = async () => {
+      setLoading(true)
+      try {
+        // Map folder to API folder name
+        const apiFolder = folder === "starred" ? "inbox" : folder
+        const result = await api.get<{ emails?: Mail[] }>(`/mail/${apiFolder}`)
+        
+        if (result && result.emails) {
+          // Convert API Mail to Email format
+          const loadedEmails: Email[] = result.emails.map((mail: Mail) => {
+            // Parse from field to extract name and email
+            const fromParts = mail.from.split('<')
+            const fromEmail = fromParts.length > 1 ? fromParts[1].replace('>', '') : mail.from
+            const fromName = fromParts.length > 1 ? fromParts[0].trim() : mail.from
+            
+            return {
+              id: mail.id,
+              from: fromName,
+              fromEmail: fromEmail,
+              subject: mail.subject,
+              preview: mail.preview,
+              date: mail.date,
+              read: mail.read,
+              starred: mail.starred,
+              hasAttachments: mail.hasAttachments,
+              folder: mail.folder.toLowerCase(),
+              labels: [], // Labels from API if available
+            }
+          })
+          
+          // Filter for starred if needed
+          const filteredEmails = folder === "starred"
+            ? loadedEmails.filter(e => e.starred)
+            : loadedEmails
+          
+          setEmails(filteredEmails)
+        } else {
+          setEmails([])
+        }
+      } catch (err) {
+        console.error('Failed to load emails:', err)
+        setEmails([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadEmails()
+  }, [folder])
 
   const toggleSelectAll = () => {
     if (selectedEmails.size === emails.length) {

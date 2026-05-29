@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Plus,
   Search,
@@ -29,7 +29,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import api, { Contact as ApiContact } from "@/utils/api"
 
+// Local contact type for the page (extends API contact with labels)
 interface Contact {
   id: string
   name: string
@@ -39,54 +41,47 @@ interface Contact {
   labels: string[]
 }
 
-const mockContacts: Contact[] = [
-  {
-    id: "1",
-    name: "John Smith",
-    email: "john@example.com",
-    phone: "+1 555 123 4567",
-    company: "ABC Corp",
-    labels: ["work"],
-  },
-  {
-    id: "2",
-    name: "Sarah Johnson",
-    email: "sarah.johnson@company.com",
-    company: "XYZ Ltd",
-    labels: ["work"],
-  },
-  {
-    id: "3",
-    name: "Mike Wilson",
-    email: "mike.wilson@gmail.com",
-    labels: ["personal"],
-  },
-  {
-    id: "4",
-    name: "Emily Brown",
-    email: "emily.brown@outlook.com",
-    phone: "+1 532 987 6543",
-    labels: ["family"],
-  },
-  {
-    id: "5",
-    name: "Tech Newsletter",
-    email: "newsletter@tech.com",
-    labels: ["newsletter"],
-  },
-]
-
 export function ContactsPage() {
-  const [contacts, setContacts] = useState<Contact[]>(mockContacts)
+  const [contacts, setContacts] = useState<Contact[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
+  const [loading, setLoading] = useState(true)
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     phone: "",
     company: "",
   })
+
+  // Load contacts from API on mount
+  useEffect(() => {
+    loadContacts()
+  }, [])
+
+  const loadContacts = async () => {
+    setLoading(true)
+    try {
+      const result = await api.getContacts()
+      if (result.contacts) {
+        // Convert API contacts to local format with empty labels
+        const loadedContacts: Contact[] = result.contacts.map((c: ApiContact) => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          phone: c.phone,
+          company: c.company,
+          labels: c.labels || [],
+        }))
+        setContacts(loadedContacts)
+      }
+    } catch (err) {
+      console.error('Failed to load contacts:', err)
+      toast.error('Failed to load contacts')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredContacts = contacts.filter(
     (c) =>
@@ -111,34 +106,66 @@ export function ContactsPage() {
     setShowAddDialog(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name || !formData.email) {
       toast.error("Name and email are required")
       return
     }
 
-    if (editingContact) {
-      setContacts(contacts.map((c) =>
-        c.id === editingContact.id
-          ? { ...c, ...formData }
-          : c
-      ))
-      toast.success("Contact updated")
-    } else {
-      const newContact: Contact = {
-        id: crypto.randomUUID(),
-        ...formData,
-        labels: [],
+    try {
+      if (editingContact) {
+        // Update existing contact
+        const result = await api.updateContact(editingContact.id, {
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          company: formData.company,
+        })
+        if (result.contact) {
+          setContacts(contacts.map((c) =>
+            c.id === editingContact.id
+              ? { ...c, ...formData }
+              : c
+          ))
+          toast.success("Contact updated")
+        }
+      } else {
+        // Create new contact
+        const result = await api.createContact({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          company: formData.company,
+        })
+        if (result.contact) {
+          const newContact: Contact = {
+            id: result.contact.id,
+            name: formData.name,
+            email: formData.email,
+            phone: formData.phone,
+            company: formData.company,
+            labels: [],
+          }
+          setContacts([...contacts, newContact])
+          toast.success("Contact added")
+        }
       }
-      setContacts([...contacts, newContact])
-      toast.success("Contact added")
+    } catch (err) {
+      console.error('Failed to save contact:', err)
+      toast.error("Failed to save contact")
     }
     setShowAddDialog(false)
   }
 
-  const handleDelete = (id: string) => {
-    setContacts(contacts.filter((c) => c.id !== id))
-    toast.success("Contact deleted")
+  const handleDelete = async (id: string) => {
+    try {
+      await api.deleteContact(id)
+      setContacts(contacts.filter((c) => c.id !== id))
+      toast.success("Contact deleted")
+    } catch (err) {
+      console.error('Failed to delete contact:', err)
+      toast.error("Failed to delete contact")
+    }
   }
 
   const getInitials = (name: string) => {
