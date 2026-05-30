@@ -157,6 +157,9 @@ func New(cfg *config.Config) (*Server, error) {
 		bgSem:           make(chan struct{}, 100),
 	}
 
+	// Load configured S/MIME signing keys into the keystore (outbound signing).
+	s.loadSMIMESigningKeys()
+
 	// Initialize database
 	database, err := db.Open(cfg.DatabasePath())
 	if err != nil {
@@ -497,4 +500,53 @@ func (s *Server) GetDatabase() *db.DB {
 // GetQueue returns the queue manager
 func (s *Server) GetQueue() *queue.Manager {
 	return s.queue
+}
+
+// loadSMIMESigningKeys loads outbound S/MIME signing key pairs from the
+// configured directory into the S/MIME keystore. Each sender has a PEM
+// certificate "<email>.crt" and matching private key "<email>.key". Missing,
+// unreadable, or unparseable pairs are logged and skipped (fail-open): signing
+// is best-effort and never blocks startup.
+func (s *Server) loadSMIMESigningKeys() {
+	if !s.config.Signing.Enabled || s.config.Signing.KeyDir == "" {
+		return
+	}
+	entries, err := os.ReadDir(s.config.Signing.KeyDir)
+	if err != nil {
+		s.logger.Warn("S/MIME signing enabled but key directory is unreadable",
+			"dir", s.config.Signing.KeyDir, "error", err)
+		return
+	}
+	loaded := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".crt") {
+			continue
+		}
+		email := strings.ToLower(strings.TrimSuffix(name, ".crt"))
+		certPath := filepath.Join(s.config.Signing.KeyDir, name)
+		keyPath := filepath.Join(s.config.Signing.KeyDir, strings.TrimSuffix(name, ".crt")+".key")
+
+		certPEM, err := os.ReadFile(filepath.Clean(certPath))
+		if err != nil {
+			s.logger.Warn("failed to read S/MIME certificate", "file", certPath, "error", err)
+			continue
+		}
+		keyPEM, err := os.ReadFile(filepath.Clean(keyPath))
+		if err != nil {
+			s.logger.Warn("missing S/MIME private key for certificate", "cert", certPath, "key", keyPath, "error", err)
+			continue
+		}
+		if _, err := auth.ParseCertificate(certPEM); err != nil {
+			s.logger.Warn("invalid S/MIME certificate, skipping", "file", certPath, "error", err)
+			continue
+		}
+		if _, err := auth.ParsePrivateKey(keyPEM); err != nil {
+			s.logger.Warn("invalid S/MIME private key, skipping", "file", keyPath, "error", err)
+			continue
+		}
+		s.smimeKeystore.SetKeys(email, &smtp.SMIMEUserKeys{SigningCert: certPEM, SigningKey: keyPEM})
+		loaded++
+	}
+	s.logger.Info("Loaded S/MIME signing keys", "count", loaded, "dir", s.config.Signing.KeyDir)
 }

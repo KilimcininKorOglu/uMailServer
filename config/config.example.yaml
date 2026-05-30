@@ -315,3 +315,16 @@ push:
   subject: "mailto:admin@example.com"   # mailto: or https:// URL identifying the operator
   # vapid_public_key: ""
   # vapid_private_key: ""
+
+# ============================================
+# OUTBOUND S/MIME SIGNING
+# ============================================
+# When enabled, outbound mail from a local sender that has a key pair in key_dir
+# is S/MIME signed (multipart/signed with a detached CMS SignedData) on the
+# shared delivery path used by SMTP submission, EWS, and JMAP. Inbound external
+# mail (no key for the sender) is left untouched. Key files are PEM and named
+# "<email>.crt" (certificate) and "<email>.key" (RSA private key), for example
+# "user@example.com.crt". Never commit certificates or private keys.
+signing:
+  enabled: false
+  key_dir: ""

@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	pkcs7 "github.com/smallstep/pkcs7"
 )
 
 // OIDs for S/MIME
@@ -56,68 +58,146 @@ func NewSMIMESigner(config *SMIMEConfig) *SMIMESigner {
 	return &SMIMESigner{config: config}
 }
 
-// SignMessage signs a message using S/MIME
+// SignMessage produces an RFC 5751 multipart/signed message carrying a detached
+// CMS SignedData signature (smime.p7s). The original message's non-content
+// headers (From/To/Subject/Date/Message-ID/…) are preserved on the outer
+// message; the original Content-* headers and body become the signed MIME
+// entity, so standards-compliant clients (Outlook, Thunderbird, Apple Mail)
+// can verify it. From/To/Date are filled from the parameters only when the
+// message lacks them.
 func (s *SMIMESigner) SignMessage(msg []byte, from, to string) ([]byte, error) {
 	if s.config.SigningCert == nil || s.config.SigningKey == nil {
 		return nil, fmt.Errorf("signing certificate or key not available")
 	}
 
-	// Create the multipart/signed structure
-	boundary := generateBoundary()
-	headers := fmt.Sprintf(
-		"From: %s\r\n"+
-			"To: %s\r\n"+
-			"Content-Type: multipart/signed; boundary=%s; micalg=sha-256; protocol=\"application/pkcs7-signature\"\r\n"+
-			"Date: %s\r\n"+
-			"MIME-Version: 1.0\r\n"+
-			"\r\n",
-		from,
-		to,
-		boundary,
-		time.Now().Format(time.RFC1123Z),
-	)
-
-	// Create the signature
-	signature, err := s.createSignature(msg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create signature: %w", err)
+	outerHeaders, contentHeaders, body := splitMIMEForSigning(msg)
+	if getHeaderValue(outerHeaders, "From") == "" && from != "" {
+		outerHeaders = append(outerHeaders, "From: "+from)
+	}
+	if getHeaderValue(outerHeaders, "To") == "" && to != "" {
+		outerHeaders = append(outerHeaders, "To: "+to)
+	}
+	if getHeaderValue(outerHeaders, "Date") == "" {
+		outerHeaders = append(outerHeaders, "Date: "+time.Now().Format(time.RFC1123Z))
+	}
+	if len(contentHeaders) == 0 {
+		contentHeaders = []string{"Content-Type: text/plain; charset=utf-8"}
 	}
 
-	// Build the signed message
-	signedMsg := headers +
-		"--" + boundary + "\r\n" +
-		"Content-Type: text/plain\r\n\r\n" +
-		string(msg) + "\r\n" +
-		"--" + boundary + "\r\n" +
-		"Content-Type: application/pkcs7-signature; name=\"smime.p7s\"\r\n" +
-		"Content-Transfer-Encoding: base64\r\n" +
-		"Content-Disposition: attachment; filename=\"smime.p7s\"\r\n\r\n" +
-		base64.StdEncoding.EncodeToString(signature) + "\r\n" +
-		"--" + boundary + "--\r\n"
+	// The exact octets that are both transmitted as the first MIME part and
+	// covered by the detached signature.
+	inner := strings.Join(contentHeaders, "\r\n") + "\r\n\r\n" + body
 
-	return []byte(signedMsg), nil
+	sd, err := pkcs7.NewSignedData([]byte(inner))
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize signed data: %w", err)
+	}
+	sd.SetDigestAlgorithm(pkcs7.OIDDigestAlgorithmSHA256)
+	if err := sd.AddSigner(s.config.SigningCert, s.config.SigningKey, pkcs7.SignerInfoConfig{}); err != nil {
+		return nil, fmt.Errorf("failed to add signer: %w", err)
+	}
+	sd.Detach()
+	der, err := sd.Finish()
+	if err != nil {
+		return nil, fmt.Errorf("failed to finalize signature: %w", err)
+	}
+
+	boundary := generateBoundary()
+	var b strings.Builder
+	for _, h := range outerHeaders {
+		b.WriteString(h)
+		b.WriteString("\r\n")
+	}
+	if getHeaderValue(outerHeaders, "MIME-Version") == "" {
+		b.WriteString("MIME-Version: 1.0\r\n")
+	}
+	fmt.Fprintf(&b, "Content-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; micalg=\"sha-256\"; boundary=\"%s\"\r\n\r\n", boundary)
+	fmt.Fprintf(&b, "--%s\r\n", boundary)
+	b.WriteString(inner)
+	fmt.Fprintf(&b, "\r\n--%s\r\n", boundary)
+	b.WriteString("Content-Type: application/pkcs7-signature; name=\"smime.p7s\"\r\n")
+	b.WriteString("Content-Transfer-Encoding: base64\r\n")
+	b.WriteString("Content-Disposition: attachment; filename=\"smime.p7s\"\r\n\r\n")
+	b.WriteString(chunkBase64(base64.StdEncoding.EncodeToString(der)))
+	fmt.Fprintf(&b, "\r\n--%s--\r\n", boundary)
+	return []byte(b.String()), nil
 }
 
-// createSignature creates the PKCS7 signature
-func (s *SMIMESigner) createSignature(content []byte) ([]byte, error) {
-	// Hash the content
-	h := sha256.New()
-	h.Write(content)
-	digest := h.Sum(nil)
+// splitMIMEForSigning splits a raw message into outer (message-level) headers,
+// content (MIME entity) headers, and the body. Logical headers are preserved
+// verbatim (including folded continuation lines). Content-* headers move to the
+// signed entity; everything else (including MIME-Version) stays on the outer
+// message. A message with no header/body separator is treated as a bare body.
+func splitMIMEForSigning(msg []byte) (outer []string, content []string, body string) {
+	normalized := strings.ReplaceAll(strings.ReplaceAll(string(msg), "\r\n", "\n"), "\r", "\n")
+	sep := strings.Index(normalized, "\n\n")
+	if sep < 0 {
+		return nil, nil, toCRLF(normalized)
+	}
+	headerBlock := normalized[:sep]
+	body = toCRLF(normalized[sep+2:])
 
-	// Get the signing key
-	privateKey, ok := s.config.SigningKey.(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("signing key is not RSA")
+	var logical []string
+	for _, line := range strings.Split(headerBlock, "\n") {
+		if line != "" && (line[0] == ' ' || line[0] == '\t') && len(logical) > 0 {
+			logical[len(logical)-1] += "\r\n" + line
+			continue
+		}
+		logical = append(logical, line)
 	}
 
-	// Create signature using RSA-SHA256
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest)
-	if err != nil {
-		return nil, err
+	for _, h := range logical {
+		name := h
+		if i := strings.Index(h, ":"); i >= 0 {
+			name = h[:i]
+		}
+		if isContentHeader(strings.TrimSpace(name)) {
+			content = append(content, h)
+		} else {
+			outer = append(outer, h)
+		}
 	}
+	return outer, content, body
+}
 
-	return signature, nil
+func isContentHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "content-type", "content-transfer-encoding", "content-disposition",
+		"content-id", "content-description", "content-language", "content-location":
+		return true
+	default:
+		return false
+	}
+}
+
+// getHeaderValue returns the value of the first logical header matching name
+// (case-insensitive), or "" if absent.
+func getHeaderValue(headers []string, name string) string {
+	prefix := strings.ToLower(name) + ":"
+	for _, h := range headers {
+		if strings.HasPrefix(strings.ToLower(h), prefix) {
+			return strings.TrimSpace(h[len(prefix):])
+		}
+	}
+	return ""
+}
+
+// toCRLF normalizes LF-only text to CRLF line endings.
+func toCRLF(s string) string {
+	return strings.ReplaceAll(s, "\n", "\r\n")
+}
+
+// chunkBase64 wraps a base64 string at 76 characters per line (RFC 2045).
+func chunkBase64(s string) string {
+	const width = 76
+	var b strings.Builder
+	for len(s) > width {
+		b.WriteString(s[:width])
+		b.WriteString("\r\n")
+		s = s[width:]
+	}
+	b.WriteString(s)
+	return b.String()
 }
 
 // SMIMEVerifier handles S/MIME verification

@@ -40,6 +40,7 @@ type Config struct {
 	DMARC       DMARCConfig       `yaml:"dmarc"`
 	Alert       AlertConfig       `yaml:"alert"`
 	Push        PushConfig        `yaml:"push"`
+	Signing     SigningConfig     `yaml:"signing"`
 }
 
 // ServerConfig holds general server settings
@@ -334,6 +335,15 @@ type JMAPConfig struct {
 	Bind        string   `yaml:"bind"` // address to listen on
 	Port        int      `yaml:"port"`
 	CorsOrigins []string `yaml:"cors_origins"`
+}
+
+// SigningConfig controls outbound S/MIME signing. When enabled, messages from a
+// local sender that has a key pair in KeyDir are signed (multipart/signed) on
+// the shared delivery path. Keys are PEM files named "<email>.crt" and
+// "<email>.key" (e.g. "qa.alice@local.test.crt").
+type SigningConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	KeyDir  string `yaml:"key_dir"`
 }
 
 // AlertConfig holds alert manager configuration. Mirrors alert.Config but uses

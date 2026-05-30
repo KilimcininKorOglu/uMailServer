@@ -14,6 +14,7 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/metrics"
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/smtp"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
 	"github.com/umailserver/umailserver/internal/webhook"
@@ -174,6 +175,19 @@ func (s *Server) deliverMessage(from string, to []string, data []byte) error {
 }
 
 // deliverMessageWithSieve delivers an incoming message with optional Sieve filtering actions
+// isAlreadySigned reports whether a message already carries an S/MIME signature
+// or encryption, so the signing hook stays idempotent and never double-wraps.
+func isAlreadySigned(data []byte) bool {
+	end := len(data)
+	if idx := strings.Index(string(data), "\r\n\r\n"); idx >= 0 {
+		end = idx
+	}
+	headers := strings.ToLower(string(data[:end]))
+	return strings.Contains(headers, "multipart/signed") ||
+		strings.Contains(headers, "application/pkcs7-signature") ||
+		strings.Contains(headers, "application/pkcs7-mime")
+}
+
 func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, sieveActions []string) error {
 	// Create tracing span if tracing is enabled
 	var ctx context.Context = context.Background()
@@ -226,6 +240,26 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 	}
 
 	s.logger.Info("SieveDeliver", "folders", targetFolders)
+
+	// Outbound S/MIME signing: if the local sender has a provisioned key and the
+	// message is not already signed, sign it before relay/delivery. The
+	// has-key gate naturally excludes inbound external mail (no key). Fail-open:
+	// on any error the original message is delivered unsigned (never dropped).
+	if s.config.Signing.Enabled && s.smimeKeystore != nil && !isAlreadySigned(data) {
+		sender := strings.ToLower(strings.TrimSpace(from))
+		if s.smimeKeystore.GetKeys(sender) != nil {
+			signTo := ""
+			if len(to) > 0 {
+				signTo = to[0]
+			}
+			if signed, signErr := smtp.NewSMIMEStage(s.smimeKeystore).SignMessage(sender, from, signTo, data); signErr != nil {
+				s.logger.Warn("S/MIME signing failed; delivering unsigned", "from", from, "error", signErr)
+			} else {
+				data = signed
+				s.logger.Info("S/MIME signed outbound message", "from", from)
+			}
+		}
+	}
 
 	// Handle redirects - queue copies to redirect addresses
 	for _, redirectAddr := range redirectAddrs {

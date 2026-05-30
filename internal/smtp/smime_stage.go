@@ -201,7 +201,13 @@ func (s *SMIMEStage) SignMessage(user string, from, to string, data []byte) ([]b
 			smimeConfig.SigningCert = cert
 		}
 	}
-	smimeConfig.SigningKey = keys.SigningKey
+	// SigningKey is stored as PEM/DER bytes; parse it into an *rsa.PrivateKey so
+	// the signer can use it (SMIMEConfig.SigningKey is a crypto.PrivateKey).
+	key, err := auth.ParsePrivateKey(keys.SigningKey)
+	if err != nil {
+		return nil, fmt.Errorf("parse S/MIME signing key for %s: %w", user, err)
+	}
+	smimeConfig.SigningKey = key
 
 	signer := auth.NewSMIMESigner(smimeConfig)
 	return signer.SignMessage(data, from, to)

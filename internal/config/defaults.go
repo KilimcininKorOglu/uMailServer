@@ -204,5 +204,9 @@ func DefaultConfig() *Config {
 			Enabled: true,
 			Subject: "mailto:admin@umailserver.local",
 		},
+		Signing: SigningConfig{
+			Enabled: false,
+			KeyDir:  "",
+		},
 	}
 }
