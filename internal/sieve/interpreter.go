@@ -311,14 +311,18 @@ func (i *Interpreter) executeIf(cmd *Command) ([]Action, error) {
 	i.ctx.Stack = append(i.ctx.Stack, result)
 
 	if result && cmd.Block != nil {
+		var allActions []Action
 		for _, c := range cmd.Block.Commands {
 			actions, err := i.executeCommand(&c)
 			if err != nil {
 				return nil, err
 			}
 			if len(actions) > 0 {
-				return actions, nil
+				allActions = append(allActions, actions...)
 			}
+		}
+		if len(allActions) > 0 {
+			return allActions, nil
 		}
 	}
 

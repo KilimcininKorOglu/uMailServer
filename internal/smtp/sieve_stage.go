@@ -109,7 +109,12 @@ func (s *SieveStage) Process(ctx *MessageContext) PipelineResult {
 				// Stop processing
 				return ResultAccept
 			case sieve.KeepAction:
-				// Default - keep in inbox
+				// Keep in inbox: add a marker so deliverMessageWithSieve
+				// knows to also deliver to INBOX even when other fileinto targets exist.
+				if ctx.SpamResult.Reasons == nil {
+					ctx.SpamResult.Reasons = make([]string, 0)
+				}
+				ctx.SpamResult.Reasons = append(ctx.SpamResult.Reasons, "keep")
 			}
 		}
 	}

@@ -184,7 +184,7 @@ func compileAction(action RuleAction) string {
 		if action.Target == "" {
 			return ""
 		}
-		return fmt.Sprintf(`fileinto %q;`, action.Target)
+		return fmt.Sprintf("fileinto %q;\nkeep;", action.Target)
 
 	case RuleActionKindDelete:
 		return "discard;"

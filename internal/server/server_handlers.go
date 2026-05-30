@@ -175,19 +175,30 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 		defer span.End()
 	}
 
-	// Parse sieve actions for fileinto and redirect
-	var targetFolder string
+	// Parse sieve actions for fileinto, redirect, and keep
+	var targetFolders []string
 	var redirectAddrs []string
+	hasKeep := false
 
 	for _, action := range sieveActions {
 		if strings.HasPrefix(action, "fileinto:") {
-			targetFolder = strings.TrimPrefix(action, "fileinto:")
+			targetFolders = append(targetFolders, strings.TrimPrefix(action, "fileinto:"))
 		} else if strings.HasPrefix(action, "redirect:") {
 			redirectAddr := strings.TrimPrefix(action, "redirect:")
 			if redirectAddr != "" {
 				redirectAddrs = append(redirectAddrs, redirectAddr)
 			}
+		} else if action == "keep" {
+			hasKeep = true
 		}
+	}
+
+	// If no fileinto targets, use inbox as default
+	if len(targetFolders) == 0 {
+		targetFolders = []string{""} // empty = INBOX default
+	} else if hasKeep {
+		// copy behavior: keep in inbox AND fileinto target folders
+		targetFolders = append(targetFolders, "")
 	}
 
 	// Handle redirects - queue copies to redirect addresses
@@ -237,9 +248,11 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 		}
 
 		// Deliver with optional target folder from sieve
-		if err := s.deliverLocal(user, domain, from, data, targetFolder); err != nil {
-			s.logger.Error("Failed to deliver locally", "user", user, "domain", domain, "error", err)
-			errs = append(errs, fmt.Errorf("deliver %s: %w", recipient, err))
+		for _, targetFolder := range targetFolders {
+			if err := s.deliverLocal(user, domain, from, data, targetFolder); err != nil {
+				s.logger.Error("Failed to deliver locally", "user", user, "domain", domain, "target", targetFolder, "error", err)
+				errs = append(errs, fmt.Errorf("deliver %s->%s: %w", recipient, targetFolder, err))
+			}
 		}
 	}
 
