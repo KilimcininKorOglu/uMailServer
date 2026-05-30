@@ -273,7 +273,10 @@ type MessageTypeResponse struct {
 	DateTimeReceived string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
 	Size             int                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
 	Body             BodyTypeResponse       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
-	ToRecipients     []MailboxTypeResponse  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
+	From             *RecipientResponse     `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
+	Sender           *RecipientResponse     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sender,omitempty"`
+	ToRecipients     *RecipientsResponse    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
+	CcRecipients     *RecipientsResponse    `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
 	IsRead           bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
 	Categories       *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 	Attachments      *AttachmentsType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attachments,omitempty"`
@@ -382,6 +385,73 @@ type MailboxTypeResponse struct {
 	Name         string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
 }
 
+// RecipientResponse wraps a single mailbox under a recipient element such as
+// From or Sender. exchangelib maps <t:From> to an item's author and <t:Sender>
+// to its sender; without these elements those attributes resolve to None.
+type RecipientResponse struct {
+	Mailbox MailboxTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
+}
+
+// RecipientsResponse wraps a list of mailboxes under a recipient-collection
+// element such as ToRecipients or CcRecipients, producing the EWS structure
+// <t:ToRecipients><t:Mailbox>…</t:Mailbox></t:ToRecipients>. A bare
+// []MailboxTypeResponse would serialize the Mailbox elements without the
+// wrapping element (the element's pinned XMLName overrides the field tag), which
+// clients cannot parse — leaving reply-all unable to recover the recipient set.
+type RecipientsResponse struct {
+	Mailboxes []MailboxTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
+}
+
+// recipientsWrap returns a RecipientsResponse for the given mailboxes, or nil
+// when empty so the (omitempty) container element is dropped entirely.
+func recipientsWrap(addrs []MailboxTypeResponse) *RecipientsResponse {
+	if len(addrs) == 0 {
+		return nil
+	}
+	return &RecipientsResponse{Mailboxes: addrs}
+}
+
+// recipientsFromHeader parses an address-list header (To, Cc, …) from a raw MIME
+// message into mailbox responses, preserving display names when present.
+func recipientsFromHeader(rawMsg []byte, header string) []MailboxTypeResponse {
+	v := rawHeaderValue(rawMsg, header)
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	addrs, err := mail.ParseAddressList(v)
+	if err != nil {
+		return nil
+	}
+	out := make([]MailboxTypeResponse, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, MailboxTypeResponse{EmailAddress: a.Address, Name: a.Name})
+	}
+	return out
+}
+
+// mailboxFromHeader parses an RFC 5322 address header value ("Name <addr>" or a
+// bare address) into a RecipientResponse, or returns nil when no address is
+// present. Used to surface the From / Sender headers in item responses.
+func mailboxFromHeader(header string) *RecipientResponse {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return nil
+	}
+	if addr, err := mail.ParseAddress(header); err == nil {
+		return &RecipientResponse{Mailbox: MailboxTypeResponse{EmailAddress: addr.Address, Name: addr.Name}}
+	}
+	return &RecipientResponse{Mailbox: MailboxTypeResponse{EmailAddress: header}}
+}
+
+// rawHeaderValue returns a single header value from a raw MIME message, or "".
+func rawHeaderValue(rawMsg []byte, name string) string {
+	msg, err := mail.ReadMessage(bytes.NewReader(rawMsg))
+	if err != nil {
+		return ""
+	}
+	return msg.Header.Get(name)
+}
+
 // BodyTypeResponse represents the message body in EWS responses.
 type BodyTypeResponse struct {
 	XMLName     xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
@@ -429,31 +499,39 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 	}
 
 	// VAL-DIR-004 / VAL-DIR-005: send-as and send-on-behalf authorization.
-	// If the message carries a From address different from the acting user,
-	// an explicit grant is required. General delegate folder access (VAL-DIR-002)
-	// does NOT imply send-as or send-on-behalf rights.
-	// We need to check the From field across all items in the request.
+	// Sending mail as another identity requires an explicit grant; general
+	// delegate folder access (VAL-DIR-002) does NOT imply send rights. The
+	// represented From is either an explicit client From or — when a delegate
+	// sends (SendAndSaveCopy/SendOnly) from a mailbox that is not their own —
+	// the targeted owner mailbox, since clients (e.g. exchangelib) often omit
+	// the From element and rely on the server to stamp the owner identity.
+	isSend := strings.EqualFold(req.MessageDisposition, "SendAndSaveCopy") ||
+		strings.EqualFold(req.MessageDisposition, "SendOnly")
 	for i := range req.Items.Item {
 		item := &req.Items.Item[i]
-		// Check if From field names a different sender than the actor.
-		if item.From != nil && item.From.Mailbox.Email != "" && !strings.EqualFold(item.From.Mailbox.Email, actorEmail) {
-			// This From address is not the actor's own. Verify send-as on behalf of that identity.
-			fromEmail := item.From.Mailbox.Email
-			// If the From address matches the owner mailbox, we need either send-as or send-on-behalf.
-			if strings.EqualFold(fromEmail, ownerEmail) {
-				// Delegate sending as owner: require send-as OR send-on-behalf.
-				if _, code := s.checkSendAsPermission(mboxID, ownerEmail, actorEmail); code == "" {
-					// send-as authorized
-				} else if _, code = s.checkSendOnBehalfPermission(mboxID, ownerEmail, actorEmail); code == "" {
-					// send-on-behalf authorized
-				} else {
-					return s.errorItemResponseXML("CreateItem", code, "send-as/send-on-behalf requires explicit authorization for "+actorEmail+" on "+fromEmail)
-				}
+		fromEmail := ""
+		if item.From != nil && item.From.Mailbox.Email != "" {
+			fromEmail = item.From.Mailbox.Email
+		} else if isSend && !strings.EqualFold(ownerEmail, actorEmail) {
+			fromEmail = ownerEmail
+		}
+		if fromEmail == "" || strings.EqualFold(fromEmail, actorEmail) {
+			continue
+		}
+		// The represented From is not the actor's own identity.
+		if strings.EqualFold(fromEmail, ownerEmail) {
+			// Delegate sending as owner: require send-as OR send-on-behalf.
+			if _, code := s.checkSendAsPermission(mboxID, ownerEmail, actorEmail); code == "" {
+				// send-as authorized
+			} else if _, code = s.checkSendOnBehalfPermission(mboxID, ownerEmail, actorEmail); code == "" {
+				// send-on-behalf authorized
 			} else {
-				// From address is neither the actor's nor the owner's — denied.
-				return s.errorItemResponseXML("CreateItem", ErrErrorSendDenied,
-					"From address "+fromEmail+" is not authorized for "+actorEmail)
+				return s.errorItemResponseXML("CreateItem", code, "send-as/send-on-behalf requires explicit authorization for "+actorEmail+" on "+fromEmail)
 			}
+		} else {
+			// From address is neither the actor's nor the owner's — denied.
+			return s.errorItemResponseXML("CreateItem", ErrErrorSendDenied,
+				"From address "+fromEmail+" is not authorized for "+actorEmail)
 		}
 	}
 
@@ -502,15 +580,28 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 	for i := range req.Items.Item {
 		item := &req.Items.Item[i]
 		// Detect which mode each item uses. Check send-as first (VAL-DIR-004);
-		// if that is authorized, use plain From. Otherwise check send-on-behalf
-		// (VAL-DIR-005) and set isSendOnBehalf so MIME builder adds Sender header.
+		// if that is authorized, use plain From=owner. Otherwise check
+		// send-on-behalf (VAL-DIR-005) and set isSendOnBehalf so the MIME builder
+		// adds a Sender header naming the acting delegate (RFC 5322 §3.6.2).
+		// The represented From is an explicit client From, or the targeted owner
+		// mailbox when a delegate sends and omits the From element.
 		itemIsSendOnBehalf := false
+		fromEmail := ownerEmail
 		if item.From != nil && item.From.Mailbox.Email != "" {
-			fromEmail := item.From.Mailbox.Email
-			if strings.EqualFold(fromEmail, ownerEmail) && !strings.EqualFold(actorEmail, ownerEmail) {
-				if _, code := s.checkSendAsPermission(mboxID, ownerEmail, actorEmail); code != "" {
-					if _, code := s.checkSendOnBehalfPermission(mboxID, ownerEmail, actorEmail); code == "" {
-						itemIsSendOnBehalf = true
+			fromEmail = item.From.Mailbox.Email
+		}
+		// A delegate (actor != owner) preparing a message that represents the owner
+		// resolves its mode from the grant: send-as keeps From=owner only;
+		// send-on-behalf additionally stamps Sender=actor. This is decided at item
+		// creation (drafts included) so a draft later dispatched via SendItem already
+		// carries the correct headers.
+		if strings.EqualFold(fromEmail, ownerEmail) && !strings.EqualFold(actorEmail, ownerEmail) {
+			if _, code := s.checkSendAsPermission(mboxID, ownerEmail, actorEmail); code != "" {
+				if _, code := s.checkSendOnBehalfPermission(mboxID, ownerEmail, actorEmail); code == "" {
+					itemIsSendOnBehalf = true
+					// Stamp the acting delegate as Sender when the client omitted it.
+					if item.Sender == nil || item.Sender.Mailbox.Email == "" {
+						item.Sender = &FromAddressType{Mailbox: EmailAddressType{Email: actorEmail}}
 					}
 				}
 			}
@@ -1401,7 +1492,6 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 
 	// Parse MIME headers for display.
 	subject, from, dateStr, bodyType, bodyText, toAddrs, attachments := parseMimeWithAttachments(rawMsg)
-	_ = from // available for extended properties
 
 	// Assign a self-describing AttachmentId to each attachment so clients treat
 	// them as already-created and can later fetch content via GetAttachment.
@@ -1427,7 +1517,10 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 			BodyType: bodyType,
 			Text:     bodyText,
 		},
-		ToRecipients: toRecipients,
+		From:         mailboxFromHeader(from),
+		Sender:       mailboxFromHeader(rawHeaderValue(rawMsg, "Sender")),
+		ToRecipients: recipientsWrap(toRecipients),
+		CcRecipients: recipientsWrap(recipientsFromHeader(rawMsg, "Cc")),
 		IsRead:       rec.IsRead,
 		Categories:   categoriesResponse(rec.Categories),
 	}

@@ -240,9 +240,13 @@ func (s *Server) handleGetDelegate(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("GetDelegate", ErrErrorMailboxNotFound, "Mailbox element is required")
 	}
 
-	ownerID, err := semcore.NewMailboxId(email)
+	// Resolve the owner mailbox to its canonical identity-store ID so that grants
+	// are keyed by the same ID the item/collab/folder handlers use for delegate
+	// permission lookups. (NewMailboxId(email) would mint an email-as-raw ID that
+	// never matches the identity store's canonical ID.)
+	ownerID, err := s.identity.EnsureMailboxId(email)
 	if err != nil {
-		return s.errorResponseXML("GetDelegate", ErrErrorInvalidId, err.Error())
+		return s.errorResponseXML("GetDelegate", ErrErrorMailboxNotFound, err.Error())
 	}
 
 	// Verify the authenticated user is the owner or an admin.
@@ -386,9 +390,10 @@ func (s *Server) handleAddDelegate(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("AddDelegate", ErrErrorMailboxNotFound, "Mailbox element is required")
 	}
 
-	ownerID, err := semcore.NewMailboxId(email)
+	// Canonical identity-store ID (see GetDelegate for rationale).
+	ownerID, err := s.identity.EnsureMailboxId(email)
 	if err != nil {
-		return s.errorResponseXML("AddDelegate", ErrErrorInvalidId, err.Error())
+		return s.errorResponseXML("AddDelegate", ErrErrorMailboxNotFound, err.Error())
 	}
 
 	// Only owner or admin can add delegates.
@@ -560,9 +565,10 @@ func (s *Server) handleUpdateDelegate(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("UpdateDelegate", ErrErrorMailboxNotFound, "Mailbox element is required")
 	}
 
-	ownerID, err := semcore.NewMailboxId(email)
+	// Canonical identity-store ID (see GetDelegate for rationale).
+	ownerID, err := s.identity.EnsureMailboxId(email)
 	if err != nil {
-		return s.errorResponseXML("UpdateDelegate", ErrErrorInvalidId, err.Error())
+		return s.errorResponseXML("UpdateDelegate", ErrErrorMailboxNotFound, err.Error())
 	}
 
 	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck
@@ -703,9 +709,10 @@ func (s *Server) handleRemoveDelegate(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("RemoveDelegate", ErrErrorMailboxNotFound, "Mailbox element is required")
 	}
 
-	ownerID, err := semcore.NewMailboxId(email)
+	// Canonical identity-store ID (see GetDelegate for rationale).
+	ownerID, err := s.identity.EnsureMailboxId(email)
 	if err != nil {
-		return s.errorResponseXML("RemoveDelegate", ErrErrorInvalidId, err.Error())
+		return s.errorResponseXML("RemoveDelegate", ErrErrorMailboxNotFound, err.Error())
 	}
 
 	authUser, _ := ctx.Value(api.ContextKeyEmail).(string) //nolint:errcheck

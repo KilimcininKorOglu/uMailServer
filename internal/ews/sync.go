@@ -194,7 +194,7 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 			continue
 		}
 
-		subject, _, dateStr, bodyType, bodyText, toAddrs := parseMimeHeaders(rawMsg)
+		subject, from, dateStr, bodyType, bodyText, toAddrs := parseMimeHeaders(rawMsg)
 
 		toRecipients := make([]MailboxTypeResponse, 0, len(toAddrs))
 		for _, addr := range toAddrs {
@@ -214,7 +214,10 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 				BodyType: bodyType,
 				Text:     truncateBody(bodyText, 100),
 			},
-			ToRecipients: toRecipients,
+			From:         mailboxFromHeader(from),
+			Sender:       mailboxFromHeader(rawHeaderValue(rawMsg, "Sender")),
+			ToRecipients: recipientsWrap(toRecipients),
+			CcRecipients: recipientsWrap(recipientsFromHeader(rawMsg, "Cc")),
 		}
 
 		if req.SyncState == "" {

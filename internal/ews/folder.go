@@ -3,6 +3,7 @@
 package ews
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -46,12 +47,16 @@ type GetFolderResponse struct {
 
 // GetFolderResponseMessages wraps a list of folder response messages.
 type GetFolderResponseMessages struct {
-	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderResponseMessage"`
+	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetFolderResponseMessage"`
 }
 
-// FolderResponseMessageType is one folder's result in a GetFolder response.
+// FolderResponseMessageType is one folder's result in a folder response. The
+// enclosing element name is operation-specific (GetFolderResponseMessage,
+// FindFolderResponseMessage, …) and is therefore supplied by each container's
+// field tag rather than pinned here via XMLName. EWS clients (e.g. exchangelib)
+// locate response messages by the operation-prefixed element name, so a generic
+// "FolderResponseMessage" name is not interoperable.
 type FolderResponseMessageType struct {
-	XMLName       xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderResponseMessage"`
 	ResponseClass string                  `xml:"ResponseClass,attr"`
 	ResponseCode  ResponseCodeType        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	Folders       FolderResponseContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
@@ -230,7 +235,7 @@ type FindFolderResponse struct {
 
 // FindFolderResponseMessages wraps FindFolder response messages.
 type FindFolderResponseMessages struct {
-	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderResponseMessage"`
+	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindFolderResponseMessage"`
 }
 
 // handleFindFolder processes a FindFolder EWS SOAP request.
@@ -360,7 +365,7 @@ type CreateFolderResponse struct {
 
 // CreateFolderResponseMessages wraps CreateFolder response messages.
 type CreateFolderResponseMessages struct {
-	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderResponseMessage"`
+	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateFolderResponseMessage"`
 }
 
 // handleCreateFolder processes a CreateFolder EWS SOAP request.
@@ -507,7 +512,7 @@ type UpdateFolderResponse struct {
 
 // UpdateFolderResponseMessages wraps UpdateFolder response messages.
 type UpdateFolderResponseMessages struct {
-	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderResponseMessage"`
+	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateFolderResponseMessage"`
 }
 
 // DeleteFolderResponseMessages wraps DeleteFolder response messages.
@@ -906,8 +911,62 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 // Mailbox resolution helpers
 // ---------------------------------------------------------------------------
 
-// resolveMailboxFromBody resolves the mailbox for the authenticated user.
-// Email is extracted from the X-Email context value (set by HandleHTTP after auth).
+// extractTargetMailbox scans a request body for an explicit target mailbox
+// addressed by a DistinguishedFolderId's <t:Mailbox><t:EmailAddress> child.
+// EWS delegate / shared-mailbox clients (e.g. an exchangelib DELEGATE account)
+// place the owner's SMTP address there to operate on another user's store.
+// Returns "" when no such target is present, in which case the caller resolves
+// the authenticated user's own mailbox.
+//
+// Mirrors Exchange the folder spec(const tDistinguishedFolderId&): the target is taken
+// from folder.Mailbox->EmailAddress when present (the MS-OXWSCDATA schema), and
+// otherwise defaults to the authenticated user (the MS-OXWSCORE operations).
+func extractTargetMailbox(body []byte) string {
+	dec := xml.NewDecoder(bytes.NewReader(body))
+	inDist := false
+	inEmail := false
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "DistinguishedFolderId":
+				inDist = true
+			case "EmailAddress":
+				if inDist {
+					inEmail = true
+				}
+			}
+		case xml.CharData:
+			if inEmail {
+				if v := strings.TrimSpace(string(t)); v != "" {
+					return v
+				}
+			}
+		case xml.EndElement:
+			switch t.Name.Local {
+			case "EmailAddress":
+				inEmail = false
+			case "DistinguishedFolderId":
+				inDist = false
+			}
+		}
+	}
+	return ""
+}
+
+// resolveMailboxFromBody resolves the mailbox a request targets.
+//
+// The authenticated user's email is taken from the X-Email context value (set by
+// HandleHTTP after auth). When the request explicitly addresses another mailbox
+// via a DistinguishedFolderId <t:Mailbox> element (delegate / shared-mailbox
+// access), that owner mailbox is resolved instead — but only after verifying the
+// acting user holds a delegate grant on it (VAL-DIR-002). Without an explicit
+// target, the authenticated user's own mailbox is used.
+//
 // Uses EnsureMailboxId to register the mailbox identity on first access, so that
 // newly created accounts can immediately use EWS without requiring a separate
 // identity backfill step.
@@ -916,12 +975,29 @@ func (s *Server) resolveMailboxFromBody(ctx context.Context, body []byte) (semco
 	if !ok || email == "" {
 		return semcore.MailboxId{}, "", ErrErrorAccessDenied
 	}
+
+	// Honor an explicit target mailbox for delegate / shared-mailbox access.
+	if target := extractTargetMailbox(body); target != "" && !strings.EqualFold(target, email) {
+		ownerID, err := s.identity.EnsureMailboxId(target)
+		if err != nil {
+			return semcore.MailboxId{}, "", ErrErrorMailboxNotFound
+		}
+		// A non-owner may only reach the target mailbox when an explicit delegate
+		// grant exists. When no delegate store is configured, fall through to the
+		// owner identity unguarded (matches checkDelegatePermission's nil-store path).
+		if s.delegateStore != nil {
+			delegate, derr := s.delegateStore.GetDelegateForUser(ownerID, email)
+			if derr != nil || !delegate.CanActAsDelegate() {
+				return semcore.MailboxId{}, "", ErrErrorAccessDenied
+			}
+		}
+		return ownerID, "e:" + target, ""
+	}
+
 	// Use EnsureMailboxId so that new accounts can immediately use EWS.
 	// The identity is created and persisted on first access; subsequent calls
 	// are idempotent and return the existing ID.
-	s.logger.Info("resolveMailboxFromBody: calling EnsureMailboxId", "email", email)
 	mboxID, err := s.identity.EnsureMailboxId(email)
-	s.logger.Info("resolveMailboxFromBody: EnsureMailboxId result", "email", email, "mboxID", mboxID, "err", err)
 	if err != nil {
 		return semcore.MailboxId{}, "", ErrErrorMailboxNotFound
 	}
