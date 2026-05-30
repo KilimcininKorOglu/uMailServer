@@ -59,8 +59,12 @@ type FolderIDsForSearch struct {
 
 // RestrictionContainer wraps the t:Restriction element.
 type RestrictionContainer struct {
-	XMLName      xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Restriction"`
-	SearchFilter SearchFilter `xml:",any"` // supported filter types
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Restriction"`
+	// SearchFilter is embedded anonymously so the decoder matches the
+	// Restriction's direct child (IsEqualTo, Contains, And, ...) against the
+	// promoted filter fields. A `,any`-tagged named field instead matched the
+	// filter's children one level too deep, leaving every field nil.
+	SearchFilter
 }
 
 // SearchFilter is a disjunction (OR) or conjunction (AND) of search conditions.
@@ -79,21 +83,20 @@ type SearchFilter struct {
 	IsLessThanOrEqualTo    *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsLessThanOrEqualTo"`
 }
 
-// ContainsFilter represents the EWS Contains element.
+// ContainsFilter represents the EWS Contains element. Per the EWS schema (and the
+// Exchange reference implementation, the MS-OXWSCDATA schema the contains-match builder/the constant loader),
+// the field is a <t:FieldURI FieldURI="..."/> element and the constant is a
+// <t:Constant Value="..."/> element with the value carried as an attribute.
 type ContainsFilter struct {
-	Path      ContainsPathType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Path"`
-	Constant  ContainsConstType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Constant"`
-	Traversal string            `xml:"Traversal,attr"` //string, item, shallow, deep
+	FieldURI         *FieldURI         `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
+	Constant         ContainsConstType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Constant"`
+	ContainmentMode  string            `xml:"ContainmentMode,attr"`
+	ContainmentCompr string            `xml:"ContainmentComparison,attr"`
 }
 
-// ContainsPathType is the Path in a Contains filter: a Path element with a uri attribute.
-type ContainsPathType struct {
-	URI string `xml:"uri,attr"`
-}
-
-// ContainsConstType is the Constant value in a Contains filter.
+// ContainsConstType is the Constant value in a Contains filter (Value attribute).
 type ContainsConstType struct {
-	Value string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Value"`
+	Value string `xml:"Value,attr"`
 }
 
 // ExistsFilter represents the EWS Exists element.
@@ -109,25 +112,31 @@ type ComparisonFilter struct {
 }
 
 // FieldURIOrConstant represents either a field URI or a constant value.
+// The Constant's Value is an XML ATTRIBUTE (<t:Constant Value="..."/>), not a
+// child element; tagging it as an element left it permanently empty and made
+// IsEqualTo comparisons always fail.
 type FieldURIOrConstant struct {
 	FieldURI *FieldURI `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
 	Constant *struct {
-		Value string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Value"`
+		Value string `xml:"Value,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Constant"`
 }
 
-// SortOrderContainer wraps field URIs for ordering.
+// SortOrderContainer wraps field orders for ordering.
 type SortOrderContainer struct {
 	XMLName xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SortOrder"`
-	Fields  []SortByField `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
+	Fields  []SortByField `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldOrder"`
 }
 
 // SortByField is one sort field with optional direction.
+// EWS XML: <t:FieldOrder Order="Ascending"><t:FieldURI FieldURI="item:Subject"/></t:FieldOrder>
+// The Order is an attribute of FieldOrder; the property is a nested FieldURI element.
 type SortByField struct {
+	XMLName  xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldOrder"`
+	Order    string   `xml:"Order,attr"` // Ascending | Descending
 	FieldURI struct {
-		URI string `xml:"uri,attr"`
+		URI string `xml:"FieldURI,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
-	Order string `xml:"Order,attr"` // Ascending | Descending
 }
 
 // FindItemResponse is the EWS FindItem operation response.
@@ -149,8 +158,23 @@ type FindItemResponseMessageType struct {
 }
 
 type SearchItemsContainer struct {
-	XMLName xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Items"`
-	Items   []MessageTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	XMLName         xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Items"`
+	Items           []MessageTypeResponse    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	MeetingRequests []MeetingRequestResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types MeetingRequest"`
+}
+
+// splitSearchItems separates meeting-request items (rendered as MeetingRequest)
+// from ordinary messages so each is emitted under the correct element name.
+func splitSearchItems(all []MessageTypeResponse) SearchItemsContainer {
+	c := SearchItemsContainer{}
+	for _, it := range all {
+		if it.isMeetingRequest {
+			c.MeetingRequests = append(c.MeetingRequests, toMeetingRequestResponse(it))
+		} else {
+			c.Items = append(c.Items, it)
+		}
+	}
+	return c
 }
 
 // RootFolderType wraps the paged result set.
@@ -253,7 +277,7 @@ func (s *Server) handleFindItem(ctx context.Context, body []byte) []byte {
 			TotalItems:         total,
 			TotalItemsResponse: total,
 			IncludesLastItem:   includesLast,
-			Items:              SearchItemsContainer{Items: allItems},
+			Items:              splitSearchItems(allItems),
 		},
 	}}
 	if maxEntries > 0 && !includesLast {
@@ -279,6 +303,20 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 
 	var results []MessageTypeResponse
 
+	// collabMatches applies the evaluable parts of a FindItem restriction to a
+	// collaboration item. Predicates we can evaluate (Subject) filter the item;
+	// predicates over fields not materialized for collab items (e.g. Categories)
+	// are treated as matching so they neither over- nor under-select.
+	collabMatches := func(item *MessageTypeResponse) bool {
+		if item == nil {
+			return false
+		}
+		if restriction == nil {
+			return true
+		}
+		return collabRestrictionMatch(restriction.SearchFilter, item.Subject)
+	}
+
 	if isCollabFolder {
 		// Query collaboration store items.
 		// Calendar items.
@@ -286,7 +324,7 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 		if err == nil {
 			for _, rec := range calItems {
 				item := s.collabCalendarItemToResponse(rec, folderID)
-				if item != nil {
+				if collabMatches(item) {
 					results = append(results, *item)
 				}
 			}
@@ -296,7 +334,7 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 		if err == nil {
 			for _, rec := range contactItems {
 				item := s.collabContactItemToResponse(rec, folderID)
-				if item != nil {
+				if collabMatches(item) {
 					results = append(results, *item)
 				}
 			}
@@ -306,7 +344,7 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 		if err == nil {
 			for _, rec := range taskItems {
 				item := s.collabTaskItemToResponse(rec, folderID)
-				if item != nil {
+				if collabMatches(item) {
 					results = append(results, *item)
 				}
 			}
@@ -346,6 +384,21 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 					Text:     truncateBody(bodyText, 100),
 				},
 				ToRecipients: toRecipients,
+			}
+			if !rec.ConversationID.IsZero() {
+				msgResp.ConversationID = &ConversationIdType{ID: rec.ConversationID.String()}
+			}
+			hdrs := parseInternetHeaders(rawMsg)
+			if len(hdrs) > 0 {
+				msgResp.InternetHeaders = &InternetMessageHeadersType{Headers: hdrs}
+			}
+			// Surface delivered meeting requests as MeetingRequest items so
+			// clients expose accept/decline on them.
+			for _, h := range hdrs {
+				if strings.EqualFold(h.Name, hdrMeeting) && strings.TrimSpace(h.Value) == "1" {
+					msgResp.isMeetingRequest = true
+					break
+				}
 			}
 
 			// Apply restriction filter if present.
@@ -501,20 +554,70 @@ func compareInt(a, b int64, op string) bool {
 
 // evalContains evaluates a Contains filter.
 func evalContains(c ContainsFilter, fields filterFields, subject string, hasContent bool) bool {
-	if c.Path.URI == "" || c.Constant.Value == "" {
+	if c.FieldURI == nil || c.FieldURI.URI == "" || c.Constant.Value == "" {
 		return false
 	}
-	uri := c.Path.URI
+	// Match on the property suffix so both item:* and message:* prefixes work
+	// (exchangelib sends item:Subject for the Item-level Subject field).
+	uri := c.FieldURI.URI
+	if idx := strings.IndexByte(uri, ':'); idx >= 0 {
+		uri = uri[idx+1:]
+	}
 	constVal := c.Constant.Value
 
 	switch uri {
-	case "message:Subject":
+	case "Subject":
 		return strings.Contains(strings.ToLower(subject), strings.ToLower(constVal))
-	case "message:From":
+	case "From":
 		return strings.Contains(strings.ToLower(fields.From), strings.ToLower(constVal))
 	default:
 		return false
 	}
+}
+
+// collabRestrictionMatch evaluates a FindItem restriction against a
+// collaboration item using only the Subject field, which is the one property
+// reliably materialized for calendar/contact/task items. Predicates referencing
+// any other field are treated as matching (lenient), so a Subject filter
+// narrows the result set while a Categories filter does not wrongly exclude
+// items whose categories are not surfaced here.
+func collabRestrictionMatch(f SearchFilter, subject string) bool {
+	if f.And != nil {
+		return collabRestrictionMatch(*f.And, subject)
+	}
+	if f.Or != nil {
+		return collabRestrictionMatch(*f.Or, subject)
+	}
+	if f.Not != nil {
+		return !collabRestrictionMatch(*f.Not, subject)
+	}
+	if f.IsEqualTo != nil {
+		if collabFieldIsSubject(f.IsEqualTo.FieldURI) && f.IsEqualTo.FieldURIOrConstant != nil && f.IsEqualTo.FieldURIOrConstant.Constant != nil {
+			return strings.EqualFold(subject, f.IsEqualTo.FieldURIOrConstant.Constant.Value)
+		}
+		return true // non-subject predicate: not evaluable here, treat as match
+	}
+	if f.Contains != nil {
+		if collabFieldIsSubject(f.Contains.FieldURI) {
+			return strings.Contains(strings.ToLower(subject), strings.ToLower(f.Contains.Constant.Value))
+		}
+		return true
+	}
+	// AndList / OrList style containers and any other predicate: lenient match.
+	return true
+}
+
+// collabFieldIsSubject reports whether a field URI addresses the Subject field
+// (either the item: or message: prefix).
+func collabFieldIsSubject(fu *FieldURI) bool {
+	if fu == nil || fu.URI == "" {
+		return false
+	}
+	uri := fu.URI
+	if idx := strings.IndexByte(uri, ':'); idx >= 0 {
+		uri = uri[idx+1:]
+	}
+	return uri == "Subject"
 }
 
 // evalExists evaluates an Exists filter.
@@ -541,14 +644,21 @@ func sortFindItemResults(items []MessageTypeResponse, fields []SortByField) {
 
 	sort.SliceStable(items, func(i, j int) bool {
 		for _, f := range fields {
-			uri := f.FieldURI.URI
 			ascending := f.Order != "Descending"
+
+			// Match on the property suffix so both item:* and message:* prefixes
+			// work. exchangelib sends item:Subject (Subject is an Item-level field),
+			// not message:Subject.
+			uri := f.FieldURI.URI
+			if idx := strings.IndexByte(uri, ':'); idx >= 0 {
+				uri = uri[idx+1:]
+			}
 
 			var cmp int
 			switch uri {
-			case "message:DateTimeReceived":
+			case "DateTimeReceived":
 				cmp = strings.Compare(items[i].DateTimeReceived, items[j].DateTimeReceived)
-			case "message:Subject":
+			case "Subject":
 				cmp = strings.Compare(items[i].Subject, items[j].Subject)
 			default:
 				continue
@@ -569,15 +679,19 @@ func sortFindItemResults(items []MessageTypeResponse, fields []SortByField) {
 // collabCalendarItemToResponse converts a StoredCalendarItemIdentity to a MessageTypeResponse.
 // Returns nil if conversion fails.
 func (s *Server) collabCalendarItemToResponse(rec semcore.StoredCalendarItemIdentity, folderID semcore.FolderId) *MessageTypeResponse {
-	// For calendar items, we don't have MIME blobs in the msgStore.
-	// Return a minimal response with the identity info.
+	// Surface the real meeting subject (iCal SUMMARY) so subject restrictions
+	// match; fall back to the UID only when no SUMMARY was stored.
+	subject := extractDirProp(rec.RawData, "SUMMARY")
+	if subject == "" {
+		subject = rec.IcalUID
+	}
 	return &MessageTypeResponse{
 		ItemID: ItemIdType{
 			ID: rec.ID.String(),
 			CK: rec.ChangeKey.String(),
 		},
 		ParentFolderID: FolderIdComponents{ID: folderID.String()},
-		Subject:        rec.IcalUID, // UID as subject placeholder
+		Subject:        subject,
 	}
 }
 
@@ -613,4 +727,166 @@ func truncateBody(body string, maxLen int) string {
 		return body
 	}
 	return body[:maxLen] + "..."
+}
+
+// ---------------------------------------------------------------------------
+// FindPeople
+// ---------------------------------------------------------------------------
+
+// FindPeopleRequest is the EWS FindPeople operation request. exchangelib's
+// folder.people() sends a single ParentFolderId plus an optional Restriction.
+type FindPeopleRequest struct {
+	XMLName     xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindPeople"`
+	Restriction *RestrictionContainer `xml:"Restriction,omitempty"`
+	ParentFolder struct {
+		Distinguished *struct {
+			ID string `xml:"Id,attr"`
+		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+		Folder *struct {
+			ID string `xml:"Id,attr"`
+		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ParentFolderId"`
+}
+
+// restrictionConstant extracts the constant value from an IsEqualTo or Contains
+// restriction, used to filter personas by display name. Returns "" if absent.
+func restrictionConstant(r *RestrictionContainer) string {
+	if r == nil {
+		return ""
+	}
+	f := r.SearchFilter
+	if f.IsEqualTo != nil && f.IsEqualTo.FieldURIOrConstant != nil && f.IsEqualTo.FieldURIOrConstant.Constant != nil {
+		return f.IsEqualTo.FieldURIOrConstant.Constant.Value
+	}
+	if f.Contains != nil {
+		return f.Contains.Constant.Value
+	}
+	return ""
+}
+
+// handleFindPeople implements the EWS FindPeople operation by projecting the
+// contacts of the target folder into Persona results.
+func (s *Server) handleFindPeople(ctx context.Context, body []byte) []byte {
+	var req FindPeopleRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("FindPeople", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+	_, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	if errCode != "" {
+		return s.errorResponseXML("FindPeople", errCode, "could not resolve mailbox")
+	}
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+
+	var folderID semcore.FolderId
+	if req.ParentFolder.Distinguished != nil {
+		role, ok := DistinguishedFolderIDs[req.ParentFolder.Distinguished.ID]
+		if ok {
+			if fld, err := s.identity.GetFolderByMailbox(mailboxKey, role); err == nil {
+				folderID = fld.FolderID
+			}
+		}
+	} else if req.ParentFolder.Folder != nil {
+		folderID, _ = semcore.NewFolderId(req.ParentFolder.Folder.ID) //nolint:errcheck
+	}
+
+	nameFilter := restrictionConstant(req.Restriction)
+
+	var personas strings.Builder
+	count := 0
+	if s.collabStore != nil && !folderID.IsZero() {
+		contacts, err := s.collabStore.ListContactsByFolder(folderID)
+		if err == nil {
+			for _, c := range contacts {
+				dn := extractDirProp(c.RawData, "FN")
+				if nameFilter != "" && !strings.EqualFold(dn, nameFilter) &&
+					!strings.Contains(strings.ToLower(dn), strings.ToLower(nameFilter)) {
+					continue
+				}
+				personas.WriteString(`<t:Persona>`)
+				personas.WriteString(`<t:PersonaId Id="` + xmlEsc(c.ID.String()) + `" ChangeKey="` + xmlEsc(c.ChangeKey.String()) + `"/>`)
+				if dn != "" {
+					personas.WriteString(`<t:DisplayName>` + xmlEsc(dn) + `</t:DisplayName>`)
+				}
+				personas.WriteString(`</t:Persona>`)
+				count++
+			}
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:FindPeopleResponse><m:ResponseMessages><m:FindPeopleResponseMessage ResponseClass="Success">`)
+	b.WriteString(`<m:ResponseCode>NoError</m:ResponseCode>`)
+	b.WriteString(`<m:People>` + personas.String() + `</m:People>`)
+	b.WriteString(`<m:TotalNumberOfPeopleInView>` + strconv.Itoa(count) + `</m:TotalNumberOfPeopleInView>`)
+	b.WriteString(`<m:FirstMatchingRowIndex>0</m:FirstMatchingRowIndex>`)
+	b.WriteString(`<m:FirstLoadedRowIndex>0</m:FirstLoadedRowIndex>`)
+	b.WriteString(`</m:FindPeopleResponseMessage></m:ResponseMessages></m:FindPeopleResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return []byte(b.String())
+}
+
+// GetPersonaRequest is the EWS GetPersona operation request (one PersonaId).
+type GetPersonaRequest struct {
+	XMLName   xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetPersona"`
+	PersonaID struct {
+		ID string `xml:"Id,attr"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types PersonaId"`
+}
+
+// handleGetPersona implements the EWS GetPersona operation, returning the full
+// persona for a contact. exchangelib calls this for each persona returned by
+// FindPeople. The Persona element is emitted in the messages namespace, which
+// is what exchangelib's GetPersona container lookup expects.
+func (s *Server) handleGetPersona(ctx context.Context, body []byte) []byte {
+	var req GetPersonaRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("GetPersona", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+	_, _, errCode := s.resolveMailboxFromBody(ctx, body)
+	if errCode != "" {
+		return s.errorResponseXML("GetPersona", errCode, "could not resolve mailbox")
+	}
+
+	var personaBody string
+	if s.collabStore != nil {
+		if ctID, err := semcore.NewContactId(req.PersonaID.ID); err == nil {
+			if rec, err := s.collabStore.GetContactByID(ctID); err == nil {
+				dn := extractDirProp(rec.RawData, "FN")
+				var pb strings.Builder
+				pb.WriteString(`<t:PersonaId Id="` + xmlEsc(rec.ID.String()) + `" ChangeKey="` + xmlEsc(rec.ChangeKey.String()) + `"/>`)
+				if dn != "" {
+					pb.WriteString(`<t:DisplayName>` + xmlEsc(dn) + `</t:DisplayName>`)
+				}
+				if email := extractDirProp(rec.RawData, "EMAIL"); email != "" {
+					pb.WriteString(`<t:EmailAddress><t:EmailAddress>` + xmlEsc(email) + `</t:EmailAddress></t:EmailAddress>`)
+				}
+				personaBody = pb.String()
+			}
+		}
+	}
+	if personaBody == "" {
+		return s.errorResponseXML("GetPersona", ErrErrorItemNotFound, "persona not found")
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:GetPersonaResponse><m:ResponseMessages><m:GetPersonaResponseMessage ResponseClass="Success">`)
+	b.WriteString(`<m:ResponseCode>NoError</m:ResponseCode>`)
+	b.WriteString(`<m:Persona>` + personaBody + `</m:Persona>`)
+	b.WriteString(`</m:GetPersonaResponseMessage></m:ResponseMessages></m:GetPersonaResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return []byte(b.String())
 }

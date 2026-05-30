@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -226,6 +227,12 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleGetRooms(ctx, soapBody)
 	case "ConvertId", "ConvertIdRequest":
 		response = s.handleConvertId(ctx, soapBody)
+	case "MarkAsJunk":
+		response = s.handleMarkAsJunk(ctx, soapBody)
+	case "FindPeople":
+		response = s.handleFindPeople(ctx, soapBody)
+	case "GetPersona":
+		response = s.handleGetPersona(ctx, soapBody)
 	case "RequestServerVersion":
 		response = s.handleRequestServerVersion(ctx, soapBody)
 	default:
@@ -888,4 +895,143 @@ func (s *Server) handleRequestServerVersion(ctx context.Context, body []byte) []
 		XMLName: xml.Name{Local: "RequestServerVersionResponse", Space: EWSMessagesNS},
 	}
 	return buildResponseEnvelope(resp)
+}
+
+// MarkAsJunkRequest is the EWS MarkAsJunk operation request. IsJunk and
+// MoveItem are attributes on the MarkAsJunk element; ItemIds carries the
+// affected items.
+type MarkAsJunkRequest struct {
+	XMLName  xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MarkAsJunk"`
+	IsJunk   string   `xml:"IsJunk,attr"`
+	MoveItem string   `xml:"MoveItem,attr"`
+	ItemIDs  struct {
+		Item []ItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ItemIds"`
+}
+
+// handleMarkAsJunk marks items as junk (or not) and, when MoveItem is set,
+// relocates them between the Inbox and Junk Email folders. It returns the
+// resulting MovedItemId so the client can update its local item id/changekey.
+func (s *Server) handleMarkAsJunk(ctx context.Context, body []byte) []byte {
+	var req MarkAsJunkRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorItemResponseXML("MarkAsJunk", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+
+	_, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	if errCode != "" {
+		return s.errorItemResponseXML("MarkAsJunk", errCode, "could not resolve mailbox")
+	}
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+	mboxID, err := s.identity.GetMailboxIDByEmail(mailboxKey)
+	if err != nil {
+		return s.errorItemResponseXML("MarkAsJunk", ErrErrorMailboxNotFound, err.Error())
+	}
+
+	isJunk := strings.EqualFold(req.IsJunk, "true") || req.IsJunk == "1"
+	moveItem := strings.EqualFold(req.MoveItem, "true") || req.MoveItem == "1"
+
+	// When marking as junk we move to the Junk Email folder; un-marking moves
+	// the item back to the Inbox.
+	destName, destRole := "junkemail", "spam"
+	if !isJunk {
+		destName, destRole = "inbox", "inbox"
+	}
+
+	msgs := make([]MarkAsJunkResponseMessage, 0, len(req.ItemIDs.Item))
+	for _, id := range req.ItemIDs.Item {
+		itemID, err := semcore.NewItemId(id.ID)
+		if err != nil {
+			msgs = append(msgs, markJunkErr(ErrErrorInvalidId))
+			continue
+		}
+		rec, err := s.identity.GetItemIdentity(itemID)
+		if err != nil {
+			msgs = append(msgs, markJunkErr(ErrErrorItemNotFound))
+			continue
+		}
+		if !rec.MailboxID.IsZero() && rec.MailboxID != mboxID {
+			msgs = append(msgs, markJunkErr(ErrErrorAccessDenied))
+			continue
+		}
+
+		moved := &MovedItemIdType{ID: itemID.String(), CK: rec.ChangeKey.String()}
+		if moveItem {
+			destFolderID, derr := s.ensureDistinguishedFolderID(mailboxKey, destName, destRole)
+			if derr != nil {
+				msgs = append(msgs, markJunkErr(ErrErrorFolderNotFound))
+				continue
+			}
+			result := s.moveItemToFolder(ctx, mboxID, mboxKey, rec.FolderID, destFolderID, itemID)
+			if result.ResponseClass != "Success" {
+				msgs = append(msgs, markJunkErr(result.ResponseCode.Value))
+				continue
+			}
+			if len(result.Items.Items) > 0 {
+				moved.ID = result.Items.Items[0].ItemID.ID
+				moved.CK = result.Items.Items[0].ItemID.CK
+			}
+		}
+
+		msgs = append(msgs, MarkAsJunkResponseMessage{
+			ResponseClass: "Success",
+			ResponseCode:  ResponseCodeType{Value: ErrNoError},
+			MovedItemID:   moved,
+		})
+	}
+
+	resp := MarkAsJunkResponse{}
+	resp.Msgs.Messages = msgs
+	return buildResponseEnvelope(resp)
+}
+
+// ensureDistinguishedFolderID resolves (creating if necessary) the FolderId for
+// a distinguished folder identified by its EWS name and semcore role.
+func (s *Server) ensureDistinguishedFolderID(mailboxKey, name, role string) (semcore.FolderId, error) {
+	fld, err := s.identity.GetFolderByMailbox(mailboxKey, role)
+	if err == nil {
+		return fld.FolderID, nil
+	}
+	if !errors.Is(err, semcore.ErrFolderNotFound) {
+		return semcore.FolderId{}, err
+	}
+	if _, err := s.identity.EnsureFolderId(mailboxKey, name, role); err != nil {
+		return semcore.FolderId{}, err
+	}
+	fld, err = s.identity.GetFolderByMailbox(mailboxKey, role)
+	if err != nil {
+		return semcore.FolderId{}, err
+	}
+	return fld.FolderID, nil
+}
+
+func markJunkErr(code ErrorCode) MarkAsJunkResponseMessage {
+	return MarkAsJunkResponseMessage{
+		ResponseClass: "Error",
+		ResponseCode:  ResponseCodeType{Value: code},
+	}
+}
+
+// MovedItemIdType is the ItemId returned by MarkAsJunk for a relocated item.
+type MovedItemIdType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MovedItemId"`
+	ID      string   `xml:"Id,attr"`
+	CK      string   `xml:"ChangeKey,attr,omitempty"`
+}
+
+// MarkAsJunkResponse is the EWS MarkAsJunk operation response.
+type MarkAsJunkResponse struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MarkAsJunkResponse"`
+	Msgs    struct {
+		Messages []MarkAsJunkResponseMessage `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MarkAsJunkResponseMessage"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
+}
+
+// MarkAsJunkResponseMessage is one MarkAsJunk result.
+type MarkAsJunkResponseMessage struct {
+	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MarkAsJunkResponseMessage"`
+	ResponseClass string           `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	ErrorMessage  string           `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ErrorMessage,omitempty"`
+	MovedItemID   *MovedItemIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MovedItemId"`
 }

@@ -708,8 +708,11 @@ func TestGetAttachment_NotFound(t *testing.T) {
 
 	rec := ewsItemRequest(t, srv, email, getBody)
 	respBody := rec.Body.String()
-	if !strings.Contains(respBody, "ErrorItemNotFound") {
-		t.Fatalf("Response should contain ErrorItemNotFound for unknown attachment, got: %s", respBody)
+	// A self-describing AttachmentId encodes "<parentItemId>~att~<index>". An id
+	// that does not parse to that form is rejected as ErrorInvalidId — the
+	// correct EWS response for a malformed attachment identifier.
+	if !strings.Contains(respBody, "ErrorInvalidId") {
+		t.Fatalf("Response should contain ErrorInvalidId for malformed attachment id, got: %s", respBody)
 	}
 }
 

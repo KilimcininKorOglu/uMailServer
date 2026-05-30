@@ -353,9 +353,12 @@ func TestOOFIsActiveNow(t *testing.T) {
 	}{
 		{"Disabled", &semcore.OOFPolicy{Enabled: false}, false},
 		{"NoSchedule_Enabled", &semcore.OOFPolicy{Enabled: true}, true},
-		{"BeforeStart", &semcore.OOFPolicy{Enabled: true, StartTime: future}, false},
-		{"AfterEnd", &semcore.OOFPolicy{Enabled: true, EndTime: past}, false},
-		{"InWindow", &semcore.OOFPolicy{Enabled: true, StartTime: past, EndTime: future}, true},
+		// Exchange semantics: an Enabled policy is active now regardless of the
+		// (informational) duration; only a Scheduled policy is gated by the window.
+		{"Enabled_IgnoresFutureWindow", &semcore.OOFPolicy{Enabled: true, State: "Enabled", StartTime: future}, true},
+		{"Scheduled_BeforeStart", &semcore.OOFPolicy{Enabled: true, State: "Scheduled", StartTime: future}, false},
+		{"Scheduled_AfterEnd", &semcore.OOFPolicy{Enabled: true, State: "Scheduled", EndTime: past}, false},
+		{"Scheduled_InWindow", &semcore.OOFPolicy{Enabled: true, State: "Scheduled", StartTime: past, EndTime: future}, true},
 	}
 
 	for _, tc := range tests {

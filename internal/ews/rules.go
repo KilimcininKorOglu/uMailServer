@@ -199,22 +199,32 @@ type RulePredicateSizeRange struct {
 	MaxSize string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types MaximumSize,omitempty"`
 }
 
+// RuleRecipientAddressType is one <t:Address> recipient inside a rule action.
+// EWS rule recipients are EmailAddressType elements named "Address" (not "Mailbox"),
+// so this needs its own XMLName — MailboxType demands a "Mailbox" element and would
+// fail to unmarshal an <Address> element.
+type RuleRecipientAddressType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address"`
+	Email   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
+	Name    string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
+}
+
 // ForwardAsAttachmentToRecipientsType is the ForwardAsAttachmentToRecipients element.
 type ForwardAsAttachmentToRecipientsType struct {
-	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardAsAttachmentToRecipients"`
-	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
+	XMLName   xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardAsAttachmentToRecipients"`
+	Addresses []RuleRecipientAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
 }
 
 // ForwardToRecipientsType is the ForwardToRecipients element.
 type ForwardToRecipientsType struct {
-	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardToRecipients"`
-	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
+	XMLName   xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardToRecipients"`
+	Addresses []RuleRecipientAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
 }
 
 // RedirectToRecipientsType is the RedirectToRecipients element.
 type RedirectToRecipientsType struct {
-	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types RedirectToRecipients"`
-	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
+	XMLName   xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RedirectToRecipients"`
+	Addresses []RuleRecipientAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
 }
 
 // SentToAddressesType is the SentToAddresses element.
@@ -516,7 +526,7 @@ const (
 // oofSettingsResponseXML builds a GetUserOofSettingsResponse SOAP envelope using
 // string concatenation to avoid the Go XML encoder bug where an embedded struct's
 // XMLName conflicts with a field tag, producing empty bodies.
-func (s *Server) oofSettingsResponseXML(respClass, respCode, errMsg, oofState, extAudience string) []byte {
+func (s *Server) oofSettingsResponseXML(respClass, respCode, errMsg string, settings *UserOofSettings) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(`<m:GetUserOofSettingsResponse>`)
 	buf.WriteString(`<m:ResponseMessage ResponseClass="` + respClass + `">`)
@@ -525,13 +535,27 @@ func (s *Server) oofSettingsResponseXML(respClass, respCode, errMsg, oofState, e
 		buf.WriteString(`<m:ErrorMessage>` + xmlEsc(errMsg) + `</m:ErrorMessage>`)
 	}
 	buf.WriteString(`</m:ResponseMessage>`)
-	if oofState != "" || extAudience != "" {
+	if settings != nil {
+		oofState := string(settings.OofState)
+		extAudience := string(settings.ExternalAudience)
 		buf.WriteString(`<t:OofSettings>`)
 		if oofState != "" {
 			buf.WriteString(`<t:OofState>` + oofState + `</t:OofState>`)
 		}
 		if extAudience != "" {
 			buf.WriteString(`<t:ExternalAudience>` + extAudience + `</t:ExternalAudience>`)
+		}
+		if settings.Duration != nil && (settings.Duration.StartTime != "" || settings.Duration.EndTime != "") {
+			buf.WriteString(`<t:Duration><t:StartTime>` + settings.Duration.StartTime +
+				`</t:StartTime><t:EndTime>` + settings.Duration.EndTime + `</t:EndTime></t:Duration>`)
+		}
+		// InternalReply/ExternalReply must always be present when not Disabled so
+		// exchangelib's round-trip comparison (which includes both replies) matches.
+		if settings.InternalReply != nil {
+			buf.WriteString(`<t:InternalReply><t:Message>` + xmlEsc(settings.InternalReply.Message) + `</t:Message></t:InternalReply>`)
+		}
+		if settings.ExternalReply != nil {
+			buf.WriteString(`<t:ExternalReply><t:Message>` + xmlEsc(settings.ExternalReply.Message) + `</t:Message></t:ExternalReply>`)
 		}
 		buf.WriteString(`</t:OofSettings>`)
 		buf.WriteString(`<t:AllowExternalOof>` + extAudience + `</t:AllowExternalOof>`)
@@ -609,31 +633,26 @@ func (s *Server) handleGetUserOofSettings(ctx context.Context, soapBody []byte) 
 
 	mailboxID, err := s.resolveMailboxByEmail(ctx, email)
 	if err != nil {
-		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorMailboxNotFound), "", "", "")
+		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorMailboxNotFound), "", nil)
 	}
 
 	if s.policyStore == nil {
-		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorInternalServer), "policy store not available", "", "")
+		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorInternalServer), "policy store not available", nil)
 	}
 
 	oofID, err := semcore.NewOOFId(mailboxID.String())
 	if err != nil {
-		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorInternalServer), "", "", "")
+		return s.oofSettingsResponseXML(ResponseClassError, string(ErrErrorInternalServer), "", nil)
 	}
 
 	policy, err := s.policyStore.GetOOF(oofID)
 	if err != nil {
 		// No OOF policy exists — return a default disabled response.
-		return s.oofSettingsResponseXML(ResponseClassSuccess, string(ErrNoError), "", string(OofStateDisabled), string(ExternalAudienceNone))
+		return s.oofSettingsResponseXML(ResponseClassSuccess, string(ErrNoError), "",
+			&UserOofSettings{OofState: OofStateDisabled, ExternalAudience: ExternalAudienceNone})
 	}
 
-	oofSettings := oofPolicyToEWS(policy)
-	var oofState, extAudience string
-	if oofSettings != nil {
-		oofState = string(oofSettings.OofState)
-		extAudience = string(oofSettings.ExternalAudience)
-	}
-	return s.oofSettingsResponseXML(ResponseClassSuccess, string(ErrNoError), "", oofState, extAudience)
+	return s.oofSettingsResponseXML(ResponseClassSuccess, string(ErrNoError), "", oofPolicyToEWS(policy))
 }
 
 // handleSetUserOofSettings implements the EWS SetUserOofSettings operation.
@@ -1217,11 +1236,11 @@ func actionsToEWS(actions []semcore.RuleAction) *RuleActionsType {
 		case semcore.RuleActionKindMarkImportant:
 			result.MarkImportance = "High"
 		case semcore.RuleActionKindForward:
-			result.ForwardTo = &ForwardToRecipientsType{Addresses: []MailboxType{{Email: action.ForwardTo}}}
+			result.ForwardTo = &ForwardToRecipientsType{Addresses: []RuleRecipientAddressType{{Email: action.ForwardTo}}}
 		case semcore.RuleActionKindForwardAsAttachment:
-			result.ForwardAsAttachment = &ForwardAsAttachmentToRecipientsType{Addresses: []MailboxType{{Email: action.ForwardTo}}}
+			result.ForwardAsAttachment = &ForwardAsAttachmentToRecipientsType{Addresses: []RuleRecipientAddressType{{Email: action.ForwardTo}}}
 		case semcore.RuleActionKindRedirect:
-			result.RedirectTo = &RedirectToRecipientsType{Addresses: []MailboxType{{Email: action.ForwardTo}}}
+			result.RedirectTo = &RedirectToRecipientsType{Addresses: []RuleRecipientAddressType{{Email: action.ForwardTo}}}
 		case semcore.RuleActionKindStop:
 			result.StopProcessingRules = boolPtr(true)
 		case semcore.RuleActionKindAddHeader:
@@ -1342,23 +1361,33 @@ func oofPolicyToEWS(policy *semcore.OOFPolicy) *UserOofSettings {
 		ExternalAudience: externalAudienceFromOOF(policy.Audience),
 	}
 
+	// Preserve the exact state the client set. A schedule window does not by
+	// itself imply Scheduled — the client distinguishes Enabled (active now,
+	// optionally with a window) from Scheduled.
+	if policy.State != "" {
+		settings.OofState = OofState(policy.State)
+	}
+
 	// Duration (schedule)
 	if !policy.StartTime.IsZero() || !policy.EndTime.IsZero() {
 		settings.Duration = &Duration{
 			StartTime: FormatEWSDateTime(policy.StartTime),
 			EndTime:   FormatEWSDateTime(policy.EndTime),
 		}
-		if !policy.StartTime.IsZero() || !policy.EndTime.IsZero() {
-			if !policy.StartTime.IsZero() && !policy.EndTime.IsZero() {
-				settings.OofState = OofStateScheduled
-			}
-		}
 	}
 
-	// Reply content
-	if policy.TextBody != "" {
-		settings.InternalReply = &ReplyBody{Message: policy.TextBody}
-		settings.ExternalReply = &ReplyBody{Message: policy.TextBody}
+	// Reply content — preserve the internal/external distinction.
+	internal := policy.InternalReply
+	if internal == "" {
+		internal = policy.TextBody
+	}
+	external := policy.ExternalReply
+	if external == "" {
+		external = internal
+	}
+	if internal != "" || external != "" {
+		settings.InternalReply = &ReplyBody{Message: internal}
+		settings.ExternalReply = &ReplyBody{Message: external}
 	}
 
 	return settings
@@ -1445,12 +1474,20 @@ func oofPolicyFromEWS(ctx context.Context, mailboxID semcore.MailboxId, settings
 		}
 	}
 
-	// Reply content
+	// Preserve the exact OofState so GET round-trips it verbatim.
+	policy.State = string(settings.OofState)
+
+	// Reply content — keep internal/external distinct; TextBody mirrors the
+	// internal reply for the Sieve vacation runtime.
 	if settings.InternalReply != nil {
+		policy.InternalReply = settings.InternalReply.Message
 		policy.TextBody = settings.InternalReply.Message
 	}
-	if settings.ExternalReply != nil && settings.ExternalReply.Message != "" {
-		policy.TextBody = settings.ExternalReply.Message
+	if settings.ExternalReply != nil {
+		policy.ExternalReply = settings.ExternalReply.Message
+		if policy.TextBody == "" {
+			policy.TextBody = settings.ExternalReply.Message
+		}
 	}
 
 	// External audience mapping

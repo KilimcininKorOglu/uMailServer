@@ -4,6 +4,7 @@
 package ews
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -11,9 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
+	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,10 +34,16 @@ import (
 type CreateItemRequest struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateItem"`
 	Items   struct {
-		XMLName      xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-		Item         []MessageTypeNew      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
-		ReplyToItem  []ReplyCreateItemType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyToItem"`
-		ReplyAllItem []ReplyCreateItemType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyAllToItem"`
+		XMLName      xml.Name                       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+		Item         []MessageTypeNew               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+		CalendarItem []CreateItemCalendarItemType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
+		Contact      []CreateItemContactType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+		Task         []CreateItemTaskType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
+		ReplyToItem  []ReplyCreateItemType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyToItem"`
+		ReplyAllItem []ReplyCreateItemType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyAllToItem"`
+		AcceptItem            []MeetingReplyType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types AcceptItem"`
+		TentativelyAcceptItem []MeetingReplyType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types TentativelyAcceptItem"`
+		DeclineItem           []MeetingReplyType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types DeclineItem"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	SavedItemFolderID struct {
 		DistinguishedFolderID *struct {
@@ -41,6 +53,7 @@ type CreateItemRequest struct {
 	// SaveItemToFolder: bool attribute. Uses bare attr name because Go's xml decoder
 	// doesn't match default-namespace attributes against namespace URLs in struct tags.
 	MessageDisposition      string `xml:"MessageDisposition,attr,omitempty"`
+	SendMeetingInvitations  string `xml:"SendMeetingInvitations,attr,omitempty"`
 	SaveItemToFolder        *bool  `xml:"SaveItemToFolder,attr"`
 	SaveItemToFolderElement *bool  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SaveItemToFolder,omitempty"`
 	// DelegateMailbox is a uMailServer EWS extension. When an authenticated
@@ -69,15 +82,102 @@ type AttachmentsType struct {
 }
 
 type FileAttachmentType struct {
-	Name        string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
-	ContentType string `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContentType,omitempty"`
-	ContentID   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContentId,omitempty"`
-	IsInline    *bool  `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsInline,omitempty"`
-	Content     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Content,omitempty"`
+	// AttachmentID must be emitted on read responses (GetItem/GetAttachment) so
+	// EWS clients treat the attachment as already-created. Without it, exchangelib
+	// parses attachment_id=None and tries to upload the attachment server-side
+	// while constructing the item, failing with "Parent item ... must have an account".
+	AttachmentID *AttachmentIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttachmentId,omitempty"`
+	Name         string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
+	ContentType  string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContentType,omitempty"`
+	ContentID    string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContentId,omitempty"`
+	IsInline     *bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsInline,omitempty"`
+	Content      string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Content,omitempty"`
 }
 
+// AttachmentIdType is the <t:AttachmentId Id="..."/> element. The Id is a
+// self-describing token (see makeAttachmentID) that encodes the parent item ID
+// and the attachment's index within that item's MIME, so attachment content can
+// be resolved on a later GetAttachment without a separate persisted identity.
+type AttachmentIdType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttachmentId"`
+	ID      string   `xml:"Id,attr"`
+}
+
+// makeAttachmentID builds a self-describing AttachmentId from the parent item ID
+// and the attachment index. Item IDs are opaque hex tokens and never contain the
+// "~att~" separator, so parseAttachmentID round-trips safely.
+func makeAttachmentID(parentItemID string, index int) string {
+	return fmt.Sprintf("%s~att~%d", parentItemID, index)
+}
+
+// parseAttachmentID decodes a token produced by makeAttachmentID. ok is false for
+// any token that was not produced by this server.
+func parseAttachmentID(raw string) (parentItemID string, index int, ok bool) {
+	i := strings.LastIndex(raw, "~att~")
+	if i < 0 {
+		return "", 0, false
+	}
+	parentItemID = raw[:i]
+	idx, err := strconv.Atoi(raw[i+len("~att~"):])
+	if err != nil || parentItemID == "" || idx < 0 {
+		return "", 0, false
+	}
+	return parentItemID, idx, true
+}
+
+// CreateItemCalendarItemType is a minimal calendar item for CreateItem requests.
+// Cannot reuse CalendarItemTypeNew from collab.go due to XMLName conflicts with
+// AttendeesType when embedded in the same Items container.
+type CreateItemCalendarItemType struct {
+	XMLName    xml.Name        `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
+	Subject    string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body       *BodyType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	Start      string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start,omitempty"`
+	End        string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types End,omitempty"`
+	Location   string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
+	Recurrence *RecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
+	// RequiredAttendees/OptionalAttendees use a type WITHOUT a pinned XMLName so
+	// the decoder accepts both element names; a type whose XMLName is fixed to
+	// "Attendees" would refuse to unmarshal into a differently-named element.
+	RequiredAttendees *CreateAttendeesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequiredAttendees,omitempty"`
+	OptionalAttendees *CreateAttendeesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types OptionalAttendees,omitempty"`
+}
+
+// CreateAttendeesType is an attendee list with no fixed XMLName, so it can back
+// both the RequiredAttendees and OptionalAttendees elements on a CreateItem.
+type CreateAttendeesType struct {
+	Attendee []AttendeeType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attendee"`
+}
+
+// CreateItemContactType is a minimal contact for CreateItem requests.
+// Cannot reuse ContactTypeNew from collab.go due to XMLName conflicts with
+// PhysicalAddressType when embedded in the same Items container.
+type CreateItemContactType struct {
+	XMLName     xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+	DisplayName string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
+	FullName    string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
+	GivenName      string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
+	Surname        string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
+	EmailAddresses *EmailAddressesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
+	Body           *BodyType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+}
+
+// CreateItemTaskType is a minimal task for CreateItem requests.
+// Cannot reuse TaskTypeNew from collab.go due to potential XMLName conflicts
+// when embedded in the same Items container.
+type CreateItemTaskType struct {
+	XMLName  xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
+	Subject  string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body     *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	DueDate  string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
+	Status   string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
+}
+
+// ReplyCreateItemType is shared by the ReplyToItem and ReplyAllToItem create
+// elements. It intentionally has no XMLName field: Go's decoder would otherwise
+// reject a <ReplyAllToItem> element when the type pins XMLName to "ReplyToItem".
+// The element name is supplied by the enclosing slice field tag instead.
 type ReplyCreateItemType struct {
-	XMLName         xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyToItem"`
 	Subject         string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
 	NewBodyContent  *BodyType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types NewBodyContent,omitempty"`
 	ToRecipients    RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
@@ -159,8 +259,9 @@ type ItemResponseMessageType struct {
 
 // ItemsContainer wraps items in response messages.
 type ItemsContainer struct {
-	XMLName xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-	Items   []MessageTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	XMLName         xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	Items           []MessageTypeResponse    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	MeetingRequests []MeetingRequestResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types MeetingRequest"`
 }
 
 // MessageTypeResponse is a message item in responses (read/fetched).
@@ -175,6 +276,98 @@ type MessageTypeResponse struct {
 	ToRecipients     []MailboxTypeResponse  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
 	IsRead           bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
 	Categories       *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
+	Attachments      *AttachmentsType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attachments,omitempty"`
+	ConversationID   *ConversationIdType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ConversationId,omitempty"`
+	InternetHeaders  *InternetMessageHeadersType `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternetMessageHeaders,omitempty"`
+	// isMeetingRequest is an internal marker (never serialized) flagging that
+	// FindItem should surface this item as a MeetingRequest element so clients
+	// expose accept/decline on it.
+	isMeetingRequest bool `xml:"-"`
+}
+
+// MeetingRequestResponse is a meeting-request item rendered in responses. It
+// mirrors the message fields a client needs to accept/decline, under the
+// MeetingRequest element so exchangelib instantiates a MeetingRequest.
+type MeetingRequestResponse struct {
+	XMLName          xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/types MeetingRequest"`
+	ItemID           ItemIdType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
+	ParentFolderID   FolderIdComponents `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+	ItemClass        string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemClass,omitempty"`
+	Subject          string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	DateTimeReceived string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
+	IsRead           bool               `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
+}
+
+// toMeetingRequestResponse projects a message response onto the MeetingRequest
+// shape, preserving the identity and subject the client needs to respond.
+func toMeetingRequestResponse(m MessageTypeResponse) MeetingRequestResponse {
+	return MeetingRequestResponse{
+		ItemID:           m.ItemID,
+		ParentFolderID:   m.ParentFolderID,
+		ItemClass:        "IPM.Schedule.Meeting.Request",
+		Subject:          m.Subject,
+		DateTimeReceived: m.DateTimeReceived,
+		IsRead:           m.IsRead,
+	}
+}
+
+// ConversationIdType is the EWS ConversationId element (an ItemId-shaped token
+// carrying only an Id attribute) used to group messages into a thread.
+type ConversationIdType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ConversationId"`
+	ID      string   `xml:"Id,attr"`
+}
+
+// InternetMessageHeadersType is the EWS InternetMessageHeaders collection,
+// surfacing the message's RFC 5322 header fields (item:InternetMessageHeaders).
+type InternetMessageHeadersType struct {
+	XMLName xml.Name                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternetMessageHeaders"`
+	Headers []InternetMessageHeaderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternetMessageHeader"`
+}
+
+// InternetMessageHeaderType is a single header field; HeaderName is an
+// attribute and the field value is the element text.
+type InternetMessageHeaderType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternetMessageHeader"`
+	Name    string   `xml:"HeaderName,attr"`
+	Value   string   `xml:",chardata"`
+}
+
+// parseInternetHeaders extracts the ordered RFC 5322 header fields from a raw
+// message, unfolding continuation lines. Order and duplicates are preserved so
+// the EWS InternetMessageHeaders collection mirrors the wire message.
+func parseInternetHeaders(data []byte) []InternetMessageHeaderType {
+	if len(data) == 0 {
+		return nil
+	}
+	// Isolate the header block (everything before the first blank line).
+	block := data
+	if idx := bytes.Index(data, []byte("\r\n\r\n")); idx >= 0 {
+		block = data[:idx]
+	} else if idx := bytes.Index(data, []byte("\n\n")); idx >= 0 {
+		block = data[:idx]
+	}
+
+	rawLines := strings.Split(strings.ReplaceAll(string(block), "\r\n", "\n"), "\n")
+	var headers []InternetMessageHeaderType
+	for _, line := range rawLines {
+		if line == "" {
+			continue
+		}
+		// Folded continuation: append to the previous header's value.
+		if (line[0] == ' ' || line[0] == '\t') && len(headers) > 0 {
+			headers[len(headers)-1].Value += " " + strings.TrimSpace(line)
+			continue
+		}
+		colon := strings.IndexByte(line, ':')
+		if colon <= 0 {
+			continue
+		}
+		name := strings.TrimSpace(line[:colon])
+		value := strings.TrimSpace(line[colon+1:])
+		headers = append(headers, InternetMessageHeaderType{Name: name, Value: value})
+	}
+	return headers
 }
 
 type MessageCategoriesType struct {
@@ -331,10 +524,56 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 		msgs = append(msgs, msg)
 	}
 	for i := range req.Items.ReplyToItem {
-		msgs = append(msgs, s.submitReplyCreateItem(ctx, mboxID, ownerEmail, folderID, &req.Items.ReplyToItem[i], delegateCtx, sendAndSaveCopy))
+		msgs = append(msgs, s.submitReplyCreateItem(ctx, mboxID, ownerEmail, folderID, &req.Items.ReplyToItem[i], delegateCtx, sendAndSaveCopy, false))
 	}
 	for i := range req.Items.ReplyAllItem {
-		msgs = append(msgs, s.submitReplyCreateItem(ctx, mboxID, ownerEmail, folderID, &req.Items.ReplyAllItem[i], delegateCtx, sendAndSaveCopy))
+		msgs = append(msgs, s.submitReplyCreateItem(ctx, mboxID, ownerEmail, folderID, &req.Items.ReplyAllItem[i], delegateCtx, sendAndSaveCopy, true))
+	}
+
+	// Process collab items (CalendarItem, Contact, Task) via the collaboration store.
+	// These are sent by exchangelib's CalendarItem.save(), Contact.save(), Task.save()
+	// through the standard CreateItem SOAP operation.
+	// NOTE: We resolve the target folder directly here, NOT from the handler's folderID
+	// variable, because the handler defaults to "drafts" when the SaveItemToFolder
+	// attribute is not set (exchangelib does not set this attribute on CreateItem).
+	if s.collabStore != nil {
+		for i := range req.Items.CalendarItem {
+			calFolderID := s.resolveCollabTargetFolder(ownerEmail, req, "calendar")
+			calItem := createItemCalendarToCollabType(&req.Items.CalendarItem[i])
+			calMsg := s.createCalendarItemInFolder(ctx, mboxID, ownerEmail, calFolderID, calItem, delegateCtx)
+			itemMsg := collabItemMsgToItemMsg(calMsg.ResponseClass, calMsg.ResponseCode, calMsg.Items)
+			msgs = append(msgs, itemMsg)
+			// When the organizer invites attendees, deliver meeting-request
+			// messages to each attendee so they can accept/decline.
+			if calMsg.ResponseClass == "Success" && meetingInvitationsRequested(req.SendMeetingInvitations) {
+				s.sendMeetingRequests(ownerEmail, &req.Items.CalendarItem[i])
+			}
+		}
+		// Meeting responses (Accept / TentativelyAccept / Decline) reference an
+		// inbound meeting request and update the responder's calendar.
+		for i := range req.Items.AcceptItem {
+			msgs = append(msgs, s.handleMeetingReply(ctx, mboxID, ownerEmail, &req.Items.AcceptItem[i], meetingResponseAccept))
+		}
+		for i := range req.Items.TentativelyAcceptItem {
+			msgs = append(msgs, s.handleMeetingReply(ctx, mboxID, ownerEmail, &req.Items.TentativelyAcceptItem[i], meetingResponseTentative))
+		}
+		for i := range req.Items.DeclineItem {
+			msgs = append(msgs, s.handleMeetingReply(ctx, mboxID, ownerEmail, &req.Items.DeclineItem[i], meetingResponseDecline))
+		}
+		for i := range req.Items.Contact {
+			ctFolderID := s.resolveCollabTargetFolder(ownerEmail, req, "contacts")
+			ctItem := createItemContactToCollabType(&req.Items.Contact[i])
+			ctMsg := s.createContactInFolder(ctx, mboxID, ownerEmail, ctFolderID, ctItem)
+			itemMsg := collabItemMsgToItemMsg(ctMsg.ResponseClass, ctMsg.ResponseCode, ctMsg.Items)
+			msgs = append(msgs, itemMsg)
+		}
+		for i := range req.Items.Task {
+			tkFolderID := s.resolveCollabTargetFolder(ownerEmail, req, "tasks")
+			tkItem := createItemTaskToCollabType(&req.Items.Task[i])
+			tkMsg := s.createTaskInFolder(ctx, mboxID, ownerEmail, tkFolderID, tkItem)
+			itemMsg := collabItemMsgToItemMsg(tkMsg.ResponseClass, tkMsg.ResponseCode, tkMsg.Items)
+			msgs = append(msgs, itemMsg)
+		}
 	}
 
 	if len(msgs) == 0 && (sendAndSaveCopy || sendOnly) {
@@ -348,6 +587,108 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 	resp.Msgs.Messages = msgs
 	result := buildResponseEnvelope(resp)
 	return result
+}
+
+// collabItemMsgToItemMsg converts a collab response message (CalendarItem, Contact, or Task)
+// to a standard ItemResponseMessageType. It extracts the ItemId from any collab-specific
+// container type (CalendarItemsContainer, ContactsItemsContainer, TasksItemsContainer)
+// using the shared parentFields pattern (each has Items []struct{ ItemID ... }).
+func collabItemMsgToItemMsg(responseClass string, responseCode ResponseCodeType, items any) ItemResponseMessageType {
+	itemMsg := ItemResponseMessageType{
+		ResponseClass: responseClass,
+		ResponseCode:  responseCode,
+		Items:         ItemsContainer{Items: []MessageTypeResponse{}},
+	}
+	if items == nil {
+		return itemMsg
+	}
+	// Use reflection to extract ItemID/ChangeKey from the first item.
+	itemsVal := reflect.ValueOf(items)
+	if itemsVal.Kind() == reflect.Ptr {
+		itemsVal = itemsVal.Elem()
+	}
+	if itemsVal.Kind() == reflect.Struct {
+		fld := itemsVal.FieldByName("Items")
+		if fld.IsValid() && fld.Kind() == reflect.Slice && fld.Len() > 0 {
+			first := fld.Index(0)
+			if first.Kind() == reflect.Ptr {
+				first = first.Elem()
+			}
+			idField := first.FieldByName("ItemID")
+			if idField.IsValid() {
+				id := idField.FieldByName("ID").String()
+				ck := idField.FieldByName("CK").String()
+				itemMsg.Items.Items = append(itemMsg.Items.Items, MessageTypeResponse{
+					ItemID: ItemIdType{ID: id, CK: ck},
+				})
+			}
+		}
+	}
+	return itemMsg
+}
+
+// resolveCollabTargetFolder determines the target folder for a collab item
+// (calendar, contact, or task). It first checks SavedItemFolderId, then falls
+// back to the folder for the given role, creating it if necessary.
+func (s *Server) resolveCollabTargetFolder(ownerEmail string, req CreateItemRequest, role string) semcore.FolderId {
+	// Try SavedItemFolderId first (exchangelib sends DistinguishedFolderId).
+	if req.SavedItemFolderID.DistinguishedFolderID != nil {
+		if rid, ok := DistinguishedFolderIDs[req.SavedItemFolderID.DistinguishedFolderID.ID]; ok && rid == role {
+			if fld, err := s.identity.GetFolderByMailbox(ownerEmail, role); err == nil {
+				return fld.FolderID
+			}
+		}
+	}
+	// Fall back to GetFolderByMailbox.
+	if fld, err := s.identity.GetFolderByMailbox(ownerEmail, role); err == nil {
+		return fld.FolderID
+	}
+	// Create the folder if it doesn't exist.
+	if fld, err := s.identity.EnsureFolderId(ownerEmail, role, role); err == nil {
+		return fld
+	}
+	return semcore.FolderId{}
+}
+
+// createItemCalendarToCollabType converts a minimal CreateItem calendar type
+// to the full CalendarItemTypeNew expected by createCalendarItemInFolder.
+func createItemCalendarToCollabType(src *CreateItemCalendarItemType) *CalendarItemTypeNew {
+	return &CalendarItemTypeNew{
+		Subject:    src.Subject,
+		Body:       src.Body,
+		Start:      src.Start,
+		End:        src.End,
+		Location:   src.Location,
+		Recurrence: src.Recurrence,
+	}
+}
+
+// createItemContactToCollabType converts a minimal CreateItem contact type
+// to the full ContactTypeNew expected by createContactInFolder.
+func createItemContactToCollabType(src *CreateItemContactType) *ContactTypeNew {
+	// vCard FN is the formatted/display name. exchangelib sends DisplayName, not
+	// FullName, so fall back to DisplayName when FullName is absent.
+	fullName := src.FullName
+	if fullName == "" {
+		fullName = src.DisplayName
+	}
+	return &ContactTypeNew{
+		FullName:       fullName,
+		GivenName:      src.GivenName,
+		Surname:        src.Surname,
+		EmailAddresses: src.EmailAddresses,
+	}
+}
+
+// createItemTaskToCollabType converts a minimal CreateItem task type
+// to the full TaskTypeNew expected by createTaskInFolder.
+func createItemTaskToCollabType(src *CreateItemTaskType) *TaskTypeNew {
+	return &TaskTypeNew{
+		Subject: src.Subject,
+		Body:    src.Body,
+		DueDate: src.DueDate,
+		Status:  src.Status,
+	}
 }
 
 // createItemInFolder creates a message item in the target folder.
@@ -635,20 +976,121 @@ func (s *Server) submitMessageItem(ctx context.Context, mboxID semcore.MailboxId
 	return s.createRawItemInFolder(ctx, mboxID, mailboxKey, folderID, item.Subject, rawMsg, delegateCtx)
 }
 
-func (s *Server) submitReplyCreateItem(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *ReplyCreateItemType, delegateCtx *semcore.DelegateAuditContext, saveCopy bool) ItemResponseMessageType {
+func (s *Server) submitReplyCreateItem(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *ReplyCreateItemType, delegateCtx *semcore.DelegateAuditContext, saveCopy, replyAll bool) ItemResponseMessageType {
 	extraHeaders, err := s.replyHeadersForReference(item.ReferenceItemID.ID)
 	if err != nil {
 		return errorItemMsg("CreateItem", ErrErrorItemNotFound, err.Error())
 	}
 	replyMessage := &MessageTypeNew{
-		Subject:       item.Subject,
-		Body:          item.NewBodyContent,
-		ToRecipients:  item.ToRecipients,
-		CcRecipients:  item.CcRecipients,
-		BccRecipients: item.BccRecipients,
-		From:          item.From,
+		Subject: item.Subject,
+		Body:    item.NewBodyContent,
+		From:    item.From,
+	}
+	// Recipients: a Reply/ReplyAll request normally omits recipients and relies
+	// on the server to derive them from the referenced item. Honor any the
+	// client did supply; otherwise compute them (sender for Reply, sender +
+	// original To/Cc minus self for ReplyAll).
+	if len(item.ToRecipients.Recipients()) > 0 || len(item.CcRecipients.Recipients()) > 0 {
+		replyMessage.ToRecipients = item.ToRecipients
+		replyMessage.CcRecipients = item.CcRecipients
+		replyMessage.BccRecipients = item.BccRecipients
+	} else {
+		to, cc := s.deriveReplyRecipients(item.ReferenceItemID.ID, mailboxKey, replyAll)
+		replyMessage.ToRecipients = RawRecipients{RawMailboxes: recipientsToRawXML(to)}
+		replyMessage.CcRecipients = RawRecipients{RawMailboxes: recipientsToRawXML(cc)}
 	}
 	return s.submitMessageItem(ctx, mboxID, mailboxKey, folderID, replyMessage, extraHeaders, delegateCtx, false, saveCopy)
+}
+
+// deriveReplyRecipients computes the recipients for a server-side Reply or
+// ReplyAll from the referenced message. Reply targets the original sender;
+// ReplyAll additionally carbon-copies the original To and Cc recipients,
+// excluding the replying mailbox itself and any duplicate of the sender.
+func (s *Server) deriveReplyRecipients(referenceItemID, selfEmail string, replyAll bool) (to, cc []EmailAddressType) {
+	id, err := semcore.NewItemId(referenceItemID)
+	if err != nil {
+		return nil, nil
+	}
+	rec, err := s.identity.GetItemIdentity(id)
+	if err != nil {
+		return nil, nil
+	}
+	rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
+	if err != nil {
+		return nil, nil
+	}
+	msg, err := mail.ReadMessage(bytes.NewReader(rawMsg))
+	if err != nil {
+		return nil, nil
+	}
+
+	seen := map[string]bool{strings.ToLower(strings.TrimSpace(selfEmail)): true}
+
+	// The reply goes to the original sender (Reply-To wins over From).
+	sender := firstAddress(msg.Header.Get("Reply-To"))
+	if sender == "" {
+		sender = firstAddress(msg.Header.Get("From"))
+	}
+	if sender != "" && !seen[strings.ToLower(sender)] {
+		to = append(to, EmailAddressType{Email: sender})
+		seen[strings.ToLower(sender)] = true
+	}
+
+	if !replyAll {
+		return to, nil
+	}
+
+	for _, hdr := range []string{"To", "Cc"} {
+		addrs, _ := mail.ParseAddressList(msg.Header.Get(hdr)) //nolint:errcheck
+		for _, a := range addrs {
+			key := strings.ToLower(a.Address)
+			if a.Address == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			cc = append(cc, EmailAddressType{Email: a.Address})
+		}
+	}
+	return to, cc
+}
+
+// firstAddress returns the first email address parsed from an address-list
+// header value, or "" if none can be parsed.
+func firstAddress(header string) string {
+	if strings.TrimSpace(header) == "" {
+		return ""
+	}
+	addrs, err := mail.ParseAddressList(header)
+	if err != nil || len(addrs) == 0 {
+		return ""
+	}
+	return addrs[0].Address
+}
+
+// recipientsToRawXML serializes EWS Mailbox elements as the inner XML expected
+// by RawRecipients.Recipients(), so derived recipients flow through the same
+// parsing path as client-supplied ones.
+func recipientsToRawXML(addrs []EmailAddressType) []byte {
+	if len(addrs) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	for _, a := range addrs {
+		if a.Email == "" {
+			continue
+		}
+		b.WriteString(`<t:Mailbox><t:EmailAddress>`)
+		b.WriteString(xmlEsc(a.Email))
+		b.WriteString(`</t:EmailAddress>`)
+		if a.Name != "" {
+			b.WriteString(`<t:Name>` + xmlEsc(a.Name) + `</t:Name>`)
+		}
+		b.WriteString(`</t:Mailbox>`)
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	return []byte(b.String())
 }
 
 func (s *Server) replyHeadersForReference(itemID string) (map[string]string, error) {
@@ -737,6 +1179,12 @@ func (s *Server) handleGetItem(ctx context.Context, body []byte) []byte {
 
 	msgs := make([]ItemResponseMessageType, 0, len(req.ItemIDs.Item))
 	for _, id := range req.ItemIDs.Item {
+		// Check collab store first for proper XML typing.
+		if s.collabStore != nil {
+			if resp := s.getCollabGetItemResponse(ctx, mboxKey, id); resp != nil {
+				return resp
+			}
+		}
 		msg := s.getItemByID(ctx, mboxID, mboxKey, id)
 		msgs = append(msgs, msg)
 	}
@@ -744,6 +1192,176 @@ func (s *Server) handleGetItem(ctx context.Context, body []byte) []byte {
 	resp := GetItemResponse{}
 	resp.Msgs.Messages = msgs
 	return buildResponseEnvelope(resp)
+}
+
+// getCollabGetItemResponse checks if the item ID corresponds to a collaboration
+// store item (calendar, contact, or task). If found, it builds a proper
+// GetItemResponse with the correct XML element type (CalendarItem, Contact, or
+// Task) instead of the generic Message element. Returns nil if not found.
+func (s *Server) getCollabGetItemResponse(ctx context.Context, mboxKey string, id ItemIdType) []byte {
+	_ = ctx
+	email := strings.TrimPrefix(mboxKey, "e:")
+	raw := id.ID
+
+	// Try contact.
+	if ctID, err := semcore.NewContactId(raw); err == nil {
+		if rec, err := s.collabStore.GetContactByID(ctID); err == nil {
+			return buildContactGetItemFromRec(rec)
+		}
+	}
+	// Try calendar.
+	if calID, err := semcore.NewCalendarItemId(raw); err == nil {
+		if rec, err := s.collabStore.GetCalendarItemByID(calID); err == nil {
+			return buildCalendarGetItemFromRec(rec)
+		}
+	}
+	// Try task.
+	if tkID, err := semcore.NewTaskId(raw); err == nil {
+		if rec, err := s.collabStore.GetTaskByID(tkID); err == nil {
+			return buildTaskGetItemFromRec(rec)
+		}
+	}
+	_ = email
+	return nil
+}
+
+// extractDirProp returns the value of the first iCalendar/vCard content line
+// whose property name matches name (case-insensitive). Property parameters
+// (after ';') and folding are handled minimally, which is sufficient for the
+// single-line properties uMailServer emits.
+func extractDirProp(data, name string) string {
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimRight(line, "\r")
+		colon := strings.IndexByte(line, ':')
+		if colon < 0 {
+			continue
+		}
+		key := line[:colon]
+		if semi := strings.IndexByte(key, ';'); semi >= 0 {
+			key = key[:semi]
+		}
+		if strings.EqualFold(key, name) {
+			return line[colon+1:]
+		}
+	}
+	return ""
+}
+
+// icalToEWSDateTime converts an iCalendar DTSTART/DTEND value to the EWS
+// date-time wire format. Empty input yields empty output.
+func icalToEWSDateTime(v string) string {
+	if v == "" {
+		return ""
+	}
+	t, _ := parseICalDateTimeTZ(v)
+	if t.IsZero() {
+		return ""
+	}
+	return FormatEWSDateTime(t)
+}
+
+// icalStatusToEWS maps an iCalendar VTODO STATUS to the EWS task:Status value.
+func icalStatusToEWS(s string) string {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "COMPLETED":
+		return "Completed"
+	case "IN-PROCESS":
+		return "InProgress"
+	case "CANCELLED": //nolint:misspell // RFC 5545 spells the iCal STATUS value "CANCELLED".
+		return "Deferred"
+	case "NEEDS-ACTION", "":
+		return "NotStarted"
+	default:
+		return "NotStarted"
+	}
+}
+
+// collabGetItemEnvelope wraps a typed collab item element in a full
+// GetItemResponse SOAP envelope. itemXML is the serialized <t:Contact>,
+// <t:CalendarItem>, or <t:Task> element.
+func collabGetItemEnvelope(itemXML string) []byte {
+	var b bytes.Buffer
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:GetItemResponse><m:ResponseMessages><m:GetItemResponseMessage ResponseClass="Success">`)
+	b.WriteString(`<m:ResponseCode>NoError</m:ResponseCode><m:Items>`)
+	b.WriteString(itemXML)
+	b.WriteString(`</m:Items></m:GetItemResponseMessage></m:ResponseMessages></m:GetItemResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return b.Bytes()
+}
+
+// buildContactGetItemFromRec projects a stored contact's vCard into an EWS
+// <t:Contact> GetItem response.
+func buildContactGetItemFromRec(rec *semcore.StoredContactIdentity) []byte {
+	var b bytes.Buffer
+	b.WriteString(`<t:Contact>`)
+	b.WriteString(`<t:ItemId Id="` + xmlEsc(rec.ID.String()) + `" ChangeKey="` + xmlEsc(rec.ChangeKey.String()) + `"/>`)
+	if fn := extractDirProp(rec.RawData, "FN"); fn != "" {
+		b.WriteString(`<t:Subject>` + xmlEsc(fn) + `</t:Subject>`)
+		b.WriteString(`<t:DisplayName>` + xmlEsc(fn) + `</t:DisplayName>`)
+	}
+	// N: Surname;Given;Additional;Prefix;Suffix
+	if n := extractDirProp(rec.RawData, "N"); n != "" {
+		parts := strings.Split(n, ";")
+		if len(parts) > 0 && parts[0] != "" {
+			b.WriteString(`<t:Surname>` + xmlEsc(parts[0]) + `</t:Surname>`)
+		}
+		if len(parts) > 1 && parts[1] != "" {
+			b.WriteString(`<t:GivenName>` + xmlEsc(parts[1]) + `</t:GivenName>`)
+		}
+	}
+	b.WriteString(`</t:Contact>`)
+	return collabGetItemEnvelope(b.String())
+}
+
+// buildCalendarGetItemFromRec projects a stored calendar item's iCalendar into
+// an EWS <t:CalendarItem> GetItem response.
+func buildCalendarGetItemFromRec(rec *semcore.StoredCalendarItemIdentity) []byte {
+	var b bytes.Buffer
+	b.WriteString(`<t:CalendarItem>`)
+	b.WriteString(`<t:ItemId Id="` + xmlEsc(rec.ID.String()) + `" ChangeKey="` + xmlEsc(rec.ChangeKey.String()) + `"/>`)
+	if subj := extractDirProp(rec.RawData, "SUMMARY"); subj != "" {
+		b.WriteString(`<t:Subject>` + xmlEsc(subj) + `</t:Subject>`)
+	}
+	if start := icalToEWSDateTime(extractDirProp(rec.RawData, "DTSTART")); start != "" {
+		b.WriteString(`<t:Start>` + start + `</t:Start>`)
+	}
+	if end := icalToEWSDateTime(extractDirProp(rec.RawData, "DTEND")); end != "" {
+		b.WriteString(`<t:End>` + end + `</t:End>`)
+	}
+	if loc := extractDirProp(rec.RawData, "LOCATION"); loc != "" {
+		b.WriteString(`<t:Location>` + xmlEsc(loc) + `</t:Location>`)
+	}
+	b.WriteString(`<t:UID>` + xmlEsc(rec.IcalUID) + `</t:UID>`)
+	// IsRecurring is true when the stored iCalendar carries an RRULE.
+	if extractDirProp(rec.RawData, "RRULE") != "" {
+		b.WriteString(`<t:IsRecurring>true</t:IsRecurring>`)
+	}
+	b.WriteString(`</t:CalendarItem>`)
+	return collabGetItemEnvelope(b.String())
+}
+
+// buildTaskGetItemFromRec projects a stored task's iCalendar VTODO into an EWS
+// <t:Task> GetItem response.
+func buildTaskGetItemFromRec(rec *semcore.StoredTaskIdentity) []byte {
+	var b bytes.Buffer
+	b.WriteString(`<t:Task>`)
+	b.WriteString(`<t:ItemId Id="` + xmlEsc(rec.ID.String()) + `" ChangeKey="` + xmlEsc(rec.ChangeKey.String()) + `"/>`)
+	if subj := extractDirProp(rec.RawData, "SUMMARY"); subj != "" {
+		b.WriteString(`<t:Subject>` + xmlEsc(subj) + `</t:Subject>`)
+	}
+	if due := icalToEWSDateTime(extractDirProp(rec.RawData, "DUE")); due != "" {
+		b.WriteString(`<t:DueDate>` + due + `</t:DueDate>`)
+	}
+	b.WriteString(`<t:Status>` + icalStatusToEWS(extractDirProp(rec.RawData, "STATUS")) + `</t:Status>`)
+	b.WriteString(`</t:Task>`)
+	return collabGetItemEnvelope(b.String())
 }
 
 // getItemByID retrieves one item by ItemId.
@@ -756,10 +1374,11 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 	// Look up item identity.
 	rec, err := s.identity.GetItemIdentity(itemID)
 	if err != nil {
-		if errors.Is(err, semcore.ErrItemNotFound) {
-			return errorItemMsg("GetItem", ErrErrorItemNotFound, "item not found: "+id.ID)
+		// Not found in identity store — try collaboration store (calendar, contact, task).
+		if errors.Is(err, semcore.ErrItemNotFound) && s.collabStore != nil {
+			return s.getItemByIDFromCollab(ctx, mboxKey, id)
 		}
-		return errorItemMsg("GetItem", ErrErrorInternalServer, err.Error())
+		return errorItemMsg("GetItem", ErrErrorItemNotFound, "item not found: "+id.ID)
 	}
 
 	// Verify mailbox ownership.
@@ -767,10 +1386,11 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 		return errorItemMsg("GetItem", ErrErrorAccessDenied, "item belongs to a different mailbox")
 	}
 
-	// Check ChangeKey if provided.
-	if id.CK != "" && id.CK != rec.ChangeKey.String() {
-		return errorItemMsg("GetItem", ErrErrorItemIdOrChangeKey, "ChangeKey mismatch")
-	}
+	// ChangeKey is intentionally NOT validated on reads. Standard EWS (and
+	// Exchange) resolve GetItem purely by item id; the ChangeKey is an
+	// optimistic-concurrency token used only by write operations. Validating
+	// it here would reject a client refreshing an item whose ChangeKey was
+	// advanced out of band (e.g. after DeleteAttachment).
 
 	// Retrieve raw MIME content from msgStore.
 	// rec.Email is the user key and rec.MsgKey is the blob key.
@@ -780,8 +1400,14 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 	}
 
 	// Parse MIME headers for display.
-	subject, from, dateStr, bodyType, bodyText, toAddrs := parseMimeHeaders(rawMsg)
+	subject, from, dateStr, bodyType, bodyText, toAddrs, attachments := parseMimeWithAttachments(rawMsg)
 	_ = from // available for extended properties
+
+	// Assign a self-describing AttachmentId to each attachment so clients treat
+	// them as already-created and can later fetch content via GetAttachment.
+	for i := range attachments {
+		attachments[i].AttachmentID = &AttachmentIdType{ID: makeAttachmentID(itemID.String(), i)}
+	}
 
 	toRecipients := make([]MailboxTypeResponse, 0, len(toAddrs))
 	for _, addr := range toAddrs {
@@ -805,6 +1431,32 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 		IsRead:       rec.IsRead,
 		Categories:   categoriesResponse(rec.Categories),
 	}
+	if !rec.ConversationID.IsZero() {
+		msgResp.ConversationID = &ConversationIdType{ID: rec.ConversationID.String()}
+	}
+	hdrs := parseInternetHeaders(rawMsg)
+	if len(hdrs) > 0 {
+		msgResp.InternetHeaders = &InternetMessageHeadersType{Headers: hdrs}
+	}
+	if len(attachments) > 0 {
+		msgResp.Attachments = &AttachmentsType{FileAttachments: attachments}
+	}
+	for _, h := range hdrs {
+		if strings.EqualFold(h.Name, hdrMeeting) && strings.TrimSpace(h.Value) == "1" {
+			msgResp.isMeetingRequest = true
+			break
+		}
+	}
+
+	// A meeting request must be returned under the MeetingRequest element so the
+	// client exposes accept/decline; ordinary mail uses Message.
+	if msgResp.isMeetingRequest {
+		return ItemResponseMessageType{
+			ResponseClass: "Success",
+			ResponseCode:  ResponseCodeType{Value: ErrNoError},
+			Items:         ItemsContainer{MeetingRequests: []MeetingRequestResponse{toMeetingRequestResponse(msgResp)}},
+		}
+	}
 
 	return ItemResponseMessageType{
 		ResponseClass: "Success",
@@ -813,18 +1465,309 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 	}
 }
 
+// getItemByIDFromCollab tries to find the item in the collaboration store
+// (calendar, contact, or task) by its ID string. Returns ErrorItemNotFound if
+// the ID doesn't match any collab item type.
+func (s *Server) getItemByIDFromCollab(ctx context.Context, mboxKey string, id ItemIdType) ItemResponseMessageType {
+	email := strings.TrimPrefix(mboxKey, "e:")
+	raw := id.ID
+
+	// Try calendar item.
+	if calID, err := semcore.NewCalendarItemId(raw); err == nil && s.collabStore != nil {
+		if rec, err := s.collabStore.GetCalendarItemByID(calID); err == nil {
+			folderID := FolderIdComponents{ID: rec.FolderID.String()}
+			return ItemResponseMessageType{
+				ResponseClass: "Success",
+				ResponseCode:  ResponseCodeType{Value: ErrNoError},
+				Items: ItemsContainer{Items: []MessageTypeResponse{{
+					ItemID:         ItemIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+					ParentFolderID: folderID,
+					Subject:        rec.IcalUID,
+				}}},
+			}
+		}
+	}
+
+	// Try contact item.
+	if ctID, err := semcore.NewContactId(raw); err == nil && s.collabStore != nil {
+		if rec, err := s.collabStore.GetContactByID(ctID); err == nil {
+			folderID := FolderIdComponents{ID: rec.FolderID.String()}
+			return ItemResponseMessageType{
+				ResponseClass: "Success",
+				ResponseCode:  ResponseCodeType{Value: ErrNoError},
+				Items: ItemsContainer{Items: []MessageTypeResponse{{
+					ItemID:         ItemIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+					ParentFolderID: folderID,
+					Subject:        rec.IcalUID,
+				}}},
+			}
+		}
+	}
+
+	// Try task item.
+	if tkID, err := semcore.NewTaskId(raw); err == nil && s.collabStore != nil {
+		if rec, err := s.collabStore.GetTaskByID(tkID); err == nil {
+			folderID := FolderIdComponents{ID: rec.FolderID.String()}
+			return ItemResponseMessageType{
+				ResponseClass: "Success",
+				ResponseCode:  ResponseCodeType{Value: ErrNoError},
+				Items: ItemsContainer{Items: []MessageTypeResponse{{
+					ItemID:         ItemIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
+					ParentFolderID: folderID,
+					Subject:        rec.IcalUID,
+				}}},
+			}
+		}
+	}
+
+	// Not found in any store.
+	_ = email
+	return errorItemMsg("GetItem", ErrErrorItemNotFound, "item not found: "+id.ID)
+}
+
+// deleteItemFromCollab tries to delete an item from the collaboration store
+// (calendar, contact, or task) by its ID string. Returns true on success.
+func (s *Server) deleteItemFromCollab(mailboxKey, raw string) bool {
+	_ = mailboxKey
+	if s.collabStore == nil {
+		return false
+	}
+
+	// Try calendar item.
+	if calID, err := semcore.NewCalendarItemId(raw); err == nil {
+		if rec, err := s.collabStore.GetCalendarItemByID(calID); err == nil {
+			ck, ckErr := semcore.NewCalendarChangeKey(rec.ChangeKey.String())
+			if ckErr == nil {
+				_ = s.collabStore.DeleteCalendarItemIdentity(rec.RawHash, ck) //nolint:errcheck
+			}
+			return true
+		}
+	}
+
+	// Try contact item.
+	if ctID, err := semcore.NewContactId(raw); err == nil {
+		if rec, err := s.collabStore.GetContactByID(ctID); err == nil {
+			ck, ckErr := semcore.NewContactChangeKey(rec.ChangeKey.String())
+			if ckErr == nil {
+				_ = s.collabStore.DeleteContactIdentity(rec.RawHash, ck) //nolint:errcheck
+			}
+			return true
+		}
+	}
+
+	// Try task item.
+	if tkID, err := semcore.NewTaskId(raw); err == nil {
+		if rec, err := s.collabStore.GetTaskByID(tkID); err == nil {
+			ck, ckErr := semcore.NewTaskChangeKey(rec.ChangeKey.String())
+			if ckErr == nil {
+				_ = s.collabStore.DeleteTaskIdentity(rec.RawHash, ck) //nolint:errcheck
+			}
+			return true
+		}
+	}
+
+	return false
+}
+
+// updateItemInCollab tries to update an item in the collaboration store.
+// Handles contacts, calendar items, and tasks. Returns nil if the item is not
+// found in any collab store.
+func (s *Server) updateItemInCollab(mailboxKey string, ic ItemChangeOp) *ItemResponseMessageType {
+	raw := ic.ItemID.ID
+	_ = mailboxKey
+
+	if s.collabStore == nil {
+		return nil
+	}
+
+	collabResult := func(id, ck string) *ItemResponseMessageType {
+		return &ItemResponseMessageType{
+			ResponseClass: "Success",
+			ResponseCode:  ResponseCodeType{Value: ErrNoError},
+			Items: ItemsContainer{Items: []MessageTypeResponse{{
+				ItemID: ItemIdType{ID: id, CK: ck},
+			}}},
+		}
+	}
+
+	// Contact: mutate the stored vCard.
+	if ctID, err := semcore.NewContactId(raw); err == nil {
+		if rec, err := s.collabStore.GetContactByID(ctID); err == nil {
+			data := rec.RawData
+			for _, op := range ic.Updates.Ops {
+				if op.Contact == nil {
+					continue
+				}
+				if v := op.Contact.DisplayName; v != "" {
+					data = setDirProp(data, "FN", v)
+				}
+				if v := op.Contact.FullName; v != "" {
+					data = setDirProp(data, "FN", v)
+				}
+				if v := op.Contact.Surname; v != "" {
+					data = setDirProp(data, "N", v+";;;;")
+				}
+			}
+			oldCK := rec.ChangeKey
+			newCK, ckErr := semcore.NewContactChangeKey(generateID())
+			if ckErr != nil {
+				return collabErrItemMsg(ckErr)
+			}
+			rec.RawData = data
+			rec.ChangeKey = newCK
+			if err := s.collabStore.PutContactIdentity(rec.RawHash, rec, oldCK); err != nil {
+				return collabErrItemMsg(err)
+			}
+			return collabResult(rec.ID.String(), newCK.String())
+		}
+	}
+
+	// Calendar: mutate the stored iCalendar VEVENT.
+	if calID, err := semcore.NewCalendarItemId(raw); err == nil {
+		if rec, err := s.collabStore.GetCalendarItemByID(calID); err == nil {
+			data := rec.RawData
+			for _, op := range ic.Updates.Ops {
+				if op.CalendarItem == nil {
+					continue
+				}
+				if v := op.CalendarItem.Subject; v != "" {
+					data = setDirProp(data, "SUMMARY", v)
+				}
+				if v := op.CalendarItem.Location; v != "" {
+					data = setDirProp(data, "LOCATION", v)
+				}
+				if v := op.CalendarItem.Start; v != "" {
+					if t, perr := ParseEWSDateTime(v); perr == nil {
+						data = setDirProp(data, "DTSTART", formatICalDateTime(t))
+					}
+				}
+				if v := op.CalendarItem.End; v != "" {
+					if t, perr := ParseEWSDateTime(v); perr == nil {
+						data = setDirProp(data, "DTEND", formatICalDateTime(t))
+					}
+				}
+			}
+			oldCK := rec.ChangeKey
+			newCK, ckErr := semcore.NewCalendarChangeKey(generateID())
+			if ckErr != nil {
+				return collabErrItemMsg(ckErr)
+			}
+			rec.RawData = data
+			rec.ChangeKey = newCK
+			if err := s.collabStore.PutCalendarItemIdentity(rec.RawHash, rec, oldCK); err != nil {
+				return collabErrItemMsg(err)
+			}
+			return collabResult(rec.ID.String(), newCK.String())
+		}
+	}
+
+	// Task: mutate the stored iCalendar VTODO.
+	if tkID, err := semcore.NewTaskId(raw); err == nil {
+		if rec, err := s.collabStore.GetTaskByID(tkID); err == nil {
+			data := rec.RawData
+			for _, op := range ic.Updates.Ops {
+				if op.Task == nil {
+					continue
+				}
+				if v := op.Task.Subject; v != "" {
+					data = setDirProp(data, "SUMMARY", v)
+				}
+				if v := op.Task.Status; v != "" {
+					data = setDirProp(data, "STATUS", ewsTaskStatusToICal(v))
+				}
+			}
+			oldCK := rec.ChangeKey
+			newCK, ckErr := semcore.NewTaskChangeKey(generateID())
+			if ckErr != nil {
+				return collabErrItemMsg(ckErr)
+			}
+			rec.RawData = data
+			rec.ChangeKey = newCK
+			if err := s.collabStore.PutTaskIdentity(rec.RawHash, rec, oldCK); err != nil {
+				return collabErrItemMsg(err)
+			}
+			return collabResult(rec.ID.String(), newCK.String())
+		}
+	}
+
+	return nil
+}
+
+// collabErrItemMsg wraps a collab-store error as an UpdateItem error message.
+func collabErrItemMsg(err error) *ItemResponseMessageType {
+	msg := errorItemMsg("UpdateItem", ErrErrorInternalServer, err.Error())
+	return &msg
+}
+
+// setDirProp replaces the value of an iCalendar/vCard content line, or inserts a
+// new line before the closing END: line when the property is absent. CRLF line
+// endings are preserved.
+func setDirProp(data, name, value string) string {
+	lines := strings.Split(data, "\n")
+	for i, line := range lines {
+		l := strings.TrimRight(line, "\r")
+		colon := strings.IndexByte(l, ':')
+		if colon < 0 {
+			continue
+		}
+		key := l[:colon]
+		if semi := strings.IndexByte(key, ';'); semi >= 0 {
+			key = key[:semi]
+		}
+		if strings.EqualFold(key, name) {
+			lines[i] = name + ":" + value + "\r"
+			return strings.Join(lines, "\n")
+		}
+	}
+	// Not found: insert before the last END: line.
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimRight(lines[i], "\r"), "END:") {
+			lines = append(lines[:i], append([]string{name + ":" + value + "\r"}, lines[i:]...)...)
+			return strings.Join(lines, "\n")
+		}
+	}
+	return data
+}
+
+// ewsTaskStatusToICal maps an EWS task:Status value to its iCalendar VTODO STATUS.
+func ewsTaskStatusToICal(s string) string {
+	switch s {
+	case "Completed":
+		return "COMPLETED"
+	case "InProgress", "WaitingOnOthers":
+		return "IN-PROCESS"
+	case "Deferred":
+		return "CANCELLED" //nolint:misspell // RFC 5545 spells the iCal STATUS value "CANCELLED".
+	default:
+		return "NEEDS-ACTION"
+	}
+}
+
 // parseMimeHeaders extracts Subject, From, Date, Body, and To from raw MIME.
 func parseMimeHeaders(data []byte) (subject, from, date, bodyType, body string, toAddrs []string) {
+	subject, from, date, bodyType, body, toAddrs, _ = parseMimeWithAttachments(data)
+	return
+}
+
+// parseMimeWithAttachments extracts all standard headers plus inline/file attachments.
+// decodeBase64Lenient decodes base64 content that may contain the line breaks
+// and whitespace mandated by MIME (RFC 2045), which the standard base64 decoder
+// rejects.
+func decodeBase64Lenient(b []byte) ([]byte, error) {
+	cleaned := strings.NewReplacer("\r", "", "\n", "", "\t", "", " ", "").Replace(string(b))
+	return base64.StdEncoding.DecodeString(cleaned)
+}
+
+func parseMimeWithAttachments(data []byte) (subject, from, date, bodyType, body string, toAddrs []string, attachments []FileAttachmentType) {
 	if len(data) == 0 {
-		return "", "", "", "Text", "", nil
+		return "", "", "", "Text", "", nil, nil
 	}
 	msg, err := mail.ReadMessage(strings.NewReader(string(data)))
 	if err != nil {
-		return "", "", "", "Text", "", nil
+		return "", "", "", "Text", "", nil, nil
 	}
 	h := msg.Header
 
-	// Determine body type from Content-Type header.
 	contentType := h.Get("Content-Type")
 	if strings.HasPrefix(strings.ToLower(contentType), "text/html") {
 		bodyType = "HTML"
@@ -832,12 +1775,71 @@ func parseMimeHeaders(data []byte) (subject, from, date, bodyType, body string, 
 		bodyType = "Text"
 	}
 
-	// Read body content.
+	mediaType, params, _ := mime.ParseMediaType(contentType) //nolint:errcheck // malformed Content-Type yields empty mediaType, handled below.
+	boundary := params["boundary"]
+
 	var bodyBytes []byte
 	bodyBytes, _ = io.ReadAll(msg.Body) //nolint:errcheck
-	body = string(bodyBytes)
 
-	// Parse To header.
+	if boundary != "" && strings.HasPrefix(mediaType, "multipart/") {
+		// Multi-part: walk parts to extract body and attachments using
+		// Go's standard mime/multipart package.
+		mpr := multipart.NewReader(strings.NewReader(string(data)), boundary)
+		for {
+			part, err := mpr.NextPart()
+			if err != nil {
+				break
+			}
+			partContentType := part.Header.Get("Content-Type")
+			partMediaType, partParams, _ := mime.ParseMediaType(partContentType) //nolint:errcheck // malformed part Content-Type yields empty values, handled below.
+			cd := part.Header.Get("Content-Disposition")
+			isInline := false
+			if cd != "" {
+				// The inline marker is the disposition VALUE ("inline"), not a
+				// parameter. mime.ParseMediaType returns it as the media type.
+				disp, _, _ := mime.ParseMediaType(cd) //nolint:errcheck // malformed disposition is treated as not-inline.
+				if strings.EqualFold(disp, "inline") {
+					isInline = true
+				}
+			}
+			partCID := strings.Trim(part.Header.Get("Content-ID"), "<>")
+			partName := partParams["name"]
+			if partName == "" {
+				partName = partParams["filename"]
+			}
+			partBody, _ := io.ReadAll(part) //nolint:errcheck // partial read still yields usable bytes; the part is best-effort.
+			// mime/multipart transparently decodes only quoted-printable; decode
+			// base64-encoded parts ourselves so partBody holds the raw bytes.
+			if strings.EqualFold(part.Header.Get("Content-Transfer-Encoding"), "base64") {
+				if decoded, derr := decodeBase64Lenient(partBody); derr == nil {
+					partBody = decoded
+				}
+			}
+			ctLower := strings.ToLower(partMediaType)
+			if strings.HasPrefix(ctLower, "text/") && body == "" && !isInline {
+				body = string(partBody)
+			}
+			if isInline || partName != "" || partCID != "" || strings.Contains(ctLower, "attachment") {
+				content := base64.StdEncoding.EncodeToString(partBody)
+				att := FileAttachmentType{
+					Name:        partName,
+					ContentType: partMediaType,
+					ContentID:   partCID,
+					Content:     content,
+				}
+				if isInline {
+					att.IsInline = boolPtr(true)
+				}
+				attachments = append(attachments, att)
+			}
+		}
+		if body == "" {
+			body = string(bodyBytes)
+		}
+	} else {
+		body = string(bodyBytes)
+	}
+
 	toHeader := h.Get("To")
 	if toHeader != "" {
 		var addrs []*mail.Address
@@ -847,7 +1849,7 @@ func parseMimeHeaders(data []byte) (subject, from, date, bodyType, body string, 
 		}
 	}
 
-	return strings.TrimSpace(h.Get("Subject")), h.Get("From"), h.Get("Date"), bodyType, body, toAddrs
+	return strings.TrimSpace(h.Get("Subject")), h.Get("From"), h.Get("Date"), bodyType, body, toAddrs, attachments
 }
 
 func prepareMessageForSubmission(data []byte) (from string, recipients []string, sanitized []byte, err error) {
@@ -1037,7 +2039,30 @@ type ItemUpdateField struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
 		URI     string   `xml:"FieldURI,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
-	Message ItemUpdateValue `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	Message      ItemUpdateValue `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	Contact      *ItemUpdateContact `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact,omitempty"`
+	CalendarItem *ItemUpdateCalendar `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem,omitempty"`
+	Task         *ItemUpdateTask     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task,omitempty"`
+}
+
+type ItemUpdateContact struct {
+	FullName    string `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
+	DisplayName string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
+	GivenName   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
+	Surname     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
+}
+
+type ItemUpdateCalendar struct {
+	Subject  string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Location string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
+	Start    string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start,omitempty"`
+	End      string `xml:"http://schemas.microsoft.com/exchange/services/2006/types End,omitempty"`
+}
+
+type ItemUpdateTask struct {
+	Subject         string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Status          string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
+	PercentComplete string `xml:"http://schemas.microsoft.com/exchange/services/2006/types PercentComplete,omitempty"`
 }
 
 type ItemUpdateValue struct {
@@ -1102,6 +2127,13 @@ func (s *Server) handleUpdateItem(ctx context.Context, body []byte) []byte {
 		rec, err := s.identity.GetItemIdentity(itemID)
 		if err != nil {
 			if errors.Is(err, semcore.ErrItemNotFound) {
+				// Try collaboration store (calendar, contact, task) as fallback.
+				if s.collabStore != nil {
+					if msg := s.updateItemInCollab(mailboxKey, ic); msg != nil {
+						msgs = append(msgs, *msg)
+						continue
+					}
+				}
 				msgs = append(msgs, errorItemMsg("UpdateItem", ErrErrorItemNotFound, err.Error()))
 			} else {
 				msgs = append(msgs, errorItemMsg("UpdateItem", ErrErrorInternalServer, err.Error()))
@@ -1251,6 +2283,13 @@ func (s *Server) handleDeleteItem(ctx context.Context, body []byte) []byte {
 
 		rec, err := s.identity.GetItemIdentity(itemID)
 		if err != nil {
+			// Try collaboration store (calendar, contact, task) as fallback.
+			if errors.Is(err, semcore.ErrItemNotFound) && s.collabStore != nil {
+				if s.deleteItemFromCollab(mailboxKey, id.ID) {
+					msgs = append(msgs, deleteErrMsg("Success", ResponseCodeType{Value: ErrNoError}))
+					continue
+				}
+			}
 			msgs = append(msgs, deleteErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}))
 			continue
 		}
@@ -1652,13 +2691,18 @@ type GetAttachmentResponse struct {
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
 }
 
-// AttachmentInfoResponseType represents an attachment response.
+// AttachmentInfoResponseType represents an attachment response. The element
+// order follows the EWS FileAttachment schema (AttachmentId first), and the
+// Content field carries the raw bytes (Go's XML encoder base64-encodes []byte).
 type AttachmentInfoResponseType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FileAttachment"`
-	Name    string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name"`
-	Size    int      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size"`
-	Id      string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttachmentId"`
-	Content []byte   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Content,omitempty"`
+	XMLName      xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/types FileAttachment"`
+	AttachmentID *AttachmentIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttachmentId,omitempty"`
+	Name         string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name"`
+	ContentType  string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContentType,omitempty"`
+	ContentID    string            `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContentId,omitempty"`
+	IsInline     *bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsInline,omitempty"`
+	Size         int               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size"`
+	Content      []byte            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Content,omitempty"`
 }
 
 // handleGetAttachment processes an EWS GetAttachment SOAP request.
@@ -1683,22 +2727,21 @@ func (s *Server) handleGetAttachment(ctx context.Context, body []byte) []byte {
 	}, 0, len(req.AttachmentIDs.Item))
 
 	for _, att := range req.AttachmentIDs.Item {
-		attID, err := semcore.NewAttachmentId(att.ID)
+		// Decode the self-describing AttachmentId: <parentItemID>~att~<index>.
+		parentIDStr, index, ok := parseAttachmentID(att.ID)
+		if !ok {
+			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorInvalidId}, nil))
+			continue
+		}
+		parentID, err := semcore.NewItemId(parentIDStr)
 		if err != nil {
 			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorInvalidId}, nil))
 			continue
 		}
 
-		rec, err := s.identity.GetAttachmentIdentity(attID)
-		if err != nil {
-			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}, nil))
-			continue
-		}
-
-		// Validate attachment ownership: the parent item must belong to the
-		// authenticated mailbox. An attachment is accessible only if its parent
-		// item is accessible to the caller.
-		parentRec, err := s.identity.GetItemIdentity(rec.ParentID)
+		// Validate ownership: the parent item must belong to the authenticated
+		// mailbox. An attachment is accessible only if its parent item is.
+		parentRec, err := s.identity.GetItemIdentity(parentID)
 		if err != nil {
 			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}, nil))
 			continue
@@ -1708,10 +2751,33 @@ func (s *Server) handleGetAttachment(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
-		_ = rec // attachment identity validated; content retrieval is separate
-
+		// Re-read the parent MIME and extract the requested attachment.
+		rawMsg, err := s.msgStore.ReadMessage(parentRec.Email, parentRec.MsgKey)
+		if err != nil {
+			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}, nil))
+			continue
+		}
+		_, _, _, _, _, _, attachments := parseMimeWithAttachments(rawMsg)
+		if index >= len(attachments) {
+			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}, nil))
+			continue
+		}
+		src := attachments[index]
+		content, err := base64.StdEncoding.DecodeString(src.Content)
+		if err != nil {
+			messages = append(messages, attachErrMsg("Error", ResponseCodeType{Value: ErrErrorInternalServer}, nil))
+			continue
+		}
 		messages = append(messages, attachErrMsg("Success", ResponseCodeType{Value: ErrNoError}, []AttachmentInfoResponseType{
-			{Name: "attachment", Size: 0, Id: att.ID},
+			{
+				AttachmentID: &AttachmentIdType{ID: att.ID},
+				Name:         src.Name,
+				ContentType:  src.ContentType,
+				ContentID:    src.ContentID,
+				IsInline:     src.IsInline,
+				Size:         len(content),
+				Content:      content,
+			},
 		}))
 	}
 
@@ -1750,10 +2816,213 @@ type DeleteAttachmentRequest struct {
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages AttachmentIds"`
 }
 
+// RootItemIdType identifies the parent item whose attachment was deleted.
+// exchangelib reads both attributes to update the parent item's id/changekey.
+type RootItemIdType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RootItemId"`
+	ID      string   `xml:"RootItemId,attr"`
+	CK      string   `xml:"RootItemChangeKey,attr"`
+}
+
+// DeleteAttachmentResponseMessageType is one DeleteAttachment response entry.
+type DeleteAttachmentResponseMessageType struct {
+	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteAttachmentResponseMessage"`
+	ResponseClass string           `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	RootItemID    *RootItemIdType  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RootItemId"`
+}
+
+// DeleteAttachmentResponse is the EWS DeleteAttachment operation response.
+type DeleteAttachmentResponse struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteAttachmentResponse"`
+	Msgs    struct {
+		XMLName  xml.Name                              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
+		Messages []DeleteAttachmentResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteAttachmentResponseMessage"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
+}
+
+func deleteAttachErrMsg(class string, code ResponseCodeType) DeleteAttachmentResponseMessageType {
+	return DeleteAttachmentResponseMessageType{ResponseClass: class, ResponseCode: code}
+}
+
 // handleDeleteAttachment processes an EWS DeleteAttachment SOAP request.
+// It removes the attachment from the parent message's MIME, re-stores the
+// rewritten blob under the same ItemId, advances the ChangeKey, and returns
+// the parent's RootItemId so the client can refresh.
 func (s *Server) handleDeleteAttachment(ctx context.Context, body []byte) []byte {
-	// TODO: implement attachment deletion from identity store.
-	return s.errorItemResponseXML("DeleteAttachment", ErrErrorNotImplemented, "DeleteAttachment is not yet implemented")
+	var req DeleteAttachmentRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorItemResponseXML("DeleteAttachment", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+
+	mboxID, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	if errCode != "" {
+		return s.errorItemResponseXML("DeleteAttachment", errCode, "could not resolve mailbox")
+	}
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+
+	msgs := make([]DeleteAttachmentResponseMessageType, 0, len(req.AttachmentIDs.Item))
+	for _, att := range req.AttachmentIDs.Item {
+		parentIDStr, index, ok := parseAttachmentID(att.ID)
+		if !ok {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorInvalidId}))
+			continue
+		}
+		parentID, err := semcore.NewItemId(parentIDStr)
+		if err != nil {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorInvalidId}))
+			continue
+		}
+		parentRec, err := s.identity.GetItemIdentity(parentID)
+		if err != nil {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}))
+			continue
+		}
+		if !parentRec.MailboxID.IsZero() && parentRec.MailboxID != mboxID {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorAccessDenied}))
+			continue
+		}
+
+		rawMsg, err := s.msgStore.ReadMessage(parentRec.Email, parentRec.MsgKey)
+		if err != nil {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}))
+			continue
+		}
+		newMsg, removed := removeAttachmentFromMime(rawMsg, index)
+		if !removed {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorItemNotFound}))
+			continue
+		}
+
+		// Persist the rewritten MIME and repoint the item's blob key.
+		newKey, err := s.msgStore.StoreMessage(parentRec.Email, newMsg)
+		if err != nil {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorInternalServer}))
+			continue
+		}
+		if err := s.identity.SetItemMsgKey(parentID, newKey); err != nil {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorInternalServer}))
+			continue
+		}
+
+		// Advance the parent item's ChangeKey through the canonical mutation.
+		delegateCtx := s.buildDelegateAuditContext(ctx, mboxID, mailboxKey)
+		upd := &semcore.UpdateInput{
+			ItemID:               parentID,
+			MailboxID:            mboxID,
+			FolderID:             parentRec.FolderID,
+			Actor:                mailboxKey,
+			Source:               semcore.MutationSourceEWS,
+			DelegateAuditContext: delegateCtx,
+		}
+		result, err := s.mutationPipe.MutateUpdate(upd)
+		if err != nil {
+			msgs = append(msgs, deleteAttachErrMsg("Error", ResponseCodeType{Value: ErrErrorInternalServer}))
+			continue
+		}
+
+		msgs = append(msgs, DeleteAttachmentResponseMessageType{
+			ResponseClass: "Success",
+			ResponseCode:  ResponseCodeType{Value: ErrNoError},
+			RootItemID: &RootItemIdType{
+				ID: parentID.String(),
+				CK: result.ChangeKey.String(),
+			},
+		})
+	}
+
+	resp := DeleteAttachmentResponse{}
+	resp.Msgs.Messages = msgs
+	return buildResponseEnvelope(resp)
+}
+
+// removeAttachmentFromMime removes the attachment at dropIndex (counting only
+// parts that parseMimeWithAttachments would surface as attachments) from a
+// multipart MIME message, preserving every other part and all top-level
+// headers byte-for-byte. It returns the rewritten message and whether the
+// target attachment was found and removed.
+func removeAttachmentFromMime(data []byte, dropIndex int) ([]byte, bool) {
+	msg, err := mail.ReadMessage(bytes.NewReader(data))
+	if err != nil {
+		return nil, false
+	}
+	mediaType, params, _ := mime.ParseMediaType(msg.Header.Get("Content-Type")) //nolint:errcheck // non-multipart yields empty boundary, handled below.
+	boundary := params["boundary"]
+	if boundary == "" || !strings.HasPrefix(mediaType, "multipart/") {
+		return nil, false
+	}
+
+	hdrEnd := bytes.Index(data, []byte("\r\n\r\n"))
+	if hdrEnd < 0 {
+		return nil, false
+	}
+	header := data[:hdrEnd+4]
+	mimeBody := data[hdrEnd+4:]
+
+	delim := []byte("--" + boundary)
+	segments := bytes.Split(mimeBody, delim)
+	if len(segments) < 2 {
+		return nil, false
+	}
+
+	// segments[0] is the preamble; the final segment beginning with "--" is the
+	// closing delimiter remainder. Everything between is a part body.
+	kept := make([][]byte, 0, len(segments))
+	kept = append(kept, segments[0])
+	attIdx := 0
+	found := false
+	for i := 1; i < len(segments); i++ {
+		seg := segments[i]
+		if bytes.HasPrefix(seg, []byte("--")) {
+			// Closing delimiter and any epilogue; keep verbatim.
+			kept = append(kept, seg)
+			continue
+		}
+		if isAttachmentPart(seg) {
+			if attIdx == dropIndex {
+				attIdx++
+				found = true
+				continue // drop this part
+			}
+			attIdx++
+		}
+		kept = append(kept, seg)
+	}
+	if !found {
+		return nil, false
+	}
+
+	newBody := bytes.Join(kept, delim)
+	out := make([]byte, 0, len(header)+len(newBody))
+	out = append(out, header...)
+	out = append(out, newBody...)
+	return out, true
+}
+
+// isAttachmentPart reports whether a raw multipart segment is an attachment,
+// using the exact same predicate as parseMimeWithAttachments so attachment
+// indices stay aligned between GetItem and DeleteAttachment.
+func isAttachmentPart(seg []byte) bool {
+	trimmed := bytes.TrimPrefix(seg, []byte("\r\n"))
+	tr := textproto.NewReader(bufio.NewReader(bytes.NewReader(trimmed)))
+	partHeader, err := tr.ReadMIMEHeader()
+	if err != nil && len(partHeader) == 0 {
+		return false
+	}
+	_, partParams, _ := mime.ParseMediaType(partHeader.Get("Content-Type")) //nolint:errcheck // mirrors parseMimeWithAttachments; malformed values are treated as non-attachment.
+	isInline := false
+	if cd := partHeader.Get("Content-Disposition"); cd != "" {
+		if disp, _, _ := mime.ParseMediaType(cd); strings.EqualFold(disp, "inline") { //nolint:errcheck // malformed disposition is treated as not-inline.
+			isInline = true
+		}
+	}
+	partCID := strings.Trim(partHeader.Get("Content-ID"), "<>")
+	partName := partParams["name"]
+	if partName == "" {
+		partName = partParams["filename"]
+	}
+	ctLower := strings.ToLower(partHeader.Get("Content-Type"))
+	return isInline || partName != "" || partCID != "" || strings.Contains(ctLower, "attachment")
 }
 
 // ---------------------------------------------------------------------------

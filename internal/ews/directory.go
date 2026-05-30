@@ -72,7 +72,7 @@ type ResolveNamesResponseMessagesType struct {
 
 // ResolveNamesResponseMessageType is one ResolveNames response message.
 type ResolveNamesResponseMessageType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResolveNamesResponseMessage"`
 
 	ResponseClass string `xml:"ResponseClass,attr"`
 	ResponseCode  string `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
@@ -124,7 +124,9 @@ type DirectoryAddressType struct {
 type directoryMailboxType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 	Name    string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
-	Address string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
+	// The Mailbox address element is <t:EmailAddress> (EWS Mailbox schema), which
+	// is what exchangelib's Mailbox.email_address reads.
+	Address string `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress,omitempty"`
 }
 
 // handleResolveNames implements the EWS ResolveNames operation.
@@ -145,8 +147,15 @@ func (s *Server) handleResolveNames(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("ResolveNames", ErrErrorInvalidOperation, "UnresolvedEntry is too short")
 	}
 
-	// Resolve from the account database.
+	// Resolve from the account database (GAL).
 	candidates := s.resolveNamesCandidates(entry)
+
+	// Also resolve against the caller's personal Contacts folder, so display
+	// names of stored contacts (which are not GAL users) resolve. exchangelib's
+	// resolve_names(parent_folders=[contacts]) relies on this.
+	if _, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body); errCode == "" {
+		candidates = append(candidates, s.resolveContactCandidates(strings.TrimPrefix(mboxKey, "e:"), entry)...)
+	}
 
 	// Build response.
 	resolutions := make([]ResolutionType, 0, len(candidates))
@@ -188,6 +197,33 @@ type directoryCandidate struct {
 // Object class correctness (VAL-DIR-015): each candidate includes the correct
 // object class so callers can distinguish user mailboxes, rooms, equipment,
 // distribution groups, and contacts.
+// resolveContactCandidates matches stored contacts in the caller's Contacts
+// folder whose display name (FN) or email (EMAIL) contains the entry.
+func (s *Server) resolveContactCandidates(mailboxKey, entry string) []directoryCandidate {
+	if s.collabStore == nil || mailboxKey == "" {
+		return nil
+	}
+	fld, err := s.identity.GetFolderByMailbox(mailboxKey, "contacts")
+	if err != nil {
+		return nil
+	}
+	contacts, err := s.collabStore.ListContactsByFolder(fld.FolderID)
+	if err != nil {
+		return nil
+	}
+	entryLower := strings.ToLower(entry)
+	var out []directoryCandidate
+	for _, c := range contacts {
+		fn := extractDirProp(c.RawData, "FN")
+		email := extractDirProp(c.RawData, "EMAIL")
+		if strings.Contains(strings.ToLower(fn), entryLower) ||
+			(email != "" && strings.Contains(strings.ToLower(email), entryLower)) {
+			out = append(out, directoryCandidate{Email: email, DisplayName: fn, ObjectClass: "Contact"})
+		}
+	}
+	return out
+}
+
 func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 	if s.db == nil {
 		return nil

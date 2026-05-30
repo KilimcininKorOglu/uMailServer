@@ -789,6 +789,7 @@ func (s *Server) createCalendarItemInFolder(ctx context.Context, mboxID semcore.
 
 	// Record in BoltCollaborationStore.
 	rec := semcore.NewStoredCalendarItemIdentity(calItemID, folderID, mboxID, calCK, semcore.CollabKindEvent, uid, blobKey)
+	rec.RawData = icalData
 	if err := s.collabStore.PutCalendarItemIdentityUnsafe(blobKey, rec); err != nil {
 		return errorCalendarMsg("CreateCalendarItem", ErrErrorInternalServer, "failed to store identity: "+err.Error())
 	}
@@ -1156,6 +1157,7 @@ func (s *Server) createContactInFolder(ctx context.Context, mboxID semcore.Mailb
 	contactCK, _ := semcore.NewContactChangeKey(generateID())
 
 	rec := semcore.NewStoredContactIdentity(contactID, folderID, mboxID, contactCK, uid, blobKey)
+	rec.RawData = vcardData
 	if err := s.collabStore.PutContactIdentityUnsafe(blobKey, rec); err != nil {
 		return errorContactMsg("CreateContact", ErrErrorInternalServer, "failed to store identity: "+err.Error())
 	}
@@ -1439,6 +1441,7 @@ func (s *Server) createTaskInFolder(ctx context.Context, mboxID semcore.MailboxI
 	taskCK, _ := semcore.NewTaskChangeKey(generateID())
 
 	rec := semcore.NewStoredTaskIdentity(taskID, folderID, mboxID, taskCK, uid, blobKey)
+	rec.RawData = icalData
 	if err := s.collabStore.PutTaskIdentityUnsafe(blobKey, rec); err != nil {
 		return errorTaskMsg("CreateTask", ErrErrorInternalServer, "failed to store identity: "+err.Error())
 	}
