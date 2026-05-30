@@ -443,6 +443,28 @@ func mailboxFromHeader(header string) *RecipientResponse {
 	return &RecipientResponse{Mailbox: MailboxTypeResponse{EmailAddress: header}}
 }
 
+// stripSubaddress removes an RFC 5233 "+detail" suffix from the local part of an
+// email address, returning the bare-mailbox address. "a+x@d" -> "a@d".
+func stripSubaddress(email string) string {
+	at := strings.IndexByte(email, '@')
+	local, domain := email, ""
+	if at >= 0 {
+		local, domain = email[:at], email[at:]
+	}
+	if i := strings.IndexByte(local, '+'); i > 0 {
+		local = local[:i]
+	}
+	return local + domain
+}
+
+// sameMailboxOwner reports whether two addresses resolve to the same mailbox
+// owner, treating an RFC 5233 "+detail" subaddress as the same identity as its
+// bare address (so a user may send as their own subaddress without a send-as
+// grant).
+func sameMailboxOwner(a, b string) bool {
+	return strings.EqualFold(stripSubaddress(a), stripSubaddress(b))
+}
+
 // rawHeaderValue returns a single header value from a raw MIME message, or "".
 func rawHeaderValue(rawMsg []byte, name string) string {
 	msg, err := mail.ReadMessage(bytes.NewReader(rawMsg))
@@ -515,7 +537,7 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 		} else if isSend && !strings.EqualFold(ownerEmail, actorEmail) {
 			fromEmail = ownerEmail
 		}
-		if fromEmail == "" || strings.EqualFold(fromEmail, actorEmail) {
+		if fromEmail == "" || sameMailboxOwner(fromEmail, actorEmail) {
 			continue
 		}
 		// The represented From is not the actor's own identity.

@@ -26,6 +26,18 @@ func isAccountLookupMiss(err error) bool {
 	return err != nil && strings.HasPrefix(err.Error(), "key not found: ")
 }
 
+// baseLocalPart strips an RFC 5233 "+detail" subaddress suffix from a local part,
+// returning the bare mailbox local part used for account resolution. The full
+// recipient address is left intact in the message headers, so Sieve and clients
+// can still filter on the detail. "bob+tag" -> "bob"; "bob" -> "bob".
+// A leading "+" (empty base) is left untouched as it is not a valid mailbox.
+func baseLocalPart(localPart string) string {
+	if i := strings.IndexByte(localPart, '+'); i > 0 {
+		return localPart[:i]
+	}
+	return localPart
+}
+
 func (s *Server) loadLocalAccount(email string) (user, domain string, account *db.AccountData, err error) {
 	user, domain = parseEmail(email)
 	account, err = s.database.GetAccount(domain, user)
@@ -337,6 +349,8 @@ func addMailLoopHeader(data []byte, addr string) []byte {
 
 // deliverLocal delivers a message to a local mailbox
 func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead bool, targetFolders ...string) error {
+	// RFC 5233 subaddressing: "user+detail" resolves to the "user" mailbox.
+	user = baseLocalPart(user)
 	email := user + "@" + domain
 
 	// Determine target folder - default to INBOX if not specified
