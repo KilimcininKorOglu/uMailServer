@@ -69,6 +69,7 @@ type StoredCalendarItemIdentity struct {
 	IcalUID   string
 	RawHash   string // content hash of RawICal for content-change detection
 	ETag      string // precomputed ETag (ChangeKey + RawHash)
+	RawData   string // canonical iCalendar payload, used to project EWS fields
 }
 
 // NewStoredCalendarItemIdentity constructs a StoredCalendarItemIdentity for use by
@@ -90,6 +91,7 @@ type StoredContactIdentity struct {
 	IcalUID   string
 	RawHash   string
 	ETag      string
+	RawData   string // canonical vCard payload, used to project EWS fields
 }
 
 // NewStoredContactIdentity constructs a StoredContactIdentity for use by protocol adapters.
@@ -106,6 +108,7 @@ type StoredTaskIdentity struct {
 	IcalUID   string
 	RawHash   string
 	ETag      string
+	RawData   string // canonical iCalendar VTODO payload, used to project EWS fields
 }
 
 // NewStoredTaskIdentity constructs a StoredTaskIdentity for use by protocol adapters.

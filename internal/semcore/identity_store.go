@@ -189,6 +189,11 @@ type IdentityStore interface {
 	// SetItemConversation updates the ConversationId for an existing item.
 	SetItemConversation(id ItemId, convID ConversationId) error
 
+	// SetItemMsgKey updates the raw-message blob key for an existing item.
+	// Used when an item's MIME content is rewritten in place (e.g. after
+	// DeleteAttachment), keeping the same ItemId while repointing the blob.
+	SetItemMsgKey(id ItemId, msgKey string) error
+
 	// ListItemIdentitiesByMailbox returns all item IDs for one mailbox.
 	ListItemIdentitiesByMailbox(mboxID MailboxId) ([]StoredItemIdentity, error)
 
@@ -1002,6 +1007,36 @@ func (s *BoltIdentityStore) SetItemConversation(id ItemId, convID ConversationId
 			}
 			if it.ItemID.Equal(id) {
 				it.ConversationID = convID
+				out, err := json.Marshal(it)
+				if err != nil {
+					return fmt.Errorf("marshal updated item: %w", err)
+				}
+				return tx.Bucket([]byte(bucketItem)).Put(k, out)
+			}
+		}
+		return ErrItemNotFound
+	})
+}
+
+// SetItemMsgKey implements IdentityStore.
+func (s *BoltIdentityStore) SetItemMsgKey(id ItemId, msgKey string) error {
+	if id.IsZero() {
+		return errors.New("SetItemMsgKey: zero ItemId")
+	}
+	if msgKey == "" {
+		return errors.New("SetItemMsgKey: empty msgKey")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		c := tx.Bucket([]byte(bucketItem)).Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var it StoredItemIdentity
+			if err := json.Unmarshal(v, &it); err != nil {
+				continue
+			}
+			if it.ItemID.Equal(id) {
+				it.MsgKey = msgKey
 				out, err := json.Marshal(it)
 				if err != nil {
 					return fmt.Errorf("marshal updated item: %w", err)
