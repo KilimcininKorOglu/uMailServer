@@ -415,6 +415,13 @@ func (s *Session) handleDATA() error {
 		// Store sieve actions for delivery processing
 		s.sieveActions = ctx.SpamResult.Reasons
 
+		// Pipeline stages may rewrite the message body (e.g. S/MIME and
+		// OpenPGP decryption, or a Sieve addheader injecting X-Category).
+		// Persist those mutations so delivery stores the updated message.
+		if len(ctx.Data) > 0 {
+			s.data = ctx.Data
+		}
+
 		switch result {
 		case ResultReject:
 			s.resetTransaction()
@@ -661,6 +668,12 @@ func (s *Session) handleBDAT(arg string) error {
 			if err != nil {
 				s.resetTransaction()
 				return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
+			}
+
+			// Persist any body rewrites performed by pipeline stages.
+			if len(ctx.Data) > 0 {
+				s.data = ctx.Data
+				data = ctx.Data
 			}
 
 			switch result {

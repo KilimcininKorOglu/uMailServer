@@ -114,6 +114,14 @@ func (s *SieveStage) Process(ctx *MessageContext) PipelineResult {
 					// Call handler asynchronously to not block the pipeline
 					go s.vacationHandler(from, recipient, a)
 				}
+			case sieve.AddHeaderAction:
+				// Inject the header into the stored message so the delivered
+				// copy carries it (e.g. X-Category from an assign-categories rule).
+				ctx.Data = injectHeader(ctx.Data, a.Name, a.Value)
+				if ctx.Headers == nil {
+					ctx.Headers = make(map[string][]string)
+				}
+				ctx.Headers[a.Name] = append(ctx.Headers[a.Name], a.Value)
 			case sieve.StopAction:
 				// Stop processing
 				return ResultAccept
@@ -129,6 +137,17 @@ func (s *SieveStage) Process(ctx *MessageContext) PipelineResult {
 	}
 
 	return ResultAccept
+}
+
+// injectHeader prepends an RFC 5322 header field to a raw message. The new
+// field is inserted at the top of the header block, which is valid since
+// header order is not significant. CRLF line endings are used to match SMTP.
+func injectHeader(data []byte, name, value string) []byte {
+	line := []byte(name + ": " + value + "\r\n")
+	if len(data) == 0 {
+		return line
+	}
+	return append(line, data...)
 }
 
 // extractUserFromRecipient extracts the local part from an email address
