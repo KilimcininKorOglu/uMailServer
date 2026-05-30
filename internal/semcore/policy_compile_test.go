@@ -290,8 +290,9 @@ func TestCompilePolicyToSieve_RulesAndOOF(t *testing.T) {
 	if !strings.Contains(script, "# Out-of-Office") {
 		t.Error("Script should contain OOF section comment")
 	}
-	if !strings.Contains(script, "keep;") {
-		t.Error("Script should contain default keep action")
+	// Default keep is handled by the interpreter when no actions are produced
+	if strings.Contains(script, "keep;") {
+		t.Error("Script should not contain explicit keep action (interpreter adds it implicitly)")
 	}
 }
 

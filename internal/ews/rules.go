@@ -822,6 +822,13 @@ func (s *Server) recompileSieveForMailbox(ctx context.Context, mailboxID semcore
 	}
 
 	rules, err := s.policyStore.ListRules(mailboxID)
+	s.logger.Info("recompileSieveForMailbox", "mailboxID", mailboxID, "rulesCount", len(rules), "err", err)
+	for i, r := range rules {
+		s.logger.Info("recompileSieveForMailbox rule", "i", i, "displayName", r.Name, "enabled", r.Enabled, "priority", r.Priority, "actionsCount", len(r.Actions))
+		for j, a := range r.Actions {
+			s.logger.Info("recompileSieveForMailbox action", "rule", i, "action", j, "kind", a.Kind, "forwardTo", a.ForwardTo, "target", a.Target)
+		}
+	}
 	if err != nil && !errors.Is(err, nil) {
 		return err
 	}
@@ -833,6 +840,7 @@ func (s *Server) recompileSieveForMailbox(ctx context.Context, mailboxID semcore
 	}
 
 	script := semcore.CompilePolicyToSieve(rules, oofPolicy)
+	s.logger.Info("recompileSieveForMailbox compiled script", "mailboxID", mailboxID, "scriptLen", len(script), "scriptPreview", script[:min(300, len(script))])
 	for _, userID := range sieveUserIDs(mailboxID.String()) {
 		if err := s.sieveMgr.StoreScript(userID, "active", script); err != nil {
 			return err
@@ -895,6 +903,10 @@ func (s *Server) applyRuleOperation(ctx context.Context, mailboxID semcore.Mailb
 // applyCreateRule creates a new inbox rule.
 func (s *Server) applyCreateRule(ctx context.Context, mailboxID semcore.MailboxId, ewsRule RuleType) error {
 	rule, err := ruleFromEWS(ewsRule, mailboxID)
+	s.logger.Info("applyCreateRule after ruleFromEWS", "mailboxID", mailboxID, "ruleName", rule.Name, "actionsCount", len(rule.Actions), "err", err)
+	for i, a := range rule.Actions {
+		s.logger.Info("applyCreateRule action", "i", i, "kind", a.Kind, "forwardTo", a.ForwardTo, "target", a.Target)
+	}
 	if err != nil {
 		return err
 	}

@@ -56,19 +56,28 @@ func (s *SieveStage) Process(ctx *MessageContext) PipelineResult {
 
 	// For each recipient, check if they have a sieve script
 	for _, recipient := range to {
-		// Extract user from recipient (simple parsing)
-		user := extractUserFromRecipient(recipient)
-		if user == "" {
+		// Try multiple user ID variants: the raw recipient, the parsed address,
+		// and the local part. This ensures we find scripts stored under any
+		// of these identifiers (see ews.sieveUserIDs).
+		userIDs := sieveUserIDsForPipeline(recipient)
+		if len(userIDs) == 0 {
 			continue
 		}
 
-		// Check if user has an active script
-		if !s.manager.HasActiveScript(user) {
+		// Check if any user ID has an active script
+		var foundUser string
+		for _, uid := range userIDs {
+			if s.manager.HasActiveScript(uid) {
+				foundUser = uid
+				break
+			}
+		}
+		if foundUser == "" {
 			continue
 		}
 
 		// Execute sieve script
-		actions, err := s.manager.ProcessMessage(user, msg)
+		actions, err := s.manager.ProcessMessage(foundUser, msg)
 		if err != nil {
 			// On error, continue with default action (keep)
 			continue
@@ -142,4 +151,21 @@ func extractUserFromRecipient(recipient string) string {
 		return recipient[:idx]
 	}
 	return recipient
+}
+
+// sieveUserIDsForPipeline returns all possible sieve user IDs for a recipient.
+// This mirrors ews.sieveUserIDs but is defined here to avoid a cross-package
+// dependency from smtp to ews.
+func sieveUserIDsForPipeline(recipient string) []string {
+	// Normalize the address first
+	if addr, err := mail.ParseAddress(recipient); err == nil && addr.Address != "" {
+		recipient = addr.Address
+	}
+	recipient = strings.Trim(recipient, "<>")
+
+	ids := []string{recipient}
+	if localPart, _, ok := strings.Cut(recipient, "@"); ok && localPart != "" && localPart != recipient {
+		ids = append(ids, localPart)
+	}
+	return ids
 }

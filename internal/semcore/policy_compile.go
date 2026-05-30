@@ -32,7 +32,7 @@ func CompileRulesToSieve(rules []*Rule) string {
 
 		// Only add require statement when we have actual rules
 		if len(lines) == 0 {
-			lines = append(lines, `require ["fileinto", "redirect", "reject", "vacation", "envelope", "body", "regex", "subaddress", "date", "index"];`)
+			lines = append(lines, `require ["fileinto", "redirect", "reject", "vacation", "envelope", "body", "regex", "subaddress", "date", "index", "imapflags"];`)
 		}
 
 		if firstRule {
@@ -172,29 +172,37 @@ func parseSize(s string, multiplier int) int {
 
 // compileAction converts a single RuleAction to Sieve action syntax.
 func compileAction(action RuleAction) string {
+	// Use canonical IMAP folder names for known distinguished roles so that
+	// Sieve fileinto targets match the folder names used by the IMAP/EWS layer.
+	target := action.Target
+	if target != "" {
+		if canonical := canonicalFolderNameForRole(target); canonical != "" {
+			target = canonical
+		}
+	}
+
 	switch action.Kind {
 	case RuleActionKindMoveToFolder:
-		if action.Target == "" {
+		if target == "" {
 			return ""
 		}
-		return fmt.Sprintf(`fileinto %q;`, action.Target)
+		return fmt.Sprintf(`fileinto %q;`, target)
 
 	case RuleActionKindCopyToFolder:
 		// Sieve doesn't have native copy; use fileinto with keep
-		if action.Target == "" {
+		if target == "" {
 			return ""
 		}
-		return fmt.Sprintf("fileinto %q;\nkeep;", action.Target)
+		return fmt.Sprintf("fileinto %q;\nkeep;", target)
 
 	case RuleActionKindDelete:
-		return "discard;"
+		return `fileinto "Trash";`
 
 	case RuleActionKindMarkRead:
-		// Sieve doesn't have native read flag; this is informational
-		return "" // handled by keep + flag extension
+		return `addflag "\\Seen";`
 
 	case RuleActionKindMarkImportant:
-		return "" // handled by flag extension
+		return `addflag "\\Flagged";`
 
 	case RuleActionKindForward:
 		if action.ForwardTo == "" {
@@ -403,7 +411,7 @@ func CompilePolicyToSieve(rules []*Rule, oof *OOFPolicy) string {
 	var lines []string
 
 	// Require statements
-	lines = append(lines, `require ["fileinto", "redirect", "reject", "vacation", "envelope", "body", "regex", "subaddress", "date", "index"];`)
+	lines = append(lines, `require ["fileinto", "redirect", "reject", "vacation", "envelope", "body", "regex", "subaddress", "date", "index", "imapflags"];`)
 	lines = append(lines, "")
 
 	// Compile rules first
@@ -431,11 +439,11 @@ func CompilePolicyToSieve(rules []*Rule, oof *OOFPolicy) string {
 		}
 	}
 
-	// Default: keep
-	lines = append(lines, "")
-	lines = append(lines, "# Default: keep in inbox")
-	lines = append(lines, "keep;")
-
+	// Default: keep — Sieve RFC 5228: if no explicit action delivers the
+	// message, the implicit keep applies. The interpreter already returns
+	// KeepAction when no actions are produced by the script, so we do not
+	// emit a literal "keep;" here. That would override explicit fileinto-only
+	// rules (moves) by keeping a copy in inbox.
 	return strings.Join(lines, "\n")
 }
 

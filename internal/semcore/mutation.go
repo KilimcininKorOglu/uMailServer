@@ -36,6 +36,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/mail"
 	"strings"
@@ -86,6 +87,11 @@ type MutationInput struct {
 	// (e.g., \Recent for IMAP append). These are stored as keywords,
 	// not as canonical semantic state — the pipeline does not interpret them.
 	UserFlags []string
+
+	// IsRead indicates whether the message should be marked as read
+	// at mutation time. When true, the StoredItemIdentity.IsRead is
+	// set to true so that EWS GetItem returns IsRead=true.
+	IsRead bool
 
 	// DelegateAuditContext is set when a delegate is acting on behalf of a mailbox owner.
 	// It is used to populate the Lifecycle event Actor field so that audit logs and
@@ -393,8 +399,20 @@ func (p *MutationPipeline) MutateItem(in *MutationInput) (*MutationResult, error
 	blobKey := computeBlobKey(in.RawMessage)
 	msgKey := blobKey // msgKey == blobKey for content-hash store
 
-	if err := p.identity.PutItemIdentity(msgKey, in.Email, itemID, in.MailboxID, in.FolderID, ck, convID); err != nil {
-		return nil, fmt.Errorf("MutateItem: put item identity: %w", err)
+	if err := p.identity.PutItemIdentity(msgKey, in.Email, itemID, in.MailboxID, in.FolderID, ck, convID, in.IsRead); err != nil {
+		if errors.Is(err, ErrIdentityExists) {
+			// The same content was already delivered to a different folder.
+			// Register a folder-specific identity so EWS queries can find
+			// the message under both folders, while keeping the original
+			// msgKey (blobKey) for message-store content lookups.
+			folderKey := blobKey + ":" + in.FolderID.String()
+			storageKey := folderKey + "\x00" + in.Email
+			if ferr := p.identity.PutItemIdentityWithKey(storageKey, blobKey, in.Email, itemID, in.MailboxID, in.FolderID, ck, convID, in.IsRead); ferr != nil {
+				return nil, fmt.Errorf("MutateItem: put folder identity: %w", ferr)
+			}
+		} else {
+			return nil, fmt.Errorf("MutateItem: put item identity: %w", err)
+		}
 	}
 
 	// 6. Register conversation identity if not already present.

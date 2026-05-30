@@ -670,7 +670,7 @@ func TestCoverDeliverLocal_UserNotFound(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 
 	// Try to deliver to non-existent user
-	err = srv.deliverLocal("nonexistent", "example.com", "sender@example.com", []byte("Test message"))
+	err = srv.deliverLocal("nonexistent", "example.com", "sender@example.com", []byte("Test message"), false)
 	if err == nil {
 		t.Error("expected error when delivering to non-existent user")
 	}
@@ -755,7 +755,7 @@ func TestCoverDeliverLocal_QuotaExceeded(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 
 	// Try to deliver to user with exceeded quota
-	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Test message"))
+	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Test message"), false)
 	if err == nil {
 		t.Error("expected error when quota is exceeded")
 	}
@@ -843,7 +843,7 @@ func TestCoverDeliverLocal_ForwardNoKeep(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 
 	// Deliver should succeed (message forwarded, no local copy)
-	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Test message"))
+	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Test message"), false)
 	if err != nil {
 		t.Errorf("deliverLocal with forward (no keep) failed: %v", err)
 	}

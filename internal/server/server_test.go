@@ -1084,7 +1084,7 @@ func TestServerDeliverLocal(t *testing.T) {
 	defer func() { _ = server.Stop() }()
 
 	// Test local delivery
-	err = server.deliverLocal("recipient", "example.com", "sender@example.com", []byte("Subject: Test\r\n\r\nBody"))
+	err = server.deliverLocal("recipient", "example.com", "sender@example.com", []byte("Subject: Test\r\n\r\nBody"), false)
 	// Delivery may fail without user setup, just verify it doesn't panic
 	if err != nil {
 		t.Logf("deliverLocal returned error (expected without user setup): %v", err)
@@ -1179,7 +1179,7 @@ func TestDeliverLocal(t *testing.T) {
 	msgData := []byte("Subject: Test\r\nFrom: sender@test.example.com\r\nTo: recipient@test.example.com\r\n\r\nTest body")
 
 	// Test local delivery
-	err = server.deliverLocal("recipient", "test.example.com", "sender@test.example.com", msgData)
+	err = server.deliverLocal("recipient", "test.example.com", "sender@test.example.com", msgData, false)
 	// Local delivery may fail without proper setup, just verify it doesn't panic
 	if err != nil {
 		t.Logf("deliverLocal returned error (expected without full setup): %v", err)
@@ -1407,7 +1407,7 @@ func TestDeliverLocalQuotaExceeded(t *testing.T) {
 	}
 
 	msgData := []byte("Subject: Test\r\n\r\nBody")
-	err = server.deliverLocal("fulluser", "test.example.com", "sender@example.com", msgData)
+	err = server.deliverLocal("fulluser", "test.example.com", "sender@example.com", msgData, false)
 
 	if err == nil {
 		t.Error("Expected error for quota exceeded")
@@ -1438,7 +1438,7 @@ func TestDeliverLocalNonExistentUser(t *testing.T) {
 	defer func() { _ = server.Stop() }()
 
 	msgData := []byte("Subject: Test\r\n\r\nBody")
-	err = server.deliverLocal("nonexistent", "test.example.com", "sender@example.com", msgData)
+	err = server.deliverLocal("nonexistent", "test.example.com", "sender@example.com", msgData, false)
 
 	if err == nil {
 		t.Error("Expected error for non-existent user")
@@ -1481,7 +1481,7 @@ func TestDeliverLocalInactiveUser(t *testing.T) {
 	}
 
 	msgData := []byte("Subject: Test\r\n\r\nBody")
-	err = server.deliverLocal("inactive", "test.example.com", "sender@example.com", msgData)
+	err = server.deliverLocal("inactive", "test.example.com", "sender@example.com", msgData, false)
 
 	if err == nil {
 		t.Error("Expected error for inactive user")
@@ -1976,7 +1976,7 @@ func TestDeliverLocal_Success(t *testing.T) {
 	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
 
 	msgData := []byte("Subject: Hello\r\nFrom: bob@external.com\r\n\r\nTest body content")
-	err := srv.deliverLocal("alice", "test.example.com", "bob@external.com", msgData)
+	err := srv.deliverLocal("alice", "test.example.com", "bob@external.com", msgData, false)
 	if err != nil {
 		t.Fatalf("deliverLocal should succeed for active user with no quota limit, got: %v", err)
 	}
@@ -1987,7 +1987,7 @@ func TestDeliverLocal_SuccessWithQuotaHeadroom(t *testing.T) {
 	helperCreateAccount(t, srv, "alice", "test.example.com", true, 10000, 0)
 
 	msgData := []byte("Subject: Hi\r\n\r\nSmall message")
-	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData, false)
 	if err != nil {
 		t.Fatalf("deliverLocal should succeed when quota not exceeded, got: %v", err)
 	}
@@ -2025,7 +2025,7 @@ func TestDeliverLocal_QuotaExceededEqual(t *testing.T) {
 	helperCreateAccount(t, srv, "fulluser", "test.example.com", true, 500, 500)
 
 	msgData := []byte("Subject: Hi\r\n\r\nBody")
-	err := srv.deliverLocal("fulluser", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("fulluser", "test.example.com", "sender@external.com", msgData, false)
 	if err == nil {
 		t.Fatal("deliverLocal should fail when quota exceeded (QuotaUsed == QuotaLimit)")
 	}
@@ -2039,7 +2039,7 @@ func TestDeliverLocal_QuotaExceededOver(t *testing.T) {
 	helperCreateAccount(t, srv, "fulluser", "test.example.com", true, 100, 200)
 
 	msgData := []byte("Subject: Hi\r\n\r\nBody")
-	err := srv.deliverLocal("fulluser", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("fulluser", "test.example.com", "sender@external.com", msgData, false)
 	if err == nil {
 		t.Fatal("deliverLocal should fail when QuotaUsed > QuotaLimit")
 	}
@@ -2052,7 +2052,7 @@ func TestDeliverLocal_UserNotFound(t *testing.T) {
 	srv := helperServer(t)
 
 	msgData := []byte("Subject: Hi\r\n\r\nBody")
-	err := srv.deliverLocal("nobody", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("nobody", "test.example.com", "sender@external.com", msgData, false)
 	if err == nil {
 		t.Fatal("deliverLocal should fail for non-existent user")
 	}
@@ -2066,7 +2066,7 @@ func TestDeliverLocal_InactiveUser(t *testing.T) {
 	helperCreateAccount(t, srv, "disabled", "test.example.com", false, 0, 0)
 
 	msgData := []byte("Subject: Hi\r\n\r\nBody")
-	err := srv.deliverLocal("disabled", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("disabled", "test.example.com", "sender@external.com", msgData, false)
 	if err == nil {
 		t.Fatal("deliverLocal should fail for inactive user")
 	}
@@ -2084,7 +2084,7 @@ func TestDeliverLocal_WithWebhookTrigger(t *testing.T) {
 	}
 
 	msgData := []byte("Subject: Webhook test\r\n\r\nBody")
-	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData, false)
 	if err != nil {
 		t.Fatalf("deliverLocal should succeed with webhook, got: %v", err)
 	}
@@ -2095,7 +2095,7 @@ func TestDeliverLocal_NoQuotaLimit(t *testing.T) {
 	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 999999)
 
 	msgData := []byte("Subject: No quota\r\n\r\nBody")
-	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData, false)
 	if err != nil {
 		t.Fatalf("deliverLocal should succeed when QuotaLimit is 0 (unlimited), got: %v", err)
 	}
@@ -2411,7 +2411,7 @@ func TestDeliverLocal_TableDriven(t *testing.T) {
 			helperCreateAccount(t, srv, tt.localPart, tt.domain, tt.isActive, tt.quotaLimit, tt.quotaUsed)
 
 			msgData := []byte("Subject: Test\r\n\r\nBody content")
-			err := srv.deliverLocal(tt.localPart, tt.domain, "sender@external.com", msgData)
+			err := srv.deliverLocal(tt.localPart, tt.domain, "sender@external.com", msgData, false)
 
 			if tt.wantErr {
 				if err == nil {
@@ -2621,7 +2621,7 @@ func TestDeliverLocal_StoreMessageError(t *testing.T) {
 	defer os.Remove(msgFile)
 
 	msgData := []byte("Subject: Test\r\n\r\nBody")
-	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData, false)
 	if err == nil {
 		t.Error("expected error when message store directory is blocked by a file")
 	}
@@ -2637,7 +2637,7 @@ func TestDeliverLocal_ClosedDB(t *testing.T) {
 	srv.database.Close()
 
 	msgData := []byte("Subject: Test\r\n\r\nBody")
-	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData, false)
 	if err == nil {
 		t.Error("expected error when database is closed")
 	}
@@ -3006,7 +3006,7 @@ func TestDeliverLocal_NilAccount(t *testing.T) {
 	// Do NOT create any account, so GetAccount returns nil, nil
 
 	msgData := []byte("Subject: Test\r\n\r\nBody")
-	err := srv.deliverLocal("nonexistent", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("nonexistent", "test.example.com", "sender@external.com", msgData, false)
 	if err == nil {
 		t.Error("expected error for nil account")
 	}
@@ -3057,7 +3057,7 @@ func TestDeliverLocal_QuotaZeroUnlimited(t *testing.T) {
 	helperCreateAccount(t, srv, "biguser", "test.example.com", true, 0, 999999999)
 
 	msgData := make([]byte, 5000) // 5KB message
-	err := srv.deliverLocal("biguser", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("biguser", "test.example.com", "sender@external.com", msgData, false)
 	if err != nil {
 		t.Fatalf("deliverLocal should succeed with unlimited quota (QuotaLimit=0), got: %v", err)
 	}
@@ -3128,7 +3128,7 @@ func TestDeliverLocal_SuccessfulDelivery(t *testing.T) {
 	helperCreateAccount(t, srv, "mailbox", "test.example.com", true, 1000000, 0)
 
 	msgData := []byte("Subject: Full Delivery\r\nFrom: sender@external.com\r\n\r\nFull delivery test body")
-	err := srv.deliverLocal("mailbox", "test.example.com", "sender@external.com", msgData)
+	err := srv.deliverLocal("mailbox", "test.example.com", "sender@external.com", msgData, false)
 	if err != nil {
 		t.Fatalf("deliverLocal should succeed for active user, got: %v", err)
 	}

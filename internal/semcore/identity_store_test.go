@@ -44,7 +44,7 @@ func putFolderIgnore(s *BoltIdentityStore, mboxKey, folderName string, id Folder
 
 // putItemIgnore calls PutItemIdentity and ignores the error.
 func putItemIgnore(s *BoltIdentityStore, msgKey string, email string, id ItemId, mboxID MailboxId, fldID FolderId, ck ChangeKey, convID ConversationId) {
-	_ = s.PutItemIdentity(msgKey, email, id, mboxID, fldID, ck, convID) //nolint:errcheck
+	_ = s.PutItemIdentity(msgKey, email, id, mboxID, fldID, ck, convID, false) //nolint:errcheck
 }
 
 // putAttachmentIgnore calls PutAttachmentIdentity and ignores the error.
@@ -538,7 +538,7 @@ func TestBoltIdentityStore_PutItemIdentity_basic(t *testing.T) {
 	ck := MustChangeKey("CK-001")
 	convID := MustConversationId("conv-001")
 
-	err := store.PutItemIdentity("k:msg1", "", itemID, mboxID, fldID, ck, convID)
+	err := store.PutItemIdentity("k:msg1", "", itemID, mboxID, fldID, ck, convID, false)
 	if err != nil {
 		t.Fatalf("PutItemIdentity: %v", err)
 	}
@@ -553,12 +553,12 @@ func TestBoltIdentityStore_PutItemIdentity_duplicate(t *testing.T) {
 	itemID := MustItemId("item-dup")
 	ck := MustChangeKey("CK-DUP")
 
-	err := store.PutItemIdentity("k:msg-dup", "", itemID, mboxID, fldID, ck, ConversationId{})
+	err := store.PutItemIdentity("k:msg-dup", "", itemID, mboxID, fldID, ck, ConversationId{}, false)
 	if err != nil {
 		t.Fatalf("first PutItemIdentity: %v", err)
 	}
 
-	err = store.PutItemIdentity("k:msg-dup", "", itemID, mboxID, fldID, ck, ConversationId{})
+	err = store.PutItemIdentity("k:msg-dup", "", itemID, mboxID, fldID, ck, ConversationId{}, false)
 	if err != ErrIdentityExists {
 		t.Errorf("duplicate error = %v, want ErrIdentityExists", err)
 	}
@@ -574,10 +574,10 @@ func TestBoltIdentityStore_PutItemIdentity_sameMsgKeyDifferentEmail(t *testing.T
 	secondID := MustItemId("item-multi-2")
 	ck := MustChangeKey("CK-MULTI")
 
-	if err := store.PutItemIdentity("k:msg-shared", "alice@example.com", firstID, mboxID, fldID, ck, ConversationId{}); err != nil {
+	if err := store.PutItemIdentity("k:msg-shared", "alice@example.com", firstID, mboxID, fldID, ck, ConversationId{}, false); err != nil {
 		t.Fatalf("first PutItemIdentity: %v", err)
 	}
-	if err := store.PutItemIdentity("k:msg-shared", "bob@example.com", secondID, mboxID, fldID, ck, ConversationId{}); err != nil {
+	if err := store.PutItemIdentity("k:msg-shared", "bob@example.com", secondID, mboxID, fldID, ck, ConversationId{}, false); err != nil {
 		t.Fatalf("second PutItemIdentity: %v", err)
 	}
 
@@ -594,7 +594,7 @@ func TestBoltIdentityStore_PutItemIdentity_zeroID(t *testing.T) {
 	store := tmpBoltStore(t)
 	defer closeStore(store, t)
 
-	err := store.PutItemIdentity("k:msg-zero", "", ItemId{}, MailboxId{}, FolderId{}, ChangeKey{}, ConversationId{})
+	err := store.PutItemIdentity("k:msg-zero", "", ItemId{}, MailboxId{}, FolderId{}, ChangeKey{}, ConversationId{}, false)
 	if err == nil {
 		t.Error("PutItemIdentity with zero ItemId should error")
 	}
@@ -609,7 +609,7 @@ func TestBoltIdentityStore_GetItemIDByKey(t *testing.T) {
 	itemID := MustItemId("item-get")
 	ck := MustChangeKey("CK-GET")
 
-	err := store.PutItemIdentity("k:get-item", "", itemID, mboxID, fldID, ck, ConversationId{})
+	err := store.PutItemIdentity("k:get-item", "", itemID, mboxID, fldID, ck, ConversationId{}, false)
 	if err != nil {
 		t.Fatalf("PutItemIdentity: %v", err)
 	}
@@ -643,7 +643,7 @@ func TestBoltIdentityStore_GetItemIdentity(t *testing.T) {
 	ck := MustChangeKey("CK-GETI")
 	convID := MustConversationId("conv-geti")
 
-	err := store.PutItemIdentity("k:geti", "", itemID, mboxID, fldID, ck, convID)
+	err := store.PutItemIdentity("k:geti", "", itemID, mboxID, fldID, ck, convID, false)
 	if err != nil {
 		t.Fatalf("PutItemIdentity: %v", err)
 	}
@@ -697,7 +697,7 @@ func TestBoltIdentityStore_PutChangeKey_stale(t *testing.T) {
 	itemID := MustItemId("item-ck-stale")
 	oldCK := MustChangeKey("CK-OLD")
 
-	err := store.PutItemIdentity("k:stale", "", itemID, mboxID, fldID, oldCK, ConversationId{})
+	err := store.PutItemIdentity("k:stale", "", itemID, mboxID, fldID, oldCK, ConversationId{}, false)
 	if err != nil {
 		t.Fatalf("PutItemIdentity: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestBoltIdentityStore_SetItemConversation(t *testing.T) {
 	itemID := MustItemId("item-sic")
 	ck := MustChangeKey("CK-SIC")
 
-	err := store.PutItemIdentity("k:sic", "", itemID, mboxID, fldID, ck, ConversationId{})
+	err := store.PutItemIdentity("k:sic", "", itemID, mboxID, fldID, ck, ConversationId{}, false)
 	if err != nil {
 		t.Fatalf("PutItemIdentity: %v", err)
 	}
@@ -757,7 +757,7 @@ func TestBoltIdentityStore_SetItemFolder(t *testing.T) {
 	destFolderID := MustFolderId("fld-sif-dst")
 	itemID := MustItemId("item-sif")
 
-	if err := store.PutItemIdentity("k:sif", "", itemID, mboxID, sourceFolderID, MustChangeKey("CK-SIF"), ConversationId{}); err != nil {
+	if err := store.PutItemIdentity("k:sif", "", itemID, mboxID, sourceFolderID, MustChangeKey("CK-SIF"), ConversationId{}, false); err != nil {
 		t.Fatalf("PutItemIdentity: %v", err)
 	}
 
@@ -782,7 +782,7 @@ func TestBoltIdentityStore_UpdateItemState(t *testing.T) {
 	fldID := MustFolderId("fld-sis")
 	itemID := MustItemId("item-sis")
 
-	if err := store.PutItemIdentity("k:sis", "", itemID, mboxID, fldID, MustChangeKey("CK-SIS"), ConversationId{}); err != nil {
+	if err := store.PutItemIdentity("k:sis", "", itemID, mboxID, fldID, MustChangeKey("CK-SIS"), ConversationId{}, false); err != nil {
 		t.Fatalf("PutItemIdentity: %v", err)
 	}
 
@@ -1411,7 +1411,7 @@ func TestBoltIdentityStore_PutChangeKey_firstWrite(t *testing.T) {
 	itemID := MustItemId("item-fw")
 
 	// Put with zero ChangeKey (first registration).
-	err := store.PutItemIdentity("k:first-write", "", itemID, mboxID, fldID, ChangeKey{}, ConversationId{})
+	err := store.PutItemIdentity("k:first-write", "", itemID, mboxID, fldID, ChangeKey{}, ConversationId{}, false)
 	if err != nil {
 		t.Fatalf("PutItemIdentity with zero CK: %v", err)
 	}

@@ -179,6 +179,8 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 	var targetFolders []string
 	var redirectAddrs []string
 	hasKeep := false
+	hasDiscard := false
+	setRead := false
 
 	for _, action := range sieveActions {
 		if strings.HasPrefix(action, "fileinto:") {
@@ -190,16 +192,28 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 			}
 		} else if action == "keep" {
 			hasKeep = true
+		} else if action == "discard" {
+			hasDiscard = true
+		} else if strings.HasPrefix(action, "addflag:\\Seen") {
+			setRead = true
 		}
 	}
 
-	// If no fileinto targets, use inbox as default
+	// If no fileinto targets, use inbox as default (unless discard with no explicit keep)
 	if len(targetFolders) == 0 {
-		targetFolders = []string{""} // empty = INBOX default
+		if hasKeep {
+			targetFolders = []string{""} // keep overrides discard
+		} else if !hasDiscard {
+			targetFolders = []string{""} // implicit keep
+		}
 	} else if hasKeep {
 		// copy behavior: keep in inbox AND fileinto target folders
 		targetFolders = append(targetFolders, "")
+	} else if hasDiscard && !hasKeep {
+		// discard: don't add inbox, only deliver to explicit fileinto targets
 	}
+
+	s.logger.Info("SieveDeliver", "folders", targetFolders)
 
 	// Handle redirects - queue copies to redirect addresses
 	for _, redirectAddr := range redirectAddrs {
@@ -213,9 +227,19 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 		}
 		// Add this sender to the loop tracking header
 		dataWithLoop := addMailLoopHeader(data, from)
-		if err := s.relayMessage(from, redirectAddr, dataWithLoop); err != nil {
+
+		// Deliver redirect locally if recipient domain is local
+		_, redirectDomain := parseEmail(redirectAddr)
+		domainData, _ := s.database.GetDomain(redirectDomain)
+		if domainData != nil && domainData.IsActive {
+			redirectUser, _ := parseEmail(redirectAddr)
+			if err := s.deliverLocal(redirectUser, redirectDomain, from, dataWithLoop, false); err != nil {
+				s.logger.Error("Failed to deliver redirect locally", "to", redirectAddr, "error", err)
+			} else {
+				s.logger.Debug("Redirect delivered locally", "from", from, "to", redirectAddr)
+			}
+		} else if err := s.relayMessage(from, redirectAddr, dataWithLoop); err != nil {
 			s.logger.Error("Failed to queue redirect message", "to", redirectAddr, "error", err)
-			// Continue with other deliveries even if redirect fails
 		} else {
 			s.logger.Debug("Message queued for redirect", "from", from, "to", redirectAddr)
 		}
@@ -249,7 +273,7 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 
 		// Deliver with optional target folder from sieve
 		for _, targetFolder := range targetFolders {
-			if err := s.deliverLocal(user, domain, from, data, targetFolder); err != nil {
+			if err := s.deliverLocal(user, domain, from, data, setRead, targetFolder); err != nil {
 				s.logger.Error("Failed to deliver locally", "user", user, "domain", domain, "target", targetFolder, "error", err)
 				errs = append(errs, fmt.Errorf("deliver %s->%s: %w", recipient, targetFolder, err))
 			}
@@ -312,7 +336,7 @@ func addMailLoopHeader(data []byte, addr string) []byte {
 }
 
 // deliverLocal delivers a message to a local mailbox
-func (s *Server) deliverLocal(user, domain, from string, data []byte, targetFolders ...string) error {
+func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead bool, targetFolders ...string) error {
 	email := user + "@" + domain
 
 	// Determine target folder - default to INBOX if not specified
@@ -332,7 +356,7 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, targetFold
 		if domainData, derr := s.database.GetDomain(domain); derr == nil && domainData != nil && domainData.CatchAllTarget != "" {
 			tUser, tDomain := parseEmail(domainData.CatchAllTarget)
 			if tUser != "" && tDomain != "" {
-				return s.deliverLocal(tUser, tDomain, from, data, targetFolders...)
+				return s.deliverLocal(tUser, tDomain, from, data, isRead, targetFolders...)
 			}
 		}
 		return fmt.Errorf("user does not exist or is not active: %s", email)
@@ -368,6 +392,7 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, targetFold
 					Actor:        from,
 					Email:        email,
 					Source:       semcore.MutationSourceSMTP,
+					IsRead:       isRead,
 				}
 				mutationResult, mboxErr = s.mutationPipe.MutateItem(in)
 				if mboxErr != nil {
@@ -376,7 +401,7 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, targetFold
 					mutationResult = nil
 				} else {
 					s.logger.Debug("Canonical mutation succeeded",
-						"email", email,
+						"email", email, "folder", folder, "role", role,
 						"item_id", mutationResult.ItemID.String(),
 						"change_key", mutationResult.ChangeKey.String(),
 						"conversation_id", mutationResult.ConversationID.String())

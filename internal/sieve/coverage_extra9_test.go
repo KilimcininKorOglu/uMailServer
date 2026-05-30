@@ -7,12 +7,10 @@ import (
 
 // --- executeIf elsif skip when previous condition was false ---
 
-// TestInterpreter_Elsif_SkippedWhenPreviousFalse tests the case where
-// the first if evaluates to false, and elsif's skip condition is hit
-// (line 277-281 in interpreter.go)
-func TestInterpreter_Elsif_SkippedWhenPreviousFalse(t *testing.T) {
-	// Script where first if fails and elsif should be skipped
-	// because previous conditions weren't met
+// TestInterpreter_Elsif_EvaluatedAfterFailedIf tests that elsif IS evaluated
+// when the first if condition is false (standard Sieve behavior).
+func TestInterpreter_Elsif_EvaluatedAfterFailedIf(t *testing.T) {
+	// Script where first if fails and elsif should be evaluated
 	script := `
 	if header :contains "subject" "nomatch" {
 		discard;
@@ -43,15 +41,19 @@ func TestInterpreter_Elsif_SkippedWhenPreviousFalse(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	// Neither branch executes:
+	// Elsif branch should execute because:
 	// 1. First if is false (subject doesn't contain "nomatch")
-	// 2. Elsif is skipped because previous condition (first if) was false
-	// Default action is keep (implicit)
+	// 2. Elsif condition is true (from contains "test@example.com")
+	// So the elsif fileinto "SkippedFolder" action should be returned.
 	if len(actions) != 1 {
-		t.Errorf("Expected 1 implicit keep action, got %d", len(actions))
+		t.Fatalf("Expected 1 action, got %d", len(actions))
 	}
-	if _, ok := actions[0].(KeepAction); !ok {
-		t.Errorf("Expected KeepAction, got %T", actions[0])
+	fa, ok := actions[0].(FileintoAction)
+	if !ok {
+		t.Fatalf("Expected FileintoAction, got %T", actions[0])
+	}
+	if fa.Folder != "SkippedFolder" {
+		t.Errorf("Expected folder 'SkippedFolder', got %q", fa.Folder)
 	}
 }
 

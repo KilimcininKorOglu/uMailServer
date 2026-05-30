@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/api"
@@ -9,6 +11,7 @@ import (
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/mapi"
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/sieve"
 )
 
 // startAPI creates and starts the HTTP API server (webmail + admin).
@@ -92,7 +95,69 @@ func (s *Server) startAPI() {
 			s.semcoreStore.Policy(),
 			s.semcoreStore.Delegation(),
 			s.sieveManager,
-			nil,
+			func(from string, to []string, data []byte) error {
+				// Run Sieve and capture actions before delivery
+				var sieveActions []string
+				if s.sieveManager != nil {
+					headers := make(map[string][]string)
+					if idx := bytes.Index(data, []byte("\r\n\r\n")); idx > 0 {
+						for _, line := range strings.Split(string(data[:idx]), "\r\n") {
+							if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
+								key := strings.TrimSpace(line[:colonIdx])
+								value := strings.TrimSpace(line[colonIdx+1:])
+								headers[key] = append(headers[key], value)
+							}
+						}
+					}
+					msg := &sieve.MessageContext{
+						From:    from,
+						To:      to,
+						Headers: headers,
+						Body:    data,
+						Size:    int64(len(data)),
+					}
+					for _, recipient := range to {
+						user, domain := parseEmail(recipient)
+						s.logger.Info("EWS sieve: checking recipient", "user", user, "domain", domain, "recipient", recipient)
+						hasScript := s.sieveManager.HasActiveScript(user)
+						s.logger.Info("EWS sieve check", "user", user, "hasScript", hasScript, 
+							"allUsers", s.sieveManager.ListScripts(""), "recipient", recipient)
+						if !hasScript {
+							// Also try the full email
+							hasScript = s.sieveManager.HasActiveScript(recipient)
+							if hasScript {
+								user = recipient
+							}
+						}
+						if hasScript {
+							scriptSrc := s.sieveManager.GetScriptSource(user, "active")
+							actions, err := s.sieveManager.ProcessMessage(user, msg)
+							s.logger.Info("EWS sieve process result", "user", user, "scriptSource", scriptSrc, "actions", fmt.Sprintf("%v", actions), "err", err)
+							if err == nil {
+								for _, action := range actions {
+									switch a := action.(type) {
+									case sieve.FileintoAction:
+										sieveActions = append(sieveActions, "fileinto:"+a.Folder)
+									case sieve.RedirectAction:
+										sieveActions = append(sieveActions, "redirect:"+a.Address)
+									case sieve.KeepAction:
+										sieveActions = append(sieveActions, "keep")
+									case sieve.DiscardAction:
+										sieveActions = append(sieveActions, "discard")
+									case sieve.AddFlagAction:
+										for _, f := range a.Flags {
+											sieveActions = append(sieveActions, "addflag:"+f)
+										}
+									}
+								}
+							}
+							break
+						}
+					}
+				}
+				s.logger.Info("EWS submit delivery", "sieveActions", sieveActions)
+				return s.deliverMessageWithSieve(from, to, data, sieveActions)
+			},
 		)
 		ewsServer.SetLogger(s.logger)
 		s.apiServer.SetEWSHandler(ewsServer)
@@ -146,6 +211,15 @@ func (s *Server) startAPI() {
 		}()
 		s.logger.Info("Admin API server started", "addr", adminCfg.Addr)
 	}
+}
+
+// localPart extracts the local part (before @) from an email address.
+func localPart(email string) string {
+	email = strings.Trim(email, "<>")
+	if idx := strings.Index(email, "@"); idx > 0 {
+		return email[:idx]
+	}
+	return email
 }
 
 // setupOutlookFeatureGates initializes the semcore feature gates based on

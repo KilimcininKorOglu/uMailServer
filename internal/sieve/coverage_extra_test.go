@@ -819,11 +819,15 @@ keep;
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	if len(actions) != 1 {
-		t.Errorf("Expected 1 action, got %d", len(actions))
+	// Script has explicit "keep;" after the if block, so both discard and keep execute
+	if len(actions) != 2 {
+		t.Errorf("Expected 2 actions (discard + keep), got %d", len(actions))
 	}
 	if _, ok := actions[0].(DiscardAction); !ok {
-		t.Errorf("Expected DiscardAction, got %T", actions[0])
+		t.Errorf("Expected DiscardAction[0], got %T", actions[0])
+	}
+	if _, ok := actions[1].(KeepAction); !ok {
+		t.Errorf("Expected KeepAction[1], got %T", actions[1])
 	}
 }
 

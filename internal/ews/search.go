@@ -59,24 +59,24 @@ type FolderIDsForSearch struct {
 
 // RestrictionContainer wraps the t:Restriction element.
 type RestrictionContainer struct {
-	XMLName      xml.Name     `xml:"Restriction"`
+	XMLName      xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Restriction"`
 	SearchFilter SearchFilter `xml:",any"` // supported filter types
 }
 
 // SearchFilter is a disjunction (OR) or conjunction (AND) of search conditions.
 // Only one of the fields is populated at a time based on the XML element name.
 type SearchFilter struct {
-	And       *SearchFilter     `xml:"And"`
-	Or        *SearchFilter     `xml:"Or"`
-	Not       *SearchFilter     `xml:"Not"`
-	IsEqualTo *ComparisonFilter `xml:"IsEqualTo"`
-	Contains  *ContainsFilter   `xml:"Contains"`
-	Exists    *ExistsFilter     `xml:"Exists"`
+	And       *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types And"`
+	Or        *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Or"`
+	Not       *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Not"`
+	IsEqualTo *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEqualTo"`
+	Contains  *ContainsFilter   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contains"`
+	Exists    *ExistsFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exists"`
 	// Relational comparisons.
-	IsGreaterThan          *ComparisonFilter `xml:"IsGreaterThan"`
-	IsLessThan             *ComparisonFilter `xml:"IsLessThan"`
-	IsGreaterThanOrEqualTo *ComparisonFilter `xml:"IsGreaterThanOrEqualTo"`
-	IsLessThanOrEqualTo    *ComparisonFilter `xml:"IsLessThanOrEqualTo"`
+	IsGreaterThan          *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsGreaterThan"`
+	IsLessThan             *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsLessThan"`
+	IsGreaterThanOrEqualTo *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsGreaterThanOrEqualTo"`
+	IsLessThanOrEqualTo    *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsLessThanOrEqualTo"`
 }
 
 // ContainsFilter represents the EWS Contains element.
@@ -102,19 +102,10 @@ type ExistsFilter struct {
 }
 
 // ComparisonFilter is a common comparison type (IsEqualTo, IsGreaterThan, etc.).
+// EWS XML: <t:IsEqualTo><t:FieldURI FieldURI="..."/><t:FieldURIOrConstant><t:Constant Value="..."/></t:FieldURIOrConstant></t:IsEqualTo>
 type ComparisonFilter struct {
-	Path     ComparisonPathType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Path"`
-	Constant ComparisonConstType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Constant"`
-}
-
-// ComparisonPathType is the Path in a comparison filter: a FieldURI with uri attribute.
-type ComparisonPathType struct {
-	URI string `xml:"uri,attr"`
-}
-
-// ComparisonConstType is the Constant value in a comparison filter.
-type ComparisonConstType struct {
-	Value string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Value"`
+	FieldURI           *FieldURI           `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
+	FieldURIOrConstant *FieldURIOrConstant `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURIOrConstant"`
 }
 
 // FieldURIOrConstant represents either a field URI or a constant value.
@@ -444,11 +435,14 @@ func evalFilter(f SearchFilter, fields filterFields, subject, dateStr string, ha
 
 // evalComparison evaluates a comparison filter (IsEqualTo, IsGreaterThan, etc.).
 func evalComparison(c ComparisonFilter, fields filterFields, subject, dateStr string, hasContent bool, op string) bool {
-	if c.Path.URI == "" || c.Constant.Value == "" {
+	if c.FieldURI == nil || c.FieldURIOrConstant == nil || c.FieldURIOrConstant.Constant == nil {
 		return false
 	}
-	uri := c.Path.URI
-	constVal := c.Constant.Value
+	uri := c.FieldURI.URI
+	constVal := c.FieldURIOrConstant.Constant.Value
+	if uri == "" || constVal == "" {
+		return false
+	}
 
 	// Map field URI to comparison value.
 	var fieldValue string
@@ -457,7 +451,7 @@ func evalComparison(c ComparisonFilter, fields filterFields, subject, dateStr st
 	switch uri {
 	case "message:From":
 		fieldValue = fields.From
-	case "message:Subject":
+	case "item:Subject", "message:Subject":
 		fieldValue = subject
 	case "message:DateTimeReceived":
 		fieldValue = dateStr

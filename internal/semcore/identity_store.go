@@ -168,7 +168,7 @@ type IdentityStore interface {
 
 	// PutItemIdentity stores a canonical ItemId + ChangeKey for a message.
 	// If an item already exists for this message-key, it returns ErrIdentityExists.
-	PutItemIdentity(msgKey string, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId) error
+	PutItemIdentity(msgKey string, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId, isRead bool) error
 
 	// GetItemIDByKey retrieves ItemId for a message key.
 	// Returns ErrItemNotFound if not registered.
@@ -808,8 +808,41 @@ func (s *BoltIdentityStore) GetFolderByMailbox(mboxKey, role string) (*storedFol
 // ItemId operations
 // ---------------------------------------------------------------------------
 
+// PutItemIdentityWithKey is like PutItemIdentity but uses the given storageKey
+// as the Bolt key instead of deriving it from msgKey. This allows creating
+// unique identity entries for the same content delivered to different folders
+// while keeping the original msgKey for message-store lookups.
+func (s *BoltIdentityStore) PutItemIdentityWithKey(storageKey, msgKey string, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId, isRead bool) error {
+	if id.IsZero() {
+		return errors.New("PutItemIdentityWithKey: zero ItemId")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketItem))
+		if b.Get([]byte(storageKey)) != nil {
+			return ErrIdentityExists
+		}
+		rec := StoredItemIdentity{
+			ItemID:         id,
+			MailboxID:      mailboxID,
+			FolderID:       folderID,
+			ChangeKey:      ck,
+			ConversationID: convID,
+			MsgKey:         msgKey,
+			Email:          email,
+			IsRead:         isRead,
+		}
+		data, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("marshal item identity: %w", err)
+		}
+		return b.Put([]byte(storageKey), data)
+	})
+}
+
 // PutItemIdentity implements IdentityStore.
-func (s *BoltIdentityStore) PutItemIdentity(msgKey string, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId) error {
+func (s *BoltIdentityStore) PutItemIdentity(msgKey string, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId, isRead bool) error {
 	if id.IsZero() {
 		return errors.New("PutItemIdentity: zero ItemId")
 	}
@@ -829,6 +862,7 @@ func (s *BoltIdentityStore) PutItemIdentity(msgKey string, email string, id Item
 			ConversationID: convID,
 			MsgKey:         msgKey,
 			Email:          email,
+			IsRead:         isRead,
 		}
 		data, err := json.Marshal(rec)
 		if err != nil {

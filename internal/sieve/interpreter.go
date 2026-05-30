@@ -46,6 +46,11 @@ type RedirectAction struct {
 	Address string
 }
 
+// AddFlagAction adds IMAP flags to the stored message
+type AddFlagAction struct {
+	Flags []string
+}
+
 // StopAction stops processing
 type StopAction struct {
 }
@@ -205,7 +210,8 @@ func (i *Interpreter) Execute(msg *MessageContext) ([]Action, error) {
 		}
 	}
 
-	// Execute commands
+	// Execute commands - accumulate all actions until stop
+	var allActions []Action
 	for _, cmd := range i.script.Commands {
 		if cmd.Name == "require" {
 			continue
@@ -214,9 +220,17 @@ func (i *Interpreter) Execute(msg *MessageContext) ([]Action, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(actions) > 0 {
-			return actions, nil
+		allActions = append(allActions, actions...)
+		// Check if stop was encountered in this command's actions
+		for _, a := range actions {
+			if _, ok := a.(StopAction); ok {
+				return allActions, nil
+			}
 		}
+	}
+
+	if len(allActions) > 0 {
+		return allActions, nil
 	}
 
 	// Default: keep
@@ -268,6 +282,8 @@ func (i *Interpreter) executeCommand(cmd *Command) ([]Action, error) {
 		return i.executeReject(cmd)
 	case "vacation":
 		return i.executeVacation(cmd)
+	case "addflag":
+		return i.executeAddFlag(cmd)
 	case "set":
 		return i.executeSet(cmd)
 	case "addheader":
@@ -280,8 +296,33 @@ func (i *Interpreter) executeCommand(cmd *Command) ([]Action, error) {
 }
 
 func (i *Interpreter) executeIf(cmd *Command) ([]Action, error) {
-	// Parse test from arguments
+	// Parse test from arguments (elsif may have no args when it's an else block)
 	if len(cmd.Arguments) == 0 {
+		if cmd.Name == "elsif" && cmd.Block != nil {
+			// This is actually an else block disguised as elsif with no args
+			prevMatched := len(i.ctx.Stack) > 0 && i.ctx.Stack[len(i.ctx.Stack)-1]
+			if !prevMatched {
+				// Execute else block
+				var allActions []Action
+				for _, c := range cmd.Block.Commands {
+					actions, err := i.executeCommand(&c)
+					if err != nil {
+						return nil, err
+					}
+					if len(actions) > 0 {
+						allActions = append(allActions, actions...)
+					}
+				}
+				if len(allActions) > 0 {
+					return allActions, nil
+				}
+			}
+		}
+		return nil, nil
+	}
+
+	// For elsif, if a previous if/elsif already matched, skip entirely
+	if cmd.Name == "elsif" && len(i.ctx.Stack) > 0 && i.ctx.Stack[len(i.ctx.Stack)-1] {
 		return nil, nil
 	}
 
@@ -295,17 +336,9 @@ func (i *Interpreter) executeIf(cmd *Command) ([]Action, error) {
 		return nil, err
 	}
 
-	// If command is elsif, we need previous if/elsif to be true
-	if cmd.Name == "elsif" && len(i.ctx.Stack) > 0 && !i.ctx.Stack[len(i.ctx.Stack)-1] {
-		// Previous conditions weren't met, skip
-		return nil, nil
-	}
-
-	if cmd.Name == "elsif" {
-		// Pop the previous frame since we're replacing it
-		if len(i.ctx.Stack) > 0 {
-			i.ctx.Stack = i.ctx.Stack[:len(i.ctx.Stack)-1]
-		}
+	// For elsif, pop the previous false from stack before pushing our result
+	if cmd.Name == "elsif" && len(i.ctx.Stack) > 0 {
+		i.ctx.Stack = i.ctx.Stack[:len(i.ctx.Stack)-1]
 	}
 
 	i.ctx.Stack = append(i.ctx.Stack, result)
@@ -723,6 +756,22 @@ func (i *Interpreter) executeVacation(cmd *Command) ([]Action, error) {
 	}
 
 	return []Action{vacation}, nil
+}
+
+func (i *Interpreter) executeAddFlag(cmd *Command) ([]Action, error) {
+	if len(cmd.Arguments) == 0 {
+		return nil, nil
+	}
+	var flags []string
+	for _, arg := range cmd.Arguments {
+		if str, ok := arg.(*StringValue); ok {
+			flags = append(flags, str.Value)
+		}
+	}
+	if len(flags) == 0 {
+		return nil, nil
+	}
+	return []Action{AddFlagAction{Flags: flags}}, nil
 }
 
 func (i *Interpreter) executeSet(cmd *Command) ([]Action, error) {
