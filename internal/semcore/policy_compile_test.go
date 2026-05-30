@@ -245,8 +245,16 @@ func TestCompileOOFConditionalVacation_WithSchedule(t *testing.T) {
 	if !strings.Contains(script, "vacation") {
 		t.Error("Script should contain vacation action")
 	}
-	if !strings.Contains(script, "currentdate") {
-		t.Error("Script with schedule should contain currentdate test")
+	// The schedule window is NOT encoded as a Sieve `currentdate` test: our
+	// interpreter does not evaluate it, and a script compiled once cannot
+	// re-check the window per delivery. The window is enforced server-side via
+	// OOFPolicy.IsActiveNow() instead. The script must still guard against mail
+	// loops with an X-Mail-Loop suppression test.
+	if strings.Contains(script, "currentdate") {
+		t.Error("Script should not contain an unevaluable currentdate test")
+	}
+	if !strings.Contains(script, "X-Mail-Loop") {
+		t.Error("Script should suppress replies to existing mail loops")
 	}
 }
 

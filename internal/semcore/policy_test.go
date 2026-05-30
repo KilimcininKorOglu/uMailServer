@@ -189,22 +189,29 @@ func TestOOFPolicy_IsActiveNow(t *testing.T) {
 		t.Error("Enabled policy without schedule should be active")
 	}
 
-	// Enabled with future start time
-	policy = &OOFPolicy{Enabled: true, StartTime: now.Add(1 * time.Hour)}
-	if policy.IsActiveNow() {
-		t.Error("Policy with future start should not be active")
-	}
-
-	// Enabled with past end time
-	policy = &OOFPolicy{Enabled: true, EndTime: now.Add(-1 * time.Hour)}
-	if policy.IsActiveNow() {
-		t.Error("Policy with past end should not be active")
-	}
-
-	// Enabled within schedule window
-	policy = &OOFPolicy{Enabled: true, StartTime: now.Add(-1 * time.Hour), EndTime: now.Add(1 * time.Hour)}
+	// Exchange semantics: an Enabled policy is active now even if it carries a
+	// (future) duration — the duration is informational for the Enabled state.
+	policy = &OOFPolicy{Enabled: true, State: "Enabled", StartTime: now.Add(1 * time.Hour)}
 	if !policy.IsActiveNow() {
-		t.Error("Policy within schedule window should be active")
+		t.Error("Enabled policy should be active regardless of its duration window")
+	}
+
+	// Scheduled with future start time
+	policy = &OOFPolicy{Enabled: true, State: "Scheduled", StartTime: now.Add(1 * time.Hour)}
+	if policy.IsActiveNow() {
+		t.Error("Scheduled policy with future start should not be active")
+	}
+
+	// Scheduled with past end time
+	policy = &OOFPolicy{Enabled: true, State: "Scheduled", EndTime: now.Add(-1 * time.Hour)}
+	if policy.IsActiveNow() {
+		t.Error("Scheduled policy with past end should not be active")
+	}
+
+	// Scheduled within schedule window
+	policy = &OOFPolicy{Enabled: true, State: "Scheduled", StartTime: now.Add(-1 * time.Hour), EndTime: now.Add(1 * time.Hour)}
+	if !policy.IsActiveNow() {
+		t.Error("Scheduled policy within schedule window should be active")
 	}
 }
 

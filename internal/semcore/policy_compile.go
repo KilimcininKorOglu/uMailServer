@@ -32,7 +32,7 @@ func CompileRulesToSieve(rules []*Rule) string {
 
 		// Only add require statement when we have actual rules
 		if len(lines) == 0 {
-			lines = append(lines, `require ["fileinto", "redirect", "reject", "vacation", "envelope", "body", "regex", "subaddress", "date", "index", "imapflags"];`)
+			lines = append(lines, `require ["fileinto", "redirect", "reject", "vacation", "envelope", "body", "regex", "subaddress", "date", "index", "imapflags", "editheader"];`)
 		}
 
 		if firstRule {
@@ -375,28 +375,16 @@ func CompileOOFConditionalVacation(policy *OOFPolicy) string {
 		lines = append(lines, "if true {")
 	}
 
-	// Add schedule tests if we have a schedule
-	if !policy.StartTime.IsZero() || !policy.EndTime.IsZero() {
-		var scheduleTests []string
-		if !policy.StartTime.IsZero() {
-			scheduleTests = append(scheduleTests, fmt.Sprintf(`currentdate :value "GE" "ZONK" %q`, policy.StartTime.Format("20060102T150400")))
-		}
-		if !policy.EndTime.IsZero() {
-			scheduleTests = append(scheduleTests, fmt.Sprintf(`currentdate :value "LE" "ZONK" %q`, policy.EndTime.Format("20060102T150400")))
-		}
-		if len(scheduleTests) > 0 {
-			lines = append(lines, fmt.Sprintf("  if allof(%s) {", strings.Join(scheduleTests, ",\n")))
-		}
-	}
+	// NOTE: The schedule window (StartTime/EndTime) is intentionally NOT encoded
+	// as a Sieve `currentdate` test. Our interpreter does not evaluate
+	// `currentdate`, and a static script compiled once cannot re-evaluate the
+	// window at each delivery anyway. Instead the window is enforced at delivery
+	// time via OOFPolicy.IsActiveNow() before the auto-reply is sent — the same
+	// server-side evaluation model Exchange uses for its autoreply properties.
 
 	// Vacation action
 	vacationLine := "  " + compileVacationAction(policy)
 	lines = append(lines, vacationLine)
-
-	// Close schedule test
-	if !policy.StartTime.IsZero() || !policy.EndTime.IsZero() {
-		lines = append(lines, "  }")
-	}
 
 	// Close suppression test
 	lines = append(lines, "}")

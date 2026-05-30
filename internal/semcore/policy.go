@@ -462,6 +462,11 @@ type OOFPolicy struct {
 	// Enabled state
 	Enabled bool `json:"enabled"`
 
+	// State is the verbatim EWS OofState ("Enabled", "Scheduled", or "Disabled").
+	// Stored so GetUserOofSettings round-trips the exact state the client set,
+	// rather than inferring Scheduled whenever a schedule window is present.
+	State string `json:"state,omitempty"`
+
 	// Schedule (timezone-aware)
 	StartTime time.Time `json:"startTime,omitempty"` // zero = no start restriction
 	EndTime   time.Time `json:"endTime,omitempty"`   // zero = no end restriction
@@ -472,6 +477,12 @@ type OOFPolicy struct {
 	TextBody   string            `json:"textBody"`
 	HTMLBody   string            `json:"htmlBody,omitempty"`
 	ReplyStyle OOFAutoReplyStyle `json:"replyStyle"`
+
+	// InternalReply and ExternalReply hold the verbatim EWS reply bodies so the
+	// internal/external distinction round-trips. TextBody mirrors InternalReply
+	// for the Sieve vacation runtime.
+	InternalReply string `json:"internalReply,omitempty"`
+	ExternalReply string `json:"externalReply,omitempty"`
 
 	// Audience and suppression
 	Audience          OOFAudience `json:"audience"`                   // who receives replies
@@ -484,17 +495,25 @@ type OOFPolicy struct {
 	SendIntervalSeconds int64 `json:"sendIntervalSeconds"` // 0 = use server default (7 days)
 }
 
-// IsActiveNow returns true if OOF is currently active based on schedule.
+// IsActiveNow returns true if OOF is currently active.
+//
+// Exchange semantics: an "Enabled" policy is active immediately and its
+// Duration is informational only; a "Scheduled" policy is active solely within
+// its [StartTime, EndTime] window. Disabled is never active. Only the Scheduled
+// state is gated by the time window so an Enabled policy auto-replies right
+// away regardless of the duration the client happened to send.
 func (p *OOFPolicy) IsActiveNow() bool {
 	if !p.Enabled {
 		return false
 	}
-	now := time.Now()
-	if !p.StartTime.IsZero() && now.Before(p.StartTime) {
-		return false
-	}
-	if !p.EndTime.IsZero() && now.After(p.EndTime) {
-		return false
+	if p.State == "Scheduled" {
+		now := time.Now()
+		if !p.StartTime.IsZero() && now.Before(p.StartTime) {
+			return false
+		}
+		if !p.EndTime.IsZero() && now.After(p.EndTime) {
+			return false
+		}
 	}
 	return true
 }
