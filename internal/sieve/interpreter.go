@@ -51,6 +51,13 @@ type AddFlagAction struct {
 	Flags []string
 }
 
+// AddHeaderAction adds a header field to the delivered message (RFC 5293
+// editheader extension). The pipeline injects it into the stored message.
+type AddHeaderAction struct {
+	Name  string
+	Value string
+}
+
 // StopAction stops processing
 type StopAction struct {
 }
@@ -377,6 +384,12 @@ func (i *Interpreter) parseHeaderTest(args []Value) (Test, error) {
 		switch str.Value {
 		case "allof", "anyof":
 			return i.parseHeaderTest(args[1:])
+		case "not":
+			inner, err := i.parseHeaderTest(args[1:])
+			if err != nil {
+				return nil, err
+			}
+			return &NotTest{Inner: inner}, nil
 		case "body":
 			return parseBodyTest(args)
 		case "size":
@@ -506,6 +519,17 @@ func (i *Interpreter) evaluateTest(test Test) (bool, error) {
 		return i.evaluateBodyTest(t)
 	case *BooleanTest:
 		return i.evaluateBooleanTest(t)
+	case *NotTest:
+		if t.Inner == nil {
+			// `not` with no parseable inner test: treat the inner as false so
+			// the negation is true (a missing condition cannot match).
+			return true, nil
+		}
+		r, err := i.evaluateTest(t.Inner)
+		if err != nil {
+			return false, err
+		}
+		return !r, nil
 	default:
 		return true, nil
 	}
@@ -722,35 +746,65 @@ func (i *Interpreter) executeReject(cmd *Command) ([]Action, error) {
 }
 
 func (i *Interpreter) executeVacation(cmd *Command) ([]Action, error) {
+	// RFC 5230 syntax:
+	//   vacation [":days" n] [":subject" s] [":from" s] [":addresses" list]
+	//            [":mime"] [":handle" s] <reason: string>
+	// Each tagged argument consumes the value that follows it; the single
+	// untagged positional string is the reason, which becomes the reply body.
 	vacation := VacationAction{
 		Days: 7, // Default interval
 	}
 
+	// The parser stores the first tag that follows the command name in cmd.Tag
+	// rather than in Arguments, so seed the pending-tag state from it. Otherwise
+	// `vacation :subject "X" ...` would lose the :subject association and treat
+	// "X" as the positional reason.
+	pendingTag := ""
+	switch cmd.Tag {
+	case "mime":
+		vacation.Mime = true
+	case "subject", "from", "handle", "days", "addresses":
+		pendingTag = cmd.Tag
+	}
 	for _, arg := range cmd.Arguments {
 		switch a := arg.(type) {
 		case *TagValue:
 			switch a.Value {
-			case "subject":
-				// Next arg is subject
-			case "days":
-			case "addresses":
 			case "mime":
 				vacation.Mime = true
-			case "handle":
-				// Next arg is handle
+				pendingTag = ""
+			case "subject", "from", "handle", "days", "addresses":
+				pendingTag = a.Value
+			default:
+				pendingTag = ""
 			}
 		case *StringValue:
-			if vacation.Subject == "" {
+			switch pendingTag {
+			case "subject":
 				vacation.Subject = a.Value
-			} else if vacation.Body == "" {
+			case "from":
+				vacation.From = a.Value
+			case "handle", "addresses":
+				// Consumed but not needed for delivery.
+			default:
+				// Untagged positional argument: the vacation reason (body).
 				vacation.Body = a.Value
 			}
+			pendingTag = ""
+		case *ListValue:
+			if pendingTag == "addresses" {
+				vacation.Addresses = append(vacation.Addresses, a.Values...)
+			}
+			pendingTag = ""
 		case *NumberValue:
-			vacation.Days = int(a.Value)
+			if pendingTag == "days" {
+				vacation.Days = int(a.Value)
+			}
+			pendingTag = ""
 		}
 	}
 
-	// Only send vacation if enabled
+	// Only send a vacation reply if there is content to send.
 	if vacation.Subject == "" && vacation.Body == "" {
 		return nil, nil
 	}
@@ -795,8 +849,18 @@ func (i *Interpreter) executeSet(cmd *Command) ([]Action, error) {
 }
 
 func (i *Interpreter) executeAddHeader(cmd *Command) ([]Action, error) {
-	// Add header to message - would need to modify message in pipeline
-	return nil, nil
+	// RFC 5293 syntax: addheader [:last] <field-name: string> <value: string>.
+	// Collect the two string arguments, ignoring the optional :last tag.
+	var strs []string
+	for _, arg := range cmd.Arguments {
+		if str, ok := arg.(*StringValue); ok {
+			strs = append(strs, str.Value)
+		}
+	}
+	if len(strs) < 2 || strs[0] == "" {
+		return nil, nil
+	}
+	return []Action{AddHeaderAction{Name: strs[0], Value: strs[1]}}, nil
 }
 
 func (i *Interpreter) executeDeleteHeader(cmd *Command) ([]Action, error) {

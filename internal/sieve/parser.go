@@ -128,6 +128,11 @@ type BooleanTest struct {
 	Tests []Test
 }
 
+// NotTest negates the result of an inner test (Sieve `not` test).
+type NotTest struct {
+	Inner Test
+}
+
 // StringTest is a simple string comparison test
 type StringTest struct {
 	Variables bool
