@@ -657,10 +657,10 @@ func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, dat
 	}
 
 	// Parse basic headers for indexing
-	subject, from, to, dateStr, _, inReplyTo, references := parseMessageHeadersExtended(data)
+	subject, from, to, dateStr, msgID, inReplyTo, references := parseMessageHeadersExtended(data)
 
 	// Get or create thread ID
-	threadID, err := m.db.GetOrCreateThreadID(user, mailbox, subject, inReplyTo, references)
+	threadID, err := m.db.GetOrCreateThreadID(user, mailbox, subject, msgID, inReplyTo, references)
 	if err != nil {
 		threadID = "" // Continue without threading if it fails
 	}

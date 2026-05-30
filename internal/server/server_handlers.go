@@ -483,6 +483,10 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 		uid, uidErr := s.storageDB.GetNextUID(email, folder)
 		if uidErr == nil {
 			subject, fromAddr, toAddr, dateStr := parseBasicHeaders(data)
+			hdrMsgID, hdrInReplyTo, hdrRefs := parseThreadingHeaders(data)
+			// Deterministic thread id (RFC 2822 rooting) so this message groups
+			// with the rest of its conversation across mailboxes and protocols.
+			threadID, _ := s.storageDB.GetOrCreateThreadID(email, folder, subject, hdrMsgID, hdrInReplyTo, hdrRefs) //nolint:errcheck
 			meta := &storage.MessageMetadata{
 				MessageID:    messageID,
 				UID:          uid,
@@ -493,6 +497,9 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 				Date:         dateStr,
 				From:         fromAddr,
 				To:           toAddr,
+				ThreadID:     threadID,
+				InReplyTo:    hdrInReplyTo,
+				References:   hdrRefs,
 			}
 			if err := s.storageDB.StoreMessageMetadata(email, folder, uid, meta); err != nil {
 				s.logger.Error("Failed to store message metadata", "email", email, "uid", uid, "folder", folder, "error", err)
@@ -599,6 +606,24 @@ func parseBasicHeaders(data []byte) (subject, from, to, date string) {
 	to = msg.Header.Get("To")
 	date = msg.Header.Get("Date")
 	return
+}
+
+// parseThreadingHeaders extracts the RFC 2822 threading headers (Message-ID,
+// In-Reply-To, References) from raw message data, stripped of angle brackets.
+func parseThreadingHeaders(data []byte) (messageID, inReplyTo string, references []string) {
+	msg, err := mail.ReadMessage(strings.NewReader(string(data)))
+	if err != nil {
+		return "", "", nil
+	}
+	trim := func(s string) string { return strings.Trim(strings.TrimSpace(s), "<>") }
+	messageID = trim(msg.Header.Get("Message-ID"))
+	inReplyTo = trim(msg.Header.Get("In-Reply-To"))
+	for _, ref := range strings.Fields(msg.Header.Get("References")) {
+		if r := trim(ref); r != "" {
+			references = append(references, r)
+		}
+	}
+	return messageID, inReplyTo, references
 }
 
 // generateSecureToken generates a cryptographically random 32-byte hex token.

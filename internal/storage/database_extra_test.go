@@ -5,11 +5,12 @@ import (
 	"time"
 )
 
-// Test GetOrCreateThreadID with nil database
+// Test GetOrCreateThreadID with nil database (header-less falls back to a
+// generated id, which must still be non-empty).
 func TestGetOrCreateThreadID_NoDB(t *testing.T) {
 	db := &Database{bolt: nil}
 
-	threadID, err := db.GetOrCreateThreadID("user@example.com", "INBOX", "Test Subject", "", nil)
+	threadID, err := db.GetOrCreateThreadID("user@example.com", "INBOX", "Test Subject", "", "", nil)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -19,76 +20,59 @@ func TestGetOrCreateThreadID_NoDB(t *testing.T) {
 	}
 }
 
-// Test GetOrCreateThreadID with In-Reply-To
-func TestGetOrCreateThreadID_WithInReplyTo(t *testing.T) {
-	tmpDir := t.TempDir()
-	db, err := OpenDatabase(tmpDir + "/test.db")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
-	defer db.Close()
+// A thread root (identified by its own Message-ID) and a reply that points back
+// at it via In-Reply-To must resolve to the SAME deterministic thread id, so the
+// conversation groups regardless of which mailbox each message lives in.
+func TestGetOrCreateThreadID_RootAndReplyShareID(t *testing.T) {
+	db := &Database{bolt: nil}
 
-	// Create a message to reply to
-	msg := &MessageMetadata{
-		MessageID:    "original-msg@example.com",
-		UID:          1,
-		Subject:      "Original Subject",
-		ThreadID:     "existing-thread-123",
-		InternalDate: time.Now(),
+	rootMsgID := "root-msg@example.com"
+	want := deterministicThreadID(rootMsgID)
+
+	// The root message: its own Message-ID, no references.
+	rootID, _ := db.GetOrCreateThreadID("user@example.com", "INBOX", "Subject", rootMsgID, "", nil) //nolint:errcheck
+	if rootID != want {
+		t.Errorf("root thread id = %s, want %s", rootID, want)
 	}
 
-	err = db.StoreMessageMetadata("user@example.com", "INBOX", 1, msg)
-	if err != nil {
-		t.Fatalf("Failed to store message: %v", err)
+	// A reply via In-Reply-To.
+	replyID, _ := db.GetOrCreateThreadID("user@example.com", "Sent", "Re: Subject", "reply-msg@example.com", rootMsgID, nil) //nolint:errcheck
+	if replyID != want {
+		t.Errorf("reply (In-Reply-To) thread id = %s, want %s (must match root)", replyID, want)
 	}
 
-	// Now create a reply
-	threadID, err := db.GetOrCreateThreadID("user@example.com", "INBOX", "Re: Original Subject", "original-msg@example.com", nil)
-	if err != nil {
-		t.Errorf("GetOrCreateThreadID failed: %v", err)
-	}
-
-	if threadID != "existing-thread-123" {
-		t.Errorf("Expected thread ID 'existing-thread-123', got %s", threadID)
+	// A reply via References (most recent reference is the parent/root).
+	refID, _ := db.GetOrCreateThreadID("user@example.com", "INBOX", "Re: Subject", "reply2-msg@example.com", "", []string{rootMsgID}) //nolint:errcheck
+	if refID != want {
+		t.Errorf("reply (References) thread id = %s, want %s (must match root)", refID, want)
 	}
 }
 
-// Test GetOrCreateThreadID with References
-func TestGetOrCreateThreadID_WithReferences(t *testing.T) {
-	tmpDir := t.TempDir()
-	db, err := OpenDatabase(tmpDir + "/test.db")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
-	defer db.Close()
+// References precedence: the MOST RECENT reference (last entry) is the parent,
+// mirroring semcore.computeConversationID.
+func TestGetOrCreateThreadID_ReferencesUsesMostRecent(t *testing.T) {
+	db := &Database{bolt: nil}
 
-	// Create a message
-	msg := &MessageMetadata{
-		MessageID:    "ref-msg@example.com",
-		UID:          1,
-		Subject:      "Reference Subject",
-		ThreadID:     "ref-thread-456",
-		InternalDate: time.Now(),
-	}
-
-	err = db.StoreMessageMetadata("user@example.com", "INBOX", 1, msg)
-	if err != nil {
-		t.Fatalf("Failed to store message: %v", err)
-	}
-
-	// Now create a message with reference
-	refs := []string{"ref-msg@example.com", "other@example.com"}
-	threadID, err := db.GetOrCreateThreadID("user@example.com", "INBOX", "Re: Reference Subject", "", refs)
-	if err != nil {
-		t.Errorf("GetOrCreateThreadID failed: %v", err)
-	}
-
-	if threadID != "ref-thread-456" {
-		t.Errorf("Expected thread ID 'ref-thread-456', got %s", threadID)
+	refs := []string{"oldest@example.com", "older@example.com", "parent@example.com"}
+	got, _ := db.GetOrCreateThreadID("user@example.com", "INBOX", "Re: x", "self@example.com", "", refs) //nolint:errcheck
+	if want := deterministicThreadID("parent@example.com"); got != want {
+		t.Errorf("thread id = %s, want %s (most recent reference)", got, want)
 	}
 }
 
-// Test GetOrCreateThreadID with subject matching
+// Bracketed Message-IDs must be normalized identically to bare ones.
+func TestGetOrCreateThreadID_BracketsNormalized(t *testing.T) {
+	db := &Database{bolt: nil}
+
+	bare, _ := db.GetOrCreateThreadID("u@e.com", "INBOX", "s", "m@e.com", "", nil)        //nolint:errcheck
+	bracketed, _ := db.GetOrCreateThreadID("u@e.com", "INBOX", "s", "<m@e.com>", "", nil) //nolint:errcheck
+	if bare != bracketed {
+		t.Errorf("bracketed (%s) and bare (%s) Message-ID must yield the same thread id", bracketed, bare)
+	}
+}
+
+// Test GetOrCreateThreadID with subject matching (header-less message falls back
+// to subject-based grouping against an existing thread).
 func TestGetOrCreateThreadID_WithSubjectMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := OpenDatabase(tmpDir + "/test.db")
@@ -111,8 +95,9 @@ func TestGetOrCreateThreadID_WithSubjectMatch(t *testing.T) {
 		t.Fatalf("Failed to store message: %v", err)
 	}
 
-	// Now create a message with similar subject (no references)
-	threadID, err := db.GetOrCreateThreadID("user@example.com", "INBOX", "Re: Project Discussion", "", nil)
+	// A header-less message (no Message-ID/In-Reply-To/References) with a similar
+	// subject falls back to subject grouping.
+	threadID, err := db.GetOrCreateThreadID("user@example.com", "INBOX", "Re: Project Discussion", "", "", nil)
 	if err != nil {
 		t.Errorf("GetOrCreateThreadID failed: %v", err)
 	}
@@ -132,27 +117,13 @@ func TestGetOrCreateThreadID_NewThread(t *testing.T) {
 	defer db.Close()
 
 	// Create a message with no threading headers and no subject match
-	threadID, err := db.GetOrCreateThreadID("user@example.com", "INBOX", "Unique Subject XYZ", "", nil)
+	threadID, err := db.GetOrCreateThreadID("user@example.com", "INBOX", "Unique Subject XYZ", "", "", nil)
 	if err != nil {
 		t.Errorf("GetOrCreateThreadID failed: %v", err)
 	}
 
 	if threadID == "" {
 		t.Error("Expected non-empty thread ID for new thread")
-	}
-}
-
-// Test findThreadByReferences with nil database
-func TestFindThreadByReferences_NoDB(t *testing.T) {
-	db := &Database{bolt: nil}
-
-	threadID, err := db.findThreadByReferences("user@example.com", "INBOX", "msg@example.com", nil)
-	if err != nil {
-		t.Errorf("Expected no error, got %v", err)
-	}
-
-	if threadID != "" {
-		t.Errorf("Expected empty thread ID, got %s", threadID)
 	}
 }
 

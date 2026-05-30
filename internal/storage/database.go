@@ -761,70 +761,58 @@ func threadBucket(user string) string {
 	return fmt.Sprintf("threads:%s", user)
 }
 
-// GetOrCreateThreadID finds an existing thread for a message or creates a new one
-func (db *Database) GetOrCreateThreadID(user, mailbox string, subject, inReplyTo string, references []string) (string, error) {
-	if db.bolt == nil {
-		return generateThreadID(subject), nil
+// GetOrCreateThreadID returns a deterministic thread id for a message.
+//
+// RFC 2822 conversation threading: the id is derived from the conversation-root
+// Message-ID — the most recent References entry, else In-Reply-To, else the
+// message's own Message-ID — using the same precedence as
+// semcore.computeConversationID. This makes EWS, JMAP and IMAP group a
+// conversation identically across mailboxes with no database scan. Messages that
+// carry none of those headers fall back to the legacy subject-based grouping.
+func (db *Database) GetOrCreateThreadID(user, mailbox, subject, ownMessageID, inReplyTo string, references []string) (string, error) {
+	if root := threadRootID(ownMessageID, inReplyTo, references); root != "" {
+		return deterministicThreadID(root), nil
 	}
 
-	// Normalize subject (remove Re: Fwd: prefixes)
-	normalizedSubject := NormalizeSubject(subject)
-
-	// Try to find existing thread by message ID references
-	if inReplyTo != "" || len(references) > 0 {
-		threadID, err := db.findThreadByReferences(user, mailbox, inReplyTo, references)
-		if err == nil && threadID != "" {
+	// Header-less message: fall back to subject-based grouping.
+	if db.bolt != nil {
+		if threadID, err := db.findThreadBySubject(user, mailbox, NormalizeSubject(subject)); err == nil && threadID != "" {
 			return threadID, nil
 		}
 	}
-
-	// Try to find by normalized subject (for messages without proper threading headers)
-	threadID, err := db.findThreadBySubject(user, mailbox, normalizedSubject)
-	if err == nil && threadID != "" {
-		return threadID, nil
-	}
-
-	// Create new thread
 	return generateThreadID(subject), nil
 }
 
-// findThreadByReferences finds a thread by In-Reply-To or References headers
-func (db *Database) findThreadByReferences(user, mailbox, inReplyTo string, references []string) (string, error) {
-	if db.bolt == nil {
-		return "", nil
+// threadRootID returns the conversation-root Message-ID (without angle brackets)
+// using the same precedence as semcore.computeConversationID: most recent
+// References entry, else In-Reply-To, else the message's own Message-ID. Returns
+// "" when the message carries none of these.
+func threadRootID(ownMessageID, inReplyTo string, references []string) string {
+	if n := len(references); n > 0 {
+		if id := stripMessageIDBrackets(references[n-1]); id != "" {
+			return id
+		}
 	}
+	if id := stripMessageIDBrackets(inReplyTo); id != "" {
+		return id
+	}
+	return stripMessageIDBrackets(ownMessageID)
+}
 
-	threadID := ""
-	err := db.bolt.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(messagesBucket(user, mailbox)))
-		if b == nil {
-			return nil
-		}
+// stripMessageIDBrackets trims surrounding angle brackets and whitespace from a
+// Message-ID value.
+func stripMessageIDBrackets(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "<")
+	s = strings.TrimSuffix(s, ">")
+	return strings.TrimSpace(s)
+}
 
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var meta MessageMetadata
-			if err := json.Unmarshal(v, &meta); err != nil {
-				continue
-			}
-
-			// Check if this message matches our references
-			if inReplyTo != "" && meta.MessageID == inReplyTo {
-				threadID = meta.ThreadID
-				return nil
-			}
-
-			for _, ref := range references {
-				if meta.MessageID == ref && meta.ThreadID != "" {
-					threadID = meta.ThreadID
-					return nil
-				}
-			}
-		}
-		return nil
-	})
-
-	return threadID, err
+// deterministicThreadID maps a conversation-root Message-ID to a stable 16-byte
+// hex thread id, so every message sharing that root gets the same id.
+func deterministicThreadID(rootMessageID string) string {
+	hash := sha256.Sum256([]byte("thread:" + rootMessageID))
+	return hex.EncodeToString(hash[:16])
 }
 
 // findThreadBySubject finds a thread by normalized subject
