@@ -9,7 +9,7 @@ import (
 func TestComputeConversationID_FromReferences(t *testing.T) {
 	// When References header is present, use the last (most recent parent).
 	refs := []string{"<parent1@example.com>", "<parent2@example.com>"}
-	convID, isRoot := computeConversationID("", refs)
+	convID, isRoot := computeConversationID("", refs, "")
 
 	if isRoot {
 		t.Errorf("Expected isRoot=false when References is present, got true")
@@ -26,7 +26,7 @@ func TestComputeConversationID_FromReferences(t *testing.T) {
 
 func TestComputeConversationID_FromInReplyTo(t *testing.T) {
 	// When References is absent but In-Reply-To is present, use In-Reply-To.
-	convID, isRoot := computeConversationID("<reply-to@example.com>", nil)
+	convID, isRoot := computeConversationID("<reply-to@example.com>", nil, "")
 
 	if isRoot {
 		t.Errorf("Expected isRoot=false when In-Reply-To is present, got true")
@@ -42,7 +42,7 @@ func TestComputeConversationID_FromInReplyTo(t *testing.T) {
 
 func TestComputeConversationID_FromInReplyToWithAngleBrackets(t *testing.T) {
 	// In-Reply-To may have angle brackets; they should be stripped.
-	convID, isRoot := computeConversationID("<reply-with-brackets@example.com>", nil)
+	convID, isRoot := computeConversationID("<reply-with-brackets@example.com>", nil, "")
 
 	if isRoot {
 		t.Errorf("Expected isRoot=false when In-Reply-To is present, got true")
@@ -54,8 +54,9 @@ func TestComputeConversationID_FromInReplyToWithAngleBrackets(t *testing.T) {
 }
 
 func TestComputeConversationID_NewConversation(t *testing.T) {
-	// When neither References nor In-Reply-To is present, generate a new ID.
-	convID, isRoot := computeConversationID("", nil)
+	// When neither References, In-Reply-To, nor own Message-ID is present,
+	// generate a new random ID.
+	convID, isRoot := computeConversationID("", nil, "")
 
 	if !isRoot {
 		t.Errorf("Expected isRoot=true for new conversation, got false")
@@ -69,9 +70,34 @@ func TestComputeConversationID_NewConversation(t *testing.T) {
 	}
 }
 
+func TestComputeConversationID_RootUsesOwnMessageID(t *testing.T) {
+	// A thread-starting message (no References/In-Reply-To) must root its
+	// conversation on its OWN Message-ID. This is what lets a later reply —
+	// whose References point back at this Message-ID — resolve to the SAME
+	// ConversationId, keeping the thread intact. Using a random root id here
+	// would silently fragment every reply into its own conversation.
+	own := "root-msg-9f2c@umailserver.local"
+	rootID, isRoot := computeConversationID("", nil, "<"+own+">")
+	if !isRoot {
+		t.Fatalf("expected isRoot=true for a thread starter")
+	}
+	if rootID.String() != own {
+		t.Fatalf("expected root ConversationId=%q from own Message-ID, got %q", own, rootID.String())
+	}
+
+	// A reply that references the root message must land in the same conversation.
+	replyID, replyIsRoot := computeConversationID("<"+own+">", []string{own}, "reply-msg-1@umailserver.local")
+	if replyIsRoot {
+		t.Fatalf("expected reply isRoot=false")
+	}
+	if replyID.String() != rootID.String() {
+		t.Fatalf("reply ConversationId %q must equal root %q", replyID.String(), rootID.String())
+	}
+}
+
 func TestComputeConversationID_EmptyReferences(t *testing.T) {
 	// Empty References is treated as absent.
-	convID, isRoot := computeConversationID("<irt@example.com>", []string{})
+	convID, isRoot := computeConversationID("<irt@example.com>", []string{}, "")
 
 	if isRoot {
 		t.Errorf("Expected isRoot=false when In-Reply-To is present, got true")

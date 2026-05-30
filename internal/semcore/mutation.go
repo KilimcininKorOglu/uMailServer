@@ -184,8 +184,11 @@ func (p *MutationPipeline) Identity() *BoltIdentityStore {
 //   - If References is non-empty, use the last Message-ID in the chain
 //     (the most recent parent).
 //   - Else if In-Reply-To is non-empty, use that.
-//   - Else generate a new conversation ID.
-func computeConversationID(inReplyTo string, references []string) (convID ConversationId, isRoot bool) {
+//   - Else root the conversation on the message's own Message-ID so that a
+//     later reply (whose References/In-Reply-To point back at this message)
+//     resolves to the SAME ConversationId. Only when no Message-ID is present
+//     do we fall back to a random ID.
+func computeConversationID(inReplyTo string, references []string, ownMessageID string) (convID ConversationId, isRoot bool) {
 	// Use the most recent parent from References if available.
 	if len(references) > 0 {
 		lastRef := strings.TrimSpace(references[len(references)-1])
@@ -212,7 +215,18 @@ func computeConversationID(inReplyTo string, references []string) (convID Conver
 		}
 	}
 
-	// No threading context — this is a new conversation root.
+	// No threading context — root the conversation on the message's own
+	// Message-ID when available so replies can rejoin this thread.
+	if ownMessageID != "" {
+		id := stripAngleBrackets(strings.TrimSpace(ownMessageID))
+		if id != "" {
+			if cid, err := NewConversationId(id); err == nil {
+				return cid, true
+			}
+		}
+	}
+
+	// No Message-ID either — generate a new random conversation root.
 	cid, err := NewConversationId(generateID())
 	if err != nil {
 		// Defensive: generateID should never fail.
@@ -369,7 +383,7 @@ func (p *MutationPipeline) MutateItem(in *MutationInput) (*MutationResult, error
 	headers := parseHeaders(in.RawMessage)
 
 	// 2. Compute conversation identity from threading headers.
-	convID, isRoot := computeConversationID(headers.InReplyTo, headers.References)
+	convID, isRoot := computeConversationID(headers.InReplyTo, headers.References, headers.MessageID)
 
 	// 3. Generate stable ItemId — not derived from content hash, but a
 	//    truly stable random ID. This stays the same across moves, copies,
