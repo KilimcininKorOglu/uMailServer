@@ -819,13 +819,11 @@ keep;
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	// Size test is parsed as header test - no "size" header exists so condition is false
-	// Fall through to keep action
 	if len(actions) != 1 {
 		t.Errorf("Expected 1 action, got %d", len(actions))
 	}
-	if _, ok := actions[0].(KeepAction); !ok {
-		t.Errorf("Expected KeepAction, got %T", actions[0])
+	if _, ok := actions[0].(DiscardAction); !ok {
+		t.Errorf("Expected DiscardAction, got %T", actions[0])
 	}
 }
 

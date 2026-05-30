@@ -74,6 +74,10 @@ func compileConditions(rule *Rule) string {
 		return ""
 	}
 
+	if len(tests) == 1 {
+		return tests[0]
+	}
+
 	if rule.MatchAll {
 		// All conditions must match (AND)
 		return fmt.Sprintf("allof (%s)", strings.Join(tests, ", "))
@@ -91,7 +95,9 @@ func compileCondition(cond RuleCondition) string {
 	case RuleConditionKindSize:
 		return compileSizeTest(cond)
 	case RuleConditionKindFlag:
-		return "" // Sieve doesn't have native flag tests without extensions
+		return `header :matches ["Content-Type"] "*multipart*"`
+	case RuleConditionKindBody:
+		return fmt.Sprintf(`body :%s %q`, matchType, cond.Value)
 	default:
 		if cond.HeaderName != "" {
 			header = cond.HeaderName
@@ -150,6 +156,7 @@ func compileSizeTest(cond RuleCondition) string {
 	rel := ":over"
 	if strings.HasPrefix(cond.Value, "-") {
 		rel = ":under"
+		size = strings.TrimPrefix(size, "-")
 	}
 	return fmt.Sprintf("size %s %s", rel, size)
 }

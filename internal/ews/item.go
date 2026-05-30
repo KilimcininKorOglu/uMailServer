@@ -6,6 +6,7 @@ package ews
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -60,6 +61,19 @@ type MessageTypeNew struct {
 	From          *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
 	Sender        *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sender,omitempty"`
 	IsDraft       bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDraft,attr"`
+	Attachments   *AttachmentsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attachments,omitempty"`
+}
+
+type AttachmentsType struct {
+	FileAttachments []FileAttachmentType `xml:"http://schemas.microsoft.com/exchange/services/2006/types FileAttachment,omitempty"`
+}
+
+type FileAttachmentType struct {
+	Name        string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
+	ContentType string `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContentType,omitempty"`
+	ContentID   string `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContentId,omitempty"`
+	IsInline    *bool  `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsInline,omitempty"`
+	Content     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Content,omitempty"`
 }
 
 type ReplyCreateItemType struct {
@@ -151,15 +165,15 @@ type ItemsContainer struct {
 
 // MessageTypeResponse is a message item in responses (read/fetched).
 type MessageTypeResponse struct {
-	XMLName          xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
-	ItemID           ItemIdType            `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
-	ParentFolderID   FolderIdComponents    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
-	Subject          string                `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	DateTimeReceived string                `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
-	Size             int                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
-	Body             BodyTypeResponse      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
-	ToRecipients     []MailboxTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
-	IsRead           bool                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
+	XMLName          xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	ItemID           ItemIdType             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
+	ParentFolderID   FolderIdComponents     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+	Subject          string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	DateTimeReceived string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
+	Size             int                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
+	Body             BodyTypeResponse       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
+	ToRecipients     []MailboxTypeResponse  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
+	IsRead           bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
 	Categories       *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
@@ -504,6 +518,74 @@ func buildMimeMessageWithHeaders(item *MessageTypeNew, defaultFrom string, isSen
 	}
 
 	buf.WriteString("MIME-Version: 1.0\r\n")
+
+	var attachments []FileAttachmentType
+	if item.Attachments != nil {
+		attachments = item.Attachments.FileAttachments
+	}
+	if len(attachments) > 0 {
+		boundary := "umail-" + generateID()
+		buf.WriteString("Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n")
+		buf.WriteString("Message-ID: <" + generateMessageID() + ">\r\n")
+		buf.WriteString("\r\n")
+		buf.WriteString("--" + boundary + "\r\n")
+		if item.Body != nil && item.Body.BodyType == "HTML" {
+			buf.WriteString("Content-Type: text/html; charset=utf-8\r\n")
+		} else {
+			buf.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+		}
+		buf.WriteString("Content-Transfer-Encoding: 7bit\r\n")
+		buf.WriteString("\r\n")
+		if item.Body != nil {
+			if item.Body.BodyType == "HTML" {
+				buf.WriteString("<html><body>" + item.Body.Body + "</body></html>")
+			} else {
+				buf.WriteString(item.Body.Body)
+			}
+		}
+		buf.WriteString("\r\n")
+
+		for _, att := range attachments {
+			content, err := base64.StdEncoding.DecodeString(strings.TrimSpace(att.Content))
+			if err != nil {
+				content = []byte(att.Content)
+			}
+			contentType := att.ContentType
+			if contentType == "" {
+				contentType = "application/octet-stream"
+			}
+			disposition := "attachment"
+			if att.IsInline != nil && *att.IsInline {
+				disposition = "inline"
+			}
+			buf.WriteString("--" + boundary + "\r\n")
+			buf.WriteString("Content-Type: " + contentType)
+			if att.Name != "" {
+				buf.WriteString("; name=\"" + att.Name + "\"")
+			}
+			buf.WriteString("\r\n")
+			buf.WriteString("Content-Transfer-Encoding: base64\r\n")
+			buf.WriteString("Content-Disposition: " + disposition)
+			if att.Name != "" {
+				buf.WriteString("; filename=\"" + att.Name + "\"")
+			}
+			buf.WriteString("\r\n")
+			if att.ContentID != "" {
+				buf.WriteString("Content-ID: <" + strings.Trim(att.ContentID, "<>") + ">\r\n")
+			}
+			buf.WriteString("\r\n")
+			encoded := base64.StdEncoding.EncodeToString(content)
+			for len(encoded) > 76 {
+				buf.WriteString(encoded[:76] + "\r\n")
+				encoded = encoded[76:]
+			}
+			if encoded != "" {
+				buf.WriteString(encoded + "\r\n")
+			}
+		}
+		buf.WriteString("--" + boundary + "--\r\n")
+		return buf.Bytes()
+	}
 
 	if item.Body != nil && item.Body.BodyType == "HTML" {
 		buf.WriteString("Content-Type: text/html; charset=utf-8\r\n")
@@ -953,7 +1035,7 @@ type ItemUpdateField struct {
 	XMLName  xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types SetItemField"`
 	FieldURI struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
-		URI     string   `xml:"uri,attr"`
+		URI     string   `xml:"FieldURI,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
 	Message ItemUpdateValue `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
 }
@@ -963,7 +1045,7 @@ type ItemUpdateValue struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject"`
 		Value   string   `xml:",chardata"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject"`
-	Body *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
+	Body   *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
 	IsRead *struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
 		Value   bool     `xml:",chardata"`

@@ -26,6 +26,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
@@ -108,7 +109,7 @@ type UserOofSettings struct {
 
 // GetUserOofSettingsRequest is the EWS GetUserOofSettings operation request.
 type GetUserOofSettingsRequest struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserOofSettings"`
+	XMLName xml.Name
 	Mailbox struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 		Email   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
@@ -127,7 +128,7 @@ type GetUserOofSettingsResponse struct {
 
 // SetUserOofSettingsRequest is the EWS SetUserOofSettings operation request.
 type SetUserOofSettingsRequest struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SetUserOofSettings"`
+	XMLName xml.Name
 	Mailbox struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 		Email   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
@@ -148,40 +149,33 @@ type SetUserOofSettingsResponse struct {
 
 // RulePredicatesType represents rule conditions in EWS.
 type RulePredicatesType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RulePredicates"`
+	XMLName xml.Name
 
-	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	Categories *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
-	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsBodyStrings *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsBodyStrings,omitempty"`
-	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsHeaderStrings *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsHeaderStrings,omitempty"`
-	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsRecipientStrings *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsRecipientStrings,omitempty"`
-	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsSenderStrings *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSenderStrings,omitempty"`
-	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsSubjectOrBody *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectOrBodyStrings,omitempty"`
-	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	ContainsSubjectStrings *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectStrings,omitempty"`
-	HasAttachments         *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types HasAttachments,omitempty"`
-	Importance             string                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
-	IsAutomaticForward     *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticForward,omitempty"`
-	IsAutomaticReply       *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticReply,omitempty"`
-	IsReadReceipt          *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsReadReceipt,omitempty"`
-	NotSentToMe            *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotSentToMe,omitempty"`
-	SentCcMe               *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentCcMe,omitempty"`
-	SentOnlyToMe           *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentOnlyToMe,omitempty"`
-	SentToMe               *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToMe,omitempty"`
-	SentToOrCcMe           *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToOrCcMe,omitempty"`
-	SentToAddresses        *SentToAddressesType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToAddresses,omitempty"`
-	WithinDateRange        *RulePredicateDateRange `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinDateRange,omitempty"`
-	WithinSizeRange        *RulePredicateSizeRange `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinSizeRange,omitempty"`
+	Categories               *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
+	ContainsBodyStrings      *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsBodyStrings,omitempty"`
+	ContainsHeaderStrings    *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsHeaderStrings,omitempty"`
+	ContainsRecipientStrings *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsRecipientStrings,omitempty"`
+	ContainsSenderStrings    *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSenderStrings,omitempty"`
+	ContainsSubjectOrBody    *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectOrBodyStrings,omitempty"`
+	ContainsSubjectStrings   *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectStrings,omitempty"`
+	HasAttachments           *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types HasAttachments,omitempty"`
+	Importance               string                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
+	IsAutomaticForward       *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticForward,omitempty"`
+	IsAutomaticReply         *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticReply,omitempty"`
+	IsReadReceipt            *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsReadReceipt,omitempty"`
+	NotSentToMe              *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types NotSentToMe,omitempty"`
+	SentCcMe                 *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentCcMe,omitempty"`
+	SentOnlyToMe             *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentOnlyToMe,omitempty"`
+	SentToMe                 *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToMe,omitempty"`
+	SentToOrCcMe             *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToOrCcMe,omitempty"`
+	SentToAddresses          *SentToAddressesType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToAddresses,omitempty"`
+	WithinDateRange          *RulePredicateDateRange `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinDateRange,omitempty"`
+	WithinSizeRange          *RulePredicateSizeRange `xml:"http://schemas.microsoft.com/exchange/services/2006/types WithinSizeRange,omitempty"`
 }
 
 // ArrayOfStringsType holds a list of strings.
 type ArrayOfStringsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types ArrayOfStrings"`
+	XMLName xml.Name
 	Strings []string `xml:"http://schemas.microsoft.com/exchange/services/2006/types String,omitempty"`
 }
 
@@ -243,28 +237,25 @@ type ExceptionsType struct {
 
 // RuleActionsType represents rule actions in EWS.
 type RuleActionsType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleActions"`
+	XMLName xml.Name
 
-	//nolint:staticcheck // SA5008: ArrayOfStringsType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	AssignCategories *ArrayOfStringsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types AssignCategories,omitempty"`
-	//nolint:staticcheck // SA5008: TargetFolderIdType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	CopyToFolder        *TargetFolderIdType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types CopyToFolder,omitempty"`
-	Delete              *bool                                `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete,omitempty"`
-	ForwardAsAttachment *ForwardAsAttachmentToRecipientsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardAsAttachmentToRecipients,omitempty"`
-	ForwardTo           *ForwardToRecipientsType             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardToRecipients,omitempty"`
-	MarkAsRead          *bool                                `xml:"http://schemas.microsoft.com/exchange/services/2006/types MarkAsRead,omitempty"`
-	MarkImportance      string                               `xml:"http://schemas.microsoft.com/exchange/services/2006/types MarkImportance,omitempty"`
-	//nolint:staticcheck // SA5008: TargetFolderIdType.XMLName conflicts with element name but Go XML encoder uses tag element name.
-	MoveToFolder           *TargetFolderIdType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types MoveToFolder,omitempty"`
-	PermanentDelete        *bool                     `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermanentDelete,omitempty"`
-	RedirectTo             *RedirectToRecipientsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RedirectToRecipients,omitempty"`
-	ServerReplyWithMessage *string                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ServerReplyWithMessage,omitempty"`
-	StopProcessingRules    *bool                     `xml:"http://schemas.microsoft.com/exchange/services/2006/types StopProcessingRules,omitempty"`
+	AssignCategories       *ArrayOfStringsType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types AssignCategories,omitempty"`
+	CopyToFolder           *TargetFolderIdType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types CopyToFolder,omitempty"`
+	Delete                 *bool                                `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete,omitempty"`
+	ForwardAsAttachment    *ForwardAsAttachmentToRecipientsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardAsAttachmentToRecipients,omitempty"`
+	ForwardTo              *ForwardToRecipientsType             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ForwardToRecipients,omitempty"`
+	MarkAsRead             *bool                                `xml:"http://schemas.microsoft.com/exchange/services/2006/types MarkAsRead,omitempty"`
+	MarkImportance         string                               `xml:"http://schemas.microsoft.com/exchange/services/2006/types MarkImportance,omitempty"`
+	MoveToFolder           *TargetFolderIdType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types MoveToFolder,omitempty"`
+	PermanentDelete        *bool                                `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermanentDelete,omitempty"`
+	RedirectTo             *RedirectToRecipientsType            `xml:"http://schemas.microsoft.com/exchange/services/2006/types RedirectToRecipients,omitempty"`
+	ServerReplyWithMessage *string                              `xml:"http://schemas.microsoft.com/exchange/services/2006/types ServerReplyWithMessage,omitempty"`
+	StopProcessingRules    *bool                                `xml:"http://schemas.microsoft.com/exchange/services/2006/types StopProcessingRules,omitempty"`
 }
 
 // TargetFolderIdType holds a folder ID reference for rule actions.
 type TargetFolderIdType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types TargetFolderId"`
+	XMLName xml.Name
 	Folder  *struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
 		ID      string   `xml:"Id,attr"`
@@ -315,10 +306,11 @@ type GetInboxRulesResponse struct {
 
 // UpdateInboxRulesRequest is the EWS UpdateInboxRules operation request.
 type UpdateInboxRulesRequest struct {
-	XMLName               xml.Name                   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRules"`
-	MailboxSmtpAddress    string                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MailboxSmtpAddress,omitempty"`
-	RemoveOutlookRuleBlob *bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RemoveOutlookRuleBlob,omitempty"`
-	Operations            *ArrayOfRuleOperationsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperations"`
+	XMLName               xml.Name                      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRules"`
+	MailboxSmtpAddress    string                        `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MailboxSmtpAddress,omitempty"`
+	RemoveOutlookRuleBlob *bool                         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RemoveOutlookRuleBlob,omitempty"`
+	Operations            *ArrayOfRuleOperationsType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types RuleOperations"`
+	OperationsMsg         *ArrayOfRuleOperationsMsgType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Operations,omitempty"`
 	// UpdateInboxRuleOperationCollection is an alias used by some clients (e.g. Python
 	// exchangelib) for the RuleOperations container. It uses the messages namespace.
 	OperationsAlt *ArrayOfRuleOperationsTypeAlt `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRuleOperationCollection,omitempty"`
@@ -331,11 +323,93 @@ type ArrayOfRuleOperationsType struct {
 	Operations []RuleOperationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation,omitempty"`
 }
 
+func (a *ArrayOfRuleOperationsType) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	a.XMLName = start.Name
+	ops, err := decodeRuleOperations(d, start)
+	if err != nil {
+		return err
+	}
+	a.Operations = ops
+	return nil
+}
+
+type ArrayOfRuleOperationsMsgType struct {
+	XMLName    xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Operations"`
+	Operations []RuleOperationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation,omitempty"`
+}
+
+func (a *ArrayOfRuleOperationsMsgType) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	a.XMLName = start.Name
+	ops, err := decodeRuleOperations(d, start)
+	if err != nil {
+		return err
+	}
+	a.Operations = ops
+	return nil
+}
+
 // ArrayOfRuleOperationsTypeAlt holds rule operations from the UpdateInboxRuleOperationCollection
 // wrapper (messages namespace variant used by some clients).
 type ArrayOfRuleOperationsTypeAlt struct {
 	XMLName    xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UpdateInboxRuleOperationCollection"`
 	Operations []RuleOperationType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UpdateInboxRuleOperation,omitempty"`
+}
+
+func (a *ArrayOfRuleOperationsTypeAlt) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	a.XMLName = start.Name
+	ops, err := decodeRuleOperations(d, start)
+	if err != nil {
+		return err
+	}
+	a.Operations = ops
+	return nil
+}
+
+func decodeRuleOperations(d *xml.Decoder, start xml.StartElement) ([]RuleOperationType, error) {
+	var ops []RuleOperationType
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch elem := tok.(type) {
+		case xml.StartElement:
+			switch elem.Name.Local {
+			case "CreateRuleOperation":
+				var op CreateRuleOperationType
+				if err := d.DecodeElement(&op, &elem); err != nil {
+					return nil, err
+				}
+				ops = append(ops, op)
+			case "SetRuleOperation":
+				var op SetRuleOperationType
+				if err := d.DecodeElement(&op, &elem); err != nil {
+					return nil, err
+				}
+				ops = append(ops, op)
+			case "DeleteRuleOperation":
+				var op DeleteRuleOperationType
+				if err := d.DecodeElement(&op, &elem); err != nil {
+					return nil, err
+				}
+				ops = append(ops, op)
+			case "UpdateInboxRuleOperation":
+				var op UpdateInboxRuleOperationType
+				if err := d.DecodeElement(&op, &elem); err != nil {
+					return nil, err
+				}
+				ops = append(ops, op)
+			default:
+				if err := d.Skip(); err != nil {
+					return nil, err
+				}
+			}
+		case xml.EndElement:
+			if elem.Name == start.Name {
+				return ops, nil
+			}
+		}
+	}
 }
 
 // RuleOperationType is the interface for rule operations.
@@ -479,8 +553,8 @@ func (s *Server) oofSettingsResponseXML(respClass, respCode, errMsg, oofState, e
 	return env.Bytes()
 }
 
-// inboxRulesErrorResponse builds an error response for inbox rules operations.
-func (s *Server) inboxRulesErrorResponse(code ErrorCode, msg string) []byte {
+// inboxRulesResponse builds an EWS GetInboxRules/UpdateInboxRules SOAP response.
+func (s *Server) inboxRulesResponse(operation, respClass string, code ErrorCode, msg string, rules []RuleType) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
 	buf.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
@@ -490,15 +564,32 @@ func (s *Server) inboxRulesErrorResponse(code ErrorCode, msg string) []byte {
 	buf.Write(svBytes)
 	buf.WriteString(`</soap:Header>`)
 	buf.WriteString(`<soap:Body>`)
-	buf.WriteString(`<m:GetInboxRulesResponseMessage ResponseClass="Error">`)
+	buf.WriteString(`<m:` + operation + `Response>`)
+	buf.WriteString(`<m:ResponseMessages>`)
+	buf.WriteString(`<m:` + operation + `ResponseMessage ResponseClass="` + respClass + `">`)
 	buf.WriteString(`<m:ResponseCode>` + string(code) + `</m:ResponseCode>`)
 	if msg != "" {
 		buf.WriteString(`<m:ErrorMessage>` + xmlEsc(msg) + `</m:ErrorMessage>`)
 	}
-	buf.WriteString(`</m:GetInboxRulesResponseMessage>`)
+	if operation == "GetInboxRules" && respClass == ResponseClassSuccess {
+		buf.WriteString(`<m:InboxRules>`)
+		for _, rule := range rules {
+			ruleBytes, _ := xml.Marshal(rule) //nolint:errcheck
+			buf.Write(ruleBytes)
+		}
+		buf.WriteString(`</m:InboxRules>`)
+	}
+	buf.WriteString(`</m:` + operation + `ResponseMessage>`)
+	buf.WriteString(`</m:ResponseMessages>`)
+	buf.WriteString(`</m:` + operation + `Response>`)
 	buf.WriteString(`</soap:Body>`)
 	buf.WriteString(`</soap:Envelope>`)
 	return buf.Bytes()
+}
+
+// inboxRulesErrorResponse builds an error response for inbox rules operations.
+func (s *Server) inboxRulesErrorResponse(operation string, code ErrorCode, msg string) []byte {
+	return s.inboxRulesResponse(operation, ResponseClassError, code, msg, nil)
 }
 
 // handleGetUserOofSettings implements the EWS GetUserOofSettings operation.
@@ -632,16 +723,16 @@ func (s *Server) handleGetInboxRules(ctx context.Context, soapBody []byte) []byt
 
 	mailboxID, err := s.resolveMailboxByEmail(ctx, email)
 	if err != nil {
-		return s.inboxRulesErrorResponse(ErrErrorMailboxNotFound, "")
+		return s.inboxRulesErrorResponse("GetInboxRules", ErrErrorMailboxNotFound, "")
 	}
 
 	if s.policyStore == nil {
-		return s.inboxRulesErrorResponse(ErrErrorInternalServer, "policy store not available")
+		return s.inboxRulesErrorResponse("GetInboxRules", ErrErrorInternalServer, "policy store not available")
 	}
 
 	rules, err := s.policyStore.ListRules(mailboxID)
 	if err != nil {
-		return s.inboxRulesErrorResponse(ErrErrorInternalServer, "")
+		return s.inboxRulesErrorResponse("GetInboxRules", ErrErrorInternalServer, "")
 	}
 
 	ewsRules := make([]RuleType, 0, len(rules))
@@ -649,31 +740,7 @@ func (s *Server) handleGetInboxRules(ctx context.Context, soapBody []byte) []byt
 		ewsRules = append(ewsRules, ruleToEWS(rule))
 	}
 
-	var buf bytes.Buffer
-	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
-	buf.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
-	buf.WriteString(`<soap:Header>`)
-	sv := NewServerVersion()
-	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
-	buf.Write(svBytes)
-	buf.WriteString(`</soap:Header>`)
-	buf.WriteString(`<soap:Body>`)
-	buf.WriteString(`<m:GetInboxRulesResponseMessage ResponseClass="Success">`)
-	buf.WriteString(`<m:ResponseCode>NoError</m:ResponseCode>`)
-	if len(ewsRules) > 0 {
-		buf.WriteString(`<m:InboxRules>`)
-		for _, rule := range ewsRules {
-			ruleBytes, _ := xml.Marshal(rule) //nolint:errcheck
-			buf.Write(ruleBytes)
-		}
-		buf.WriteString(`</m:InboxRules>`)
-	} else {
-		buf.WriteString(`<m:InboxRules></m:InboxRules>`)
-	}
-	buf.WriteString(`</m:GetInboxRulesResponseMessage>`)
-	buf.WriteString(`</soap:Body>`)
-	buf.WriteString(`</soap:Envelope>`)
-	return buf.Bytes()
+	return s.inboxRulesResponse("GetInboxRules", ResponseClassSuccess, ErrNoError, "", ewsRules)
 }
 
 // handleUpdateInboxRules implements the EWS UpdateInboxRules operation.
@@ -693,7 +760,7 @@ func (s *Server) handleUpdateInboxRules(ctx context.Context, soapBody []byte) []
 
 	mailboxID, err := s.resolveMailboxByEmail(ctx, email)
 	if err != nil {
-		return s.inboxRulesErrorResponse(ErrErrorMailboxNotFound, "")
+		return s.inboxRulesErrorResponse("UpdateInboxRules", ErrErrorMailboxNotFound, "")
 	}
 
 	// Support both RuleOperations (types namespace) and UpdateInboxRuleOperationCollection
@@ -701,18 +768,21 @@ func (s *Server) handleUpdateInboxRules(ctx context.Context, soapBody []byte) []
 	var ops []RuleOperationType
 	if req.Operations != nil && len(req.Operations.Operations) > 0 {
 		ops = req.Operations.Operations
+	} else if req.OperationsMsg != nil && len(req.OperationsMsg.Operations) > 0 {
+		ops = req.OperationsMsg.Operations
 	} else if req.OperationsAlt != nil && len(req.OperationsAlt.Operations) > 0 {
 		ops = req.OperationsAlt.Operations
 	}
 
 	if len(ops) == 0 {
-		return s.inboxRulesErrorResponse(ErrErrorInternalServer, "no operations provided")
+		return s.inboxRulesErrorResponse("UpdateInboxRules", ErrErrorInternalServer, "no operations provided")
 	}
 
 	// Process each operation in order
 	for _, op := range ops {
 		if err := s.applyRuleOperation(ctx, mailboxID, op); err != nil {
 			s.logger.Warn("failed to apply rule operation", "error", err)
+			return s.inboxRulesErrorResponse("UpdateInboxRules", ErrErrorInternalServer, err.Error())
 		}
 	}
 
@@ -721,21 +791,7 @@ func (s *Server) handleUpdateInboxRules(ctx context.Context, soapBody []byte) []
 		s.logger.Warn("failed to recompile sieve after rules update", "mailbox", mailboxID, "error", err)
 	}
 
-	var buf bytes.Buffer
-	buf.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
-	buf.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
-	buf.WriteString(`<soap:Header>`)
-	sv := NewServerVersion()
-	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
-	buf.Write(svBytes)
-	buf.WriteString(`</soap:Header>`)
-	buf.WriteString(`<soap:Body>`)
-	buf.WriteString(`<m:UpdateInboxRulesResponseMessage ResponseClass="Success">`)
-	buf.WriteString(`<m:ResponseCode>NoError</m:ResponseCode>`)
-	buf.WriteString(`</m:UpdateInboxRulesResponseMessage>`)
-	buf.WriteString(`</soap:Body>`)
-	buf.WriteString(`</soap:Envelope>`)
-	return buf.Bytes()
+	return s.inboxRulesResponse("UpdateInboxRules", ResponseClassSuccess, ErrNoError, "", nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -777,10 +833,23 @@ func (s *Server) recompileSieveForMailbox(ctx context.Context, mailboxID semcore
 	}
 
 	script := semcore.CompilePolicyToSieve(rules, oofPolicy)
-	if err := s.sieveMgr.StoreScript(mailboxID.String(), "active", script); err != nil {
-		return err
+	for _, userID := range sieveUserIDs(mailboxID.String()) {
+		if err := s.sieveMgr.StoreScript(userID, "active", script); err != nil {
+			return err
+		}
+		if err := s.sieveMgr.SetActiveScriptByName(userID, "active"); err != nil {
+			return err
+		}
 	}
-	return s.sieveMgr.SetActiveScriptByName(mailboxID.String(), "active")
+	return nil
+}
+
+func sieveUserIDs(mailbox string) []string {
+	ids := []string{mailbox}
+	if localPart, _, ok := strings.Cut(mailbox, "@"); ok && localPart != "" && localPart != mailbox {
+		ids = append(ids, localPart)
+	}
+	return ids
 }
 
 // ---------------------------------------------------------------------------
@@ -900,6 +969,9 @@ func ruleToEWS(rule *semcore.Rule) RuleType {
 	if len(rule.Conditions) > 0 {
 		ewsRule.Conditions = conditionsToEWS(rule.Conditions, rule.MatchAll)
 	}
+	if len(rule.Actions) > 0 {
+		ewsRule.Actions = actionsToEWS(rule.Actions)
+	}
 
 	return ewsRule
 }
@@ -931,9 +1003,12 @@ func conditionsToEWS(conds []semcore.RuleCondition, matchAll bool) *ConditionsTy
 			}
 			pred.ContainsBodyStrings.Strings = append(pred.ContainsBodyStrings.Strings, cond.Value)
 		case semcore.RuleConditionKindSize:
-			// Size is handled separately
 			pred.WithinSizeRange = &RulePredicateSizeRange{
 				MaxSize: cond.Value,
+			}
+		case semcore.RuleConditionKindFlag:
+			if cond.Value == "attachment" {
+				pred.HasAttachments = boolPtr(true)
 			}
 		}
 	}
@@ -969,6 +1044,7 @@ func ruleFromEWS(ewsRule RuleType, mailboxID semcore.MailboxId) (*semcore.Rule, 
 	// Map conditions
 	if ewsRule.Conditions != nil {
 		rule.Conditions, rule.MatchAll = conditionsFromEWS(ewsRule.Conditions.RulePredicatesType)
+		normalizeRuleConditionsForMailbox(rule.Conditions, mailboxID)
 	}
 
 	// Map actions
@@ -1013,6 +1089,7 @@ func mergeRuleFromEWS(existing *semcore.Rule, ewsRule RuleType) (*semcore.Rule, 
 
 	if ewsRule.Conditions != nil {
 		existing.Conditions, existing.MatchAll = conditionsFromEWS(ewsRule.Conditions.RulePredicatesType)
+		normalizeRuleConditionsForMailbox(existing.Conditions, existing.MailboxID)
 	}
 	if ewsRule.Actions != nil {
 		existing.Actions = actionsFromEWS(ewsRule.Actions)
@@ -1090,14 +1167,73 @@ func conditionsFromEWS(pred *RulePredicatesType) ([]semcore.RuleCondition, bool)
 		})
 	}
 	if pred.WithinSizeRange != nil {
+		value := pred.WithinSizeRange.MinSize
+		if value == "" {
+			value = pred.WithinSizeRange.MaxSize
+		}
 		conds = append(conds, semcore.RuleCondition{
 			Kind:      semcore.RuleConditionKindSize,
 			MatchType: semcore.RuleMatchTypeContains,
-			Value:     pred.WithinSizeRange.MaxSize,
+			Value:     value,
 		})
 	}
 
 	return conds, matchAll
+}
+
+func normalizeRuleConditionsForMailbox(conds []semcore.RuleCondition, mailboxID semcore.MailboxId) {
+	for i := range conds {
+		if conds[i].Kind == semcore.RuleConditionKindAddress && conds[i].Value == "me" {
+			conds[i].Kind = semcore.RuleConditionKindTo
+			conds[i].Value = mailboxID.String()
+		}
+	}
+}
+
+func actionsToEWS(actions []semcore.RuleAction) *RuleActionsType {
+	result := &RuleActionsType{}
+	for _, action := range actions {
+		switch action.Kind {
+		case semcore.RuleActionKindMoveToFolder:
+			result.MoveToFolder = targetFolderToEWS(action.Target)
+		case semcore.RuleActionKindCopyToFolder:
+			result.CopyToFolder = targetFolderToEWS(action.Target)
+		case semcore.RuleActionKindDelete:
+			result.Delete = boolPtr(true)
+		case semcore.RuleActionKindMarkRead:
+			result.MarkAsRead = boolPtr(true)
+		case semcore.RuleActionKindMarkImportant:
+			result.MarkImportance = "High"
+		case semcore.RuleActionKindForward:
+			result.ForwardTo = &ForwardToRecipientsType{Addresses: []MailboxType{{Email: action.ForwardTo}}}
+		case semcore.RuleActionKindForwardAsAttachment:
+			result.ForwardAsAttachment = &ForwardAsAttachmentToRecipientsType{Addresses: []MailboxType{{Email: action.ForwardTo}}}
+		case semcore.RuleActionKindRedirect:
+			result.RedirectTo = &RedirectToRecipientsType{Addresses: []MailboxType{{Email: action.ForwardTo}}}
+		case semcore.RuleActionKindStop:
+			result.StopProcessingRules = boolPtr(true)
+		case semcore.RuleActionKindAddHeader:
+			if strings.EqualFold(action.HeaderName, "X-Category") {
+				if result.AssignCategories == nil {
+					result.AssignCategories = &ArrayOfStringsType{}
+				}
+				result.AssignCategories.Strings = append(result.AssignCategories.Strings, action.HeaderValue)
+			}
+		}
+	}
+	return result
+}
+
+func targetFolderToEWS(id string) *TargetFolderIdType {
+	if id == "" {
+		return nil
+	}
+	return &TargetFolderIdType{
+		Folder: &struct {
+			XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+			ID      string   `xml:"Id,attr"`
+		}{ID: id},
+	}
 }
 
 // actionsFromEWS converts EWS RuleActionsType to semcore RuleActions.
@@ -1110,7 +1246,13 @@ func actionsFromEWS(actions *RuleActionsType) []semcore.RuleAction {
 	if actions.MoveToFolder != nil && actions.MoveToFolder.Folder != nil {
 		result = append(result, semcore.RuleAction{
 			Kind:   semcore.RuleActionKindMoveToFolder,
-			Target: actions.MoveToFolder.Folder.ID,
+			Target: ruleFolderTarget(actions.MoveToFolder.Folder.ID),
+		})
+	}
+	if actions.CopyToFolder != nil && actions.CopyToFolder.Folder != nil {
+		result = append(result, semcore.RuleAction{
+			Kind:   semcore.RuleActionKindCopyToFolder,
+			Target: ruleFolderTarget(actions.CopyToFolder.Folder.ID),
 		})
 	}
 	if actions.Delete != nil && *actions.Delete {
@@ -1121,6 +1263,11 @@ func actionsFromEWS(actions *RuleActionsType) []semcore.RuleAction {
 	if actions.MarkAsRead != nil && *actions.MarkAsRead {
 		result = append(result, semcore.RuleAction{
 			Kind: semcore.RuleActionKindMarkRead,
+		})
+	}
+	if actions.MarkImportance != "" {
+		result = append(result, semcore.RuleAction{
+			Kind: semcore.RuleActionKindMarkImportant,
 		})
 	}
 	if actions.ForwardTo != nil && len(actions.ForwardTo.Addresses) > 0 {
@@ -1163,6 +1310,13 @@ func actionsFromEWS(actions *RuleActionsType) []semcore.RuleAction {
 	}
 
 	return result
+}
+
+func ruleFolderTarget(id string) string {
+	if role, ok := DistinguishedFolderIDs[strings.ToLower(id)]; ok {
+		return role
+	}
+	return id
 }
 
 // ---------------------------------------------------------------------------

@@ -332,6 +332,21 @@ func (i *Interpreter) parseHeaderTest(args []Value) (Test, error) {
 		return nil, nil
 	}
 
+	args = compactSieveTestArgs(args)
+	if len(args) < 2 {
+		return nil, nil
+	}
+	if str, ok := args[0].(*StringValue); ok {
+		switch str.Value {
+		case "allof", "anyof":
+			return i.parseHeaderTest(args[1:])
+		case "body":
+			return parseBodyTest(args)
+		case "size":
+			return parseSizeTest(args)
+		}
+	}
+
 	var matchType string
 	var headers []string
 	var keys []string
@@ -384,6 +399,53 @@ func (i *Interpreter) parseHeaderTest(args []Value) (Test, error) {
 	}, nil
 }
 
+func compactSieveTestArgs(args []Value) []Value {
+	result := make([]Value, 0, len(args))
+	for _, arg := range args {
+		if str, ok := arg.(*StringValue); ok && (str.Value == "(" || str.Value == ")" || str.Value == ",") {
+			continue
+		}
+		result = append(result, arg)
+	}
+	return result
+}
+
+func parseBodyTest(args []Value) (Test, error) {
+	matchType := "contains"
+	var keys []string
+	for _, arg := range args[1:] {
+		switch v := arg.(type) {
+		case *TagValue:
+			matchType = v.Value
+		case *StringValue:
+			keys = append(keys, v.Value)
+		case *ListValue:
+			keys = append(keys, v.Values...)
+		}
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	return &BodyTest{MatchType: ":" + matchType, KeyList: keys}, nil
+}
+
+func parseSizeTest(args []Value) (Test, error) {
+	relation := ":over"
+	var size int64
+	for _, arg := range args[1:] {
+		switch v := arg.(type) {
+		case *TagValue:
+			relation = ":" + v.Value
+		case *NumberValue:
+			size = v.Value
+		}
+	}
+	if size == 0 {
+		return nil, nil
+	}
+	return &SizeTest{Relation: relation, Size: size}, nil
+}
+
 func (i *Interpreter) parseTest(arg Value) (Test, error) {
 	if str, ok := arg.(*StringValue); ok {
 		return &StringTest{Value: str.Value}, nil
@@ -403,6 +465,8 @@ func (i *Interpreter) evaluateTest(test Test) (bool, error) {
 		return i.evaluateStringTest(t)
 	case *SizeTest:
 		return i.evaluateSizeTest(t)
+	case *BodyTest:
+		return i.evaluateBodyTest(t)
 	case *BooleanTest:
 		return i.evaluateBooleanTest(t)
 	default:
@@ -499,6 +563,33 @@ func (i *Interpreter) evaluateStringTest(t *StringTest) (bool, error) {
 				if matched {
 					return true, nil
 				}
+			}
+		}
+	}
+	return false, nil
+}
+
+func (i *Interpreter) evaluateBodyTest(t *BodyTest) (bool, error) {
+	body := string(i.ctx.Body)
+	for _, key := range t.KeyList {
+		switch t.MatchType {
+		case ":is", "is":
+			if body == key {
+				return true, nil
+			}
+		case ":matches", "matches":
+			pattern := strings.ReplaceAll(key, "*", ".*")
+			pattern = strings.ReplaceAll(pattern, "?", ".")
+			matched, err := safeRegexMatch("(?i)"+pattern, body, i.timeout)
+			if err != nil {
+				return false, nil
+			}
+			if matched {
+				return true, nil
+			}
+		default:
+			if strings.Contains(strings.ToLower(body), strings.ToLower(key)) {
+				return true, nil
 			}
 		}
 	}

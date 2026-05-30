@@ -37,6 +37,33 @@ if header :contains "subject" "invoice" {
 	}
 }
 
+func TestParser_BooleanTestPunctuation(t *testing.T) {
+	script := `
+require ["fileinto"];
+
+if allof (header :contains ["Subject"] "debug", header :contains ["From"] "alice") {
+    fileinto "Trash";
+}
+
+keep;
+`
+	p := NewParser(script)
+	s, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	if len(s.Commands) != 3 {
+		t.Fatalf("Expected 3 commands, got %d", len(s.Commands))
+	}
+	if s.Commands[1].Name != "if" {
+		t.Errorf("Expected second command to be 'if', got %q", s.Commands[1].Name)
+	}
+	if s.Commands[1].Block == nil || len(s.Commands[1].Block.Commands) != 1 {
+		t.Fatalf("Expected if command to contain one action")
+	}
+}
+
 func TestParser_StringValues(t *testing.T) {
 	script := `reject "This message was rejected";`
 
@@ -206,16 +233,6 @@ if header :contains "subject" "invoice" {
 		t.Fatalf("Parse error: %v", err)
 	}
 
-	// Debug: print parsed script
-	t.Logf("Script has %d commands", len(s.Commands))
-	for i, cmd := range s.Commands {
-		t.Logf("Command %d: name=%q, tag=%q, args=%d, hasBlock=%v",
-			i, cmd.Name, cmd.Tag, len(cmd.Arguments), cmd.Block != nil)
-		if cmd.Block != nil {
-			t.Logf("  Block has %d commands", len(cmd.Block.Commands))
-		}
-	}
-
 	interp := NewInterpreter(s)
 	msg := &MessageContext{
 		From: "sender@example.com",
@@ -241,6 +258,31 @@ if header :contains "subject" "invoice" {
 	}
 	if !found {
 		t.Error("Expected FileintoAction for Invoices")
+	}
+}
+
+func TestInterpreter_BodyContains(t *testing.T) {
+	script := `
+if body :contains "invoice" {
+    fileinto "Invoices";
+}
+`
+	p := NewParser(script)
+	s, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	interp := NewInterpreter(s)
+	actions, err := interp.Execute(&MessageContext{
+		Headers: map[string][]string{},
+		Body:    []byte("invoice payload"),
+	})
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if _, ok := actions[0].(FileintoAction); !ok {
+		t.Errorf("Expected FileintoAction, got %T", actions[0])
 	}
 }
 

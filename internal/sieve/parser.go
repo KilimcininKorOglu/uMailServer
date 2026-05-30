@@ -118,6 +118,11 @@ type SizeTest struct {
 	Size     int64
 }
 
+type BodyTest struct {
+	MatchType string
+	KeyList   []string
+}
+
 // BooleanTest wraps another test
 type BooleanTest struct {
 	Tests []Test
@@ -337,6 +342,14 @@ func (p *Parser) parseArgument() (Value, error) {
 		return p.parseStringList()
 	}
 
+	// Boolean tests and string lists use punctuation that is meaningful to the
+	// Sieve interpreter but does not need a dedicated parser node here. Consume
+	// it so parsing always makes progress.
+	if ch == '(' || ch == ')' || ch == ',' {
+		p.pos++
+		return &StringValue{Value: string(ch)}, nil
+	}
+
 	// Number
 	if isDigit(ch) || (ch == '-' && p.pos+1 < p.length && isDigit(p.input[p.pos+1])) {
 		return p.parseNumber()
@@ -348,7 +361,7 @@ func (p *Parser) parseArgument() (Value, error) {
 		p.pos++
 	}
 	if start == p.pos {
-		return nil, nil
+		return nil, fmt.Errorf("unexpected character %q at position %d", ch, p.pos)
 	}
 
 	return &StringValue{Value: p.input[start:p.pos]}, nil

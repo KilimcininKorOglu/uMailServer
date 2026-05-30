@@ -67,11 +67,13 @@ func (s *BoltPolicyStore) ListRules(mailboxID MailboxId) ([]*Rule, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketRule))
 		c := b.Cursor()
-		prefix := []byte(mailboxID.String() + "/")
 
-		for k, v := c.Seek(prefix); k != nil && len(k) >= len(prefix) && string(k[:len(prefix)]) == mailboxID.String()+"/"; k, v = c.Next() {
+		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var rule Rule
 			if err := json.Unmarshal(v, &rule); err != nil {
+				continue
+			}
+			if !rule.MailboxID.Equal(mailboxID) {
 				continue
 			}
 			result = append(result, &rule)

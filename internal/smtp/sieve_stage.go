@@ -2,6 +2,7 @@ package smtp
 
 import (
 	"fmt"
+	"net/mail"
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/sieve"
@@ -118,6 +119,11 @@ func (s *SieveStage) Process(ctx *MessageContext) PipelineResult {
 
 // extractUserFromRecipient extracts the local part from an email address
 func extractUserFromRecipient(recipient string) string {
+	if addr, err := mail.ParseAddress(recipient); err == nil && addr.Address != "" {
+		recipient = addr.Address
+	}
+	recipient = strings.Trim(recipient, "<>")
+
 	// Remove any routing prefix
 	if idx := strings.Index(recipient, "@"); idx > 0 {
 		return recipient[:idx]
