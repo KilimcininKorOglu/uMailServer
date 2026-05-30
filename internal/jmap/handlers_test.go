@@ -367,7 +367,7 @@ func TestHandleEmailSet(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)
@@ -393,7 +393,7 @@ func TestHandleEmailSet_Update(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)
@@ -413,7 +413,7 @@ func TestHandleEmailSet_Destroy(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)
@@ -911,7 +911,7 @@ func TestStorageToJMAPEmail(t *testing.T) {
 		Flags:        []string{},
 	}
 
-	email := storageToJMAPEmail(meta, nil, "INBOX")
+	email := (&Server{}).storageToJMAPEmail("user@example.com", meta, nil, "INBOX")
 
 	if email.ID != "msg-123" {
 		t.Errorf("ID = %q, want msg-123", email.ID)
@@ -936,7 +936,7 @@ func TestStorageToJMAPEmail_AllFlags(t *testing.T) {
 		Flags:        []string{},
 	}
 
-	email := storageToJMAPEmail(meta, nil, "INBOX")
+	email := (&Server{}).storageToJMAPEmail("user@example.com", meta, nil, "INBOX")
 
 	if email.Keywords == nil {
 		t.Error("Keywords should not be nil")
@@ -997,7 +997,7 @@ func TestHandleEmailSet_UpdateKeywords(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)
@@ -1035,7 +1035,7 @@ func TestHandleEmailSet_MoveMessage(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)
@@ -1055,7 +1055,7 @@ func TestHandleEmailSet_DestroyNotFound(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)
@@ -1071,7 +1071,7 @@ func TestHandleEmailSet_DestroyNotFound(t *testing.T) {
 	}
 }
 
-func TestHandleEmailSet_CreateNotSupported(t *testing.T) {
+func TestHandleEmailSet_CreateStoresDraft(t *testing.T) {
 	server, _, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
@@ -1081,28 +1081,41 @@ func TestHandleEmailSet_CreateNotSupported(t *testing.T) {
 			"accountId": "user@example.com",
 			"create": map[string]interface{}{
 				"new-email": map[string]interface{}{
-					"subject": "Test",
+					"subject":    "Draft Subject",
+					"to":         []interface{}{map[string]interface{}{"email": "bob@example.com"}},
+					"textBody":   []interface{}{map[string]interface{}{"partId": "t", "type": "text/plain"}},
+					"bodyValues": map[string]interface{}{"t": map[string]interface{}{"value": "hello draft"}},
 				},
 			},
 		},
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	// createdIDs must capture the new draft's id so a same-request
+	// EmailSubmission/set can reference it via "#new-email".
+	createdIDs := map[string]string{}
+	response := server.handleEmailSet("user@example.com", call, createdIDs)
 
 	if response.Name != "Email/set" {
-		t.Errorf("Response.Name = %s, want Email/set", response.Name)
+		t.Fatalf("Response.Name = %s, want Email/set", response.Name)
 	}
-
-	// Should have notCreated since create is not supported
-	args := response.Args
-	if notCreated, ok := args["notCreated"]; ok {
-		notCreatedMap := notCreated.(map[string]interface{})
-		if _, hasIt := notCreatedMap["new-email"]; !hasIt {
-			t.Error("Expected new-email in notCreated")
-		}
+	created, isMap := response.Args["created"].(map[string]Email)
+	if !isMap {
+		t.Fatalf("created is not map[string]Email: %T", response.Args["created"])
 	}
-
+	email, ok := created["new-email"]
+	if !ok {
+		t.Fatalf("new-email should be in created, got args=%v", response.Args)
+	}
+	if email.ID == "" {
+		t.Error("created draft must have a non-empty id")
+	}
+	if createdIDs["new-email"] != email.ID {
+		t.Errorf("createdIDs[new-email] = %q, want %q", createdIDs["new-email"], email.ID)
+	}
+	if email.Subject != "Draft Subject" {
+		t.Errorf("Subject = %q, want Draft Subject", email.Subject)
+	}
 }
 
 // Test handleEmailImport error cases
@@ -1704,7 +1717,7 @@ func TestStorageToJMAPEmail_Flags(t *testing.T) {
 				Flags:        tt.flags,
 			}
 
-			email := storageToJMAPEmail(meta, nil, "INBOX")
+			email := (&Server{}).storageToJMAPEmail("user@example.com", meta, nil, "INBOX")
 
 			for keyword, expected := range tt.expected {
 				if email.Keywords[keyword] != expected {
@@ -1734,7 +1747,7 @@ func TestStorageToJMAPEmail_Mailboxes(t *testing.T) {
 				InternalDate: time.Now(),
 			}
 
-			email := storageToJMAPEmail(meta, nil, tt.mailbox)
+			email := (&Server{}).storageToJMAPEmail("user@example.com", meta, nil, tt.mailbox)
 
 			if !email.MailboxIDs[tt.expected] {
 				t.Errorf("MailboxIDs[%s] should be true", tt.expected)
@@ -1780,7 +1793,7 @@ func TestHandleEmailSet_DestroyExisting(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)
@@ -1822,7 +1835,7 @@ func TestHandleEmailSet_UpdateNotFound(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)
@@ -1854,7 +1867,7 @@ func TestHandleEmailSet_UpdateInvalidType(t *testing.T) {
 		ID: "call-1",
 	}
 
-	response := server.handleEmailSet("user@example.com", call)
+	response := server.handleEmailSet("user@example.com", call, nil)
 
 	if response.Name != "Email/set" {
 		t.Errorf("Response.Name = %s, want Email/set", response.Name)

@@ -333,7 +333,7 @@ func (s *Server) handleEmailGet(user string, call MethodCall) Response {
 						continue
 					}
 					if meta.MessageID == idStr {
-						email := storageToJMAPEmail(meta, nil, mbox)
+						email := s.storageToJMAPEmail(user, meta, nil, mbox)
 						emails = append(emails, email)
 						found = true
 						break
@@ -593,7 +593,7 @@ func sortMessages(messages []struct {
 }
 
 // handleEmailSet handles Email/set method
-func (s *Server) handleEmailSet(user string, call MethodCall) Response {
+func (s *Server) handleEmailSet(user string, call MethodCall, createdIDs map[string]string) Response {
 	args := call.Args
 	accountID, _ := args["accountId"].(string)
 
@@ -614,11 +614,30 @@ func (s *Server) handleEmailSet(user string, call MethodCall) Response {
 	var destroyed []string
 	notDestroyed := make(map[string]interface{})
 
-	// Handle create (emails are typically imported, not created directly)
-	for key := range create {
-		notCreated[key] = map[string]interface{}{
-			"type":        "notSupported",
-			"description": "Use Email/import to create emails",
+	// Handle create: build an RFC 5322 message from the Email object and store
+	// it (drafts by default). The created id is the content-addressed blob key,
+	// recorded in createdIDs so a same-request EmailSubmission/set can reference
+	// it via "#creationId".
+	for key, val := range create {
+		createData, ok := val.(map[string]interface{})
+		if !ok {
+			notCreated[key] = map[string]interface{}{
+				"type":        "invalidArguments",
+				"description": "create value must be an Email object",
+			}
+			continue
+		}
+		email, err := s.createEmail(user, createData)
+		if err != nil {
+			notCreated[key] = map[string]interface{}{
+				"type":        "serverFail",
+				"description": s.safeError("Email/set create", err),
+			}
+			continue
+		}
+		created[key] = email
+		if createdIDs != nil {
+			createdIDs[key] = email.ID
 		}
 	}
 
@@ -894,7 +913,7 @@ func (s *Server) handleEmailImport(user string, call MethodCall) Response {
 		}
 
 		// Convert to JMAP Email
-		email := storageToJMAPEmail(meta, nil, targetMbox)
+		email := s.storageToJMAPEmail(user, meta, nil, targetMbox)
 		created[key] = email
 	}
 
@@ -1663,8 +1682,12 @@ func (s *Server) handleIdentityQueryChanges(user string, call MethodCall) Respon
 	}
 }
 
-// storageToJMAPEmail converts storage metadata to JMAP Email
-func storageToJMAPEmail(meta *storage.MessageMetadata, properties []string, mailbox string) Email {
+// storageToJMAPEmail converts storage metadata to a JMAP Email. The base fields
+// come from metadata; the full recipient set (cc/bcc/sender/replyTo with display
+// names), messageId/inReplyTo/references, sentAt and hasAttachment are parsed
+// from the raw MIME when it can be read, so JMAP clients see the same richness
+// as EWS. user is needed to read the message blob.
+func (s *Server) storageToJMAPEmail(user string, meta *storage.MessageMetadata, properties []string, mailbox string) Email {
 	mailboxID := getMailboxIDFromName(mailbox)
 	email := Email{
 		ID:         meta.MessageID,
@@ -1690,6 +1713,14 @@ func storageToJMAPEmail(meta *storage.MessageMetadata, properties []string, mail
 			email.Keywords["$flagged"] = true
 		case "\\Draft":
 			email.Keywords["$draft"] = true
+		}
+	}
+
+	// Enrich from the raw MIME (authoritative for headers). Resilient: if the
+	// blob cannot be read or parsed, the metadata-based base is returned as-is.
+	if s.msgStore != nil {
+		if data, err := s.msgStore.ReadMessage(user, meta.MessageID); err == nil {
+			enrichEmailFromMIME(&email, data)
 		}
 	}
 

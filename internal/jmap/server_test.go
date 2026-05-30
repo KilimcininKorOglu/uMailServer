@@ -470,7 +470,7 @@ func TestProcessMethodCall_UnknownMethod(t *testing.T) {
 		ID:   "test-1",
 	}
 
-	response := server.processMethodCall("user@example.com", call)
+	response := server.processMethodCall("user@example.com", call, nil)
 
 	if response.Name != "error" {
 		t.Errorf("Response.Name = %s, want error", response.Name)
@@ -1072,7 +1072,7 @@ func TestProcessMethodCall_MailboxGet(t *testing.T) {
 		ID: "test-1",
 	}
 
-	response := server.processMethodCall("user@example.com", call)
+	response := server.processMethodCall("user@example.com", call, nil)
 
 	if response.Name != "Mailbox/get" {
 		t.Errorf("Response.Name = %s, want Mailbox/get", response.Name)
@@ -1091,7 +1091,7 @@ func TestProcessMethodCall_MailboxQuery(t *testing.T) {
 		ID: "test-1",
 	}
 
-	response := server.processMethodCall("user@example.com", call)
+	response := server.processMethodCall("user@example.com", call, nil)
 
 	if response.Name != "Mailbox/query" {
 		t.Errorf("Response.Name = %s, want Mailbox/query", response.Name)
@@ -1110,7 +1110,7 @@ func TestProcessMethodCall_EmailQuery(t *testing.T) {
 		ID: "test-1",
 	}
 
-	response := server.processMethodCall("user@example.com", call)
+	response := server.processMethodCall("user@example.com", call, nil)
 
 	if response.Name != "Email/query" {
 		t.Errorf("Response.Name = %s, want Email/query", response.Name)

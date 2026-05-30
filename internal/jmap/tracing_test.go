@@ -15,7 +15,7 @@ func TestProcessMethodCall_NoTracing_ReturnsResponse(t *testing.T) {
 		Name: "Mailbox/get",
 		Args: map[string]interface{}{"accountId": "user@example.com"},
 		ID:   "c1",
-	})
+	}, nil)
 	if resp.Name != "Mailbox/get" {
 		t.Errorf("got %q want Mailbox/get", resp.Name)
 	}
@@ -35,7 +35,7 @@ func TestProcessMethodCall_WithDisabledProvider_StillRuns(t *testing.T) {
 		Name: "Mailbox/get",
 		Args: map[string]interface{}{"accountId": "user@example.com"},
 		ID:   "c1",
-	})
+	}, nil)
 	if resp.Name != "Mailbox/get" {
 		t.Errorf("got %q want Mailbox/get", resp.Name)
 	}
@@ -58,7 +58,7 @@ func TestProcessMethodCall_TracingEnabled_DispatchesCorrectly(t *testing.T) {
 		Name: "Mailbox/get",
 		Args: map[string]interface{}{"accountId": "user@example.com"},
 		ID:   "c1",
-	})
+	}, nil)
 	if resp.Name != "Mailbox/get" {
 		t.Errorf("got %q want Mailbox/get", resp.Name)
 	}
@@ -82,7 +82,7 @@ func TestProcessMethodCall_TracingEnabled_RecordsErrorOnAccountMismatch(t *testi
 		Name: "Mailbox/get",
 		Args: map[string]interface{}{"accountId": "other@example.com"},
 		ID:   "c1",
-	})
+	}, nil)
 	if resp.Args["type"] != "accountNotFound" {
 		t.Errorf("expected accountNotFound, got %+v", resp.Args)
 	}

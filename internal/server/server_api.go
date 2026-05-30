@@ -95,85 +95,7 @@ func (s *Server) startAPI() {
 			s.semcoreStore.Policy(),
 			s.semcoreStore.Delegation(),
 			s.sieveManager,
-			func(from string, to []string, data []byte) error {
-				// Run Sieve and capture actions before delivery
-				var sieveActions []string
-				if s.sieveManager != nil {
-					headers := make(map[string][]string)
-					if idx := bytes.Index(data, []byte("\r\n\r\n")); idx > 0 {
-						for _, line := range strings.Split(string(data[:idx]), "\r\n") {
-							if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
-								key := strings.TrimSpace(line[:colonIdx])
-								value := strings.TrimSpace(line[colonIdx+1:])
-								headers[key] = append(headers[key], value)
-							}
-						}
-					}
-					msg := &sieve.MessageContext{
-						From:    from,
-						To:      to,
-						Headers: headers,
-						Body:    data,
-						Size:    int64(len(data)),
-					}
-					for _, recipient := range to {
-						user, domain := parseEmail(recipient)
-						s.logger.Info("EWS sieve: checking recipient", "user", user, "domain", domain, "recipient", recipient)
-						hasScript := s.sieveManager.HasActiveScript(user)
-						s.logger.Info("EWS sieve check", "user", user, "hasScript", hasScript, 
-							"allUsers", s.sieveManager.ListScripts(""), "recipient", recipient)
-						if !hasScript {
-							// Also try the full email
-							hasScript = s.sieveManager.HasActiveScript(recipient)
-							if hasScript {
-								user = recipient
-							}
-						}
-						if hasScript {
-							scriptSrc := s.sieveManager.GetScriptSource(user, "active")
-							actions, err := s.sieveManager.ProcessMessage(user, msg)
-							s.logger.Info("EWS sieve process result", "user", user, "scriptSource", scriptSrc, "actions", fmt.Sprintf("%v", actions), "err", err)
-							if err == nil {
-								for _, action := range actions {
-									switch a := action.(type) {
-									case sieve.FileintoAction:
-										sieveActions = append(sieveActions, "fileinto:"+a.Folder)
-									case sieve.RedirectAction:
-										sieveActions = append(sieveActions, "redirect:"+a.Address)
-									case sieve.KeepAction:
-										sieveActions = append(sieveActions, "keep")
-									case sieve.DiscardAction:
-										sieveActions = append(sieveActions, "discard")
-									case sieve.AddFlagAction:
-										for _, f := range a.Flags {
-											sieveActions = append(sieveActions, "addflag:"+f)
-										}
-									case sieve.AddHeaderAction:
-										// Inject the header into the message body so the
-										// delivered copy carries it (e.g. X-Category from
-										// an assign-categories rule).
-										if a.Name != "" {
-											line := []byte(a.Name + ": " + a.Value + "\r\n")
-											data = append(line, data...)
-											msg.Body = data
-											msg.Size = int64(len(data))
-										}
-									case sieve.VacationAction:
-										// Out-of-office auto-reply. Dedup per sender to
-										// avoid reply loops, mirroring the SMTP pipeline.
-										if s.sieveManager.CheckAndRecordVacation(from, a.Days) {
-											go s.handleSieveVacation(from, recipient, a)
-										}
-									}
-								}
-							}
-							break
-						}
-					}
-				}
-				s.logger.Info("EWS submit delivery", "sieveActions", sieveActions)
-				return s.deliverMessageWithSieve(from, to, data, sieveActions)
-			},
+			s.submitMessageWithSieve,
 		)
 		ewsServer.SetLogger(s.logger)
 		s.apiServer.SetEWSHandler(ewsServer)
@@ -275,4 +197,84 @@ func (s *Server) setupOutlookFeatureGates() {
 		"FeatureCanonicalIdentity", gate.IsEnabled(semcore.FeatureCanonicalIdentity),
 		"FeatureMAPIHTTP", gate.IsEnabled(semcore.FeatureMAPIHTTP),
 	)
+}
+
+// submitMessageWithSieve routes an outbound submitted message (from EWS or
+// JMAP) through Sieve evaluation and then the shared delivery path. It captures
+// any Sieve actions (fileinto/redirect/keep/discard/flags/header injection/
+// vacation) before handing off to deliverMessageWithSieve, so all submission
+// protocols share identical delivery semantics.
+func (s *Server) submitMessageWithSieve(from string, to []string, data []byte) error {
+	var sieveActions []string
+	if s.sieveManager != nil {
+		headers := make(map[string][]string)
+		if idx := bytes.Index(data, []byte("\r\n\r\n")); idx > 0 {
+			for _, line := range strings.Split(string(data[:idx]), "\r\n") {
+				if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
+					key := strings.TrimSpace(line[:colonIdx])
+					value := strings.TrimSpace(line[colonIdx+1:])
+					headers[key] = append(headers[key], value)
+				}
+			}
+		}
+		msg := &sieve.MessageContext{
+			From:    from,
+			To:      to,
+			Headers: headers,
+			Body:    data,
+			Size:    int64(len(data)),
+		}
+		for _, recipient := range to {
+			user, domain := parseEmail(recipient)
+			s.logger.Info("submit sieve: checking recipient", "user", user, "domain", domain, "recipient", recipient)
+			hasScript := s.sieveManager.HasActiveScript(user)
+			if !hasScript {
+				// Also try the full email
+				hasScript = s.sieveManager.HasActiveScript(recipient)
+				if hasScript {
+					user = recipient
+				}
+			}
+			if hasScript {
+				actions, err := s.sieveManager.ProcessMessage(user, msg)
+				if err == nil {
+					for _, action := range actions {
+						switch a := action.(type) {
+						case sieve.FileintoAction:
+							sieveActions = append(sieveActions, "fileinto:"+a.Folder)
+						case sieve.RedirectAction:
+							sieveActions = append(sieveActions, "redirect:"+a.Address)
+						case sieve.KeepAction:
+							sieveActions = append(sieveActions, "keep")
+						case sieve.DiscardAction:
+							sieveActions = append(sieveActions, "discard")
+						case sieve.AddFlagAction:
+							for _, f := range a.Flags {
+								sieveActions = append(sieveActions, "addflag:"+f)
+							}
+						case sieve.AddHeaderAction:
+							// Inject the header into the message body so the
+							// delivered copy carries it (e.g. X-Category from
+							// an assign-categories rule).
+							if a.Name != "" {
+								line := []byte(a.Name + ": " + a.Value + "\r\n")
+								data = append(line, data...)
+								msg.Body = data
+								msg.Size = int64(len(data))
+							}
+						case sieve.VacationAction:
+							// Out-of-office auto-reply. Dedup per sender to
+							// avoid reply loops, mirroring the SMTP pipeline.
+							if s.sieveManager.CheckAndRecordVacation(from, a.Days) {
+								go s.handleSieveVacation(from, recipient, a)
+							}
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+	s.logger.Info("submit delivery", "sieveActions", sieveActions)
+	return s.deliverMessageWithSieve(from, to, data, sieveActions)
 }

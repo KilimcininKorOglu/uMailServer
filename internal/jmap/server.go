@@ -33,12 +33,22 @@ type Server struct {
 	sessions        map[string]*Session
 	sessionMu       sync.RWMutex
 	tracingProvider *tracing.Provider
+	// submitMessage routes an outbound message through the same delivery path as
+	// EWS/SMTP submission (Sieve, OOF, conversation-id, relay). Nil means JMAP
+	// sending is unavailable and EmailSubmission/set reports notSupported.
+	submitMessage func(from string, to []string, data []byte) error
 }
 
 // SetTracingProvider attaches an OpenTelemetry tracing provider so each
 // JMAP method call emits a child span. Nil disables tracing without overhead.
 func (s *Server) SetTracingProvider(provider *tracing.Provider) {
 	s.tracingProvider = provider
+}
+
+// SetSubmitMessageFunc wires the shared outbound delivery closure used for JMAP
+// EmailSubmission/set, mirroring the closure passed to the EWS server.
+func (s *Server) SetSubmitMessageFunc(fn func(from string, to []string, data []byte) error) {
+	s.submitMessage = fn
 }
 
 // Config holds JMAP server configuration
@@ -248,10 +258,13 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Process method calls
+	// Process method calls. createdIDs threads creation-id back-references
+	// (RFC 8620 §5.3 "#" prefix) across calls in the same request, so an
+	// EmailSubmission/set can reference an Email created earlier in the batch.
+	createdIDs := make(map[string]string)
 	var responses []Response
 	for _, call := range request.MethodCalls {
-		response := s.processMethodCall(user, call)
+		response := s.processMethodCall(user, call, createdIDs)
 		responses = append(responses, response)
 	}
 
@@ -401,8 +414,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// processMethodCall processes a single JMAP method call
-func (s *Server) processMethodCall(user string, call MethodCall) Response {
+// processMethodCall processes a single JMAP method call. createdIDs carries
+// creation-id back-references accumulated across the request.
+func (s *Server) processMethodCall(user string, call MethodCall, createdIDs map[string]string) Response {
 	if s.tracingProvider != nil && s.tracingProvider.IsEnabled() {
 		_, span := s.tracingProvider.StartSpanWithKind(context.Background(), "jmap."+call.Name, tracing.SpanKindServer)
 		defer span.End()
@@ -411,7 +425,7 @@ func (s *Server) processMethodCall(user string, call MethodCall) Response {
 		if call.ID != "" {
 			tracing.SetStringAttribute(span, "jmap.call_id", call.ID)
 		}
-		resp := s.dispatchMethodCall(user, call)
+		resp := s.dispatchMethodCall(user, call, createdIDs)
 		if errType, ok := resp.Args["type"].(string); ok && errType != "" {
 			tracing.SetStringAttribute(span, "jmap.error", errType)
 			tracing.SetStatus(span, tracing.StatusError, errType)
@@ -420,12 +434,12 @@ func (s *Server) processMethodCall(user string, call MethodCall) Response {
 		}
 		return resp
 	}
-	return s.dispatchMethodCall(user, call)
+	return s.dispatchMethodCall(user, call, createdIDs)
 }
 
 // dispatchMethodCall is the core method dispatch shared by traced and untraced
 // processing.
-func (s *Server) dispatchMethodCall(user string, call MethodCall) Response {
+func (s *Server) dispatchMethodCall(user string, call MethodCall, createdIDs map[string]string) Response {
 	switch call.Name {
 	// Mailbox methods
 	case "Mailbox/get":
@@ -445,7 +459,7 @@ func (s *Server) dispatchMethodCall(user string, call MethodCall) Response {
 	case "Email/query":
 		return s.handleEmailQuery(user, call)
 	case "Email/set":
-		return s.handleEmailSet(user, call)
+		return s.handleEmailSet(user, call, createdIDs)
 	case "Email/import":
 		return s.handleEmailImport(user, call)
 	case "Email/changes":
@@ -466,6 +480,16 @@ func (s *Server) dispatchMethodCall(user string, call MethodCall) Response {
 	// Search methods
 	case "SearchSnippet/get":
 		return s.handleSearchSnippetGet(user, call)
+
+	// EmailSubmission methods
+	case "EmailSubmission/set":
+		return s.handleEmailSubmissionSet(user, call, createdIDs)
+	case "EmailSubmission/get":
+		return s.handleEmailSubmissionGet(user, call)
+	case "EmailSubmission/query":
+		return s.handleEmailSubmissionQuery(user, call)
+	case "EmailSubmission/changes":
+		return s.handleEmailSubmissionChanges(user, call)
 
 	// Identity methods
 	case "Identity/get":

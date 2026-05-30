@@ -38,6 +38,9 @@ func (s *Server) startJMAP() {
 
 	jmapServer := jmap.NewServer(s.storageDB, s.msgStore, s.logger, jmapConfig)
 	jmapServer.SetTracingProvider(s.tracingProvider)
+	// Route JMAP EmailSubmission/set through the same Sieve+delivery path as EWS
+	// so subaddressing/Sieve/OOF/conversation-id apply uniformly across protocols.
+	jmapServer.SetSubmitMessageFunc(s.submitMessageWithSieve)
 
 	s.jmapServer = jmapServer
 
