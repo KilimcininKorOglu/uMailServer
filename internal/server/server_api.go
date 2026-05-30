@@ -148,6 +148,22 @@ func (s *Server) startAPI() {
 										for _, f := range a.Flags {
 											sieveActions = append(sieveActions, "addflag:"+f)
 										}
+									case sieve.AddHeaderAction:
+										// Inject the header into the message body so the
+										// delivered copy carries it (e.g. X-Category from
+										// an assign-categories rule).
+										if a.Name != "" {
+											line := []byte(a.Name + ": " + a.Value + "\r\n")
+											data = append(line, data...)
+											msg.Body = data
+											msg.Size = int64(len(data))
+										}
+									case sieve.VacationAction:
+										// Out-of-office auto-reply. Dedup per sender to
+										// avoid reply loops, mirroring the SMTP pipeline.
+										if s.sieveManager.CheckAndRecordVacation(from, a.Days) {
+											go s.handleSieveVacation(from, recipient, a)
+										}
 									}
 								}
 							}

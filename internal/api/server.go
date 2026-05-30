@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -437,7 +438,7 @@ func NewServerWithInterfaces(
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			s.logger.Error("HTTP handler panic", "panic", recovered, "path", r.URL.Path)
+			s.logger.Error("HTTP handler panic", "panic", recovered, "path", r.URL.Path, "stack", string(debug.Stack()))
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 	}()

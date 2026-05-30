@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 )
 
@@ -20,6 +21,18 @@ func sanitizeHeaderValue(s string) string {
 func (s *Server) handleSieveVacation(sender, recipient string, vacation sieve.VacationAction) {
 	if s.queue == nil {
 		return
+	}
+
+	// Enforce the OOF schedule window at delivery time. The compiled Sieve
+	// script fires whenever OOF is enabled; the actual start/end window is
+	// evaluated here (server-side, like Exchange) so a Scheduled policy only
+	// auto-replies while it is genuinely active.
+	if s.semcoreStore != nil {
+		if oofID, err := semcore.NewOOFId(recipient); err == nil {
+			if policy, err := s.semcoreStore.Policy().GetOOF(oofID); err == nil && policy != nil && !policy.IsActiveNow() {
+				return
+			}
+		}
 	}
 
 	// Don't send vacation to mailing lists or bounces
@@ -54,11 +67,14 @@ func (s *Server) handleSieveVacation(sender, recipient string, vacation sieve.Va
 		recipient,
 		safeBody)
 
-	// Enqueue vacation reply TO the sender FROM the recipient
-	if _, err := s.queue.Enqueue(fromAddr, []string{sender}, []byte(vacationMsg)); err != nil {
-		s.logger.Error("Failed to enqueue vacation reply", "to", sender, "from", fromAddr, "error", err)
+	// Deliver the vacation reply TO the sender FROM the recipient. Use the
+	// shared delivery handler so a local sender is written straight to their
+	// mailbox and a remote sender is relayed via the queue — the bare queue
+	// path only does remote MX delivery and would never reach a local inbox.
+	if err := s.deliverMessageWithSieve(fromAddr, []string{sender}, []byte(vacationMsg), nil); err != nil {
+		s.logger.Error("Failed to deliver vacation reply", "to", sender, "from", fromAddr, "error", err)
 	} else {
-		s.logger.Debug("Vacation reply enqueued", "to", sender, "from", fromAddr)
+		s.logger.Info("Vacation reply delivered", "to", sender, "from", fromAddr)
 	}
 }
 
