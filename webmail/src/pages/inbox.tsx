@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   Star,
@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
+import api from "@/utils/api"
+import type { Mail } from "@/utils/api"
 
 interface Email {
   id: string
