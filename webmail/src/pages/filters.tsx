@@ -157,7 +157,14 @@ export function FiltersPage() {
         await api.updateFilter(editingId, draft)
         toast.success("Filter updated")
       } else {
-        await api.createFilter(draft)
+        // Create does not accept `enabled` (new filters are enabled by
+        // default) and the backend rejects unknown JSON fields.
+        await api.createFilter({
+          name: draft.name,
+          matchAll: draft.matchAll,
+          conditions: draft.conditions,
+          actions: draft.actions,
+        })
         toast.success("Filter created")
       }
       setDialogOpen(false)
@@ -171,7 +178,15 @@ export function FiltersPage() {
 
   const handleToggle = async (filter: Filter) => {
     try {
-      await api.updateFilter(filter.id, { enabled: !filter.enabled })
+      // Send the full filter: the update handler overwrites matchAll with
+      // the request value, so a partial body would silently reset it.
+      await api.updateFilter(filter.id, {
+        name: filter.name,
+        enabled: !filter.enabled,
+        matchAll: filter.matchAll,
+        conditions: filter.conditions,
+        actions: filter.actions,
+      })
       await loadFilters()
     } catch {
       toast.error("Failed to update filter")
