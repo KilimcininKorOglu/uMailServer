@@ -55,11 +55,18 @@ func (s *SSEServer) SetCorsOrigin(origin string) {
 // Handler returns the HTTP handler for SSE connections
 func (s *SSEServer) Handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Authenticate the request - token from X-Auth-Token header or Authorization Bearer
+		// Authenticate the request - token from X-Auth-Token header, Authorization
+		// Bearer, or the jwt HttpOnly cookie. Browser EventSource clients cannot
+		// set custom headers, so the cookie is the path web clients use.
 		token := r.Header.Get("X-Auth-Token")
 		if token == "" {
 			if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
 				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		}
+		if token == "" {
+			if cookie, err := r.Cookie("jwt"); err == nil {
+				token = cookie.Value
 			}
 		}
 
