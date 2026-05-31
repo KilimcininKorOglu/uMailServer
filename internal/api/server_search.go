@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-
-	"github.com/umailserver/umailserver/internal/search"
 )
 
 // searchHit is the client-facing search result. It exposes `id` (the client
@@ -87,60 +85,71 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := s.searchSvc.Search(search.MessageSearchOptions{
-		User:   userStr,
-		Folder: folder,
-		Query:  query,
-		Limit:  limit,
-		Offset: offset,
-	})
-	if err != nil {
-		s.sendError(w, http.StatusInternalServerError, "search failed")
+	// The full-text index can hold stale entries whose ids no longer resolve to
+	// a stored message, which produced blank, unclickable results. Scan the
+	// user's mailboxes directly so every hit carries real, resolvable metadata.
+	if s.mailHandler == nil {
+		s.sendJSON(w, http.StatusOK, map[string]interface{}{
+			"query": query, "folder": folder, "emails": []searchHit{},
+			"total": 0, "limit": limit, "offset": offset,
+		})
 		return
 	}
 
-	// Shape results for the web client: expose `id` and backfill any display
-	// fields the search index left empty from the message store.
-	hits := make([]searchHit, 0, len(results))
-	for _, res := range results {
-		hit := searchHit{
-			ID:             res.ItemID,
-			ItemID:         res.ItemID,
-			ConversationID: res.ConversationID,
-			From:           res.From,
-			Subject:        res.Subject,
-			Preview:        res.Preview,
-			Date:           res.Date,
-			Folder:         res.Folder,
-			HasAttachments: res.HasAttachment,
-			Score:          res.Score,
+	mailboxes := allMailboxes
+	if folder != "" {
+		internal := folderMap[strings.ToLower(folder)]
+		if internal == "" {
+			internal = folder
 		}
-		if res.To != "" {
-			hit.To = strings.Split(res.To, ",")
-		}
-		if (hit.From == "" || hit.Subject == "") && s.mailHandler != nil {
-			if mailbox, _, _, found := s.mailHandler.findMessage(userStr, res.ItemID); found {
-				if m, merr := s.mailHandler.getEmailFromStorage(userStr, mailbox, res.ItemID); merr == nil && m != nil {
-					hit.From = m.From
-					hit.To = m.To
-					hit.Subject = m.Subject
-					hit.Preview = m.Preview
-					hit.Date = m.Date
-					hit.Folder = m.Folder
-					hit.Read = m.Read
-					hit.Starred = m.Starred
-					hit.HasAttachments = m.HasAttachments
-				}
-			}
-		}
-		hits = append(hits, hit)
+		mailboxes = []string{internal}
 	}
+
+	q := strings.ToLower(query)
+	all := make([]searchHit, 0)
+	for _, mb := range mailboxes {
+		mails, merr := s.mailHandler.getEmailsFromStorage(userStr, mb)
+		if merr != nil {
+			continue
+		}
+		for _, m := range mails {
+			haystack := strings.ToLower(m.From + " " + m.Subject + " " + m.Body + " " + strings.Join(m.To, " "))
+			if !strings.Contains(haystack, q) {
+				continue
+			}
+			all = append(all, searchHit{
+				ID:             m.ID,
+				ItemID:         m.ID,
+				From:           m.From,
+				To:             m.To,
+				Subject:        m.Subject,
+				Preview:        m.Preview,
+				Date:           m.Date,
+				Folder:         m.Folder,
+				Read:           m.Read,
+				Starred:        m.Starred,
+				HasAttachments: m.HasAttachments,
+			})
+		}
+	}
+
+	// Apply offset/limit to the matches.
+	total := len(all)
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	paged := all[start:end]
 
 	s.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"query":  query,
 		"folder": folder,
-		"emails": hits,
-		"total":  len(hits),
+		"emails": paged,
+		"total":  total,
 		"limit":  limit,
 		"offset": offset,
 	})
