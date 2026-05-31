@@ -16,6 +16,7 @@ import {
   Search,
   Mail,
   Filter,
+  MessagesSquare,
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
@@ -47,6 +48,7 @@ interface NavItem {
 
 const mainNavItems: NavItem[] = [
   { icon: Inbox, label: "Inbox", path: "/inbox", shortcut: "gi" },
+  { icon: MessagesSquare, label: "Conversations", path: "/threads" },
   { icon: Search, label: "Search", path: "/search", shortcut: "/" },
   { icon: Star, label: "Starred", path: "/starred", shortcut: "gs" },
   { icon: Send, label: "Sent", path: "/sent", shortcut: "gt" },

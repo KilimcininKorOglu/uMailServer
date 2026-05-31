@@ -15,6 +15,7 @@ import { SearchPage } from "@/pages/search"
 import { SpamPage } from "@/pages/spam"
 import { FolderPage } from "@/pages/folder"
 import { FiltersPage } from "@/pages/filters"
+import { ThreadsPage } from "@/pages/threads"
 import { ShortcutsDialog } from "@/components/shortcuts-dialog"
 import { Toaster } from "@/components/ui/sonner"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
@@ -65,6 +66,7 @@ function AppContent() {
           <Route path="trash" element={<TrashPage />} />
           <Route path="contacts" element={<ContactsPage />} />
           <Route path="filters" element={<FiltersPage />} />
+          <Route path="threads" element={<ThreadsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="spam" element={<SpamPage />} />
