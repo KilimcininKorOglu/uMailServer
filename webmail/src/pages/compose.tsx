@@ -160,18 +160,27 @@ export function ComposePage() {
     loadContacts()
   }, [])
   
-  // Handle replyTo param after contacts are loaded
+  // Handle replyTo/cc params after contacts are loaded. Both accept a
+  // comma-separated list so Reply All can prefill multiple recipients.
   useEffect(() => {
-    const replyTo = searchParams.get("replyTo")
-    if (replyTo && contacts.length > 0) {
-      const contact = contacts.find((c) => c.email === replyTo)
-      if (contact) {
-        setTo([contact])
-      } else {
-        setTo([{ id: "reply", name: replyTo, email: replyTo }])
-      }
-    } else if (replyTo) {
-      setTo([{ id: "reply", name: replyTo, email: replyTo }])
+    const toRecipient = (email: string, idx: number): Recipient => {
+      const contact = contacts.find((c) => c.email === email)
+      return contact ?? { id: `param-${idx}-${email}`, name: email, email }
+    }
+    const parseList = (raw: string | null) =>
+      (raw ?? "")
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)
+
+    const replyTo = parseList(searchParams.get("replyTo"))
+    if (replyTo.length > 0) {
+      setTo(replyTo.map(toRecipient))
+    }
+    const ccList = parseList(searchParams.get("cc"))
+    if (ccList.length > 0) {
+      setCc(ccList.map(toRecipient))
+      setShowCc(true)
     }
   }, [searchParams, contacts])
 

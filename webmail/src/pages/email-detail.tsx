@@ -4,14 +4,24 @@ import {
   ArrowLeft,
   Trash2,
   Reply,
+  ReplyAll,
   Forward,
+  Mail,
+  FolderInput,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
 import { sanitizeHTML } from "@/utils/sanitize"
 import api from "@/utils/api"
+import { useAuth } from "@/contexts/AuthContext"
 
 interface EmailDetail {
   id: string
@@ -26,6 +36,7 @@ interface EmailDetail {
 export function EmailDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [email, setEmail] = useState<EmailDetail | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -88,6 +99,29 @@ export function EmailDetailPage() {
     navigate(`/compose?${params.toString()}`)
   }
 
+  const handleReplyAll = () => {
+    if (!email) return
+    const self = user?.email?.toLowerCase()
+    // Other To recipients become Cc, excluding the original sender and ourselves.
+    const others = email.to
+      .map((t) => {
+        const m = t.match(/<([^>]+)>/)
+        return (m ? m[1] : t).trim()
+      })
+      .filter(
+        (e) =>
+          e &&
+          e.toLowerCase() !== self &&
+          e.toLowerCase() !== email.fromEmail.toLowerCase()
+      )
+    const params = new URLSearchParams({
+      replyTo: email.fromEmail,
+      subject: email.subject.startsWith("Re: ") ? email.subject : `Re: ${email.subject}`,
+    })
+    if (others.length > 0) params.set("cc", others.join(","))
+    navigate(`/compose?${params.toString()}`)
+  }
+
   const handleForward = () => {
     if (!email) return
     const quoted = `\n\n---------- Forwarded message ----------\nFrom: ${email.from} <${email.fromEmail}>\nDate: ${email.date}\nSubject: ${email.subject}\nTo: ${email.to.join(", ")}\n\n${email.content}`
@@ -96,6 +130,28 @@ export function EmailDetailPage() {
       body: quoted,
     })
     navigate(`/compose?${params.toString()}`)
+  }
+
+  const handleMarkUnread = async () => {
+    if (!email) return
+    try {
+      await api.setFlag(email.id, "\\Seen", false)
+      toast.success("Marked as unread")
+      navigate("/inbox")
+    } catch {
+      toast.error("Failed to mark as unread")
+    }
+  }
+
+  const handleMove = async (folder: string, label: string) => {
+    if (!email) return
+    try {
+      await api.moveMail(email.id, folder)
+      toast.success(`Moved to ${label}`)
+      navigate("/inbox")
+    } catch {
+      toast.error("Failed to move message")
+    }
   }
 
   return (
@@ -122,20 +178,42 @@ export function EmailDetailPage() {
                 <Reply className="h-4 w-4 mr-1" />
                 Reply
               </Button>
+              <Button variant="ghost" size="sm" onClick={handleReplyAll} title="Reply all">
+                <ReplyAll className="h-4 w-4 mr-1" />
+                Reply all
+              </Button>
               <Button variant="ghost" size="sm" onClick={handleForward} title="Forward">
                 <Forward className="h-4 w-4 mr-1" />
                 Forward
               </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-destructive"
-              onClick={handleDelete}
-              title="Delete"
-            >
-              <Trash2 className="h-5 w-5" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" onClick={handleMarkUnread} title="Mark as unread">
+                <Mail className="h-5 w-5" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" title="Move to folder">
+                    <FolderInput className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleMove("inbox", "Inbox")}>Inbox</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleMove("archive", "Archive")}>Archive</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleMove("spam", "Spam")}>Spam</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleMove("trash", "Trash")}>Trash</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-destructive"
+                onClick={handleDelete}
+                title="Delete"
+              >
+                <Trash2 className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
 
           {/* Email Content */}
