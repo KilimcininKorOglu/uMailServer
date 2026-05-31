@@ -301,11 +301,12 @@ func (h *MailHandler) getEmailFromStorage(userEmail, mailbox, messageID string) 
 		}
 
 		if meta.MessageID == messageID {
-			// Read message body
+			// Read message body (strip headers so the client shows the body,
+			// not the raw MIME message).
 			var body string
 			data, err := h.msgStore.ReadMessage(userEmail, meta.MessageID)
 			if err == nil {
-				body = string(data)
+				body = h.extractBody(string(data))
 			}
 
 			folderName := reverseFolderMap[mailbox]
