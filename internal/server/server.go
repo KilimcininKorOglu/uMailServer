@@ -157,6 +157,12 @@ func New(cfg *config.Config) (*Server, error) {
 		bgSem:           make(chan struct{}, 100),
 	}
 
+	// Persist Sieve scripts under the data dir so they survive restarts;
+	// fall back to in-memory storage if the directory cannot be prepared.
+	if err := s.sieveManager.SetStorageDir(filepath.Join(cfg.Server.DataDir, "sieve")); err != nil {
+		logger.Warn("Sieve persistence disabled", "error", err)
+	}
+
 	// Load configured S/MIME signing keys into the keystore (outbound signing).
 	s.loadSMIMESigningKeys()
 

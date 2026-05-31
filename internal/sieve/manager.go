@@ -18,6 +18,7 @@ type Manager struct {
 	scripts       map[string]map[string]*StoredScript // userID -> scriptName -> stored script
 	activeScripts map[string]string                   // userID -> activeScriptName
 	scriptsMu     sync.RWMutex
+	storageDir    string // when set, scripts are persisted under this directory
 
 	// Vacation cache: prevents spamming the same sender (LRU with max 10000 entries)
 	vacationCache    map[string]time.Time
@@ -61,6 +62,7 @@ func (m *Manager) StoreScript(userID string, scriptName string, source string) e
 		Source: source,
 		Script: script,
 	}
+	m.persistUserLocked(userID)
 	return nil
 }
 
@@ -74,6 +76,7 @@ func (m *Manager) SetActiveScriptByName(userID string, scriptName string) error 
 			return fmt.Errorf("script %q not found", scriptName)
 		}
 		m.activeScripts[userID] = scriptName
+		m.persistUserLocked(userID)
 		return nil
 	}
 	return fmt.Errorf("no scripts found for user")
@@ -127,6 +130,7 @@ func (m *Manager) DeleteScript(userID string, scriptName string) {
 		if m.activeScripts[userID] == scriptName {
 			delete(m.activeScripts, userID)
 		}
+		m.persistUserLocked(userID)
 	}
 }
 
