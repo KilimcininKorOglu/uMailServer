@@ -165,6 +165,13 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	user, domain := parseEmail(req.Email)
 
+	// Reject duplicates: re-creating an existing account must not silently
+	// overwrite it (which would reset the existing user's password).
+	if _, err := s.db.GetAccount(domain, user); err == nil {
+		s.sendError(w, http.StatusConflict, "account already exists")
+		return
+	}
+
 	// Hash password with configured hasher
 	hashedPassword, err := s.hashPassword(req.Password)
 	if err != nil {

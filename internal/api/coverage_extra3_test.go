@@ -316,6 +316,39 @@ func TestCreateAccount_ClosedDB_Cov3(t *testing.T) {
 	}
 }
 
+// TestCreateAccount_Duplicate verifies that re-creating an existing account is
+// rejected with 409 instead of overwriting it (which would reset its password).
+func TestCreateAccount_Duplicate(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+	if err := database.CreateAccount(&db.AccountData{
+		Email: "dup@dup.com", LocalPart: "dup", Domain: "dup.com",
+		PasswordHash: "x", IsActive: true,
+	}); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+
+	server := NewServer(database, nil, Config{})
+	body, err := json.Marshal(map[string]string{"email": "dup@dup.com", "password": "Password123!"})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	server.createAccount(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("Expected 409 for duplicate account, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // =======================================================================
 // updateAccount (81.8%) - cover the db.UpdateAccount failure path
 // =======================================================================
