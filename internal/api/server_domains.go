@@ -103,6 +103,13 @@ func (s *Server) createDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject duplicates: re-creating an existing domain must not silently
+	// overwrite its configuration (e.g. resetting MaxAccounts or DKIM keys).
+	if _, err := s.db.GetDomain(req.Name); err == nil {
+		s.sendError(w, http.StatusConflict, "domain already exists")
+		return
+	}
+
 	domain := &db.DomainData{
 		Name:        req.Name,
 		MaxAccounts: req.MaxAccounts,

@@ -429,6 +429,36 @@ func TestCreateDomain(t *testing.T) {
 	}
 }
 
+// TestCreateDomain_Duplicate verifies that re-creating an existing domain is
+// rejected with 409 instead of silently overwriting its configuration.
+func TestCreateDomain_Duplicate(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+	if err := database.CreateDomain(&db.DomainData{Name: "dup.com", MaxAccounts: 10, IsActive: true}); err != nil {
+		t.Fatalf("seed domain: %v", err)
+	}
+
+	server := NewServer(database, nil, Config{})
+	jsonBody, err := json.Marshal(map[string]interface{}{"name": "dup.com", "max_accounts": 100})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", bytes.NewReader(jsonBody))
+	rec := httptest.NewRecorder()
+	server.handleDomains(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("Expected 409 for duplicate domain, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCreateDomainInvalidBody(t *testing.T) {
 	database, err := db.Open(t.TempDir() + "/test.db")
 	if err != nil {
