@@ -15,6 +15,7 @@ import {
   FolderPlus,
   Pencil,
   MoreHorizontal,
+  CalendarDays,
   Users,
   Search,
   Mail,
@@ -74,6 +75,7 @@ const mainNavItems: NavItem[] = [
   { icon: FileText, label: "Drafts", path: "/drafts", shortcut: "gd" },
   { icon: Trash2, label: "Trash", path: "/trash", shortcut: "gT" },
   { icon: Users, label: "Contacts", path: "/contacts" },
+  { icon: CalendarDays, label: "Calendar", path: "/calendar" },
   { icon: Filter, label: "Filters", path: "/filters" },
 ]
 

@@ -37,6 +37,18 @@ export interface SendMailRequest {
   requestReadReceipt?: boolean // ask the recipient's client for a read receipt
 }
 
+export interface CalendarEvent {
+  uid: string
+  summary: string
+  description?: string
+  location?: string
+  start: string // RFC3339, or YYYY-MM-DD when allDay
+  end?: string
+  allDay?: boolean
+}
+
+export type CalendarEventInput = Omit<CalendarEvent, "uid"> & { uid?: string }
+
 export interface AuthLoginRequest {
   email: string
   password: string
@@ -505,6 +517,23 @@ class API {
 
   async deleteContact(id: string): Promise<void> {
     await this.delete(`/contacts/${id}`)
+  }
+
+  // Calendar (CalDAV-backed)
+  async getCalendarEvents(): Promise<{ events?: CalendarEvent[] }> {
+    return this.get<{ events?: CalendarEvent[] }>('/calendar/events')
+  }
+
+  async createCalendarEvent(event: CalendarEventInput): Promise<CalendarEvent> {
+    return this.post<CalendarEvent>('/calendar/events', event)
+  }
+
+  async updateCalendarEvent(uid: string, event: CalendarEventInput): Promise<CalendarEvent> {
+    return this.put<CalendarEvent>(`/calendar/events/${encodeURIComponent(uid)}`, event)
+  }
+
+  async deleteCalendarEvent(uid: string): Promise<void> {
+    await this.delete(`/calendar/events/${encodeURIComponent(uid)}`)
   }
 
   // Generic methods
