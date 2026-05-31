@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { Account, Domain, QueueEntry } from "@/types";
+import type { Account, Domain, QueueEntry, DelegationEntry } from "@/types";
 
 interface ApiError {
   message: string;
@@ -240,5 +240,57 @@ export function useQueue() {
     fetchQueue,
     retryEntry,
     dropEntry,
+  };
+}
+
+// Delegation API hooks
+export interface DelegationCreatePayload {
+  owner: string;
+  grantee: string;
+  rights: string[];
+  canSendAs: boolean;
+  canSendOnBehalf: boolean;
+}
+
+export function useDelegations() {
+  const [data, setData] = useState<DelegationEntry[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchDelegations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<{ delegations: DelegationEntry[] }>("/admin/delegations");
+      setData(result.delegations ?? []);
+      return result.delegations ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const createDelegation = useCallback(async (payload: DelegationCreatePayload) => {
+    const result = await apiRequest<DelegationEntry>("/admin/delegations", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    await fetchDelegations();
+    return result;
+  }, [fetchDelegations]);
+
+  const deleteDelegation = useCallback(async (id: string) => {
+    await apiRequest(`/admin/delegations/${id}`, { method: "DELETE" });
+    await fetchDelegations();
+  }, [fetchDelegations]);
+
+  return {
+    delegations: data,
+    loading,
+    error,
+    fetchDelegations,
+    createDelegation,
+    deleteDelegation,
   };
 }

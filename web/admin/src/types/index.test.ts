@@ -8,6 +8,7 @@ import type {
   ServiceStatus,
   RealtimeMetrics,
   Activity,
+  DelegationEntry,
 } from './index'
 
 describe('Domain type', () => {
@@ -204,5 +205,24 @@ describe('Activity type', () => {
       }
       expect(activity.severity).toBe(severity)
     })
+  })
+})
+
+describe('DelegationEntry type', () => {
+  it('accepts a valid delegation grant', () => {
+    const entry: DelegationEntry = {
+      id: 'del-abc123',
+      owner: 'owner@example.com',
+      grantee: 'delegate@example.com',
+      mailbox: 'owner@example.com',
+      rights: 'read, write',
+      canSendAs: false,
+      canSendOnBehalf: true,
+      createdAt: '2024-01-01T00:00:00Z',
+    }
+    expect(entry.owner).toBe('owner@example.com')
+    expect(entry.grantee).toBe('delegate@example.com')
+    expect(entry.canSendOnBehalf).toBe(true)
+    expect(entry.canSendAs).toBe(false)
   })
 })

@@ -82,3 +82,14 @@ export interface Activity {
   timestamp: string;
   severity?: 'info' | 'warning' | 'error' | 'success';
 }
+
+export interface DelegationEntry {
+  id: string;
+  owner: string;
+  grantee: string;
+  mailbox: string;
+  rights: string;
+  canSendAs: boolean;
+  canSendOnBehalf: boolean;
+  createdAt: string;
+}

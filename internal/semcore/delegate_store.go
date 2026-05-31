@@ -349,5 +349,37 @@ func (s *BoltDelegateStore) ListMailboxesSharedViaDelegate(delegateEmail string)
 	return result, err
 }
 
+// ---------------------------------------------------------------------------
+// ListAllDelegates
+// ---------------------------------------------------------------------------
+
+// ListAllDelegates returns every delegate grant across all mailbox owners.
+// It scans only the forward owner->delegate keys, skipping the reverse-lookup
+// entries (delegations:!{delegate}:...). Intended for admin surfaces that need
+// a global view of delegations.
+func (s *BoltDelegateStore) ListAllDelegates() ([]*DelegateUser, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*DelegateUser
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketDelegations))
+		return b.ForEach(func(k, v []byte) error {
+			// Skip reverse-lookup entries (delegations:!{delegate}:...).
+			if strings.HasPrefix(string(k), "delegations:!") {
+				return nil
+			}
+			var d DelegateUser
+			if err := json.Unmarshal(v, &d); err != nil {
+				return nil // skip corrupted entries
+			}
+			dcopy := d
+			result = append(result, &dcopy)
+			return nil
+		})
+	})
+	return result, err
+}
+
 // timeNowUTC is a variable so it can be overridden in tests.
 var timeNowUTC = func() time.Time { return time.Now().UTC() }

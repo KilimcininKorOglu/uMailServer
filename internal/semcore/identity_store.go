@@ -433,6 +433,21 @@ func (s *BoltIdentityStore) ListMailboxIdentities() ([]storedMailboxIdentity, er
 	return result, err
 }
 
+// MailboxEmailsByID returns a map of MailboxId string -> account email for all
+// registered mailbox identities. Used by admin surfaces that persist a
+// MailboxId (e.g. delegation grants) but must display the human-readable email.
+func (s *BoltIdentityStore) MailboxEmailsByID() (map[string]string, error) {
+	ids, err := s.ListMailboxIdentities()
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string, len(ids))
+	for _, rec := range ids {
+		m[rec.MailboxID.String()] = strings.TrimPrefix(rec.Email, "e:")
+	}
+	return m, nil
+}
+
 // ---------------------------------------------------------------------------
 // FolderId operations
 // ---------------------------------------------------------------------------

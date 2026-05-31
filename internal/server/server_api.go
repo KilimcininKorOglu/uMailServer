@@ -81,6 +81,10 @@ func (s *Server) startAPI() {
 	// Wire EWS SOAP handler into the API server.
 	// This requires semcoreStore to be initialized (done in server.go startup).
 	if s.semcoreStore != nil {
+		// Expose the canonical store to admin API surfaces (delegation,
+		// directory/resources, rules, jobs).
+		s.apiServer.SetSemcoreStore(s.semcoreStore)
+
 		ewsServer := ews.NewServer(
 			s.semcoreStore.Identity(),
 			s.semcoreStore.SyncState(),

@@ -108,6 +108,10 @@ type Server struct {
 	// This is the Outlook-specific MAPI-over-HTTP surface that complements EWS.
 	mapiHandler http.Handler
 
+	// Canonical semantic-core store, used by admin surfaces (delegation,
+	// directory/resources, rules, jobs). Nil when semantic-core is disabled.
+	semStore *semcore.Store
+
 	// HTTP router (cached)
 	router http.Handler
 
@@ -657,6 +661,8 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/admin/jwt/status", s.adminMiddleware(http.HandlerFunc(s.handleJWTStatus)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/queue", s.adminMiddleware(http.HandlerFunc(s.handleQueue)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/queue/", s.adminMiddleware(http.HandlerFunc(s.handleQueueDetail)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/delegations", s.adminMiddleware(http.HandlerFunc(s.handleDelegations)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/delegations/", s.adminMiddleware(http.HandlerFunc(s.handleDelegationDetail)).ServeHTTP)
 }
 
 // limitBodyMiddleware restricts request body size to prevent DoS.
@@ -723,6 +729,13 @@ func (s *Server) SetClusterManager(mgr *cluster.ClusterManager, cfg *ClusterConf
 // SetBackupManager injects the backup manager into the API server
 func (s *Server) SetBackupManager(mgr *backup.Manager) {
 	s.backupMgr = mgr
+}
+
+// SetSemcoreStore injects the canonical semantic-core store so admin surfaces
+// (delegation, directory/resources, rules, jobs) can reach the persisted
+// domain models.
+func (s *Server) SetSemcoreStore(store *semcore.Store) {
+	s.semStore = store
 }
 
 // SetACMEChallengeHandler injects the ACME HTTP-01 challenge handler.

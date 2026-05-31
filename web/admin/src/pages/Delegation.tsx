@@ -34,23 +34,14 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useAccounts } from "@/hooks/useApi";
-
-interface DelegationEntry {
-  id: string;
-  owner: string;
-  grantee: string;
-  mailbox: string;
-  rights: string;
-  canSendAs: boolean;
-  canSendOnBehalf: boolean;
-  createdAt: string;
-}
+import { useAccounts, useDelegations } from "@/hooks/useApi";
 
 export function Delegation() {
-  const { accounts, loading, fetchAccounts } = useAccounts();
+  const { accounts, fetchAccounts } = useAccounts();
+  const { delegations, loading, fetchDelegations, createDelegation, deleteDelegation } =
+    useDelegations();
   const [activeTab, setActiveTab] = useState("shared-mailboxes");
-  const [delegations, setDelegations] = useState<DelegationEntry[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [selectedOwner, setSelectedOwner] = useState("");
   const [selectedGrantee, setSelectedGrantee] = useState("");
@@ -61,24 +52,10 @@ export function Delegation() {
 
   useEffect(() => {
     fetchAccounts();
-    fetchDelegations();
-  }, []);
-
-  const fetchDelegations = async () => {
-    // Placeholder - would fetch from /api/v1/admin/delegations
-    setDelegations([
-      {
-        id: "1",
-        owner: "admin@local.test",
-        grantee: "user@local.test",
-        mailbox: "admin@local.test",
-        rights: "read, write",
-        canSendAs: false,
-        canSendOnBehalf: true,
-        createdAt: "2024-01-15T10:30:00Z",
-      },
-    ]);
-  };
+    fetchDelegations().catch(() => {
+      /* error surfaced via hook state */
+    });
+  }, [fetchAccounts, fetchDelegations]);
 
   const handleCreateDelegation = async () => {
     if (!selectedOwner || !selectedGrantee) {
@@ -90,32 +67,37 @@ export function Delegation() {
     if (grantReadAccess) rights.push("read");
     if (grantWriteAccess) rights.push("write");
 
-    const newEntry: DelegationEntry = {
-      id: Date.now().toString(),
-      owner: selectedOwner,
-      grantee: selectedGrantee,
-      mailbox: selectedOwner,
-      rights: rights.join(", "),
-      canSendAs: grantSendAs,
-      canSendOnBehalf: grantSendOnBehalf,
-      createdAt: new Date().toISOString(),
-    };
-
-    setDelegations((prev) => [...prev, newEntry]);
-    setIsAddDialogOpen(false);
-    setSelectedOwner("");
-    setSelectedGrantee("");
-    setGrantReadAccess(true);
-    setGrantWriteAccess(false);
-    setGrantSendAs(false);
-    setGrantSendOnBehalf(false);
+    try {
+      await createDelegation({
+        owner: selectedOwner,
+        grantee: selectedGrantee,
+        rights,
+        canSendAs: grantSendAs,
+        canSendOnBehalf: grantSendOnBehalf,
+      });
+      setFormError(null);
+      setIsAddDialogOpen(false);
+      setSelectedOwner("");
+      setSelectedGrantee("");
+      setGrantReadAccess(true);
+      setGrantWriteAccess(false);
+      setGrantSendAs(false);
+      setGrantSendOnBehalf(false);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to create delegation");
+    }
   };
 
   const handleDeleteDelegation = async (id: string) => {
-    setDelegations((prev) => prev.filter((d) => d.id !== id));
+    try {
+      await deleteDelegation(id);
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to remove delegation");
+    }
   };
 
-  const filteredDelegations = delegations;
+  const filteredDelegations = delegations ?? [];
 
   return (
     <div className="space-y-6">
@@ -142,6 +124,12 @@ export function Delegation() {
                 Grant another user access to a mailbox
               </DialogDescription>
             </DialogHeader>
+            {formError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{formError}</AlertDescription>
+              </Alert>
+            )}
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="owner">Mailbox Owner</Label>
@@ -218,6 +206,13 @@ export function Delegation() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {formError && !isAddDialogOpen && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{formError}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
