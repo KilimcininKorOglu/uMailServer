@@ -20,6 +20,12 @@ export interface Mail {
   size: number
 }
 
+export interface MailAttachment {
+  filename: string
+  contentType: string
+  content: string // base64-encoded file bytes
+}
+
 export interface SendMailRequest {
   to: string[]
   cc?: string[]
@@ -27,6 +33,7 @@ export interface SendMailRequest {
   subject: string
   body: string
   from?: string // Sender identity for send-as or send-on-behalf
+  attachments?: MailAttachment[]
 }
 
 export interface AuthLoginRequest {

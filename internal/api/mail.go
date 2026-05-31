@@ -1,9 +1,13 @@
 package api
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"slices"
 	"strings"
 	"time"
@@ -28,14 +32,72 @@ type Mail struct {
 	Size           int64    `json:"size"`
 }
 
+// Attachment is a base64-encoded file attached to an outgoing message.
+type Attachment struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"contentType"`
+	Content     string `json:"content"` // base64-encoded file bytes
+}
+
 // SendMailRequest represents a request to send an email
 type SendMailRequest struct {
-	To      []string `json:"to"`
-	CC      []string `json:"cc"`
-	BCC     []string `json:"bcc"`
-	Subject string   `json:"subject"`
-	Body    string   `json:"body"`
-	From    string   `json:"from,omitempty"` // Sender identity for send-as or send-on-behalf
+	To          []string     `json:"to"`
+	CC          []string     `json:"cc"`
+	BCC         []string     `json:"bcc"`
+	Subject     string       `json:"subject"`
+	Body        string       `json:"body"`
+	From        string       `json:"from,omitempty"` // Sender identity for send-as or send-on-behalf
+	Attachments []Attachment `json:"attachments,omitempty"`
+}
+
+// buildMultipartBody assembles a multipart/mixed body (a text part plus
+// base64-encoded attachments) and returns the body and its Content-Type value.
+func buildMultipartBody(textBody string, attachments []Attachment) (string, string, error) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+
+	textHeader := textproto.MIMEHeader{}
+	textHeader.Set("Content-Type", "text/plain; charset=utf-8")
+	tw, err := mw.CreatePart(textHeader)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := tw.Write([]byte(textBody)); err != nil {
+		return "", "", err
+	}
+
+	var total int
+	for _, att := range attachments {
+		data, err := base64.StdEncoding.DecodeString(att.Content)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid attachment encoding")
+		}
+		total += len(data)
+		if total > 25*1024*1024 {
+			return "", "", fmt.Errorf("attachments too large (max 25MB)")
+		}
+		ct := att.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		name := sanitizeHeaderValue(att.Filename)
+		partHeader := textproto.MIMEHeader{}
+		partHeader.Set("Content-Type", fmt.Sprintf("%s; name=%q", ct, name))
+		partHeader.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+		partHeader.Set("Content-Transfer-Encoding", "base64")
+		aw, err := mw.CreatePart(partHeader)
+		if err != nil {
+			return "", "", err
+		}
+		if _, err := aw.Write([]byte(base64.StdEncoding.EncodeToString(data))); err != nil {
+			return "", "", err
+		}
+	}
+
+	if err := mw.Close(); err != nil {
+		return "", "", err
+	}
+	return buf.String(), fmt.Sprintf("multipart/mixed; boundary=%q", mw.Boundary()), nil
 }
 
 // MailHandler handles mail-related API requests
@@ -459,12 +521,23 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	if len(safeCC) > 0 {
 		sb.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(safeCC, ", ")))
 	}
-	sb.WriteString(fmt.Sprintf("Subject: %s\r\n", safeSubject))
-	sb.WriteString(fmt.Sprintf("Date: %s\r\n", dateStr))
+	fmt.Fprintf(&sb, "Subject: %s\r\n", safeSubject)
+	fmt.Fprintf(&sb, "Date: %s\r\n", dateStr)
 	sb.WriteString("MIME-Version: 1.0\r\n")
-	sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
-	sb.WriteString("\r\n")
-	sb.WriteString(req.Body)
+
+	if len(req.Attachments) > 0 {
+		mpBody, ctype, err := buildMultipartBody(req.Body, req.Attachments)
+		if err != nil {
+			h.sendError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		fmt.Fprintf(&sb, "Content-Type: %s\r\n\r\n", ctype)
+		sb.WriteString(mpBody)
+	} else {
+		sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+		sb.WriteString("\r\n")
+		sb.WriteString(req.Body)
+	}
 
 	rawEmail := sb.String()
 

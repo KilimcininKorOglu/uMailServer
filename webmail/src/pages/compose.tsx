@@ -34,7 +34,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType } from "@/utils/api"
+import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType, MailAttachment } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 
@@ -49,6 +49,20 @@ interface Recipient {
   id: string
   name: string
   email: string
+}
+
+// fileToBase64 reads a File into a base64 string (without the data URL prefix)
+// for transport in the JSON send/draft payloads.
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : ""
+      resolve(result.includes(",") ? result.split(",")[1] : result)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 }
 
 export function ComposePage() {
@@ -406,6 +420,19 @@ export function ComposePage() {
     try {
       // Use the actual API with sender identity
       const senderEmail = selectedSender?.email || user?.email || ''
+      const encoded = (
+        await Promise.all(
+          attachments.map(async (a): Promise<MailAttachment | null> =>
+            a.file
+              ? {
+                  filename: a.name,
+                  contentType: a.file.type || "application/octet-stream",
+                  content: await fileToBase64(a.file),
+                }
+              : null
+          )
+        )
+      ).filter((x): x is MailAttachment => x !== null)
       await api.sendMail({
         to: to.map(r => r.email),
         cc: cc.map(r => r.email),
@@ -413,8 +440,9 @@ export function ComposePage() {
         subject,
         body,
         from: senderEmail, // Pass sender identity to API
+        attachments: encoded.length > 0 ? encoded : undefined,
       })
-      
+
       toast.success("Email sent successfully")
       navigate("/sent")
     } catch (err) {
