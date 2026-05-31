@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import {
   Inbox,
@@ -12,6 +12,9 @@ import {
   ChevronRight,
   PenSquare,
   FolderOpen,
+  FolderPlus,
+  Pencil,
+  MoreHorizontal,
   Users,
   Search,
   Mail,
@@ -20,11 +23,27 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import api from "@/utils/api"
@@ -201,6 +220,7 @@ const SharedMailboxItemComponent = ({
 
 export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [hovered, setHovered] = useState(false)
   const { user } = useAuth()
   const { currentMailbox, switchMailbox, loadSharedMailboxes, sharedMailboxes } = useMailbox()
@@ -218,6 +238,28 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
   useEffect(() => {
     loadSharedMailboxes()
   }, [loadSharedMailboxes])
+
+  // Folder management dialog state.
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+  const [folderDialogMode, setFolderDialogMode] = useState<"create" | "rename">("create")
+  const [folderDialogCurrent, setFolderDialogCurrent] = useState("")
+  const [folderDialogValue, setFolderDialogValue] = useState("")
+  const [folderBusy, setFolderBusy] = useState(false)
+  const [folderDeleteTarget, setFolderDeleteTarget] = useState<string | null>(null)
+
+  // loadCustomFolders refreshes the dynamic folder list (also re-run after a
+  // create/rename/delete so the sidebar reflects the change immediately).
+  const loadCustomFolders = useCallback(async () => {
+    try {
+      const result = await api.getMailboxes()
+      const extra = (result.mailboxes ?? []).filter(
+        (m) => !standardMailboxes.has(m.toLowerCase())
+      )
+      setCustomFolders(extra)
+    } catch {
+      setCustomFolders([])
+    }
+  }, [])
 
   // Load real inbox/spam counts on mount
   useEffect(() => {
@@ -237,38 +279,77 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       } catch {
         if (!cancelled) setSpamCount(0)
       }
-      try {
-        const result = await api.getMailboxes()
-        if (!cancelled) {
-          const extra = (result.mailboxes ?? []).filter(
-            (m) => !standardMailboxes.has(m.toLowerCase())
-          )
-          setCustomFolders(extra)
-        }
-      } catch {
-        if (!cancelled) setCustomFolders([])
-      }
+      await loadCustomFolders()
     }
     loadCounts()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadCustomFolders])
+
+  const openCreateFolder = () => {
+    setFolderDialogMode("create")
+    setFolderDialogCurrent("")
+    setFolderDialogValue("")
+    setFolderDialogOpen(true)
+  }
+
+  const openRenameFolder = (name: string) => {
+    setFolderDialogMode("rename")
+    setFolderDialogCurrent(name)
+    setFolderDialogValue(name)
+    setFolderDialogOpen(true)
+  }
+
+  const submitFolderDialog = async () => {
+    const value = folderDialogValue.trim()
+    if (!value) {
+      toast.error("Folder name is required")
+      return
+    }
+    setFolderBusy(true)
+    try {
+      if (folderDialogMode === "create") {
+        await api.createFolder(value)
+        toast.success("Folder created")
+      } else {
+        await api.renameFolder(folderDialogCurrent, value)
+        toast.success("Folder renamed")
+      }
+      setFolderDialogOpen(false)
+      await loadCustomFolders()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save folder")
+    } finally {
+      setFolderBusy(false)
+    }
+  }
+
+  const confirmDeleteFolder = async () => {
+    if (!folderDeleteTarget || folderBusy) return
+    setFolderBusy(true)
+    try {
+      await api.deleteFolder(folderDeleteTarget)
+      toast.success("Folder deleted")
+      if (location.pathname === `/folder/${encodeURIComponent(folderDeleteTarget)}`) {
+        navigate("/inbox")
+      }
+      setFolderDeleteTarget(null)
+      await loadCustomFolders()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete folder")
+    } finally {
+      setFolderBusy(false)
+    }
+  }
 
   // Inject real counts into the nav items (badges only render when > 0).
   const mainNav = mainNavItems.map((item) =>
     item.path === "/inbox" ? { ...item, count: inboxUnread } : item
   )
-  const folders: NavItem[] = [
-    ...folderItems.map((item) =>
-      item.path === "/spam" ? { ...item, count: spamCount } : item
-    ),
-    ...customFolders.map((name) => ({
-      icon: FolderOpen,
-      label: name,
-      path: `/folder/${encodeURIComponent(name)}`,
-    })),
-  ]
+  const folders: NavItem[] = folderItems.map((item) =>
+    item.path === "/spam" ? { ...item, count: spamCount } : item
+  )
 
   const isExpanded = !collapsed || hovered
 
@@ -422,15 +503,138 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
         <Separator className="my-3" />
 
         {isExpanded && (
-          <p className="px-3 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Folders
-          </p>
+          <div className="flex items-center justify-between px-3 pb-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Folders
+            </p>
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={openCreateFolder}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="New folder"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">New folder</TooltipContent>
+            </Tooltip>
+          </div>
         )}
 
         {folders.map((item) => (
           <NavItemComponent key={item.path} item={item} isExpanded={isExpanded} />
         ))}
+
+        {customFolders.map((name) => {
+          const path = `/folder/${encodeURIComponent(name)}`
+          const isActive = location.pathname === path
+          if (!isExpanded) {
+            return (
+              <NavItemComponent
+                key={path}
+                item={{ icon: FolderOpen, label: name, path }}
+                isExpanded={isExpanded}
+              />
+            )
+          }
+          return (
+            <div
+              key={path}
+              className={cn(
+                "group flex items-center gap-1 rounded-lg pr-1 transition-all",
+                isActive ? "bg-primary/10" : "hover:bg-accent"
+              )}
+            >
+              <NavLink
+                to={path}
+                className={cn(
+                  "flex flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium min-w-0",
+                  isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground"
+                )}
+              >
+                <FolderOpen className="h-5 w-5 shrink-0" />
+                <span className="flex-1 truncate">{name}</span>
+              </NavLink>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground px-1"
+                    aria-label={`Folder actions for ${name}`}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => openRenameFolder(name)}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => setFolderDeleteTarget(name)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )
+        })}
       </nav>
+
+      {/* Create / rename folder dialog */}
+      <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{folderDialogMode === "create" ? "New Folder" : "Rename Folder"}</DialogTitle>
+            <DialogDescription>
+              {folderDialogMode === "create"
+                ? "Create a folder to organize your mail."
+                : `Rename "${folderDialogCurrent}".`}
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={folderDialogValue}
+            onChange={(e) => setFolderDialogValue(e.target.value)}
+            placeholder="Folder name"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submitFolderDialog()
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFolderDialogOpen(false)} disabled={folderBusy}>
+              Cancel
+            </Button>
+            <Button onClick={submitFolderDialog} disabled={folderBusy}>
+              {folderDialogMode === "create" ? "Create" : "Rename"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete folder confirmation */}
+      <Dialog open={folderDeleteTarget !== null} onOpenChange={(open) => { if (!open) setFolderDeleteTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Folder</DialogTitle>
+            <DialogDescription>
+              Delete "{folderDeleteTarget}"? Messages in this folder will be removed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFolderDeleteTarget(null)} disabled={folderBusy}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteFolder} disabled={folderBusy}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Bottom Actions */}
       <div className="border-t p-2">

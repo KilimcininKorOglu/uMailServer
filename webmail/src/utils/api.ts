@@ -332,6 +332,19 @@ class API {
     return this.get<{ mailboxes?: string[] }>('/mailboxes')
   }
 
+  // Custom folder management (built-in folders cannot be renamed/deleted).
+  async createFolder(name: string): Promise<{ name: string }> {
+    return this.post<{ name: string }>('/folders', { name })
+  }
+
+  async renameFolder(current: string, name: string): Promise<{ name: string }> {
+    return this.put<{ name: string }>(`/folders/${encodeURIComponent(current)}`, { name })
+  }
+
+  async deleteFolder(name: string): Promise<void> {
+    await this.delete(`/folders/${encodeURIComponent(name)}`)
+  }
+
   async sendMail(mail: SendMailRequest): Promise<void> {
     await this.post('/mail/send', mail)
   }

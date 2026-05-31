@@ -658,6 +658,10 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/cluster/failover", s.handleClusterFailover)
 	api.HandleFunc("/api/v1/cluster/heartbeat", s.handleClusterHeartbeat)
 
+	// User folder management (create/rename/delete custom mailboxes).
+	api.HandleFunc("/api/v1/folders", s.handleFolders)
+	api.HandleFunc("/api/v1/folders/", s.handleFolderPath)
+
 	// Mailbox ACL and shared mailbox access
 	api.HandleFunc("/api/v1/mailboxes", s.handleMailboxListOwn)
 	api.HandleFunc("/api/v1/mailboxes/shared", s.handleSharedMailboxesList)
