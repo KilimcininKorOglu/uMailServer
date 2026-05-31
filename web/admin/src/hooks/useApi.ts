@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import type {
   Account,
+  Alias,
   Domain,
   QueueEntry,
   DelegationEntry,
@@ -136,6 +137,55 @@ export function useDomains() {
     updateDomain,
     deleteDomain,
   };
+}
+
+// Alias API hooks
+export function useAliases() {
+  const [data, setData] = useState<Alias[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchAliases = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<Alias[]>("/aliases");
+      setData(result ?? []);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const createAlias = useCallback(async (alias: string, target: string) => {
+    const result = await apiRequest<Alias>("/aliases", {
+      method: "POST",
+      body: JSON.stringify({ alias, target, is_active: true }),
+    });
+    await fetchAliases();
+    return result;
+  }, [fetchAliases]);
+
+  const updateAlias = useCallback(
+    async (alias: string, updates: { target?: string; is_active?: boolean }) => {
+      const result = await apiRequest<Alias>(`/aliases/${encodeURIComponent(alias)}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      });
+      await fetchAliases();
+      return result;
+    },
+    [fetchAliases]
+  );
+
+  const deleteAlias = useCallback(async (alias: string) => {
+    await apiRequest(`/aliases/${encodeURIComponent(alias)}`, { method: "DELETE" });
+    await fetchAliases();
+  }, [fetchAliases]);
+
+  return { aliases: data, loading, error, fetchAliases, createAlias, updateAlias, deleteAlias };
 }
 
 // Account API hooks

@@ -13,6 +13,14 @@ export interface Domain {
   dkim_public_key?: string;
 }
 
+export interface Alias {
+  alias: string; // full alias address: name@domain
+  target: string; // destination account: user@domain
+  domain: string;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface Account {
   email: string;
   is_admin: boolean;
