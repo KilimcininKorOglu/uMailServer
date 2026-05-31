@@ -14,6 +14,9 @@ import type {
   RoomList,
   PolicyRule,
   RateLimitConfig,
+  MailboxDiagnostics,
+  SubscriptionInfo,
+  ProtocolFailure,
 } from './index'
 
 describe('Domain type', () => {
@@ -317,5 +320,55 @@ describe('RateLimitConfig type', () => {
     }
     expect(cfg.user_per_hour).toBe(500)
     expect(cfg.ip_connections).toBe(10)
+  })
+})
+
+describe('MailboxDiagnostics type', () => {
+  it('accepts all valid sync states', () => {
+    const states: MailboxDiagnostics['syncState'][] = ['healthy', 'degraded', 'error']
+    states.forEach((syncState) => {
+      const d: MailboxDiagnostics = {
+        email: 'user@example.com',
+        syncState,
+        lastSync: '',
+        subscriptionBacklog: 0,
+        protocolFailures: 0,
+        policyBlocks: 0,
+        oofActive: false,
+        rulesCount: 2,
+        totalFolders: 8,
+        totalItems: 67,
+      }
+      expect(d.syncState).toBe(syncState)
+    })
+  })
+})
+
+describe('SubscriptionInfo type', () => {
+  it('accepts a valid subscription', () => {
+    const sub: SubscriptionInfo = {
+      id: 'sub-1',
+      mailbox: 'user@example.com',
+      type: 'pull',
+      status: 'active',
+      watermark: '12345',
+      createdAt: '2024-01-01T00:00:00Z',
+      lastEvent: '2024-01-01T00:00:00Z',
+    }
+    expect(sub.status).toBe('active')
+    expect(sub.watermark).toBe('12345')
+  })
+})
+
+describe('ProtocolFailure type', () => {
+  it('accepts a valid protocol failure', () => {
+    const f: ProtocolFailure = {
+      id: 'fail-1',
+      mailbox: 'user@example.com',
+      protocol: 'IMAP',
+      error: 'Connection timeout',
+      timestamp: '2024-01-01T00:00:00Z',
+    }
+    expect(f.protocol).toBe('IMAP')
   })
 })

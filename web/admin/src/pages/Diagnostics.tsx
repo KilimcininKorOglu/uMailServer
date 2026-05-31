@@ -19,117 +19,31 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import { useAccounts } from "@/hooks/useApi";
-
-interface MailboxDiagnostics {
-  email: string;
-  syncState: "healthy" | "degraded" | "error";
-  lastSync: string;
-  subscriptionBacklog: number;
-  protocolFailures: number;
-  policyBlocks: number;
-  oofActive: boolean;
-  rulesCount: number;
-  totalFolders: number;
-  totalItems: number;
-}
-
-interface SubscriptionInfo {
-  id: string;
-  mailbox: string;
-  type: string;
-  status: "active" | "expiring" | "expired";
-  watermark: string;
-  createdAt: string;
-  lastEvent: string;
-}
-
-interface ProtocolFailure {
-  id: string;
-  mailbox: string;
-  protocol: string;
-  error: string;
-  timestamp: string;
-}
+import { useDiagnostics } from "@/hooks/useApi";
 
 export function Diagnostics() {
-  const { loading, fetchAccounts } = useAccounts();
+  const { mailboxes, subscriptions, failures, loading, fetchDiagnostics } = useDiagnostics();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
-  const [diagnostics, setDiagnostics] = useState<MailboxDiagnostics[]>([]);
-  const [subscriptions, setSubscriptions] = useState<SubscriptionInfo[]>([]);
-  const [failures, setFailures] = useState<ProtocolFailure[]>([]);
   const [selectedMailbox, setSelectedMailbox] = useState<string>("");
 
   useEffect(() => {
-    fetchAccounts();
-    fetchDiagnosticsSummary();
-    fetchSubscriptions();
-    fetchFailures();
-  }, []);
+    fetchDiagnostics().catch(() => {
+      /* error surfaced via hook state */
+    });
+  }, [fetchDiagnostics]);
 
-  const fetchDiagnosticsSummary = async () => {
-    // Placeholder - would fetch from /api/v1/admin/diagnostics
-    setDiagnostics([
-      {
-        email: "admin@local.test",
-        syncState: "healthy",
-        lastSync: new Date().toISOString(),
-        subscriptionBacklog: 0,
-        protocolFailures: 0,
-        policyBlocks: 0,
-        oofActive: false,
-        rulesCount: 2,
-        totalFolders: 15,
-        totalItems: 142,
-      },
-      {
-        email: "user@local.test",
-        syncState: "degraded",
-        lastSync: new Date(Date.now() - 300000).toISOString(),
-        subscriptionBacklog: 5,
-        protocolFailures: 1,
-        policyBlocks: 0,
-        oofActive: true,
-        rulesCount: 1,
-        totalFolders: 8,
-        totalItems: 67,
-      },
-    ]);
+  const fetchMailboxDetails = (email: string) => {
+    setSelectedMailbox((prev) => (prev === email ? "" : email));
   };
 
-  const fetchSubscriptions = async () => {
-    setSubscriptions([
-      {
-        id: "sub-1",
-        mailbox: "admin@local.test",
-        type: "pull",
-        status: "active",
-        watermark: "12345",
-        createdAt: new Date().toISOString(),
-        lastEvent: new Date().toISOString(),
-      },
-    ]);
+  const formatSync = (lastSync: string) => {
+    if (!lastSync) return "—";
+    const d = new Date(lastSync);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString();
   };
 
-  const fetchFailures = async () => {
-    setFailures([
-      {
-        id: "fail-1",
-        mailbox: "user@local.test",
-        protocol: "IMAP",
-        error: "Connection timeout",
-        timestamp: new Date(Date.now() - 60000).toISOString(),
-      },
-    ]);
-  };
-
-  const fetchMailboxDetails = async (email: string) => {
-    // Placeholder - would fetch detailed diagnostics from /api/v1/admin/diagnostics/{email}
-    setSelectedMailbox(email);
-  };
-
-  const filteredDiagnostics = diagnostics.filter((d) =>
+  const filteredDiagnostics = mailboxes.filter((d) =>
     d.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -171,11 +85,7 @@ export function Diagnostics() {
         </div>
         <Button
           variant="outline"
-          onClick={() => {
-            fetchDiagnosticsSummary();
-            fetchSubscriptions();
-            fetchFailures();
-          }}
+          onClick={() => fetchDiagnostics().catch(() => {})}
           disabled={loading}
         >
           <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
@@ -247,7 +157,7 @@ export function Diagnostics() {
                           <div>
                             <div className="font-medium">{mbox.email}</div>
                             <div className="text-sm text-muted-foreground">
-                              Last sync: {new Date(mbox.lastSync).toLocaleString()}
+                              Last sync: {formatSync(mbox.lastSync)}
                             </div>
                           </div>
                         </div>

@@ -142,3 +142,34 @@ export interface RateLimitConfig {
   global_per_minute: number;
   global_per_hour: number;
 }
+
+export interface MailboxDiagnostics {
+  email: string;
+  syncState: 'healthy' | 'degraded' | 'error';
+  lastSync: string;
+  subscriptionBacklog: number;
+  protocolFailures: number;
+  policyBlocks: number;
+  oofActive: boolean;
+  rulesCount: number;
+  totalFolders: number;
+  totalItems: number;
+}
+
+export interface SubscriptionInfo {
+  id: string;
+  mailbox: string;
+  type: string;
+  status: 'active' | 'expiring' | 'expired';
+  watermark: string;
+  createdAt: string;
+  lastEvent: string;
+}
+
+export interface ProtocolFailure {
+  id: string;
+  mailbox: string;
+  protocol: string;
+  error: string;
+  timestamp: string;
+}

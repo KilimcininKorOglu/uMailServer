@@ -9,6 +9,9 @@ import type {
   RoomList,
   PolicyRule,
   RateLimitConfig,
+  MailboxDiagnostics,
+  SubscriptionInfo,
+  ProtocolFailure,
 } from "@/types";
 
 interface ApiError {
@@ -467,4 +470,41 @@ export function useRateLimitConfig() {
   }, []);
 
   return { config, loading, fetchRateLimitConfig };
+}
+
+// Admin diagnostics API hooks
+interface DiagnosticsResponse {
+  mailboxes: MailboxDiagnostics[];
+  subscriptions: SubscriptionInfo[];
+  failures: ProtocolFailure[];
+}
+
+export function useDiagnostics() {
+  const [mailboxes, setMailboxes] = useState<MailboxDiagnostics[]>([]);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionInfo[]>([]);
+  const [failures, setFailures] = useState<ProtocolFailure[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchDiagnostics = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<DiagnosticsResponse>("/admin/diagnostics");
+      setMailboxes(result.mailboxes ?? []);
+      setSubscriptions(result.subscriptions ?? []);
+      setFailures(result.failures ?? []);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchMailboxDetail = useCallback(async (email: string) => {
+    return apiRequest<MailboxDiagnostics>(`/admin/diagnostics/${encodeURIComponent(email)}`);
+  }, []);
+
+  return { mailboxes, subscriptions, failures, loading, error, fetchDiagnostics, fetchMailboxDetail };
 }
