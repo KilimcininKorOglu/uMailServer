@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useStats } from "@/hooks/useApi";
+import { useStats, useHealth } from "@/hooks/useApi";
 import type { Activity as ActivityType, ServiceStatus, RealtimeMetrics } from "@/types";
 
 interface DashboardProps {
@@ -28,20 +28,35 @@ interface DashboardProps {
   activities: ActivityType[];
 }
 
-const serviceStatuses: ServiceStatus[] = [
-  { name: "SMTP Server", status: "operational", port: 25 },
-  { name: "IMAP Server", status: "operational", port: 993 },
-  { name: "HTTP API", status: "operational", port: 8443 },
-];
+// Map a /health subsystem string ("ok" / "unavailable" / ...) to a card status.
+function subsystemStatus(value?: string): ServiceStatus["status"] {
+  if (value === "ok") return "operational";
+  if (value === undefined) return "degraded";
+  return "down";
+}
 
 export function Dashboard({ isConnected, metrics, activities }: DashboardProps) {
   const { stats, loading, fetchStats } = useStats();
+  const { health, fetchHealth } = useHealth();
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 30000);
+    fetchHealth();
+    const interval = setInterval(() => {
+      fetchStats();
+      fetchHealth();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [fetchStats]);
+  }, [fetchStats, fetchHealth]);
+
+  // Derive the service cards from the real /health response instead of a static
+  // always-"operational" array. If the health request failed entirely, health
+  // is null and every subsystem reads as down.
+  const serviceStatuses: ServiceStatus[] = [
+    { name: "Database", status: health ? subsystemStatus(health.database) : "down" },
+    { name: "Queue", status: health ? subsystemStatus(health.queue) : "down" },
+    { name: "Storage", status: health ? subsystemStatus(health.storage) : "down" },
+  ];
 
   const statCards = [
     {
@@ -269,7 +284,9 @@ function ServiceCard({ name, status, port }: ServiceStatus) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-medium truncate">{name}</div>
-        <div className="text-xs text-muted-foreground">Port {port}</div>
+        {port !== undefined && (
+          <div className="text-xs text-muted-foreground">Port {port}</div>
+        )}
       </div>
       <Badge
         variant={status === "operational" ? "default" : "secondary"}

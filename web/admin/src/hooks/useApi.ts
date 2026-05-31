@@ -225,6 +225,40 @@ export function useStats() {
   return { stats, loading, fetchStats, setStats };
 }
 
+// Server health, exposed at the root /health endpoint (not under /api/v1) and
+// served without auth on the admin listener. The handler returns a JSON body
+// for both healthy (200) and unhealthy (503) responses, so the body is parsed
+// regardless of status.
+export interface HealthStatus {
+  status: string;
+  database?: string;
+  queue?: string;
+  storage?: string;
+  draining?: boolean;
+}
+
+export function useHealth() {
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchHealth = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/health", { credentials: "include" });
+      const data = (await res.json()) as HealthStatus;
+      setHealth(data);
+      return data;
+    } catch {
+      setHealth(null);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { health, loading, fetchHealth };
+}
+
 // Queue API hooks
 export function useQueue() {
   const [data, setData] = useState<QueueEntry[] | null>(null);
