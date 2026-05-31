@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/xml"
+	"io"
 	"net/http"
 	"strings"
 
@@ -138,10 +139,26 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 	_ = xml.NewEncoder(w).Encode(resp)
 }
 
-// parseAutodiscoverPOST parses the POST body for email address
+// parseAutodiscoverPOST extracts the requested address from an Autodiscover
+// POST. Outlook sends it inside the request XML body
+// (<Autodiscover><Request><EMailAddress>...); fall back to the query string or
+// Host-derived address when the body is absent or unparsable.
 func (s *Server) parseAutodiscoverPOST(r *http.Request) string {
-	// For POST requests, we would normally parse the XML body
-	// For now, extract email from request
+	if r.Body != nil {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // cap at 1 MiB
+		if err == nil && len(body) > 0 {
+			var req AutodiscoverRequest
+			if xml.Unmarshal(body, &req) == nil {
+				for _, rq := range req.Requests {
+					if rq.EMailAddress != "" {
+						return rq.EMailAddress
+					}
+				}
+			}
+		}
+	}
+
+	// Fallbacks for clients that pass the address out of band.
 	email := r.URL.Query().Get("email")
 	if email == "" {
 		email = extractEmailFromHost(r.Host)
