@@ -35,6 +35,29 @@ describe('API Error Handling', () => {
       window.location = originalLocation
     })
 
+    it('throws (does not redirect) on a 401 from an auth endpoint so the login form can surface the error', async () => {
+      // A 401 on /auth/login means "invalid credentials", not "session expired".
+      // It must reject so login.tsx can show a message instead of silently
+      // reloading the page (regression guard for B1).
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+      })
+
+      const originalLocation = window.location
+      // @ts-expect-error - mocking window.location
+      delete window.location
+      // @ts-expect-error - mocking window.location
+      window.location = { href: '', pathname: '/login' }
+
+      await expect(API.post('/auth/login', { email: 'a', password: 'b' })).rejects.toThrow('HTTP 401')
+      expect(window.location.href).toBe('')
+
+      // @ts-expect-error - restoring mocked window.location
+      window.location = originalLocation
+    })
+
     it('throws error for 500 Internal Server Error', async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,

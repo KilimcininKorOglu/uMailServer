@@ -202,9 +202,13 @@ class API {
       })
 
       if (!response.ok) {
-        if (response.status === 401) {
-          // Token is managed by HttpOnly cookie, server will clear it on logout
-          window.location.href = '/login'
+        // A 401 on an auth endpoint (login/refresh/logout) is a real result the
+        // caller must handle (e.g. show "invalid credentials"); only a 401 on a
+        // normal API call means the session expired, so bounce to /login then.
+        if (response.status === 401 && !endpoint.startsWith('/auth/')) {
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login'
+          }
           return null as T
         }
         throw new Error(`HTTP ${response.status}`)
