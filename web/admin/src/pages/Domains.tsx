@@ -71,6 +71,7 @@ export function Domains() {
   const [newDomainMaxAccounts, setNewDomainMaxAccounts] = useState(100);
   const [formError, setFormError] = useState("");
   const [copiedDNS, setCopiedDNS] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchDomains();
@@ -98,14 +99,20 @@ export function Domains() {
   };
 
   const handleDeleteDomain = async () => {
-    if (!selectedDomain) return;
+    if (!selectedDomain || isDeleting) return;
 
+    // Guard against a second submission while the DELETE + refetch is still in
+    // flight: the dialog stays open and the button enabled during the awaits,
+    // so without this a repeat click would fire a duplicate DELETE request.
+    setIsDeleting(true);
     try {
       await deleteDomain(selectedDomain.name);
       setIsDeleteDialogOpen(false);
       setSelectedDomain(null);
     } catch (err) {
       toast.error(errorMessage(err, "Failed to delete domain"));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -281,7 +288,7 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteDomain}>
+            <Button variant="destructive" onClick={handleDeleteDomain} disabled={isDeleting}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
             </Button>

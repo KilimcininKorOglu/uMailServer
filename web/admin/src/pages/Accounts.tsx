@@ -63,6 +63,7 @@ export function Accounts() {
   const [newAccountIsAdmin, setNewAccountIsAdmin] = useState(false);
   const [requirePasswordChangeOnReset, setRequirePasswordChangeOnReset] = useState(true);
   const [formError, setFormError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchAccounts();
@@ -91,14 +92,20 @@ export function Accounts() {
   };
 
   const handleDeleteAccount = async () => {
-    if (!selectedAccount) return;
+    if (!selectedAccount || isDeleting) return;
 
+    // Guard against a second submission while the DELETE + refetch is still in
+    // flight: the dialog stays open and the button enabled during the awaits,
+    // so without this a repeat click would fire a duplicate DELETE request.
+    setIsDeleting(true);
     try {
       await deleteAccount(selectedAccount.email);
       setIsDeleteDialogOpen(false);
       setSelectedAccount(null);
     } catch (err) {
       console.error("Failed to delete account:", err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -371,7 +378,7 @@ export function Accounts() {
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteAccount}>
+            <Button variant="destructive" onClick={handleDeleteAccount} disabled={isDeleting}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
             </Button>
