@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner"
 import api from "@/utils/api"
 import type { VacationAutoReply, ClientSession } from "@/utils/api"
+import { enablePushNotifications, disablePushNotifications, pushSupported } from "@/utils/push"
 
 // rfc3339ToDate extracts the YYYY-MM-DD part from an RFC3339 string for <input type="date">.
 function rfc3339ToDate(value?: string): string {
@@ -71,6 +72,32 @@ export function SettingsPage() {
     } catch (err) {
       console.error("Failed to revoke session:", err)
       toast.error("Failed to revoke session")
+    }
+  }
+
+  const [pushBusy, setPushBusy] = useState(false)
+
+  const handleEnablePush = async () => {
+    setPushBusy(true)
+    try {
+      await enablePushNotifications()
+      toast.success("Push notifications enabled")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to enable push notifications")
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
+  const handleDisablePush = async () => {
+    setPushBusy(true)
+    try {
+      await disablePushNotifications()
+      toast.success("Push notifications disabled")
+    } catch {
+      toast.error("Failed to disable push notifications")
+    } finally {
+      setPushBusy(false)
     }
   }
 
@@ -489,6 +516,27 @@ export function SettingsPage() {
           >
             View Keyboard Shortcuts
           </Button>
+        </div>
+      </SettingSection>
+
+      {/* Push Notifications */}
+      <SettingSection
+        icon={Bell}
+        title="Push Notifications"
+        description="Get desktop push notifications for new mail"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={handleEnablePush} disabled={pushBusy || !pushSupported()}>
+            {pushBusy ? "Working..." : "Enable push notifications"}
+          </Button>
+          <Button variant="outline" onClick={handleDisablePush} disabled={pushBusy || !pushSupported()}>
+            Disable
+          </Button>
+          {!pushSupported() && (
+            <span className="text-sm text-muted-foreground">
+              Not supported in this browser.
+            </span>
+          )}
         </div>
       </SettingSection>
 
