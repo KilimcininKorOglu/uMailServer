@@ -228,6 +228,36 @@ export function SettingsPage() {
     }
   }
 
+  // Outgoing-mail signature (backed by /api/v1/signature).
+  const [signature, setSignature] = useState("")
+  const [signatureSaving, setSignatureSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getSignature()
+      .then((res) => {
+        if (!cancelled) setSignature(res.signature ?? "")
+      })
+      .catch(() => {
+        // keep empty
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleSignatureSave = async () => {
+    setSignatureSaving(true)
+    try {
+      await api.setSignature(signature)
+      toast.success("Signature saved")
+    } catch {
+      toast.error("Failed to save signature")
+    } finally {
+      setSignatureSaving(false)
+    }
+  }
+
   const SettingSection = ({
     icon: Icon,
     title,
@@ -485,6 +515,26 @@ export function SettingsPage() {
             </div>
           </div>
         )}
+      </SettingSection>
+
+      {/* Signature */}
+      <SettingSection
+        icon={Mail}
+        title="Signature"
+        description="Appended to new messages you compose"
+      >
+        <div className="space-y-3">
+          <Textarea
+            id="signature"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+            placeholder={"Best regards,\nYour Name"}
+            rows={4}
+          />
+          <Button onClick={handleSignatureSave} disabled={signatureSaving}>
+            Save
+          </Button>
+        </div>
       </SettingSection>
 
       {/* Privacy & Security */}

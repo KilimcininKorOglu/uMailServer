@@ -299,6 +299,15 @@ class API {
     await this.put('/preferences', prefs)
   }
 
+  // Per-user outgoing-mail signature
+  async getSignature(): Promise<{ signature?: string }> {
+    return this.get<{ signature?: string }>('/signature')
+  }
+
+  async setSignature(signature: string): Promise<void> {
+    await this.put('/signature', { signature })
+  }
+
   // Active client sessions
   async getSessions(): Promise<{ sessions?: ClientSession[] }> {
     return this.get<{ sessions?: ClientSession[] }>('/sessions')

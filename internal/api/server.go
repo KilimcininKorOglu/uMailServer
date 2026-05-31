@@ -587,6 +587,9 @@ func (s *Server) initRouter() {
 	// Per-user UI preferences (settings toggles).
 	api.HandleFunc("/api/v1/preferences", s.handlePreferences)
 
+	// Per-user outgoing-mail signature.
+	api.HandleFunc("/api/v1/signature", s.handleSignature)
+
 	if !s.config.SeparateAdminListener {
 		s.registerAdminAPIRoutes(api)
 	}

@@ -214,6 +214,34 @@ export function ComposePage() {
     }
   }, [searchParams])
 
+  // Outgoing-mail signature: load once, then append it to the composer body for
+  // new/reply/forward messages. Skipped when editing an existing draft, which
+  // already embeds the signature from when it was saved. The functional update
+  // preserves any reply/forward quote set by the prefill effect above.
+  const [signature, setSignature] = useState("")
+  const signatureAppliedRef = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getSignature()
+      .then((res) => {
+        if (!cancelled) setSignature(res.signature ?? "")
+      })
+      .catch(() => {
+        // no signature configured
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (signatureAppliedRef.current || !signature) return
+    if (searchParams.get("draft")) return
+    signatureAppliedRef.current = true
+    setBody((prev) => `${prev}\n\n-- \n${signature}`)
+  }, [signature, searchParams])
+
   // Load an existing draft into the composer when ?draft=<id> is present so
   // "Edit draft" reopens its content instead of a blank message.
   useEffect(() => {
