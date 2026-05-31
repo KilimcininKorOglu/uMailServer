@@ -50,7 +50,7 @@ const RATE_LIMIT_FIELDS: { key: keyof ServerConfig; label: string; description: 
 
 export function Policies() {
   const { rules, loading: rulesLoading, fetchRules, toggleRule, deleteRule } = useAdminRules();
-  const { config: rateLimitConfig, loading: rateLoading, fetchConfig: fetchRateLimitConfig } = useConfig();
+  const { config: rateLimitConfig, loading: rateLoading, fetchConfig: fetchRateLimitConfig, updateConfig } = useConfig();
 
   const [activeTab, setActiveTab] = useState("oof");
   const [oofLoading, setOofLoading] = useState(false);
@@ -65,11 +65,45 @@ export function Policies() {
     internalOnly: false,
   });
 
+  const [savingOOF, setSavingOOF] = useState(false);
+
   useEffect(() => {
     fetchOOF();
     fetchRules().catch(() => {});
     fetchRateLimitConfig().catch(() => {});
   }, [fetchRules, fetchRateLimitConfig]);
+
+  // Seed the OOF defaults form from the persisted server config once it loads.
+  useEffect(() => {
+    if (!rateLimitConfig) return;
+    setOofSettings((prev) => ({
+      ...prev,
+      enabled: rateLimitConfig.oof_default_enabled,
+      internalOnly: rateLimitConfig.oof_internal_only,
+      subject: rateLimitConfig.oof_default_subject,
+      message: rateLimitConfig.oof_default_message,
+    }));
+  }, [rateLimitConfig]);
+
+  const saveOOFDefaults = async () => {
+    if (!rateLimitConfig) return;
+    setSavingOOF(true);
+    try {
+      await updateConfig({
+        ...rateLimitConfig,
+        oof_default_enabled: oofSettings.enabled,
+        oof_internal_only: oofSettings.internalOnly,
+        oof_default_subject: oofSettings.subject,
+        oof_default_message: oofSettings.message,
+      });
+      await fetchRateLimitConfig().catch(() => {});
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to save OOF defaults");
+    } finally {
+      setSavingOOF(false);
+    }
+  };
 
   const fetchOOF = async () => {
     setOofLoading(true);
@@ -194,8 +228,8 @@ export function Policies() {
             <CardHeader>
               <CardTitle>OOF Defaults</CardTitle>
               <CardDescription>
-                Default OOF behavior shown to users. Per-mailbox OOF is managed by
-                each user; these defaults are not yet persisted server-side.
+                Server-wide default out-of-office template. Per-mailbox OOF is
+                managed by each user; these defaults are persisted server-side.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -240,6 +274,11 @@ export function Policies() {
                   value={oofSettings.message}
                   onChange={(e) => setOofSettings((prev) => ({ ...prev, message: e.target.value }))}
                 />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={saveOOFDefaults} disabled={savingOOF || !rateLimitConfig}>
+                  Save Defaults
+                </Button>
               </div>
             </CardContent>
           </Card>

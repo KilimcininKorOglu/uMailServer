@@ -199,4 +199,11 @@ export interface ServerConfig {
   require_tls_smtp: boolean;
   dkim_signing: boolean;
   max_login_attempts: number;
+  oof_default_enabled: boolean;
+  oof_internal_only: boolean;
+  oof_default_subject: string;
+  oof_default_message: string;
+  notify_queue_alerts: boolean;
+  notify_security_alerts: boolean;
+  notify_weekly_reports: boolean;
 }

@@ -328,3 +328,18 @@ push:
 signing:
   enabled: false
   key_dir: ""
+
+# Server-wide Out-of-Office (auto-reply) default template, managed from the
+# admin Policies page.
+oof:
+  default_enabled: false
+  internal_only: false
+  default_subject: ""
+  default_message: ""
+
+# Admin notification preferences (which operational alert categories to
+# deliver), managed from the admin Settings page.
+notifications:
+  queue_alerts: false
+  security_alerts: false
+  weekly_reports: false

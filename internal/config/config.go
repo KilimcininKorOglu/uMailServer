@@ -38,9 +38,11 @@ type Config struct {
 	CardDAV     CardDAVConfig     `yaml:"carddav"`
 	JMAP        JMAPConfig        `yaml:"jmap"`
 	DMARC       DMARCConfig       `yaml:"dmarc"`
-	Alert       AlertConfig       `yaml:"alert"`
-	Push        PushConfig        `yaml:"push"`
-	Signing     SigningConfig     `yaml:"signing"`
+	Alert         AlertConfig         `yaml:"alert"`
+	Push          PushConfig          `yaml:"push"`
+	Signing       SigningConfig       `yaml:"signing"`
+	OOF           OOFConfig           `yaml:"oof"`
+	Notifications NotificationsConfig `yaml:"notifications"`
 }
 
 // ServerConfig holds general server settings
@@ -380,6 +382,25 @@ type AlertConfig struct {
 	// AllowPrivateIP permits webhook URLs pointing to private/loopback IPs
 	// (off by default to prevent SSRF; set true only for testing or trusted internal collectors).
 	AllowPrivateIP bool `yaml:"allow_private_ip,omitempty" json:"allow_private_ip,omitempty"`
+}
+
+// OOFConfig holds the server-wide default Out-of-Office (auto-reply) template.
+// These values are the starting point an admin configures centrally; they are
+// persisted and surfaced on the admin Policies page.
+type OOFConfig struct {
+	DefaultEnabled bool   `yaml:"default_enabled" json:"default_enabled"`
+	InternalOnly   bool   `yaml:"internal_only" json:"internal_only"`
+	DefaultSubject string `yaml:"default_subject,omitempty" json:"default_subject,omitempty"`
+	DefaultMessage string `yaml:"default_message,omitempty" json:"default_message,omitempty"`
+}
+
+// NotificationsConfig holds admin notification preferences: which categories of
+// operational alert the admin wants delivered. Persisted and surfaced on the
+// admin Settings page.
+type NotificationsConfig struct {
+	QueueAlerts    bool `yaml:"queue_alerts" json:"queue_alerts"`
+	SecurityAlerts bool `yaml:"security_alerts" json:"security_alerts"`
+	WeeklyReports  bool `yaml:"weekly_reports" json:"weekly_reports"`
 }
 
 // PushConfig holds Web Push notification settings (VAPID).

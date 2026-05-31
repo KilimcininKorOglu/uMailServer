@@ -445,7 +445,7 @@ export function SettingsPage({
             <CardHeader>
               <CardTitle>Email Notifications</CardTitle>
               <CardDescription>
-                Notification preferences (not yet persisted server-side)
+                Notification preferences (persisted server-side)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -456,7 +456,10 @@ export function SettingsPage({
                     Notify when emails fail to send
                   </p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={config?.notify_queue_alerts ?? false}
+                  onCheckedChange={(c) => setField("notify_queue_alerts", c)}
+                />
               </div>
               <Separator />
               <div className="flex items-center justify-between">
@@ -466,7 +469,10 @@ export function SettingsPage({
                     Notify on suspicious login attempts
                   </p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={config?.notify_security_alerts ?? false}
+                  onCheckedChange={(c) => setField("notify_security_alerts", c)}
+                />
               </div>
               <Separator />
               <div className="flex items-center justify-between">
@@ -476,7 +482,15 @@ export function SettingsPage({
                     Receive weekly email statistics
                   </p>
                 </div>
-                <Switch />
+                <Switch
+                  checked={config?.notify_weekly_reports ?? false}
+                  onCheckedChange={(c) => setField("notify_weekly_reports", c)}
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={handleSave} disabled={savingConfig || !config}>
+                  {savingConfig ? "Saving..." : "Save Changes"}
+                </Button>
               </div>
             </CardContent>
           </Card>

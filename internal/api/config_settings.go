@@ -25,6 +25,17 @@ type serverConfigDTO struct {
 	RequireTLSSMTP   bool   `json:"require_tls_smtp"`
 	DKIMSigning      bool   `json:"dkim_signing"`
 	MaxLoginAttempts int    `json:"max_login_attempts"`
+
+	// Out-of-Office defaults (server-wide template).
+	OOFDefaultEnabled bool   `json:"oof_default_enabled"`
+	OOFInternalOnly   bool   `json:"oof_internal_only"`
+	OOFDefaultSubject string `json:"oof_default_subject"`
+	OOFDefaultMessage string `json:"oof_default_message"`
+
+	// Notification preferences.
+	NotifyQueueAlerts    bool `json:"notify_queue_alerts"`
+	NotifySecurityAlerts bool `json:"notify_security_alerts"`
+	NotifyWeeklyReports  bool `json:"notify_weekly_reports"`
 }
 
 // configPutResponse reports the outcome of a config update. applied lists the
@@ -155,6 +166,15 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 		RequireTLSSMTP:   cfg.SMTP.Submission.RequireTLS,
 		DKIMSigning:      cfg.Signing.Enabled,
 		MaxLoginAttempts: cfg.Security.MaxLoginAttempts,
+
+		OOFDefaultEnabled: cfg.OOF.DefaultEnabled,
+		OOFInternalOnly:   cfg.OOF.InternalOnly,
+		OOFDefaultSubject: cfg.OOF.DefaultSubject,
+		OOFDefaultMessage: cfg.OOF.DefaultMessage,
+
+		NotifyQueueAlerts:    cfg.Notifications.QueueAlerts,
+		NotifySecurityAlerts: cfg.Notifications.SecurityAlerts,
+		NotifyWeeklyReports:  cfg.Notifications.WeeklyReports,
 	}
 }
 
@@ -218,6 +238,38 @@ func applyConfigDTO(cfg *config.Config, before serverConfigDTO, req *serverConfi
 		cfg.Security.MaxLoginAttempts = req.MaxLoginAttempts
 		cold("max_login_attempts")
 	}
+
+	// OOF defaults and notification preferences are pure persisted settings:
+	// the swapped live config reflects them immediately, so they are applied
+	// live (no listener/manager to restart).
+	if req.OOFDefaultEnabled != before.OOFDefaultEnabled {
+		cfg.OOF.DefaultEnabled = req.OOFDefaultEnabled
+		hot("oof_default_enabled")
+	}
+	if req.OOFInternalOnly != before.OOFInternalOnly {
+		cfg.OOF.InternalOnly = req.OOFInternalOnly
+		hot("oof_internal_only")
+	}
+	if req.OOFDefaultSubject != before.OOFDefaultSubject {
+		cfg.OOF.DefaultSubject = req.OOFDefaultSubject
+		hot("oof_default_subject")
+	}
+	if req.OOFDefaultMessage != before.OOFDefaultMessage {
+		cfg.OOF.DefaultMessage = req.OOFDefaultMessage
+		hot("oof_default_message")
+	}
+	if req.NotifyQueueAlerts != before.NotifyQueueAlerts {
+		cfg.Notifications.QueueAlerts = req.NotifyQueueAlerts
+		hot("notify_queue_alerts")
+	}
+	if req.NotifySecurityAlerts != before.NotifySecurityAlerts {
+		cfg.Notifications.SecurityAlerts = req.NotifySecurityAlerts
+		hot("notify_security_alerts")
+	}
+	if req.NotifyWeeklyReports != before.NotifyWeeklyReports {
+		cfg.Notifications.WeeklyReports = req.NotifyWeeklyReports
+		hot("notify_weekly_reports")
+	}
 	return applied, restart
 }
 
@@ -245,6 +297,12 @@ func validateConfigDTO(req *serverConfigDTO) (string, bool) {
 	}
 	if req.MaxLoginAttempts < 1 || req.MaxLoginAttempts > 1000 {
 		return "max_login_attempts must be between 1 and 1000", false
+	}
+	if len(req.OOFDefaultSubject) > 255 {
+		return "oof_default_subject exceeds maximum length of 255", false
+	}
+	if len(req.OOFDefaultMessage) > 5000 {
+		return "oof_default_message exceeds maximum length of 5000", false
 	}
 	return "", true
 }

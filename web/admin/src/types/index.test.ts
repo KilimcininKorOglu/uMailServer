@@ -420,6 +420,13 @@ describe('ServerConfig type', () => {
       require_tls_smtp: true,
       dkim_signing: true,
       max_login_attempts: 5,
+      oof_default_enabled: false,
+      oof_internal_only: false,
+      oof_default_subject: 'Out of Office',
+      oof_default_message: 'I am away.',
+      notify_queue_alerts: true,
+      notify_security_alerts: true,
+      notify_weekly_reports: false,
     }
     expect(cfg.hostname).toBe('mail.example.com')
     expect(cfg.smtp_port).toBe(25)
