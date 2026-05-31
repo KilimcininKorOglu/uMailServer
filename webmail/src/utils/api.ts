@@ -259,6 +259,12 @@ class API {
     await this.post('/mail/send', mail)
   }
 
+  // saveDraft stores a draft in the Drafts folder, replacing the existing draft
+  // when an id is supplied. Returns the (possibly new) draft id.
+  async saveDraft(draft: { id?: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; from?: string }): Promise<{ id: string }> {
+    return this.post<{ id: string }>('/mail/draft', draft)
+  }
+
   async deleteMail(id: string): Promise<void> {
     await this.delete(`/mail/delete?id=${id}`)
   }

@@ -136,6 +136,7 @@ export function ComposePage() {
   const [showCc, setShowCc] = useState(false)
   const [showBcc, setShowBcc] = useState(false)
   const [sending, setSending] = useState(false)
+  const [draftId, setDraftId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   
@@ -355,10 +356,29 @@ export function ComposePage() {
     }
   }
 
-  const handleSaveDraft = () => {
-    handleAutoSave()
-    toast.success("Draft saved")
-    navigate("/drafts")
+  const handleSaveDraft = async () => {
+    if (!(subject || body || to.length > 0 || cc.length > 0 || bcc.length > 0)) {
+      toast.error("Nothing to save")
+      return
+    }
+    try {
+      const senderEmail = selectedSender?.email || user?.email || ''
+      const res = await api.saveDraft({
+        id: draftId ?? undefined,
+        to: to.map((r) => r.email),
+        cc: cc.map((r) => r.email),
+        bcc: bcc.map((r) => r.email),
+        subject,
+        body,
+        from: senderEmail,
+      })
+      if (res?.id) setDraftId(res.id)
+      toast.success("Draft saved")
+      navigate("/drafts")
+    } catch (err) {
+      console.error('Failed to save draft:', err)
+      toast.error("Failed to save draft")
+    }
   }
 
   const handleDiscard = () => {

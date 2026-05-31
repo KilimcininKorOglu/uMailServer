@@ -809,6 +809,124 @@ func (h *MailHandler) handleMailMove(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// draftRequest saves (or replaces) a draft message.
+type draftRequest struct {
+	ID      string   `json:"id,omitempty"` // existing draft to replace
+	To      []string `json:"to"`
+	CC      []string `json:"cc"`
+	BCC     []string `json:"bcc"`
+	Subject string   `json:"subject"`
+	Body    string   `json:"body"`
+	From    string   `json:"from,omitempty"`
+}
+
+// handleMailDraft stores a message in the Drafts mailbox. Unlike send, the
+// recipients/subject may be empty. When an existing draft id is supplied the
+// old draft is purged first so re-saving replaces it instead of piling up
+// duplicates.
+func (h *MailHandler) handleMailDraft(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	user := r.Context().Value("user")
+	userEmail, ok := user.(string)
+	if !ok {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	if h.msgStore == nil || h.mailDB == nil {
+		h.sendError(w, http.StatusInternalServerError, "Storage not available")
+		return
+	}
+
+	var req draftRequest
+	if err := decodeJSON(r, &req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "Invalid request")
+		return
+	}
+	if len(req.Body) > 25*1024*1024 {
+		h.sendError(w, http.StatusBadRequest, "Message body too large (max 25MB)")
+		return
+	}
+
+	// Replace an existing draft so repeated saves do not accumulate copies.
+	if req.ID != "" {
+		if mailbox, uid, _, found := h.findMessage(userEmail, req.ID); found && mailbox == "Drafts" {
+			if derr := h.mailDB.DeleteMessage(userEmail, mailbox, uid); derr != nil {
+				fmt.Printf("Warning: failed to delete old draft metadata: %v\n", derr)
+			}
+			if err := h.msgStore.DeleteMessage(userEmail, req.ID); err != nil {
+				fmt.Printf("Warning: failed to delete old draft file: %v\n", err)
+			}
+		}
+	}
+
+	sender := req.From
+	if sender == "" {
+		sender = userEmail
+	}
+
+	now := time.Now()
+	dateStr := now.Format("Mon, 02 Jan 2006 15:04:05 -0700")
+	safeSubject := sanitizeHeaderValue(req.Subject)
+	safeTo := sanitizeHeaderValues(req.To)
+	safeCC := sanitizeHeaderValues(req.CC)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "From: %s\r\n", sanitizeHeaderValue(sender))
+	fmt.Fprintf(&sb, "To: %s\r\n", strings.Join(safeTo, ", "))
+	if len(safeCC) > 0 {
+		fmt.Fprintf(&sb, "Cc: %s\r\n", strings.Join(safeCC, ", "))
+	}
+	fmt.Fprintf(&sb, "Subject: %s\r\n", safeSubject)
+	fmt.Fprintf(&sb, "Date: %s\r\n", dateStr)
+	sb.WriteString("MIME-Version: 1.0\r\n")
+	sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	sb.WriteString("\r\n")
+	sb.WriteString(req.Body)
+	rawEmail := sb.String()
+
+	if err := h.mailDB.CreateMailbox(userEmail, "Drafts"); err != nil {
+		h.sendError(w, http.StatusInternalServerError, "Failed to ensure Drafts mailbox")
+		return
+	}
+	msgID, err := h.msgStore.StoreMessage(userEmail, []byte(rawEmail))
+	if err != nil || msgID == "" {
+		h.sendError(w, http.StatusInternalServerError, "Failed to store draft")
+		return
+	}
+	uid, err := h.mailDB.GetNextUID(userEmail, "Drafts")
+	if err != nil {
+		h.sendError(w, http.StatusInternalServerError, "Failed to get next UID")
+		return
+	}
+	meta := &storage.MessageMetadata{
+		MessageID:    msgID,
+		UID:          uid,
+		Flags:        []string{"\\Draft", "\\Seen"},
+		InternalDate: now,
+		Size:         int64(len(rawEmail)),
+		Subject:      safeSubject,
+		Date:         dateStr,
+		From:         sender,
+		To:           strings.Join(safeTo, ", "),
+	}
+	if err := h.mailDB.StoreMessageMetadata(userEmail, "Drafts", uid, meta); err != nil {
+		h.sendError(w, http.StatusInternalServerError, "Failed to store draft metadata")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"id":      msgID,
+		"message": "Draft saved",
+	}); err != nil {
+		fmt.Printf("ERROR: failed to encode draft response: %v\n", err)
+	}
+}
+
 // deleteMessageMetadata finds and deletes message metadata by messageID
 func (h *MailHandler) deleteMessageMetadata(userEmail, messageID string) {
 	mailboxes := []string{"INBOX", "Sent", "Drafts", "Trash", "Junk", "Archive"}
