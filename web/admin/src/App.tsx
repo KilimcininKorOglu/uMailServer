@@ -117,8 +117,17 @@ function App() {
     setMustChangePassword(userData.mustChangePassword);
   };
 
-  const handleLogout = () => {
-    // Server will clear the HttpOnly cookie
+  const handleLogout = async () => {
+    // Revoke the token and clear the HttpOnly cookie server-side; without this
+    // the session stays valid and a re-navigation silently re-authenticates.
+    try {
+      await fetch("/api/v1/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // Even if the request fails, clear local state below.
+    }
     setIsAuthenticated(false);
     setUser(null);
     setMustChangePassword(false);
