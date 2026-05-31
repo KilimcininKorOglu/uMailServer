@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1009,15 +1010,19 @@ func TestWebhookDelivery(t *testing.T) {
 	webhookMgr.SetAllowPrivateIP(true) // Allow localhost for testing
 
 	t.Run("webhook_event_delivery", func(t *testing.T) {
-		// Create test server to receive webhook
+		// Create test server to receive webhook. The handler runs on the
+		// httptest goroutine, so the captured values are guarded by mu.
+		var mu sync.Mutex
 		var receivedEvent string
 		var receivedData string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			receivedEvent = r.Header.Get("X-Webhook-Event")
 			// Read body
 			buf := make([]byte, 1024)
 			n, _ := r.Body.Read(buf)
+			mu.Lock()
+			receivedEvent = r.Header.Get("X-Webhook-Event")
 			receivedData = string(buf[:n])
+			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
@@ -1041,19 +1046,25 @@ func TestWebhookDelivery(t *testing.T) {
 		// Wait for delivery
 		time.Sleep(300 * time.Millisecond)
 
-		if receivedEvent != "mail.received" {
-			t.Errorf("expected event 'mail.received', got '%s'", receivedEvent)
+		mu.Lock()
+		gotEvent, gotData := receivedEvent, receivedData
+		mu.Unlock()
+		if gotEvent != "mail.received" {
+			t.Errorf("expected event 'mail.received', got '%s'", gotEvent)
 		}
-		if !strings.Contains(receivedData, "sender@example.com") {
+		if !strings.Contains(gotData, "sender@example.com") {
 			t.Error("webhook data doesn't contain sender")
 		}
 	})
 
 	t.Run("webhook_event_filtering", func(t *testing.T) {
+		var mu sync.Mutex
 		receivedEvents := make(map[string]bool)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			event := r.Header.Get("X-Webhook-Event")
+			mu.Lock()
 			receivedEvents[event] = true
+			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
@@ -1075,21 +1086,29 @@ func TestWebhookDelivery(t *testing.T) {
 
 		time.Sleep(300 * time.Millisecond)
 
-		if receivedEvents["mail.received"] {
+		mu.Lock()
+		gotReceived := receivedEvents["mail.received"]
+		gotSent := receivedEvents["mail.sent"]
+		gotFailed := receivedEvents["delivery.failed"]
+		mu.Unlock()
+		if gotReceived {
 			t.Error("should not have received mail.received event")
 		}
-		if !receivedEvents["mail.sent"] {
+		if !gotSent {
 			t.Error("should have received mail.sent event")
 		}
-		if receivedEvents["delivery.failed"] {
+		if gotFailed {
 			t.Error("should not have received delivery.failed event")
 		}
 	})
 
 	t.Run("webhook_signature_with_secret", func(t *testing.T) {
+		var mu sync.Mutex
 		var receivedSig string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
 			receivedSig = r.Header.Get("X-Webhook-Signature")
+			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
@@ -1103,7 +1122,10 @@ func TestWebhookDelivery(t *testing.T) {
 
 		time.Sleep(300 * time.Millisecond)
 
-		if receivedSig == "" {
+		mu.Lock()
+		gotSig := receivedSig
+		mu.Unlock()
+		if gotSig == "" {
 			t.Error("expected X-Webhook-Signature header when secret is configured")
 		}
 	})
