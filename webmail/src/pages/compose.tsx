@@ -131,6 +131,8 @@ export function ComposePage() {
   const [body, setBody] = useState("")
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+  // Free-text recipient inputs (typed email addresses, not just picked contacts)
+  const [recipientInput, setRecipientInput] = useState<{ to: string; cc: string; bcc: string }>({ to: "", cc: "", bcc: "" })
   const [showCc, setShowCc] = useState(false)
   const [showBcc, setShowBcc] = useState(false)
   const [sending, setSending] = useState(false)
@@ -217,6 +219,19 @@ export function ComposePage() {
       }
     }
     setSearchQuery("")
+  }
+
+  // addTypedRecipient adds a free-text email address to a recipient field,
+  // validating its basic shape so users can email anyone, not just contacts.
+  const addTypedRecipient = (field: "to" | "cc" | "bcc") => {
+    const email = recipientInput[field].trim().replace(/[,;]+$/, "").trim()
+    setRecipientInput((prev) => ({ ...prev, [field]: "" }))
+    if (!email) return
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error("Enter a valid email address")
+      return
+    }
+    addRecipient({ id: `typed-${field}-${email}`, name: email, email }, field)
   }
 
   const removeRecipient = (id: string, field: "to" | "cc" | "bcc") => {
@@ -467,6 +482,19 @@ export function ComposePage() {
                 </div>
               </DropdownMenuContent>
             </DropdownMenu>
+            <input
+              className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              placeholder="Type an email, press Enter"
+              value={recipientInput.to}
+              onChange={(e) => setRecipientInput((p) => ({ ...p, to: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault()
+                  addTypedRecipient("to")
+                }
+              }}
+              onBlur={() => addTypedRecipient("to")}
+            />
           </div>
           <Button
             variant="ghost"
@@ -532,6 +560,19 @@ export function ComposePage() {
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <input
+                className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                placeholder="Type an email, press Enter"
+                value={recipientInput.cc}
+                onChange={(e) => setRecipientInput((p) => ({ ...p, cc: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault()
+                    addTypedRecipient("cc")
+                  }
+                }}
+                onBlur={() => addTypedRecipient("cc")}
+              />
             </div>
           </div>
         )}
@@ -582,10 +623,23 @@ export function ComposePage() {
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <input
+                className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                placeholder="Type an email, press Enter"
+                value={recipientInput.bcc}
+                onChange={(e) => setRecipientInput((p) => ({ ...p, bcc: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault()
+                    addTypedRecipient("bcc")
+                  }
+                }}
+                onBlur={() => addTypedRecipient("bcc")}
+              />
             </div>
           </div>
         )}
-        
+
         {/* Sender Identity Selector */}
         <div className="flex items-center gap-2">
           <span className="w-12 text-sm text-muted-foreground flex items-center gap-1">
