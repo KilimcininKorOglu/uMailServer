@@ -15,6 +15,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/contexts/AuthContext"
 
 interface HeaderProps {
   onMenuToggle: () => void
@@ -23,8 +24,14 @@ interface HeaderProps {
 
 export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
   const { setTheme, resolvedTheme } = useTheme()
+  const { logout } = useAuth()
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
+
+  const handleSignOut = async () => {
+    await logout()
+    navigate("/login")
+  }
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -146,7 +153,7 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
                 Account Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
+              <DropdownMenuItem className="text-destructive" onClick={handleSignOut}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign Out
               </DropdownMenuItem>
