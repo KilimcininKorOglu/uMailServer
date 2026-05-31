@@ -33,6 +33,13 @@ function App() {
     let cancelled = false;
 
     const restoreSession = async () => {
+      // Only probe for an existing session if this browser previously logged in
+      // (the email marker is set on login and cleared on logout). Without it the
+      // jwt cookie is absent, so the probe would 403 and log a console error on
+      // the login page before the user has done anything.
+      if (!localStorage.getItem(adminEmailStorageKey)) {
+        return;
+      }
       try {
         const response = await fetch("/api/v1/accounts", {
           credentials: "include",
