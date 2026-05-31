@@ -2785,9 +2785,10 @@ func TestHandleLogin_IPRateLimited(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 
-	// Simulate IP rate limiting
+	// Simulate an IP that has hit the failure threshold and is now within an
+	// active lockout window (count alone no longer blocks; the lockout does).
 	server.loginAttempts = map[string]*loginAttempt{
-		"192.168.1.100": {count: 20, lastSeen: time.Now()},
+		"192.168.1.100": {count: 5, lastSeen: time.Now(), lockoutUntil: time.Now().Add(5 * time.Minute)},
 	}
 
 	body := map[string]string{

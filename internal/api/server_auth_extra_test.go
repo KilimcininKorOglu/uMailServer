@@ -338,18 +338,52 @@ func TestCheckLoginRateLimit_UnderLimit(t *testing.T) {
 	}
 }
 
-// TestCheckLoginRateLimit_AtLimit tests attempts at limit
+// TestCheckLoginRateLimit_AtLimit verifies the lockout is driven by recorded
+// failures, not by the number of checks. Five failures must lock the IP out;
+// the check itself never advances the counter.
 func TestCheckLoginRateLimit_AtLimit(t *testing.T) {
 	server := NewServer(nil, nil, Config{JWTSecret: "test"})
 
-	// Make 5 attempts (at limit)
+	// Five consecutive failures reach the lockout threshold.
 	for i := 0; i < 5; i++ {
-		server.checkLoginRateLimit("192.168.1.1")
+		server.recordLoginFailure("192.168.1.1")
 	}
 
-	// 6th attempt should be blocked
+	// The next check must be blocked because a lockout is now in effect.
 	if server.checkLoginRateLimit("192.168.1.1") {
-		t.Error("expected 6th attempt to be blocked")
+		t.Error("expected IP to be blocked after 5 failures")
+	}
+}
+
+// TestCheckLoginRateLimit_SuccessfulChecksDoNotLockout is a regression test:
+// the check must be read-only, so repeated attempts that never fail (e.g. many
+// successful logins from one IP) must not accumulate toward a lockout.
+func TestCheckLoginRateLimit_SuccessfulChecksDoNotLockout(t *testing.T) {
+	server := NewServer(nil, nil, Config{JWTSecret: "test"})
+
+	for i := 0; i < 50; i++ {
+		if !server.checkLoginRateLimit("192.168.1.1") {
+			t.Fatalf("check %d was blocked; successful attempts must never lock out", i+1)
+		}
+	}
+}
+
+// TestClearLoginFailures_ResetsCounter verifies a successful login clears the
+// per-IP failure counter so prior failures cannot later trip a lockout.
+func TestClearLoginFailures_ResetsCounter(t *testing.T) {
+	server := NewServer(nil, nil, Config{JWTSecret: "test"})
+
+	for i := 0; i < 5; i++ {
+		server.recordLoginFailure("192.168.1.1")
+	}
+	if server.checkLoginRateLimit("192.168.1.1") {
+		t.Fatal("precondition: IP should be locked out after 5 failures")
+	}
+
+	server.clearLoginFailures("192.168.1.1")
+
+	if !server.checkLoginRateLimit("192.168.1.1") {
+		t.Error("expected IP to be allowed again after clearing failures")
 	}
 }
 

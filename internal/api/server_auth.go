@@ -243,7 +243,11 @@ func (s *Server) CleanupExpiredTokens() {
 }
 
 // checkLoginRateLimit returns true if the IP is allowed to attempt login.
-// Uses exponential backoff: 5 attempts, then lockout doubles each failure (5min, 10min, 20min, etc.)
+// It is read-only with respect to the failure counter: it only reports whether
+// an active lockout is in effect. The counter is advanced exclusively by
+// recordLoginFailure on a failed attempt, so successful logins never count
+// toward the lockout. The lockout itself uses exponential backoff once five
+// consecutive failures accumulate (see recordLoginFailure).
 func (s *Server) checkLoginRateLimit(ip string) bool {
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
@@ -252,50 +256,31 @@ func (s *Server) checkLoginRateLimit(ip string) bool {
 		s.loginAttempts = make(map[string]*loginAttempt)
 	}
 
-	now := time.Now()
 	attempt, exists := s.loginAttempts[ip]
 	if !exists {
-		s.loginAttempts[ip] = &loginAttempt{count: 1, lastSeen: now}
 		return true
 	}
 
-	// Reset if previous lockout expired (sliding window from last attempt)
+	now := time.Now()
+
+	// Forget stale failure history (sliding window from the last failure).
 	if now.Sub(attempt.lastSeen) > 5*time.Minute {
-		attempt.count = 1
-		attempt.lastSeen = now
-		attempt.lockoutUntil = time.Time{}
+		delete(s.loginAttempts, ip)
 		return true
 	}
 
-	// Check if currently locked out
+	// Block only while an active lockout is in effect.
 	if !attempt.lockoutUntil.IsZero() && now.Before(attempt.lockoutUntil) {
 		return false
 	}
 
-	// Clear lockout if expired
-	if !attempt.lockoutUntil.IsZero() && now.After(attempt.lockoutUntil) {
-		attempt.lockoutUntil = time.Time{}
-		attempt.count = 1
-		return true
-	}
-
-	if attempt.count >= 5 {
-		// Apply exponential backoff: 5min * 2^(attempts-5)
-		// attempts=5: 5min, attempts=6: 10min, attempts=7: 20min, etc.
-		backoffMinutes := 5 * (1 << (attempt.count - 5))
-		if backoffMinutes > 60 {
-			backoffMinutes = 60 // cap at 60 minutes
-		}
-		attempt.lockoutUntil = now.Add(time.Duration(backoffMinutes) * time.Minute)
-		return false
-	}
-	attempt.count++
-	attempt.lastSeen = now
 	return true
 }
 
-// recordLoginFailure increments the failed login counter for an IP.
-// Lockout timing is calculated in checkLoginRateLimit.
+// recordLoginFailure increments the failed login counter for an IP and, once
+// five consecutive failures accumulate within the window, sets an exponential
+// backoff lockout. This is the only place the counter advances, so the lockout
+// reflects failures alone — never successful logins.
 func (s *Server) recordLoginFailure(ip string) {
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
@@ -306,27 +291,41 @@ func (s *Server) recordLoginFailure(ip string) {
 
 	now := time.Now()
 	attempt, exists := s.loginAttempts[ip]
-	if !exists {
+	if !exists || now.Sub(attempt.lastSeen) > 5*time.Minute {
+		// First failure in a fresh window.
 		s.loginAttempts[ip] = &loginAttempt{count: 1, lastSeen: now}
 		return
 	}
 
-	// Reset if window expired
-	if now.Sub(attempt.lastSeen) > 5*time.Minute {
-		attempt.count = 1
-		attempt.lastSeen = now
-		attempt.lockoutUntil = time.Time{}
-		return
-	}
-
-	// Clear any existing lockout when recording new failure
-	attempt.lockoutUntil = time.Time{}
 	attempt.count++
 	attempt.lastSeen = now
+
+	// After 5 consecutive failures, apply exponential backoff:
+	// 5min * 2^(count-5), capped at 60min (count=5 -> 5min, 6 -> 10min, ...).
+	if attempt.count >= 5 {
+		backoffMinutes := 5 * (1 << (attempt.count - 5))
+		if backoffMinutes > 60 {
+			backoffMinutes = 60
+		}
+		attempt.lockoutUntil = now.Add(time.Duration(backoffMinutes) * time.Minute)
+	}
 }
 
-// checkAccountLoginRateLimit returns true if the account is allowed to attempt login.
-// Allows 5 attempts per 5-minute window per account; blocks after that.
+// clearLoginFailures resets the per-IP login failure counter. It is called on a
+// successful login so legitimate authentications never accumulate toward a
+// lockout (mirrors clearAccountLoginFailures for the per-account counter).
+func (s *Server) clearLoginFailures(ip string) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+
+	delete(s.loginAttempts, ip)
+}
+
+// checkAccountLoginRateLimit returns true if the account is allowed to attempt
+// login. Like checkLoginRateLimit it is read-only: it blocks once five failures
+// accumulate within the window but never advances the counter itself, so
+// successful logins do not count toward the limit. recordAccountLoginFailure is
+// the sole incrementer and clearAccountLoginFailures resets it on success.
 func (s *Server) checkAccountLoginRateLimit(email string) bool {
 	s.accountLoginMu.Lock()
 	defer s.accountLoginMu.Unlock()
@@ -335,19 +334,18 @@ func (s *Server) checkAccountLoginRateLimit(email string) bool {
 		s.accountLoginAttempts = make(map[string]*loginAttempt)
 	}
 
-	now := time.Now()
 	attempt, exists := s.accountLoginAttempts[email]
-	if !exists || now.Sub(attempt.lastSeen) > 5*time.Minute {
-		s.accountLoginAttempts[email] = &loginAttempt{count: 1, lastSeen: now}
+	if !exists {
 		return true
 	}
 
-	if attempt.count >= 5 {
-		return false
+	// Forget stale failure history (sliding window from the last failure).
+	if time.Since(attempt.lastSeen) > 5*time.Minute {
+		delete(s.accountLoginAttempts, email)
+		return true
 	}
-	attempt.count++
-	attempt.lastSeen = now
-	return true
+
+	return attempt.count < 5
 }
 
 // recordAccountLoginFailure increments the failed login counter for an account.
@@ -575,8 +573,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sendJSON(w, http.StatusOK, response)
 
-	// Clear login failures on successful login
+	// Clear login failures on successful login, for both the per-account and
+	// per-IP counters, so a legitimate authentication never leaves residual
+	// failures that could later trip a lockout.
 	s.clearAccountLoginFailures(emailKey)
+	s.clearLoginFailures(ip)
 
 	// Initialize demo emails for the user on first login
 	InitDemoEmails(account.Email)
