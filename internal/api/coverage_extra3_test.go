@@ -606,3 +606,75 @@ func TestRetryQueueEntry_NotFound_Cov3(t *testing.T) {
 		t.Errorf("Expected 404 for non-existent queue entry, got %d", rec.Code)
 	}
 }
+
+// TestCreateAccount_WithQuota verifies that a quota_limit supplied at creation
+// time is persisted, so the admin UI can provision a storage quota up front
+// instead of leaving every new mailbox at the 0 B (no limit) default.
+func TestCreateAccount_WithQuota(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+
+	server := NewServer(database, nil, Config{})
+	const wantQuota = int64(50 * 1024 * 1024)
+	body, err := json.Marshal(map[string]interface{}{
+		"email":       "quota@quota.com",
+		"password":    "Password123!",
+		"quota_limit": wantQuota,
+	})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	server.createAccount(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	account, err := database.GetAccount("quota.com", "quota")
+	if err != nil {
+		t.Fatalf("get account: %v", err)
+	}
+	if account.QuotaLimit != wantQuota {
+		t.Errorf("Expected stored quota %d, got %d", wantQuota, account.QuotaLimit)
+	}
+}
+
+// TestCreateAccount_NegativeQuota rejects a negative quota_limit with 400 so a
+// malformed value cannot reach storage.
+func TestCreateAccount_NegativeQuota(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+
+	server := NewServer(database, nil, Config{})
+	body, err := json.Marshal(map[string]interface{}{
+		"email":       "neg@quota.com",
+		"password":    "Password123!",
+		"quota_limit": int64(-1),
+	})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	server.createAccount(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for negative quota, got %d: %s", rec.Code, rec.Body.String())
+	}
+}

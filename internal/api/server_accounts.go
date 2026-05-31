@@ -130,9 +130,10 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	isAdmin, _ := r.Context().Value("isAdmin").(bool)
 
 	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		IsAdmin  bool   `json:"is_admin"`
+		Email      string `json:"email"`
+		Password   string `json:"password"`
+		IsAdmin    bool   `json:"is_admin"`
+		QuotaLimit *int64 `json:"quota_limit"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -142,6 +143,11 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	if req.Email == "" || req.Password == "" {
 		s.sendError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+
+	if req.QuotaLimit != nil && *req.QuotaLimit < 0 {
+		s.sendError(w, http.StatusBadRequest, "quota_limit must be non-negative")
 		return
 	}
 
@@ -189,6 +195,9 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		IsActive:     true,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
+	}
+	if req.QuotaLimit != nil {
+		account.QuotaLimit = *req.QuotaLimit
 	}
 
 	if err := s.db.CreateAccount(account); err != nil {

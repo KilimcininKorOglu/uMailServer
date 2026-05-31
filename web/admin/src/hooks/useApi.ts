@@ -160,14 +160,17 @@ export function useAccounts() {
     }
   }, []);
 
-  const createAccount = useCallback(async (email: string, password: string, isAdmin = false) => {
-    const result = await apiRequest<Account>("/accounts", {
-      method: "POST",
-      body: JSON.stringify({ email, password, is_admin: isAdmin }),
-    });
-    await fetchAccounts();
-    return result;
-  }, [fetchAccounts]);
+  const createAccount = useCallback(
+    async (email: string, password: string, isAdmin = false, quotaLimit?: number) => {
+      const result = await apiRequest<Account>("/accounts", {
+        method: "POST",
+        body: JSON.stringify({ email, password, is_admin: isAdmin, quota_limit: quotaLimit }),
+      });
+      await fetchAccounts();
+      return result;
+    },
+    [fetchAccounts]
+  );
 
   const updateAccount = useCallback(async (email: string, updates: Partial<Account>) => {
     const result = await apiRequest<Account>(`/accounts/${email}`, {

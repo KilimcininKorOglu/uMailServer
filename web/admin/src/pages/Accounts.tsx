@@ -61,6 +61,7 @@ export function Accounts() {
   const [newAccountEmail, setNewAccountEmail] = useState("");
   const [newAccountPassword, setNewAccountPassword] = useState("");
   const [newAccountIsAdmin, setNewAccountIsAdmin] = useState(false);
+  const [newAccountQuotaMB, setNewAccountQuotaMB] = useState(0);
   const [requirePasswordChangeOnReset, setRequirePasswordChangeOnReset] = useState(true);
   const [formError, setFormError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
@@ -81,11 +82,19 @@ export function Accounts() {
     }
 
     try {
-      await createAccount(newAccountEmail, newAccountPassword, newAccountIsAdmin);
+      // The backend stores the quota in bytes; the admin enters it in MB
+      // (0 = unlimited, matching the server's "no limit" semantics).
+      await createAccount(
+        newAccountEmail,
+        newAccountPassword,
+        newAccountIsAdmin,
+        newAccountQuotaMB * 1024 * 1024
+      );
       setIsAddDialogOpen(false);
       setNewAccountEmail("");
       setNewAccountPassword("");
       setNewAccountIsAdmin(false);
+      setNewAccountQuotaMB(0);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to create account");
     }
@@ -116,6 +125,7 @@ export function Accounts() {
       const updates: Partial<Account> & { password?: string } = {
         is_admin: selectedAccount.is_admin,
         is_active: selectedAccount.is_active,
+        quota_limit: selectedAccount.quota_limit,
       };
       if (newAccountPassword) {
         updates.password = newAccountPassword;
@@ -190,6 +200,18 @@ export function Accounts() {
                   value={newAccountPassword}
                   onChange={(e) => setNewAccountPassword(e.target.value)}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quota">Quota (MB)</Label>
+                <Input
+                  id="quota"
+                  type="number"
+                  min={0}
+                  placeholder="0 = unlimited"
+                  value={newAccountQuotaMB}
+                  onChange={(e) => setNewAccountQuotaMB(Math.max(0, Number(e.target.value) || 0))}
+                />
+                <p className="text-sm text-muted-foreground">0 means unlimited storage.</p>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <Label htmlFor="is-admin">Admin Account</Label>
@@ -320,6 +342,23 @@ export function Accounts() {
                     setSelectedAccount({ ...selectedAccount, is_active: checked })
                   }
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-quota">Quota (MB)</Label>
+                <Input
+                  id="edit-quota"
+                  type="number"
+                  min={0}
+                  placeholder="0 = unlimited"
+                  value={Math.round(selectedAccount.quota_limit / (1024 * 1024))}
+                  onChange={(e) =>
+                    setSelectedAccount({
+                      ...selectedAccount,
+                      quota_limit: Math.max(0, Number(e.target.value) || 0) * 1024 * 1024,
+                    })
+                  }
+                />
+                <p className="text-sm text-muted-foreground">0 means unlimited storage.</p>
               </div>
               <div className="space-y-2 pt-4 border-t">
                 <Label htmlFor="new-password">New Password (optional)</Label>
