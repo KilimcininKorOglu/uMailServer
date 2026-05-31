@@ -13,6 +13,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  List,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,120 +39,122 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-
-interface DirectoryObject {
-  id: string;
-  name: string;
-  email: string;
-  type: "user" | "room" | "equipment" | "distribution-group";
-  isHidden: boolean;
-  isBookable: boolean;
-  capacity?: number;
-}
-
-interface RoomList {
-  id: string;
-  name: string;
-  rooms: string[];
-}
-
-interface BookingPolicy {
-  id: string;
-  resourceName: string;
-  autoAccept: boolean;
-  allowRecurring: boolean;
-  maxDuration: number;
-  requiresApproval: boolean;
-  approvalDelegate: string;
-}
+import { useDirectory } from "@/hooks/useApi";
+import type { DirectoryObject } from "@/types";
 
 export function Directory() {
+  const {
+    resources,
+    bookingPolicies,
+    roomLists,
+    loading,
+    fetchDirectory,
+    createResource,
+    updateResource,
+    deleteResource,
+    createRoomList,
+    deleteRoomList,
+  } = useDirectory();
+
   const [activeTab, setActiveTab] = useState("gal");
   const [searchQuery, setSearchQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [directoryObjects, setDirectoryObjects] = useState<DirectoryObject[]>([]);
-  const [_roomLists, setRoomLists] = useState<RoomList[]>([]);
-  const [bookingPolicies, setBookingPolicies] = useState<BookingPolicy[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
+
   const [isAddResourceDialogOpen, setIsAddResourceDialogOpen] = useState(false);
   const [newResourceName, setNewResourceName] = useState("");
   const [newResourceType, setNewResourceType] = useState<"room" | "equipment">("room");
   const [newResourceCapacity, setNewResourceCapacity] = useState(10);
 
+  const [isAddRoomListDialogOpen, setIsAddRoomListDialogOpen] = useState(false);
+  const [newRoomListName, setNewRoomListName] = useState("");
+  const [newRoomListRooms, setNewRoomListRooms] = useState<string[]>([]);
+
   useEffect(() => {
-    fetchDirectoryObjects();
-    fetchRoomLists();
-    fetchBookingPolicies();
-  }, []);
-
-  const fetchDirectoryObjects = async () => {
-    setLoading(true);
-    // Placeholder - would fetch from /api/v1/admin/directory
-    setDirectoryObjects([
-      { id: "1", name: "Admin User", email: "admin@local.test", type: "user", isHidden: false, isBookable: false },
-      { id: "2", name: "Conference Room A", email: "conf-a@local.test", type: "room", isHidden: false, isBookable: true, capacity: 10 },
-      { id: "3", name: "Projector Equipment", email: "projector@local.test", type: "equipment", isHidden: false, isBookable: true },
-    ]);
-    setLoading(false);
-  };
-
-  const fetchRoomLists = async () => {
-    setRoomLists([
-      { id: "rl-1", name: "Room List", rooms: ["conf-a@local.test"] },
-    ]);
-  };
-
-  const fetchBookingPolicies = async () => {
-    setBookingPolicies([
-      {
-        id: "bp-1",
-        resourceName: "Conference Room A",
-        autoAccept: true,
-        allowRecurring: true,
-        maxDuration: 480,
-        requiresApproval: false,
-        approvalDelegate: "",
-      },
-    ]);
-  };
+    fetchDirectory().catch(() => {
+      /* error surfaced via hook state */
+    });
+  }, [fetchDirectory]);
 
   const handleAddResource = async () => {
     if (!newResourceName) return;
-
-    const newObject: DirectoryObject = {
-      id: Date.now().toString(),
-      name: newResourceName,
-      email: newResourceName.toLowerCase().replace(/\s+/g, "-") + "@local.test",
-      type: newResourceType,
-      isHidden: false,
-      isBookable: true,
-      capacity: newResourceType === "room" ? newResourceCapacity : undefined,
-    };
-
-    setDirectoryObjects((prev) => [...prev, newObject]);
-    setIsAddResourceDialogOpen(false);
-    setNewResourceName("");
-    setNewResourceType("room");
-    setNewResourceCapacity(10);
+    const email = newResourceName.toLowerCase().replace(/\s+/g, "-") + "@local.test";
+    try {
+      await createResource({
+        name: newResourceName,
+        email,
+        type: newResourceType,
+        capacity: newResourceType === "room" ? newResourceCapacity : 0,
+      });
+      setFormError(null);
+      setIsAddResourceDialogOpen(false);
+      setNewResourceName("");
+      setNewResourceType("room");
+      setNewResourceCapacity(10);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to add resource");
+    }
   };
 
-  const handleToggleHidden = (obj: DirectoryObject) => {
-    setDirectoryObjects((prev) =>
-      prev.map((o) => (o.id === obj.id ? { ...o, isHidden: !o.isHidden } : o))
+  const handleToggleHidden = async (obj: DirectoryObject) => {
+    try {
+      await updateResource(obj.id, { isHidden: !obj.isHidden });
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to update visibility");
+    }
+  };
+
+  const handleToggleBookable = async (obj: DirectoryObject) => {
+    try {
+      await updateResource(obj.id, { isBookable: !obj.isBookable });
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to update bookable state");
+    }
+  };
+
+  const handleDeleteResource = async (id: string) => {
+    try {
+      await deleteResource(id);
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to remove resource");
+    }
+  };
+
+  const handleAddRoomList = async () => {
+    if (!newRoomListName) return;
+    try {
+      await createRoomList(newRoomListName, newRoomListRooms);
+      setFormError(null);
+      setIsAddRoomListDialogOpen(false);
+      setNewRoomListName("");
+      setNewRoomListRooms([]);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to create room list");
+    }
+  };
+
+  const handleDeleteRoomList = async (id: string) => {
+    try {
+      await deleteRoomList(id);
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to delete room list");
+    }
+  };
+
+  const toggleRoomInNewList = (email: string) => {
+    setNewRoomListRooms((prev) =>
+      prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]
     );
   };
 
-  const handleToggleBookable = (obj: DirectoryObject) => {
-    setDirectoryObjects((prev) =>
-      prev.map((o) => (o.id === obj.id ? { ...o, isBookable: !o.isBookable } : o))
-    );
-  };
+  const rooms = resources.filter((obj) => obj.type === "room");
 
-  const handleDeleteResource = (id: string) => {
-    setDirectoryObjects((prev) => prev.filter((o) => o.id !== id));
-  };
-
-  const filteredObjects = directoryObjects.filter(
+  const filteredObjects = resources.filter(
     (obj) =>
       obj.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       obj.email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -179,11 +182,11 @@ export function Directory() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Directory</h1>
           <p className="text-muted-foreground mt-1">
-            Manage GAL visibility, rooms, resources, and booking policy
+            Manage GAL visibility, rooms, resources, room lists, and booking policy
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { fetchDirectoryObjects(); fetchRoomLists(); fetchBookingPolicies(); }} disabled={loading}>
+          <Button variant="outline" onClick={() => fetchDirectory().catch(() => {})} disabled={loading}>
             <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
             Refresh
           </Button>
@@ -202,6 +205,12 @@ export function Directory() {
                   Add a room or equipment resource to the directory
                 </DialogDescription>
               </DialogHeader>
+              {formError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{formError}</AlertDescription>
+                </Alert>
+              )}
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <Label htmlFor="resource-name">Resource Name</Label>
@@ -249,6 +258,13 @@ export function Directory() {
         </div>
       </div>
 
+      {formError && !isAddResourceDialogOpen && !isAddRoomListDialogOpen && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{formError}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
@@ -259,6 +275,10 @@ export function Directory() {
           <TabsTrigger value="rooms">
             <Building className="h-4 w-4 mr-2" />
             Rooms
+          </TabsTrigger>
+          <TabsTrigger value="room-lists">
+            <List className="h-4 w-4 mr-2" />
+            Room Lists
           </TabsTrigger>
           <TabsTrigger value="booking">
             <CheckCircle className="h-4 w-4 mr-2" />
@@ -271,7 +291,7 @@ export function Directory() {
             <CardHeader>
               <CardTitle>Global Address List</CardTitle>
               <CardDescription>
-                All directory objects visible in GAL lookup
+                Room and equipment resources visible in GAL lookup
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -296,6 +316,9 @@ export function Directory() {
                 <div className="text-center py-8">
                   <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <h3 className="text-lg font-medium">No directory objects</h3>
+                  <p className="text-muted-foreground mt-1">
+                    Add room or equipment resources to populate the directory
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -318,9 +341,9 @@ export function Directory() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary" className="text-xs capitalize">{obj.type}</Badge>
-                        {obj.capacity && (
+                        {obj.capacity ? (
                           <Badge variant="outline" className="text-xs">{obj.capacity} seats</Badge>
-                        )}
+                        ) : null}
                         <Switch checked={!obj.isHidden} onCheckedChange={() => handleToggleHidden(obj)} />
                         <DropdownMenu>
                           {/* @ts-expect-error asChild prop not typed in Base UI but works at runtime */}
@@ -330,7 +353,7 @@ export function Directory() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
+                            <DropdownMenuItem disabled>
                               <Edit className="mr-2 h-4 w-4" />
                               Edit
                             </DropdownMenuItem>
@@ -358,7 +381,7 @@ export function Directory() {
             <CardHeader>
               <CardTitle>Room Resources</CardTitle>
               <CardDescription>
-                Bookable room resources and room lists
+                Bookable room resources
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -369,36 +392,34 @@ export function Directory() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {directoryObjects
-                    .filter((obj) => obj.type === "room")
-                    .map((room) => (
-                      <div
-                        key={room.id}
-                        className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-blue-500/10">
-                            <Building className="h-4 w-4 text-blue-500" />
-                          </div>
-                          <div>
-                            <div className="font-medium">{room.name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {room.capacity} seats | {room.email}
-                            </div>
-                          </div>
+                  {rooms.map((room) => (
+                    <div
+                      key={room.id}
+                      className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-blue-500/10">
+                          <Building className="h-4 w-4 text-blue-500" />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Switch checked={room.isBookable} onCheckedChange={() => handleToggleBookable(room)} />
-                          {room.isBookable ? (
-                            <Badge variant="default" className="bg-emerald-500">Bookable</Badge>
-                          ) : (
-                            <Badge variant="secondary">Not bookable</Badge>
-                          )}
+                        <div>
+                          <div className="font-medium">{room.name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {room.capacity ? `${room.capacity} seats | ` : ""}{room.email}
+                          </div>
                         </div>
                       </div>
-                    ))}
+                      <div className="flex items-center gap-2">
+                        <Switch checked={room.isBookable} onCheckedChange={() => handleToggleBookable(room)} />
+                        {room.isBookable ? (
+                          <Badge variant="default" className="bg-emerald-500">Bookable</Badge>
+                        ) : (
+                          <Badge variant="secondary">Not bookable</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
 
-                  {directoryObjects.filter((obj) => obj.type === "room").length === 0 && (
+                  {rooms.length === 0 && (
                     <div className="text-center py-8">
                       <Building className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                       <h3 className="text-lg font-medium">No room resources</h3>
@@ -413,12 +434,133 @@ export function Directory() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="room-lists" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Room Lists</CardTitle>
+                  <CardDescription>
+                    Group rooms into lists for Outlook's Room Finder
+                  </CardDescription>
+                </div>
+                <Dialog open={isAddRoomListDialogOpen} onOpenChange={setIsAddRoomListDialogOpen}>
+                  {/* @ts-expect-error asChild prop not typed in Base UI but works at runtime */}
+                  <DialogTrigger asChild>
+                    <Button size="sm">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Room List
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Add Room List</DialogTitle>
+                      <DialogDescription>
+                        Name the list and select which rooms belong to it
+                      </DialogDescription>
+                    </DialogHeader>
+                    {formError && (
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>{formError}</AlertDescription>
+                      </Alert>
+                    )}
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="room-list-name">List Name</Label>
+                        <Input
+                          id="room-list-name"
+                          placeholder="Floor 1 Rooms"
+                          value={newRoomListName}
+                          onChange={(e) => setNewRoomListName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Rooms</Label>
+                        {rooms.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            No rooms available. Add room resources first.
+                          </p>
+                        ) : (
+                          <div className="space-y-2 max-h-48 overflow-y-auto rounded-md border p-2">
+                            {rooms.map((room) => (
+                              <label
+                                key={room.id}
+                                className="flex items-center gap-2 text-sm cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={newRoomListRooms.includes(room.email)}
+                                  onChange={() => toggleRoomInNewList(room.email)}
+                                />
+                                {room.name} <span className="text-muted-foreground">({room.email})</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsAddRoomListDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleAddRoomList} disabled={!newRoomListName}>
+                        Create List
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : roomLists.length === 0 ? (
+                <div className="text-center py-8">
+                  <List className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-medium">No room lists</h3>
+                  <p className="text-muted-foreground mt-1">
+                    Create a room list to group bookable rooms
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {roomLists.map((list) => (
+                    <div
+                      key={list.id}
+                      className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-blue-500/10">
+                          <List className="h-4 w-4 text-blue-500" />
+                        </div>
+                        <div>
+                          <div className="font-medium">{list.name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {list.rooms.length} room{list.rooms.length === 1 ? "" : "s"}
+                            {list.rooms.length > 0 ? `: ${list.rooms.join(", ")}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteRoomList(list.id)}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="booking" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Resource Booking Policy</CardTitle>
               <CardDescription>
-                Configure auto-accept, recurring, and approval settings per resource
+                Auto-accept, recurring, and approval settings per room resource
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -432,7 +574,7 @@ export function Directory() {
                   <CheckCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <h3 className="text-lg font-medium">No booking policies</h3>
                   <p className="text-muted-foreground mt-1">
-                    Resource booking policies will appear here
+                    Room resources and their booking policies will appear here
                   </p>
                 </div>
               ) : (
@@ -454,20 +596,6 @@ export function Directory() {
                             </div>
                           </div>
                         </div>
-                        <DropdownMenu>
-                          {/* @ts-expect-error asChild prop not typed in Base UI but works at runtime */}
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
-                              <Edit className="mr-2 h-4 w-4" />
-                              Edit Policy
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
                       </div>
                       <div className="grid gap-4 md:grid-cols-4">
                         <div className="flex items-center justify-between p-3 rounded-lg bg-muted">

@@ -72,6 +72,7 @@ func NewStore(dataDir string) (*Store, error) {
 			bucketResource,
 			bucketNotification,
 			bucketDelegations,
+			bucketRoomList,
 		}
 		for _, b := range buckets {
 			if _, err := tx.CreateBucketIfNotExists([]byte(b)); err != nil {

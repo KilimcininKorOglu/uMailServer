@@ -1,5 +1,13 @@
 import { useState, useCallback } from "react";
-import type { Account, Domain, QueueEntry, DelegationEntry } from "@/types";
+import type {
+  Account,
+  Domain,
+  QueueEntry,
+  DelegationEntry,
+  DirectoryObject,
+  BookingPolicy,
+  RoomList,
+} from "@/types";
 
 interface ApiError {
   message: string;
@@ -292,5 +300,114 @@ export function useDelegations() {
     fetchDelegations,
     createDelegation,
     deleteDelegation,
+  };
+}
+
+// Directory (resources + booking policies + room lists) API hooks
+export interface DirectoryCreatePayload {
+  name: string;
+  email: string;
+  type: "room" | "equipment";
+  capacity: number;
+}
+
+export interface DirectoryUpdatePayload {
+  isHidden?: boolean;
+  isBookable?: boolean;
+  capacity?: number;
+  allowRecurring?: boolean;
+  maxDuration?: number;
+  requiresApproval?: boolean;
+  approvalDelegate?: string;
+}
+
+interface DirectoryResponse {
+  resources: DirectoryObject[];
+  booking_policies: BookingPolicy[];
+  room_lists: RoomList[];
+}
+
+export function useDirectory() {
+  const [resources, setResources] = useState<DirectoryObject[]>([]);
+  const [bookingPolicies, setBookingPolicies] = useState<BookingPolicy[]>([]);
+  const [roomLists, setRoomLists] = useState<RoomList[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchDirectory = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<DirectoryResponse>("/admin/directory");
+      setResources(result.resources ?? []);
+      setBookingPolicies(result.booking_policies ?? []);
+      setRoomLists(result.room_lists ?? []);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const createResource = useCallback(async (payload: DirectoryCreatePayload) => {
+    const result = await apiRequest<DirectoryObject>("/admin/directory", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    await fetchDirectory();
+    return result;
+  }, [fetchDirectory]);
+
+  const updateResource = useCallback(async (id: string, patch: DirectoryUpdatePayload) => {
+    const result = await apiRequest<DirectoryObject>(`/admin/directory/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    });
+    await fetchDirectory();
+    return result;
+  }, [fetchDirectory]);
+
+  const deleteResource = useCallback(async (id: string) => {
+    await apiRequest(`/admin/directory/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await fetchDirectory();
+  }, [fetchDirectory]);
+
+  const createRoomList = useCallback(async (name: string, rooms: string[]) => {
+    const result = await apiRequest<RoomList>("/admin/directory/roomlists", {
+      method: "POST",
+      body: JSON.stringify({ name, rooms }),
+    });
+    await fetchDirectory();
+    return result;
+  }, [fetchDirectory]);
+
+  const updateRoomList = useCallback(async (id: string, name: string, rooms: string[]) => {
+    const result = await apiRequest<RoomList>(`/admin/directory/roomlists/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, rooms }),
+    });
+    await fetchDirectory();
+    return result;
+  }, [fetchDirectory]);
+
+  const deleteRoomList = useCallback(async (id: string) => {
+    await apiRequest(`/admin/directory/roomlists/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await fetchDirectory();
+  }, [fetchDirectory]);
+
+  return {
+    resources,
+    bookingPolicies,
+    roomLists,
+    loading,
+    error,
+    fetchDirectory,
+    createResource,
+    updateResource,
+    deleteResource,
+    createRoomList,
+    updateRoomList,
+    deleteRoomList,
   };
 }

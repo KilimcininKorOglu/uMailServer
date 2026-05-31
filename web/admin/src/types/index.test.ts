@@ -9,6 +9,9 @@ import type {
   RealtimeMetrics,
   Activity,
   DelegationEntry,
+  DirectoryObject,
+  BookingPolicy,
+  RoomList,
 } from './index'
 
 describe('Domain type', () => {
@@ -224,5 +227,58 @@ describe('DelegationEntry type', () => {
     expect(entry.grantee).toBe('delegate@example.com')
     expect(entry.canSendOnBehalf).toBe(true)
     expect(entry.canSendAs).toBe(false)
+  })
+})
+
+describe('DirectoryObject type', () => {
+  it('accepts room and equipment resources', () => {
+    const room: DirectoryObject = {
+      id: 'conf-a@example.com',
+      name: 'Conference Room A',
+      email: 'conf-a@example.com',
+      type: 'room',
+      isHidden: false,
+      isBookable: true,
+      capacity: 10,
+    }
+    const equip: DirectoryObject = {
+      id: 'projector@example.com',
+      name: 'Projector',
+      email: 'projector@example.com',
+      type: 'equipment',
+      isHidden: false,
+      isBookable: true,
+    }
+    expect(room.type).toBe('room')
+    expect(room.capacity).toBe(10)
+    expect(equip.type).toBe('equipment')
+  })
+})
+
+describe('BookingPolicy type', () => {
+  it('accepts a valid booking policy', () => {
+    const policy: BookingPolicy = {
+      id: 'conf-a@example.com',
+      resourceName: 'Conference Room A',
+      autoAccept: true,
+      allowRecurring: true,
+      maxDuration: 480,
+      requiresApproval: false,
+      approvalDelegate: '',
+    }
+    expect(policy.autoAccept).toBe(true)
+    expect(policy.maxDuration).toBe(480)
+  })
+})
+
+describe('RoomList type', () => {
+  it('accepts a room list with member rooms', () => {
+    const list: RoomList = {
+      id: 'rl-1',
+      name: 'Floor 1 Rooms',
+      rooms: ['conf-a@example.com', 'conf-b@example.com'],
+    }
+    expect(list.rooms).toHaveLength(2)
+    expect(list.name).toBe('Floor 1 Rooms')
   })
 })

@@ -93,3 +93,29 @@ export interface DelegationEntry {
   canSendOnBehalf: boolean;
   createdAt: string;
 }
+
+export interface DirectoryObject {
+  id: string;
+  name: string;
+  email: string;
+  type: 'room' | 'equipment';
+  isHidden: boolean;
+  isBookable: boolean;
+  capacity?: number;
+}
+
+export interface BookingPolicy {
+  id: string;
+  resourceName: string;
+  autoAccept: boolean;
+  allowRecurring: boolean;
+  maxDuration: number;
+  requiresApproval: boolean;
+  approvalDelegate: string;
+}
+
+export interface RoomList {
+  id: string;
+  name: string;
+  rooms: string[];
+}

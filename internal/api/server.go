@@ -663,6 +663,8 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/admin/queue/", s.adminMiddleware(http.HandlerFunc(s.handleQueueDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/delegations", s.adminMiddleware(http.HandlerFunc(s.handleDelegations)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/delegations/", s.adminMiddleware(http.HandlerFunc(s.handleDelegationDetail)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/directory", s.adminMiddleware(http.HandlerFunc(s.handleDirectory)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/directory/", s.adminMiddleware(http.HandlerFunc(s.handleDirectoryDetail)).ServeHTTP)
 }
 
 // limitBodyMiddleware restricts request body size to prevent DoS.

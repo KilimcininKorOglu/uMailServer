@@ -36,6 +36,7 @@ func NewBoltPolicyStore(db *bbolt.DB) (*BoltPolicyStore, error) {
 			bucketOOF,
 			bucketResource,
 			bucketNotification,
+			bucketRoomList,
 		}
 		for _, b := range buckets {
 			if _, err := tx.CreateBucketIfNotExists([]byte(b)); err != nil {
