@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import {
   FolderOpen,
@@ -19,6 +19,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
+import api from "@/utils/api"
+import type { Mail } from "@/utils/api"
 
 interface FolderEmail {
   id: string
@@ -40,40 +42,64 @@ const tagConfig: Record<string, { label: string; icon: string; color: string }> 
   important: { label: "Important", icon: "⭐", color: "text-amber-500" },
 }
 
-const mockFolderEmails: FolderEmail[] = [
-  {
-    id: "f1",
-    from: "HR Department",
-    fromEmail: "hr@company.com",
-    subject: "Annual Leave Planning",
-    preview: "We need to plan your annual leave...",
-    date: "Today",
-    read: false,
-    starred: true,
-  },
-  {
-    id: "f2",
-    from: "Accounting",
-    fromEmail: "accounting@company.com",
-    subject: "March Statement",
-    preview: "Your March account statement is attached...",
-    date: "Yesterday",
-    read: true,
-    starred: false,
-  },
-]
+// splitAddress turns "Name <addr@x>" or "addr@x" into {name, email}.
+function splitAddress(value: string): { name: string; email: string } {
+  const parts = value.split("<")
+  if (parts.length > 1) {
+    const email = parts[1].replace(">", "").trim()
+    return { name: parts[0].trim() || email, email }
+  }
+  return { name: value, email: value }
+}
 
 export function FolderPage() {
   const { type } = useParams()
   const navigate = useNavigate()
-  const [loading, _setLoading] = useState(false)
-  const [emails] = useState<FolderEmail[]>(mockFolderEmails)
+  const [loading, setLoading] = useState(true)
+  const [unavailable, setUnavailable] = useState(false)
+  const [emails, setEmails] = useState<FolderEmail[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const isTag = window.location.pathname.startsWith("/tag")
   const config = isTag ? tagConfig[type || ""] : folderConfig[type || ""]
   const pageTitle = config?.label || (isTag ? "Tag" : "Folder")
   const pageColor = config?.color || "text-muted-foreground"
+
+  const loadFolder = useCallback(async () => {
+    if (!type) return
+    setLoading(true)
+    setUnavailable(false)
+    try {
+      const result = await api.getMail(type)
+      const mails = result.emails ?? []
+      setEmails(mails.map((mail: Mail) => {
+        const sender = splitAddress(mail.from || "")
+        return {
+          id: mail.id,
+          from: sender.name,
+          fromEmail: sender.email,
+          subject: mail.subject,
+          preview: mail.preview,
+          date: mail.date,
+          read: mail.read,
+          starred: mail.starred,
+        }
+      }))
+    } catch {
+      setEmails([])
+      setUnavailable(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [type])
+
+  useEffect(() => {
+    if (config) {
+      loadFolder()
+    } else {
+      setLoading(false)
+    }
+  }, [config, loadFolder])
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selected)
@@ -85,9 +111,16 @@ export function FolderPage() {
     setSelected(newSelected)
   }
 
-  const handleDelete = () => {
-    toast.success(`${selected.size} message${selected.size !== 1 ? "s" : ""} removed from folder`)
-    setSelected(new Set())
+  const handleDelete = async () => {
+    const ids = Array.from(selected)
+    try {
+      await Promise.all(ids.map((id) => api.deleteMail(id)))
+      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} deleted`)
+      setSelected(new Set())
+      await loadFolder()
+    } catch {
+      toast.error("Failed to delete messages")
+    }
   }
 
   if (!config) {
@@ -140,6 +173,16 @@ export function FolderPage() {
               </div>
             </div>
           ))}
+        </div>
+      ) : unavailable ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="rounded-full bg-muted p-4">
+            <FolderOpen className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 className="mt-4 text-lg font-semibold">{pageTitle} is unavailable</h3>
+          <p className="text-sm text-muted-foreground">
+            This folder is not available on the server.
+          </p>
         </div>
       ) : emails.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -195,9 +238,21 @@ export function FolderPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem className="text-destructive">
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      try {
+                        await api.deleteMail(email.id)
+                        toast.success("Message deleted")
+                        await loadFolder()
+                      } catch {
+                        toast.error("Failed to delete message")
+                      }
+                    }}
+                  >
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Remove from Folder
+                    Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

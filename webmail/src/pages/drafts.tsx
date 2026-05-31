@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react"
+import { useState, useEffect, useCallback, type MouseEvent } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   FileText,
@@ -14,6 +14,8 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
+import api from "@/utils/api"
+import type { Mail } from "@/utils/api"
 
 interface Draft {
   id: string
@@ -23,28 +25,34 @@ interface Draft {
   date: string
 }
 
-const mockDrafts: Draft[] = [
-  {
-    id: "d1",
-    to: "colleague@company.com",
-    subject: "Meeting Notes",
-    preview: "Notes I prepared for tomorrow's meeting...",
-    date: "15:30",
-  },
-  {
-    id: "d2",
-    to: "",
-    subject: "",
-    preview: "Draft...",
-    date: "Yesterday",
-  },
-]
-
 export function DraftsPage() {
   const navigate = useNavigate()
-  const [drafts, setDrafts] = useState<Draft[]>(mockDrafts)
+  const [drafts, setDrafts] = useState<Draft[]>([])
   const [selectedDrafts, setSelectedDrafts] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  const loadDrafts = useCallback(async () => {
+    setLoading(true)
+    try {
+      const result = await api.getMail("drafts")
+      const mails = result.emails ?? []
+      setDrafts(mails.map((mail: Mail) => ({
+        id: mail.id,
+        to: (mail.to && mail.to[0]) || "",
+        subject: mail.subject,
+        preview: mail.preview,
+        date: mail.date,
+      })))
+    } catch {
+      setDrafts([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadDrafts()
+  }, [loadDrafts])
 
   const toggleSelectAll = () => {
     if (selectedDrafts.size === drafts.length) {
@@ -64,10 +72,16 @@ export function DraftsPage() {
     setSelectedDrafts(newSelected)
   }
 
-  const handleDelete = () => {
-    toast.success(`${selectedDrafts.size} draft${selectedDrafts.size !== 1 ? "s" : ""} deleted`)
-    setDrafts(drafts.filter((d) => !selectedDrafts.has(d.id)))
-    setSelectedDrafts(new Set())
+  const handleDelete = async () => {
+    const ids = Array.from(selectedDrafts)
+    try {
+      await Promise.all(ids.map((id) => api.deleteMail(id)))
+      toast.success(`${ids.length} draft${ids.length !== 1 ? "s" : ""} deleted`)
+      setSelectedDrafts(new Set())
+      await loadDrafts()
+    } catch {
+      toast.error("Failed to delete drafts")
+    }
   }
 
   const handleEdit = (id: string) => {
@@ -103,7 +117,7 @@ export function DraftsPage() {
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          onClick={() => setLoading(true)}
+          onClick={() => loadDrafts()}
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </Button>

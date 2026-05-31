@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   MailOpen,
@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
+import api from "@/utils/api"
+import type { Mail } from "@/utils/api"
 
 interface Email {
   id: string
@@ -24,36 +26,50 @@ interface Email {
   hasAttachments: boolean
 }
 
-const mockSentEmails: Email[] = [
-  {
-    id: "s1",
-    to: "John Smith",
-    toEmail: "john@example.com",
-    subject: "Re: Project Meeting",
-    preview: "I can attend the meeting, 2pm works for me...",
-    date: "11:30",
-    read: true,
-    starred: false,
-    hasAttachments: false,
-  },
-  {
-    id: "s2",
-    to: "HR Department",
-    toEmail: "hr@company.com",
-    subject: "Leave Request",
-    preview: "I would like to request leave for next week...",
-    date: "Yesterday",
-    read: true,
-    starred: false,
-    hasAttachments: true,
-  },
-]
+// splitAddress turns "Name <addr@x>" or "addr@x" into {name, email}.
+function splitAddress(value: string): { name: string; email: string } {
+  const parts = value.split("<")
+  if (parts.length > 1) {
+    return { name: parts[0].trim() || parts[1].replace(">", "").trim(), email: parts[1].replace(">", "").trim() }
+  }
+  return { name: value, email: value }
+}
 
 export function SentPage() {
   const navigate = useNavigate()
-  const [emails, _setEmails] = useState<Email[]>(mockSentEmails)
+  const [emails, setEmails] = useState<Email[]>([])
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  const loadSent = useCallback(async () => {
+    setLoading(true)
+    try {
+      const result = await api.getMail("sent")
+      const mails = result.emails ?? []
+      setEmails(mails.map((mail: Mail) => {
+        const recipient = splitAddress((mail.to && mail.to[0]) || "")
+        return {
+          id: mail.id,
+          to: recipient.name,
+          toEmail: recipient.email,
+          subject: mail.subject,
+          preview: mail.preview,
+          date: mail.date,
+          read: mail.read,
+          starred: mail.starred,
+          hasAttachments: mail.hasAttachments,
+        }
+      }))
+    } catch {
+      setEmails([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSent()
+  }, [loadSent])
 
   const toggleSelectAll = () => {
     if (selectedEmails.size === emails.length) {
@@ -91,7 +107,7 @@ export function SentPage() {
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          onClick={() => setLoading(true)}
+          onClick={() => loadSent()}
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </Button>
