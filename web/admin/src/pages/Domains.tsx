@@ -446,9 +446,12 @@ function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }
             </div>
           </div>
           {domain.dkim_selector && (
-            <div className="flex items-center gap-2 pt-2">
+            <div
+              className="flex items-center gap-2 pt-2"
+              title="A DKIM key exists for this domain. Outgoing mail is only signed when DKIM Signing is enabled in Settings > Security."
+            >
               <Shield className="h-4 w-4 text-emerald-500" />
-              <span className="text-sm text-muted-foreground">DKIM Enabled</span>
+              <span className="text-sm text-muted-foreground">DKIM key configured</span>
             </div>
           )}
         </div>

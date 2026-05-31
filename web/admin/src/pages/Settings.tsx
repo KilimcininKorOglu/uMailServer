@@ -387,9 +387,10 @@ export function SettingsPage({
               <Separator />
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>DKIM Signing</Label>
+                  <Label>DKIM Signing (global)</Label>
                   <p className="text-xs text-muted-foreground">
-                    Sign outgoing emails with DKIM
+                    Sign outgoing mail with DKIM server-wide. Per-domain DKIM
+                    keys (shown on the Domains page) are only used when this is on.
                   </p>
                 </div>
                 <Switch
