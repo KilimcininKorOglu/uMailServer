@@ -13,7 +13,6 @@ export function Layout() {
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        unreadCount={12}
       />
 
       <Header

@@ -26,11 +26,11 @@ import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
+import api from "@/utils/api"
 
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
-  unreadCount?: number
 }
 
 interface NavItem {
@@ -54,7 +54,7 @@ const mainNavItems: NavItem[] = [
 ]
 
 const folderItems: NavItem[] = [
-  { icon: AlertCircle, label: "Spam", path: "/spam", count: 5, color: "text-red-500" },
+  { icon: AlertCircle, label: "Spam", path: "/spam", color: "text-red-500" },
   { icon: FolderOpen, label: "Work", path: "/folder/work" },
   { icon: FolderOpen, label: "Personal", path: "/folder/personal" },
   { icon: Tag, label: "Important", path: "/tag/important", color: "text-amber-500" },
@@ -95,22 +95,22 @@ const NavItemComponent = ({ item, isExpanded }: { item: NavItem; isExpanded: boo
               <span>⌘</span>{item.shortcut}
             </kbd>
           )}
-          {(item.count !== undefined || (item.path === "/inbox" && item.path === "/inbox")) && (
+          {item.count !== undefined && item.count > 0 && (
             <Badge
               variant={isActive ? "default" : "secondary"}
               className="h-5 min-w-[20px] px-1.5 text-xs"
             >
-              {item.path === "/inbox" ? 12 : item.count}
+              {item.count}
             </Badge>
           )}
         </>
       )}
-      {!isExpanded && (item.count !== undefined || item.path === "/inbox") && (
+      {!isExpanded && item.count !== undefined && item.count > 0 && (
         <Badge
           variant="default"
           className="absolute -right-1 -top-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]"
         >
-          {item.path === "/inbox" ? 12 : item.count}
+          {item.count}
         </Badge>
       )}
     </NavLink>
@@ -193,19 +193,56 @@ const SharedMailboxItemComponent = ({
   return content
 }
 
-export function Sidebar({ collapsed, onToggle, unreadCount: _unreadCount = 0 }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const navigate = useNavigate()
   const [hovered, setHovered] = useState(false)
   const { user } = useAuth()
   const { currentMailbox, switchMailbox, loadSharedMailboxes, sharedMailboxes } = useMailbox()
-  
+
   // Track expanded state for shared mailboxes section
   const [sharedExpanded, setSharedExpanded] = useState(true)
+
+  // Real folder counts (no fake numbers): inbox unread + spam total.
+  const [inboxUnread, setInboxUnread] = useState(0)
+  const [spamCount, setSpamCount] = useState(0)
 
   // Load shared mailboxes on mount
   useEffect(() => {
     loadSharedMailboxes()
   }, [loadSharedMailboxes])
+
+  // Load real inbox/spam counts on mount
+  useEffect(() => {
+    let cancelled = false
+    const loadCounts = async () => {
+      try {
+        const inbox = await api.getMail("inbox")
+        if (!cancelled) {
+          setInboxUnread((inbox.emails ?? []).filter((m) => !m.read).length)
+        }
+      } catch {
+        if (!cancelled) setInboxUnread(0)
+      }
+      try {
+        const spam = await api.getMail("spam")
+        if (!cancelled) setSpamCount((spam.emails ?? []).length)
+      } catch {
+        if (!cancelled) setSpamCount(0)
+      }
+    }
+    loadCounts()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Inject real counts into the nav items (badges only render when > 0).
+  const mainNav = mainNavItems.map((item) =>
+    item.path === "/inbox" ? { ...item, count: inboxUnread } : item
+  )
+  const folders = folderItems.map((item) =>
+    item.path === "/spam" ? { ...item, count: spamCount } : item
+  )
 
   const isExpanded = !collapsed || hovered
 
@@ -284,7 +321,7 @@ export function Sidebar({ collapsed, onToggle, unreadCount: _unreadCount = 0 }: 
 
       {/* Main Navigation */}
       <nav className="flex-1 space-y-1 px-2 py-2 overflow-y-auto">
-        {mainNavItems.map((item) => (
+        {mainNav.map((item) => (
           <NavItemComponent key={item.path} item={item} isExpanded={isExpanded} />
         ))}
 
@@ -362,7 +399,7 @@ export function Sidebar({ collapsed, onToggle, unreadCount: _unreadCount = 0 }: 
           </p>
         )}
 
-        {folderItems.map((item) => (
+        {folders.map((item) => (
           <NavItemComponent key={item.path} item={item} isExpanded={isExpanded} />
         ))}
       </nav>
