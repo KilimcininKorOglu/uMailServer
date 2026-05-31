@@ -500,9 +500,9 @@ END:VCALENDAR`
 	event := &CalendarEvent{UID: "test-event-123"}
 	server.storage.SaveEvent("user@example.com", "test-cal", event, icsData)
 
-	req := httptest.NewRequest("MOVE", "/dav/calendars/test-cal/test-event-123", nil)
+	req := httptest.NewRequest("MOVE", "/dav/calendars/user@example.com/test-cal/test-event-123", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/calendars/test-cal/moved-event")
+	req.Header.Set("Destination", "/dav/calendars/user@example.com/test-cal/moved-event")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -558,9 +558,9 @@ END:VCALENDAR`
 	event := &CalendarEvent{UID: "test-event-123"}
 	server.storage.SaveEvent("user@example.com", "test-cal", event, icsData)
 
-	req := httptest.NewRequest("COPY", "/dav/calendars/test-cal/test-event-123", nil)
+	req := httptest.NewRequest("COPY", "/dav/calendars/user@example.com/test-cal/test-event-123", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/calendars/test-cal/copied-event")
+	req.Header.Set("Destination", "/dav/calendars/user@example.com/test-cal/copied-event")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -993,9 +993,9 @@ func TestHandleCopy_SourceNotFound(t *testing.T) {
 		return true, nil
 	})
 
-	req := httptest.NewRequest("COPY", "/dav/calendars/test-cal/nonexistent", nil)
+	req := httptest.NewRequest("COPY", "/dav/calendars/user@example.com/test-cal/nonexistent", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/calendars/test-cal/copy")
+	req.Header.Set("Destination", "/dav/calendars/user@example.com/test-cal/copy")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -1511,9 +1511,9 @@ END:VCALENDAR`
 	server.storage.SaveEvent("user@example.com", "test-cal", event, icsData)
 
 	// Try to move to non-existent destination calendar - returns 204
-	req := httptest.NewRequest("MOVE", "/dav/calendars/test-cal/test-event", nil)
+	req := httptest.NewRequest("MOVE", "/dav/calendars/user@example.com/test-cal/test-event", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/calendars/nonexistent-cal/move")
+	req.Header.Set("Destination", "/dav/calendars/user@example.com/nonexistent-cal/moved")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -1542,9 +1542,9 @@ END:VCALENDAR`
 	server.storage.SaveEvent("user@example.com", "test-cal", event, icsData)
 
 	// Try to copy to non-existent destination calendar - returns 204
-	req := httptest.NewRequest("COPY", "/dav/calendars/test-cal/test-event", nil)
+	req := httptest.NewRequest("COPY", "/dav/calendars/user@example.com/test-cal/test-event", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/calendars/nonexistent-cal/copy")
+	req.Header.Set("Destination", "/dav/calendars/user@example.com/nonexistent-cal/copied")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)

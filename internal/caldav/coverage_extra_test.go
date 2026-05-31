@@ -64,9 +64,9 @@ func TestHandleMove_NoOverwrite_Coverage(t *testing.T) {
 		Summary: "Test Event",
 	}, "BEGIN:VCALENDAR\nEND:VCALENDAR")
 
-	req := httptest.NewRequest("MOVE", "/calendars/user@example.com/test-cal/event1.ics", nil)
+	req := httptest.NewRequest("MOVE", "/dav/calendars/user@example.com/test-cal/event1.ics", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user:pass")))
-	req.Header.Set("Destination", "http://example.com/calendars/user@example.com/test-cal/event2.ics")
+	req.Header.Set("Destination", "http://example.com/dav/calendars/user@example.com/test-cal/event2.ics")
 	// No Overwrite header
 	rr := httptest.NewRecorder()
 

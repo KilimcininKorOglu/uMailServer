@@ -369,15 +369,12 @@ func (s *Server) handleProppatch(w http.ResponseWriter, r *http.Request, usernam
 
 // handleMove handles MOVE requests
 func (s *Server) handleMove(w http.ResponseWriter, r *http.Request, username string) {
-	// Get source path
-	sourceParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(sourceParts) < 4 {
+	// Parse source: /dav/calendars/{username}/{calendarID}/{eventUID}
+	sourceCalendarID, sourceEventUID := calendarPathIDs(r.URL.Path)
+	if sourceCalendarID == "" || sourceEventUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid source path")
 		return
 	}
-
-	sourceCalendarID := sourceParts[2]
-	sourceEventUID := sourceParts[3]
 
 	// Get destination from header
 	destination := r.Header.Get("Destination")
@@ -386,15 +383,12 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request, username str
 		return
 	}
 
-	// Parse destination path
-	destParts := strings.Split(strings.Trim(destination, "/"), "/")
-	if len(destParts) < 4 {
+	// Parse destination: /dav/calendars/{username}/{calendarID}/{eventUID}
+	destCalendarID, destEventUID := calendarPathIDs(davDestinationPath(destination))
+	if destCalendarID == "" || destEventUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid destination path")
 		return
 	}
-
-	destCalendarID := destParts[2]
-	destEventUID := destParts[3]
 
 	// Get event data
 	eventData, err := s.storage.GetEvent(username, sourceCalendarID, sourceEventUID)
@@ -430,15 +424,12 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request, username str
 
 // handleCopy handles COPY requests
 func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request, username string) {
-	// Get source path
-	sourceParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(sourceParts) < 4 {
+	// Parse source: /dav/calendars/{username}/{calendarID}/{eventUID}
+	sourceCalendarID, sourceEventUID := calendarPathIDs(r.URL.Path)
+	if sourceCalendarID == "" || sourceEventUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid source path")
 		return
 	}
-
-	sourceCalendarID := sourceParts[2]
-	sourceEventUID := sourceParts[3]
 
 	// Get destination from header
 	destination := r.Header.Get("Destination")
@@ -447,15 +438,12 @@ func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request, username str
 		return
 	}
 
-	// Parse destination path
-	destParts := strings.Split(strings.Trim(destination, "/"), "/")
-	if len(destParts) < 4 {
+	// Parse destination: /dav/calendars/{username}/{calendarID}/{eventUID}
+	destCalendarID, destEventUID := calendarPathIDs(davDestinationPath(destination))
+	if destCalendarID == "" || destEventUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid destination path")
 		return
 	}
-
-	destCalendarID := destParts[2]
-	destEventUID := destParts[3]
 
 	// Get event data
 	eventData, err := s.storage.GetEvent(username, sourceCalendarID, sourceEventUID)
@@ -615,6 +603,16 @@ func calendarPathIDs(path string) (calendarID, eventUID string) {
 		eventUID = strings.TrimSuffix(parts[4], ".ics")
 	}
 	return calendarID, eventUID
+}
+
+// davDestinationPath reduces a MOVE/COPY Destination header to its DAV path.
+// The header may be a full URI (RFC 4918), so slice from the /dav/ prefix when
+// present so calendarPathIDs sees the same shape as r.URL.Path.
+func davDestinationPath(dest string) string {
+	if i := strings.Index(dest, "/dav/"); i >= 0 {
+		return dest[i:]
+	}
+	return dest
 }
 
 // extractUIDFromICS extracts the UID from iCalendar data
