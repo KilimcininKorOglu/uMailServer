@@ -12,7 +12,6 @@ import {
   ChevronRight,
   PenSquare,
   FolderOpen,
-  Tag,
   Users,
   Search,
   Mail,
@@ -55,11 +54,12 @@ const mainNavItems: NavItem[] = [
   { icon: Filter, label: "Filters", path: "/filters" },
 ]
 
+// Standard mailboxes already shown in the main nav (or as Spam below); excluded
+// from the dynamic custom-folder list.
+const standardMailboxes = new Set(["inbox", "sent", "drafts", "trash", "junk"])
+
 const folderItems: NavItem[] = [
   { icon: AlertCircle, label: "Spam", path: "/spam", color: "text-red-500" },
-  { icon: FolderOpen, label: "Work", path: "/folder/work" },
-  { icon: FolderOpen, label: "Personal", path: "/folder/personal" },
-  { icon: Tag, label: "Important", path: "/tag/important", color: "text-amber-500" },
 ]
 
 // Shared mailbox item for display
@@ -207,6 +207,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   // Real folder counts (no fake numbers): inbox unread + spam total.
   const [inboxUnread, setInboxUnread] = useState(0)
   const [spamCount, setSpamCount] = useState(0)
+  // Real custom mailboxes (beyond the standard ones shown in the main nav).
+  const [customFolders, setCustomFolders] = useState<string[]>([])
 
   // Load shared mailboxes on mount
   useEffect(() => {
@@ -231,6 +233,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       } catch {
         if (!cancelled) setSpamCount(0)
       }
+      try {
+        const result = await api.getMailboxes()
+        if (!cancelled) {
+          const extra = (result.mailboxes ?? []).filter(
+            (m) => !standardMailboxes.has(m.toLowerCase())
+          )
+          setCustomFolders(extra)
+        }
+      } catch {
+        if (!cancelled) setCustomFolders([])
+      }
     }
     loadCounts()
     return () => {
@@ -242,9 +255,16 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const mainNav = mainNavItems.map((item) =>
     item.path === "/inbox" ? { ...item, count: inboxUnread } : item
   )
-  const folders = folderItems.map((item) =>
-    item.path === "/spam" ? { ...item, count: spamCount } : item
-  )
+  const folders: NavItem[] = [
+    ...folderItems.map((item) =>
+      item.path === "/spam" ? { ...item, count: spamCount } : item
+    ),
+    ...customFolders.map((name) => ({
+      icon: FolderOpen,
+      label: name,
+      path: `/folder/${encodeURIComponent(name)}`,
+    })),
+  ]
 
   const isExpanded = !collapsed || hovered
 

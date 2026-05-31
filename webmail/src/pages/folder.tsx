@@ -5,7 +5,6 @@ import {
   Trash2,
   MoreHorizontal,
   Star,
-  ChevronLeft,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -33,15 +32,6 @@ interface FolderEmail {
   starred: boolean
 }
 
-const folderConfig: Record<string, { label: string; icon: string; color: string }> = {
-  work: { label: "Work", icon: "💼", color: "text-blue-500" },
-  personal: { label: "Personal", icon: "🏠", color: "text-green-500" },
-}
-
-const tagConfig: Record<string, { label: string; icon: string; color: string }> = {
-  important: { label: "Important", icon: "⭐", color: "text-amber-500" },
-}
-
 // splitAddress turns "Name <addr@x>" or "addr@x" into {name, email}.
 function splitAddress(value: string): { name: string; email: string } {
   const parts = value.split("<")
@@ -60,10 +50,9 @@ export function FolderPage() {
   const [emails, setEmails] = useState<FolderEmail[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  const isTag = window.location.pathname.startsWith("/tag")
-  const config = isTag ? tagConfig[type || ""] : folderConfig[type || ""]
-  const pageTitle = config?.label || (isTag ? "Tag" : "Folder")
-  const pageColor = config?.color || "text-muted-foreground"
+  // The folder name comes straight from the route; it maps to a real mailbox.
+  const pageTitle = type ? type.charAt(0).toUpperCase() + type.slice(1) : "Folder"
+  const pageColor = "text-muted-foreground"
 
   const loadFolder = useCallback(async () => {
     if (!type) return
@@ -94,12 +83,8 @@ export function FolderPage() {
   }, [type])
 
   useEffect(() => {
-    if (config) {
-      loadFolder()
-    } else {
-      setLoading(false)
-    }
-  }, [config, loadFolder])
+    loadFolder()
+  }, [loadFolder])
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selected)
@@ -123,29 +108,12 @@ export function FolderPage() {
     }
   }
 
-  if (!config) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <FolderOpen className="h-12 w-12 text-muted-foreground" />
-        <h3 className="mt-4 text-lg font-semibold">Folder not found</h3>
-        <p className="text-sm text-muted-foreground">
-          Folder "{type}" does not exist.
-        </p>
-        <Button variant="outline" className="mt-4" onClick={() => navigate("/inbox")}>
-          <ChevronLeft className="h-4 w-4 mr-1" />
-          Go Back
-        </Button>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FolderOpen className={cn("h-5 w-5", pageColor)} />
           <h1 className="text-xl font-semibold">{pageTitle}</h1>
-          {config?.icon && <span className="text-xl">{config.icon}</span>}
           <Badge variant="secondary">{emails.length}</Badge>
         </div>
         <div className="flex items-center gap-2">
