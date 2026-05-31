@@ -92,6 +92,7 @@ type Server struct {
 
 	// Contacts handler for contact operations via CardDAV
 	contactsHandler *ContactsHandler
+	calendarHandler *CalendarHandler
 
 	// Audit logger for security events
 	auditLogger *audit.Logger
@@ -695,6 +696,15 @@ func (s *Server) initRouter() {
 		})
 	}
 
+	// Calendar events (bridged to the same CalDAV store as the protocol server).
+	if s.calendarHandler == nil && s.config.DataDir != "" {
+		s.calendarHandler = NewCalendarHandler(s.config.DataDir)
+	}
+	if s.calendarHandler != nil {
+		api.HandleFunc("/api/v1/calendar/events", s.calendarHandler.handleCalendarEvents)
+		api.HandleFunc("/api/v1/calendar/events/", s.calendarHandler.handleCalendarEventDetail)
+	}
+
 	// Wrap API with auth middleware and mount to main mux
 	apiHandler := s.rateLimitMiddleware(s.limitBodyMiddleware(s.securityHeadersMiddleware(s.csrfMiddleware(s.corsMiddleware(s.authMiddleware(api))))))
 	mux.Handle("/api/v1/", apiHandler)
@@ -1292,6 +1302,11 @@ func (s *Server) initMailHandler() {
 // SetContactsDataDir initializes the contacts handler with the data directory
 func (s *Server) SetContactsDataDir(dataDir string) {
 	s.contactsHandler = NewContactsHandler(dataDir)
+}
+
+// SetCalendarDataDir initializes the calendar handler with the data directory.
+func (s *Server) SetCalendarDataDir(dataDir string) {
+	s.calendarHandler = NewCalendarHandler(dataDir)
 }
 
 // SetAPIRateLimit sets the HTTP API rate limit (requests per minute, 0 = disabled)
