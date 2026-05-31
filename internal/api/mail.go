@@ -108,8 +108,13 @@ func (h *MailHandler) handleMailList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse folder from query
+	// Parse folder from the query, falling back to the URL path segment
+	// (routes are path-based: /api/v1/mail/<folder>). Without this the path
+	// is ignored and every folder resolves to INBOX.
 	folder := r.URL.Query().Get("folder")
+	if folder == "" {
+		folder = strings.TrimPrefix(r.URL.Path, "/api/v1/mail/")
+	}
 	if folder == "" {
 		folder = "INBOX"
 	}
