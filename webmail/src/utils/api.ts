@@ -230,6 +230,11 @@ class API {
     return this.post<AuthLoginResponse>('/auth/login', credentials)
   }
 
+  // logout invalidates the session cookie on the server.
+  async logout(): Promise<void> {
+    await this.post('/auth/logout')
+  }
+
   // Mail
   async getMail(folder: string): Promise<{ emails?: Mail[] }> {
     return this.get<{ emails?: Mail[] }>(`/mail/${folder}`)

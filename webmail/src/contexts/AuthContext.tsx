@@ -8,7 +8,7 @@ interface AuthContextType {
   loading: boolean
   error: string | null
   login: (email: string, password: string) => Promise<boolean>
-  logout: () => void
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -36,7 +36,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Invalidate the HttpOnly session cookie server-side; clear local state
+    // regardless of the request outcome so the UI never gets stuck signed in.
+    try {
+      await api.logout()
+    } catch (err) {
+      console.error('Logout request failed:', err)
+    }
     setUser(null)
     setIsAuthenticated(false)
     api.setToken(null)
