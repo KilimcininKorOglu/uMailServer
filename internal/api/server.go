@@ -654,8 +654,26 @@ func (s *Server) initRouter() {
 		s.contactsHandler = NewContactsHandler(s.config.DataDir)
 	}
 	if s.contactsHandler != nil {
-		api.HandleFunc("/api/v1/contacts", s.contactsHandler.handleContactsList)
-		api.HandleFunc("/api/v1/contacts/", s.contactsHandler.handleContactDelete)
+		// Dispatch by method: POST creates a contact, GET lists them. Previously
+		// POST fell through to the list handler, so created contacts never
+		// persisted from the client's perspective.
+		api.HandleFunc("/api/v1/contacts", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				s.contactsHandler.handleContactCreate(w, r)
+				return
+			}
+			s.contactsHandler.handleContactsList(w, r)
+		})
+		api.HandleFunc("/api/v1/contacts/", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPut:
+				s.contactsHandler.handleContactUpdate(w, r)
+			case http.MethodDelete:
+				s.contactsHandler.handleContactDelete(w, r)
+			default:
+				s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+			}
+		})
 	}
 
 	// Wrap API with auth middleware and mount to main mux
