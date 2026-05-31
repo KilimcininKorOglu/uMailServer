@@ -1,10 +1,33 @@
-import { useState } from "react"
-import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
+import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
+import api from "@/utils/api"
+import type { VacationAutoReply } from "@/utils/api"
+
+// rfc3339ToDate extracts the YYYY-MM-DD part from an RFC3339 string for <input type="date">.
+function rfc3339ToDate(value?: string): string {
+  if (!value) return ""
+  return value.slice(0, 10)
+}
+
+// dateToRFC3339 turns a YYYY-MM-DD value into an RFC3339 UTC timestamp, or undefined when empty.
+function dateToRFC3339(value: string): string | undefined {
+  if (!value) return undefined
+  return `${value}T00:00:00Z`
+}
+
+const emptyVacation: VacationAutoReply = {
+  enabled: false,
+  subject: "Out of Office",
+  message: "",
+}
 
 export function SettingsPage() {
   const { theme, setTheme, resolvedTheme } = useTheme()
@@ -30,6 +53,61 @@ export function SettingsPage() {
   const handleToggle = (key: keyof typeof settings) => {
     setSettings({ ...settings, [key]: !settings[key] })
     toast.success("Setting updated")
+  }
+
+  // Vacation / Out-of-Office auto-reply (backed by /api/v1/vacation).
+  const [vacation, setVacation] = useState<VacationAutoReply>(emptyVacation)
+  const [vacationLoading, setVacationLoading] = useState(true)
+  const [vacationSaving, setVacationSaving] = useState(false)
+
+  const loadVacation = useCallback(async () => {
+    setVacationLoading(true)
+    try {
+      const cfg = await api.getVacation()
+      setVacation({ ...emptyVacation, ...cfg })
+    } catch {
+      setVacation(emptyVacation)
+    } finally {
+      setVacationLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadVacation()
+  }, [loadVacation])
+
+  const handleVacationSave = async () => {
+    if (vacation.enabled && !vacation.subject.trim()) {
+      toast.error("Subject is required when auto-reply is enabled")
+      return
+    }
+    if (vacation.enabled && !vacation.message.trim()) {
+      toast.error("Message is required when auto-reply is enabled")
+      return
+    }
+    setVacationSaving(true)
+    try {
+      await api.setVacation(vacation)
+      toast.success("Auto-reply saved")
+      await loadVacation()
+    } catch {
+      toast.error("Failed to save auto-reply")
+    } finally {
+      setVacationSaving(false)
+    }
+  }
+
+  const handleVacationDisable = async () => {
+    setVacationSaving(true)
+    try {
+      await api.deleteVacation()
+      toast.success("Auto-reply disabled")
+      await loadVacation()
+    } catch {
+      toast.error("Failed to disable auto-reply")
+    } finally {
+      setVacationSaving(false)
+    }
   }
 
   const SettingSection = ({
@@ -209,6 +287,86 @@ export function SettingsPage() {
             onChange={() => handleToggle("spellCheck")}
           />
         </div>
+      </SettingSection>
+
+      {/* Auto-Reply (Out of Office) */}
+      <SettingSection
+        icon={Plane}
+        title="Auto-Reply (Out of Office)"
+        description="Automatically reply to incoming mail while you are away"
+      >
+        {vacationLoading ? (
+          <p className="text-sm text-muted-foreground py-3">Loading…</p>
+        ) : (
+          <div className="space-y-4">
+            <SettingRow
+              title="Enable auto-reply"
+              description="Send an automatic reply to people who email you"
+              checked={vacation.enabled}
+              onChange={() => setVacation({ ...vacation, enabled: !vacation.enabled })}
+            />
+            <Separator />
+            <div className="space-y-2">
+              <Label htmlFor="vacation-subject">Subject</Label>
+              <Input
+                id="vacation-subject"
+                value={vacation.subject}
+                onChange={(e) => setVacation({ ...vacation, subject: e.target.value })}
+                placeholder="Out of Office"
+                disabled={!vacation.enabled}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="vacation-message">Message</Label>
+              <Textarea
+                id="vacation-message"
+                value={vacation.message}
+                onChange={(e) => setVacation({ ...vacation, message: e.target.value })}
+                placeholder="I am currently out of office and will respond when I return."
+                rows={4}
+                disabled={!vacation.enabled}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="vacation-start">Start date (optional)</Label>
+                <Input
+                  id="vacation-start"
+                  type="date"
+                  value={rfc3339ToDate(vacation.start_date)}
+                  onChange={(e) =>
+                    setVacation({ ...vacation, start_date: dateToRFC3339(e.target.value) })
+                  }
+                  disabled={!vacation.enabled}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vacation-end">End date (optional)</Label>
+                <Input
+                  id="vacation-end"
+                  type="date"
+                  value={rfc3339ToDate(vacation.end_date)}
+                  onChange={(e) =>
+                    setVacation({ ...vacation, end_date: dateToRFC3339(e.target.value) })
+                  }
+                  disabled={!vacation.enabled}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button onClick={handleVacationSave} disabled={vacationSaving}>
+                Save
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleVacationDisable}
+                disabled={vacationSaving}
+              >
+                Disable
+              </Button>
+            </div>
+          </div>
+        )}
       </SettingSection>
 
       {/* Privacy & Security */}

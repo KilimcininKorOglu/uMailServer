@@ -60,13 +60,20 @@ export interface FilterAction {
   label?: string
 }
 
+// VacationAutoReply mirrors the backend /api/v1/vacation contract
+// (internal/api/vacation.go VacationConfig): snake_case JSON keys, with
+// `message` as the reply body and RFC3339 date strings.
 export interface VacationAutoReply {
   enabled: boolean
   subject: string
-  body: string
-  startDate?: string
-  endDate?: string
-  contactsOnly: boolean
+  message: string
+  html_message?: string
+  start_date?: string
+  end_date?: string
+  send_interval?: number
+  exclude_addresses?: string[]
+  ignore_lists?: boolean
+  ignore_bulk?: boolean
 }
 
 export interface PushSubscription {
@@ -243,7 +250,7 @@ class API {
   }
 
   async setVacation(vacation: VacationAutoReply): Promise<void> {
-    await this.post('/vacation', vacation)
+    await this.put('/vacation', vacation)
   }
 
   async deleteVacation(): Promise<void> {
