@@ -351,7 +351,10 @@ function QueueItem({ entry, onRetry, onDrop, getStatusIcon, getStatusBadge }: Qu
       </div>
 
       <div className="flex items-center gap-2">
-        {entry.status === "failed" && (
+        {/* A stuck "pending" entry (e.g. backing off after repeated failures)
+            also needs a manual retry: the backend resets its schedule to run
+            now. Only "sending" (in progress) and "delivered" are excluded. */}
+        {(entry.status === "pending" || entry.status === "failed") && (
           <Button variant="ghost" size="sm" onClick={onRetry}>
             <RotateCcw className="h-4 w-4" />
           </Button>
