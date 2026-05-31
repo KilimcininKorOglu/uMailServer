@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import {
   Briefcase,
   RefreshCw,
@@ -17,57 +17,16 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-
-interface Job {
-  id: string;
-  type: "backfill" | "migration" | "oab-generation" | "backup" | "restore";
-  status: "pending" | "running" | "completed" | "failed";
-  progress: number;
-  mailbox?: string;
-  startedAt?: string;
-  completedAt?: string;
-  error?: string;
-}
+import { useJobs } from "@/hooks/useApi";
 
 export function Jobs() {
-  const [loading, setLoading] = useState(false);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const { jobs, loading, fetchJobs } = useJobs();
 
   useEffect(() => {
-    fetchJobs();
-  }, []);
-
-  const fetchJobs = async () => {
-    setLoading(true);
-    // Placeholder - would fetch from /api/v1/admin/jobs
-    setJobs([
-      {
-        id: "job-1",
-        type: "backfill",
-        status: "running",
-        progress: 65,
-        mailbox: "admin@local.test",
-        startedAt: new Date(Date.now() - 120000).toISOString(),
-      },
-      {
-        id: "job-2",
-        type: "oab-generation",
-        status: "completed",
-        progress: 100,
-        completedAt: new Date(Date.now() - 3600000).toISOString(),
-      },
-      {
-        id: "job-3",
-        type: "backup",
-        status: "failed",
-        progress: 45,
-        startedAt: new Date(Date.now() - 600000).toISOString(),
-        completedAt: new Date(Date.now() - 300000).toISOString(),
-        error: "Disk space insufficient",
-      },
-    ]);
-    setLoading(false);
-  };
+    fetchJobs().catch(() => {
+      /* error surfaced via hook state */
+    });
+  }, [fetchJobs]);
 
   const getJobTypeLabel = (type: string) => {
     switch (type) {
@@ -146,7 +105,7 @@ export function Jobs() {
             Monitor backfill, migration, OAB generation, and backup status
           </p>
         </div>
-        <Button variant="outline" onClick={fetchJobs} disabled={loading}>
+        <Button variant="outline" onClick={() => fetchJobs().catch(() => {})} disabled={loading}>
           <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
           Refresh
         </Button>

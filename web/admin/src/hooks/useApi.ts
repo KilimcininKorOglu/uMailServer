@@ -12,6 +12,7 @@ import type {
   MailboxDiagnostics,
   SubscriptionInfo,
   ProtocolFailure,
+  Job,
 } from "@/types";
 
 interface ApiError {
@@ -507,4 +508,27 @@ export function useDiagnostics() {
   }, []);
 
   return { mailboxes, subscriptions, failures, loading, error, fetchDiagnostics, fetchMailboxDetail };
+}
+
+// Admin jobs API hook
+export function useJobs() {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchJobs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<{ jobs: Job[] }>("/admin/jobs");
+      setJobs(result.jobs ?? []);
+      return result.jobs ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { jobs, loading, error, fetchJobs };
 }

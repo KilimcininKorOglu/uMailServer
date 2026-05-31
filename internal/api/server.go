@@ -112,6 +112,10 @@ type Server struct {
 	// directory/resources, rules, jobs). Nil when semantic-core is disabled.
 	semStore *semcore.Store
 
+	// Read-only durable-job store view, built lazily from semStore. Nil when
+	// semantic-core is disabled or the job bucket could not be opened.
+	jobStore *semcore.BoltJobStore
+
 	// HTTP router (cached)
 	router http.Handler
 
@@ -669,6 +673,7 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/admin/rules/", s.adminMiddleware(http.HandlerFunc(s.handleAdminRuleDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/diagnostics", s.adminMiddleware(http.HandlerFunc(s.handleAdminDiagnostics)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/diagnostics/", s.adminMiddleware(http.HandlerFunc(s.handleAdminDiagnosticsDetail)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/jobs", s.adminMiddleware(http.HandlerFunc(s.handleAdminJobs)).ServeHTTP)
 }
 
 // limitBodyMiddleware restricts request body size to prevent DoS.
@@ -742,6 +747,14 @@ func (s *Server) SetBackupManager(mgr *backup.Manager) {
 // domain models.
 func (s *Server) SetSemcoreStore(store *semcore.Store) {
 	s.semStore = store
+	// Build a read-only view over the durable-job bucket so the admin Jobs
+	// endpoint can list job records. This creates the bucket if absent; jobs
+	// remain empty until a scheduler populates them.
+	if store != nil {
+		if js, err := semcore.NewBoltJobStore(store.Bolt()); err == nil {
+			s.jobStore = js
+		}
+	}
 }
 
 // SetACMEChallengeHandler injects the ACME HTTP-01 challenge handler.

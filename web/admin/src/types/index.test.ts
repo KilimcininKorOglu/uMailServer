@@ -17,6 +17,7 @@ import type {
   MailboxDiagnostics,
   SubscriptionInfo,
   ProtocolFailure,
+  Job,
 } from './index'
 
 describe('Domain type', () => {
@@ -370,5 +371,34 @@ describe('ProtocolFailure type', () => {
       timestamp: '2024-01-01T00:00:00Z',
     }
     expect(f.protocol).toBe('IMAP')
+  })
+})
+
+describe('Job type', () => {
+  it('accepts all valid job statuses', () => {
+    const statuses: Job['status'][] = ['pending', 'running', 'completed', 'failed']
+    statuses.forEach((status) => {
+      const job: Job = {
+        id: 'job-1',
+        type: 'backfill',
+        status,
+        progress: status === 'completed' ? 100 : 50,
+      }
+      expect(job.status).toBe(status)
+    })
+  })
+
+  it('accepts a job with optional fields', () => {
+    const job: Job = {
+      id: 'job-2',
+      type: 'migration',
+      status: 'failed',
+      progress: 45,
+      mailbox: 'user@example.com',
+      startedAt: '2024-01-01T00:00:00Z',
+      completedAt: '2024-01-01T01:00:00Z',
+      error: 'Disk full',
+    }
+    expect(job.error).toBe('Disk full')
   })
 })

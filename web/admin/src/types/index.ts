@@ -173,3 +173,14 @@ export interface ProtocolFailure {
   error: string;
   timestamp: string;
 }
+
+export interface Job {
+  id: string;
+  type: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  mailbox?: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+}
