@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { Search, Bell, Sun, Moon, Menu, User, LogOut, ChevronDown, Keyboard } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
@@ -16,6 +16,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
+import api from "@/utils/api"
+
+interface Notification {
+  id: string
+  from: string
+  subject: string
+  date: string
+}
 
 interface HeaderProps {
   onMenuToggle: () => void
@@ -27,6 +35,27 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
   const { logout, user } = useAuth()
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
+  const [notifications, setNotifications] = useState<Notification[]>([])
+
+  // Surface unread inbox messages as notifications (no fake data).
+  useEffect(() => {
+    let cancelled = false
+    api.getMail("inbox")
+      .then((res) => {
+        if (cancelled) return
+        const unread = (res.emails ?? [])
+          .filter((m) => !m.read)
+          .slice(0, 5)
+          .map((m) => ({ id: m.id, from: m.from, subject: m.subject, date: m.date }))
+        setNotifications(unread)
+      })
+      .catch(() => {
+        if (!cancelled) setNotifications([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const email = user?.email ?? ""
   const displayName = email ? email.split("@")[0] : "Account"
@@ -108,22 +137,34 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="h-5 w-5" />
-                <Badge className="absolute -right-1 -top-1 h-5 w-5 p-0 flex items-center justify-center text-[10px]">
-                  3
-                </Badge>
+                {notifications.length > 0 && (
+                  <Badge className="absolute -right-1 -top-1 h-5 w-5 p-0 flex items-center justify-center text-[10px]">
+                    {notifications.length}
+                  </Badge>
+                )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80">
               <DropdownMenuLabel>Notifications</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <div className="max-h-80 overflow-y-auto">
-                {[1, 2, 3].map((i) => (
-                  <DropdownMenuItem key={i} className="flex flex-col items-start gap-1 p-3 cursor-pointer">
-                    <span className="font-medium text-sm">New email</span>
-                    <span className="text-xs text-muted-foreground">From: test@example.com</span>
-                    <span className="text-xs text-muted-foreground">{i} minutes ago</span>
-                  </DropdownMenuItem>
-                ))}
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-muted-foreground">
+                    No new notifications
+                  </div>
+                ) : (
+                  notifications.map((n) => (
+                    <DropdownMenuItem
+                      key={n.id}
+                      className="flex flex-col items-start gap-1 p-3 cursor-pointer"
+                      onClick={() => navigate(`/email/${n.id}`)}
+                    >
+                      <span className="font-medium text-sm truncate w-full">{n.subject || "(no subject)"}</span>
+                      <span className="text-xs text-muted-foreground truncate w-full">From: {n.from}</span>
+                      <span className="text-xs text-muted-foreground">{n.date}</span>
+                    </DropdownMenuItem>
+                  ))
+                )}
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
