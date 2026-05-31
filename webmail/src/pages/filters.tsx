@@ -31,6 +31,9 @@ const CONDITION_FIELDS: { value: FilterCondition["field"]; label: string }[] = [
   { value: "subject", label: "Subject" },
   { value: "body", label: "Body" },
   { value: "header", label: "Header" },
+  { value: "size", label: "Size" },
+  { value: "flag", label: "Flag" },
+  { value: "address", label: "Address" },
 ]
 
 const CONDITION_OPERATORS: { value: FilterCondition["operator"]; label: string }[] = [
@@ -41,22 +44,35 @@ const CONDITION_OPERATORS: { value: FilterCondition["operator"]; label: string }
   { value: "matches", label: "matches" },
 ]
 
+// The full canonical action vocabulary (semcore RuleActionKind). Every kind is
+// editable so a rule created in Outlook/admin can be edited here without losing
+// actions the editor does not recognize.
 const ACTION_TYPES: { value: FilterAction["type"]; label: string }[] = [
-  { value: "move", label: "Move to folder" },
-  { value: "copy", label: "Copy to folder" },
+  { value: "moveToFolder", label: "Move to folder" },
+  { value: "copyToFolder", label: "Copy to folder" },
   { value: "markRead", label: "Mark as read" },
-  { value: "markSpam", label: "Mark as spam" },
-  { value: "flag", label: "Flag" },
+  { value: "markImportant", label: "Mark as important" },
+  { value: "flag", label: "Set/clear flag" },
   { value: "forward", label: "Forward to" },
-  { value: "delete", label: "Delete" },
+  { value: "forwardAsAttachment", label: "Forward as attachment" },
+  { value: "redirect", label: "Redirect to" },
+  { value: "reject", label: "Reject with message" },
+  { value: "addHeader", label: "Add header" },
+  { value: "deleteHeader", label: "Delete header" },
+  { value: "delete", label: "Delete message" },
+  { value: "stop", label: "Stop processing" },
+  { value: "vacation", label: "Vacation reply" },
 ]
+
+// Action types whose forward/redirect address lives in forwardTo.
+const FORWARD_TYPES = new Set<FilterAction["type"]>(["forward", "forwardAsAttachment", "redirect"])
 
 function emptyCondition(): FilterCondition {
   return { field: "from", operator: "contains", value: "" }
 }
 
 function emptyAction(): FilterAction {
-  return { type: "move", target: "" }
+  return { type: "moveToFolder", target: "" }
 }
 
 function emptyDraft(): FilterInput {
@@ -153,11 +169,23 @@ export function FiltersPage() {
     }
     if (draft.actions.length === 0) return "At least one action is required"
     for (const a of draft.actions) {
-      if ((a.type === "move" || a.type === "copy") && !a.target?.trim()) {
+      if ((a.type === "moveToFolder" || a.type === "copyToFolder") && !a.target?.trim()) {
         return "Move/Copy actions need a target folder"
       }
-      if (a.type === "forward" && !a.forwardTo?.trim()) {
-        return "Forward actions need a destination address"
+      if (FORWARD_TYPES.has(a.type) && !a.forwardTo?.trim()) {
+        return "Forward/Redirect actions need a destination address"
+      }
+      if (a.type === "reject" && !a.message?.trim()) {
+        return "Reject actions need a message"
+      }
+      if (a.type === "addHeader" && (!a.headerName?.trim() || !a.headerValue?.trim())) {
+        return "Add header actions need a header name and value"
+      }
+      if (a.type === "deleteHeader" && !a.headerName?.trim()) {
+        return "Delete header actions need a header name"
+      }
+      if (a.type === "flag" && !a.flagName?.trim()) {
+        return "Flag actions need a flag name"
       }
     }
     return null
@@ -483,7 +511,7 @@ export function FiltersPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {(action.type === "move" || action.type === "copy") && (
+                  {(action.type === "moveToFolder" || action.type === "copyToFolder") && (
                     <Input
                       className="min-w-[140px] flex-1"
                       placeholder="Target folder"
@@ -491,13 +519,62 @@ export function FiltersPage() {
                       onChange={(e) => updateAction(i, { target: e.target.value })}
                     />
                   )}
-                  {action.type === "forward" && (
+                  {FORWARD_TYPES.has(action.type) && (
                     <Input
                       className="min-w-[140px] flex-1"
-                      placeholder="Forward to address"
+                      placeholder="Destination address"
                       value={action.forwardTo ?? ""}
                       onChange={(e) => updateAction(i, { forwardTo: e.target.value })}
                     />
+                  )}
+                  {action.type === "reject" && (
+                    <Input
+                      className="min-w-[140px] flex-1"
+                      placeholder="Rejection message"
+                      value={action.message ?? ""}
+                      onChange={(e) => updateAction(i, { message: e.target.value })}
+                    />
+                  )}
+                  {action.type === "vacation" && (
+                    <Input
+                      className="min-w-[140px] flex-1"
+                      placeholder="Auto-reply message"
+                      value={action.message ?? ""}
+                      onChange={(e) => updateAction(i, { message: e.target.value })}
+                    />
+                  )}
+                  {(action.type === "addHeader" || action.type === "deleteHeader") && (
+                    <Input
+                      className="w-[150px]"
+                      placeholder="Header name"
+                      value={action.headerName ?? ""}
+                      onChange={(e) => updateAction(i, { headerName: e.target.value })}
+                    />
+                  )}
+                  {action.type === "addHeader" && (
+                    <Input
+                      className="min-w-[120px] flex-1"
+                      placeholder="Header value"
+                      value={action.headerValue ?? ""}
+                      onChange={(e) => updateAction(i, { headerValue: e.target.value })}
+                    />
+                  )}
+                  {action.type === "flag" && (
+                    <>
+                      <Input
+                        className="w-[150px]"
+                        placeholder="Flag name"
+                        value={action.flagName ?? ""}
+                        onChange={(e) => updateAction(i, { flagName: e.target.value })}
+                      />
+                      <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Switch
+                          checked={action.clearFlag ?? false}
+                          onCheckedChange={(v) => updateAction(i, { clearFlag: v })}
+                        />
+                        Clear
+                      </label>
+                    </>
                   )}
                   {draft.actions.length > 1 && (
                     <Button

@@ -57,17 +57,46 @@ export interface Filter {
   priority: number
 }
 
+// FilterField mirrors semcore.RuleConditionKind.
+export type FilterField = 'from' | 'to' | 'subject' | 'body' | 'header' | 'size' | 'flag' | 'address'
+
+// FilterOperator mirrors semcore.RuleMatchType.
+export type FilterOperator = 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'matches'
+
 export interface FilterCondition {
-  field: 'from' | 'to' | 'subject' | 'body' | 'header'
-  operator: 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'matches'
+  field: FilterField
+  operator: FilterOperator
   value: string
   headerName?: string
 }
 
+// FilterActionType mirrors semcore.RuleActionKind.String(). The full vocabulary
+// is represented so rules created in Outlook/admin round-trip without loss.
+export type FilterActionType =
+  | 'moveToFolder'
+  | 'copyToFolder'
+  | 'delete'
+  | 'markRead'
+  | 'markImportant'
+  | 'forward'
+  | 'forwardAsAttachment'
+  | 'redirect'
+  | 'reject'
+  | 'addHeader'
+  | 'deleteHeader'
+  | 'flag'
+  | 'stop'
+  | 'vacation'
+
 export interface FilterAction {
-  type: 'move' | 'copy' | 'delete' | 'markRead' | 'markSpam' | 'forward' | 'flag'
+  type: FilterActionType
   target?: string
   forwardTo?: string
+  message?: string
+  headerName?: string
+  headerValue?: string
+  flagName?: string
+  clearFlag?: boolean
 }
 
 // FilterInput is the create/update payload the backend accepts.
