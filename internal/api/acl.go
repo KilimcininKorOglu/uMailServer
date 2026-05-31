@@ -196,6 +196,31 @@ func (s *Server) handleSharedMailboxesList(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// handleMailboxListOwn handles GET /api/v1/mailboxes and returns the names of
+// the authenticated user's own mailboxes.
+func (s *Server) handleMailboxListOwn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, ok := r.Context().Value("user").(string)
+	if !ok || user == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	mailboxes, err := s.mailDB.ListMailboxes(user)
+	if err != nil {
+		mailboxes = []string{}
+	}
+
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"mailboxes": mailboxes,
+	}); err != nil {
+		s.logger.Error("failed to encode mailbox list", "error", err)
+	}
+}
+
 // handleGranteesMailboxesList handles GET for /api/v1/mailboxes/shared-as-owner
 func (s *Server) handleGranteesMailboxesList(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value("user").(string)

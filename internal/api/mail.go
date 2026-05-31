@@ -245,30 +245,42 @@ func (h *MailHandler) handleMailGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	emailID := r.URL.Query().Get("id")
-	folder := r.URL.Query().Get("folder")
-	if folder == "" {
-		folder = "INBOX"
-	}
-
-	internalFolder := folderMap[strings.ToLower(folder)]
-	if internalFolder == "" {
-		internalFolder = folder
-	}
-
-	email, err := h.getEmailFromStorage(userEmail, internalFolder, emailID)
-	if err != nil || email == nil {
-		h.sendError(w, http.StatusNotFound, "Email not found")
+	if emailID == "" {
+		h.sendError(w, http.StatusBadRequest, "Message ID required")
 		return
 	}
 
-	// Mark as read
-	h.markAsRead(userEmail, internalFolder, emailID)
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(email); err != nil {
-		fmt.Printf("ERROR: failed to encode email response: %v\n", err)
+	// Build the list of mailboxes to search. If the caller named a folder, try
+	// it first; otherwise (and as a fallback) search every mailbox, because the
+	// message list views navigate to a message by id without folder context.
+	search := allMailboxes
+	if folder := r.URL.Query().Get("folder"); folder != "" {
+		internalFolder := folderMap[strings.ToLower(folder)]
+		if internalFolder == "" {
+			internalFolder = folder
+		}
+		search = append([]string{internalFolder}, allMailboxes...)
 	}
+
+	for _, mailbox := range search {
+		email, err := h.getEmailFromStorage(userEmail, mailbox, emailID)
+		if err != nil || email == nil {
+			continue
+		}
+		// Mark as read in the mailbox where it was found.
+		h.markAsRead(userEmail, mailbox, emailID)
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(email); err != nil {
+			fmt.Printf("ERROR: failed to encode email response: %v\n", err)
+		}
+		return
+	}
+
+	h.sendError(w, http.StatusNotFound, "Email not found")
 }
+
+// allMailboxes is the set of mailboxes searched when resolving a message by id.
+var allMailboxes = []string{"INBOX", "Sent", "Drafts", "Trash", "Junk", "Archive"}
 
 // getEmailFromStorage retrieves a single email from storage
 func (h *MailHandler) getEmailFromStorage(userEmail, mailbox, messageID string) (*Mail, error) {

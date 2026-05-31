@@ -615,6 +615,7 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/mail/drafts", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/trash", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/spam", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
+	api.HandleFunc("/api/v1/mail/message", http.HandlerFunc(s.mailHandler.handleMailGet).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/send", http.HandlerFunc(s.mailHandler.handleMailSend).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/delete", http.HandlerFunc(s.mailHandler.handleMailDelete).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/diagnostics", s.handleMailDiagnostics)
@@ -634,6 +635,7 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/cluster/heartbeat", s.handleClusterHeartbeat)
 
 	// Mailbox ACL and shared mailbox access
+	api.HandleFunc("/api/v1/mailboxes", s.handleMailboxListOwn)
 	api.HandleFunc("/api/v1/mailboxes/shared", s.handleSharedMailboxesList)
 	api.HandleFunc("/api/v1/mailboxes/shared-as-owner", s.handleGranteesMailboxesList)
 	api.HandleFunc("/api/v1/mailboxes/", s.handleMailboxPath)
