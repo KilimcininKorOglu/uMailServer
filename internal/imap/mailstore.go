@@ -304,7 +304,8 @@ func (m *BboltMailstore) getMessage(user, mailbox string, seqNum, uid uint32, it
 	needsData := false
 	for _, item := range items {
 		item = strings.ToUpper(item)
-		if item == "RFC822" || item == "BODY" || strings.HasPrefix(item, "BODY[") {
+		if item == "RFC822" || item == "RFC822.HEADER" || item == "RFC822.TEXT" ||
+			item == "BODY" || strings.HasPrefix(item, "BODY[") || strings.HasPrefix(item, "BODY.PEEK[") {
 			needsData = true
 			break
 		}

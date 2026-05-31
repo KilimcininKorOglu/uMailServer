@@ -2519,15 +2519,45 @@ func parseIMAPDate(dateStr string) (time.Time, error) {
 }
 
 func parseFetchItems(args []string) []string {
-	// Join args and split by space
-	itemsStr := strings.Join(args, " ")
+	itemsStr := strings.TrimSpace(strings.Join(args, " "))
 
 	// Handle parenthesized list
 	if strings.HasPrefix(itemsStr, "(") && strings.HasSuffix(itemsStr, ")") {
 		itemsStr = itemsStr[1 : len(itemsStr)-1]
 	}
 
-	return strings.Fields(itemsStr)
+	// Split on spaces at bracket/paren depth 0 so items that legitimately
+	// contain spaces — e.g. BODY.PEEK[HEADER.FIELDS (DATE FROM)] — stay intact.
+	var items []string
+	var cur strings.Builder
+	depth := 0
+	for _, r := range itemsStr {
+		switch r {
+		case '[', '(':
+			depth++
+			cur.WriteRune(r)
+		case ']', ')':
+			if depth > 0 {
+				depth--
+			}
+			cur.WriteRune(r)
+		case ' ':
+			if depth == 0 {
+				if cur.Len() > 0 {
+					items = append(items, cur.String())
+					cur.Reset()
+				}
+			} else {
+				cur.WriteRune(r)
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if cur.Len() > 0 {
+		items = append(items, cur.String())
+	}
+	return items
 }
 
 func parseFlags(flagsStr string) []string {
@@ -2546,23 +2576,33 @@ func parseFlags(flagsStr string) []string {
 
 func formatFetchResponse(msg *Message, items []string) string {
 	var parts []string
+	data := string(msg.Data)
 
 	for _, item := range items {
-		item = strings.ToUpper(item)
-		switch item {
-		case "FLAGS":
+		upper := strings.ToUpper(item)
+		switch {
+		case upper == "FLAGS":
 			parts = append(parts, fmt.Sprintf("FLAGS (%s)", strings.Join(msg.Flags, " ")))
-		case "INTERNALDATE":
+		case upper == "INTERNALDATE":
 			parts = append(parts, fmt.Sprintf("INTERNALDATE \"%s\"", msg.InternalDate.Format("02-Jan-2006 15:04:05 -0700")))
-		case "RFC822.SIZE":
+		case upper == "RFC822.SIZE":
 			parts = append(parts, fmt.Sprintf("RFC822.SIZE %d", msg.Size))
-		case "UID":
+		case upper == "UID":
 			parts = append(parts, fmt.Sprintf("UID %d", msg.UID))
-		case "RFC822":
-			parts = append(parts, fmt.Sprintf("RFC822 {%d}\r\n%s", len(msg.Data), string(msg.Data)))
-		case "BODY", "BODYSTRUCTURE":
+		case upper == "RFC822":
+			parts = append(parts, fmt.Sprintf("RFC822 {%d}\r\n%s", len(data), data))
+		case upper == "RFC822.HEADER":
+			h := imapHeaderBytes(data)
+			parts = append(parts, fmt.Sprintf("RFC822.HEADER {%d}\r\n%s", len(h), h))
+		case upper == "RFC822.TEXT":
+			t := imapBodyTextBytes(data)
+			parts = append(parts, fmt.Sprintf("RFC822.TEXT {%d}\r\n%s", len(t), t))
+		case strings.HasPrefix(upper, "BODY[") || strings.HasPrefix(upper, "BODY.PEEK["):
+			respKey, payload := fetchBodySection(item, data)
+			parts = append(parts, fmt.Sprintf("%s {%d}\r\n%s", respKey, len(payload), payload))
+		case upper == "BODY" || upper == "BODYSTRUCTURE":
 			parts = append(parts, fmt.Sprintf("BODYSTRUCTURE (\"TEXT\" \"PLAIN\" NIL NIL NIL \"7BIT\" %d 0)", msg.Size))
-		case "ENVELOPE":
+		case upper == "ENVELOPE":
 			fromLocal, fromDomain := splitAddress(msg.From)
 			toLocal, toDomain := splitAddress(msg.To)
 			parts = append(parts, fmt.Sprintf("ENVELOPE (%s %s ((%s NIL %s %s)) NIL NIL ((%s NIL %s %s)) NIL NIL NIL NIL)",
@@ -2573,6 +2613,143 @@ func formatFetchResponse(msg *Message, items []string) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// fetchBodySection resolves a BODY[...] / BODY.PEEK[...] fetch item against the
+// raw message, returning the response key (always without ".PEEK", per RFC 3501)
+// and the requested octets. Supported sections: "" (whole message), HEADER,
+// TEXT, HEADER.FIELDS (...), HEADER.FIELDS.NOT (...). An optional <start.len>
+// partial specifier is honored.
+func fetchBodySection(item, data string) (respKey, payload string) {
+	open := strings.Index(item, "[")
+	closeIdx := strings.LastIndex(item, "]")
+	section := ""
+	if open >= 0 && closeIdx > open {
+		section = item[open+1 : closeIdx]
+	}
+	partial := ""
+	if closeIdx >= 0 && closeIdx+1 < len(item) && item[closeIdx+1] == '<' {
+		partial = item[closeIdx+1:]
+	}
+
+	secUpper := strings.ToUpper(strings.TrimSpace(section))
+	switch {
+	case section == "":
+		payload = data
+	case secUpper == "HEADER":
+		payload = imapHeaderBytes(data)
+	case secUpper == "TEXT":
+		payload = imapBodyTextBytes(data)
+	case strings.HasPrefix(secUpper, "HEADER.FIELDS.NOT"):
+		payload = imapHeaderFields(imapHeaderBytes(data), parseFieldList(section), true)
+	case strings.HasPrefix(secUpper, "HEADER.FIELDS"):
+		payload = imapHeaderFields(imapHeaderBytes(data), parseFieldList(section), false)
+	default:
+		// MIME part numbers and other sections are not modeled; return the
+		// whole message rather than nothing so clients still get content.
+		payload = data
+	}
+
+	respKey = "BODY[" + section + "]"
+	if partial != "" {
+		start, length := parsePartialSpec(partial)
+		if start < 0 {
+			start = 0
+		}
+		if start > len(payload) {
+			start = len(payload)
+		}
+		end := len(payload)
+		if length >= 0 && start+length < end {
+			end = start + length
+		}
+		payload = payload[start:end]
+		respKey = fmt.Sprintf("BODY[%s]<%d>", section, start)
+	}
+	return respKey, payload
+}
+
+// imapHeaderBytes returns the header block including the terminating blank line.
+func imapHeaderBytes(data string) string {
+	if i := strings.Index(data, "\r\n\r\n"); i >= 0 {
+		return data[:i+4]
+	}
+	if i := strings.Index(data, "\n\n"); i >= 0 {
+		return data[:i+2]
+	}
+	return data
+}
+
+// imapBodyTextBytes returns the body that follows the header blank line.
+func imapBodyTextBytes(data string) string {
+	if i := strings.Index(data, "\r\n\r\n"); i >= 0 {
+		return data[i+4:]
+	}
+	if i := strings.Index(data, "\n\n"); i >= 0 {
+		return data[i+2:]
+	}
+	return ""
+}
+
+// imapHeaderFields returns only the named header fields (or all but them when
+// not=true), preserving folded continuation lines and terminating with a blank
+// line, per RFC 3501 BODY[HEADER.FIELDS].
+func imapHeaderFields(header string, fields []string, not bool) string {
+	want := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		want[strings.ToUpper(strings.TrimSpace(f))] = true
+	}
+	var out []string
+	keep := false
+	for _, raw := range strings.Split(header, "\n") {
+		line := strings.TrimRight(raw, "\r")
+		if line == "" {
+			continue // skip separators; a single blank line is appended below
+		}
+		if raw[0] == ' ' || raw[0] == '\t' {
+			if keep {
+				out = append(out, line)
+			}
+			continue
+		}
+		name := line
+		if c := strings.Index(line, ":"); c >= 0 {
+			name = line[:c]
+		}
+		match := want[strings.ToUpper(strings.TrimSpace(name))]
+		keep = match != not
+		if keep {
+			out = append(out, line)
+		}
+	}
+	if len(out) == 0 {
+		return "\r\n"
+	}
+	return strings.Join(out, "\r\n") + "\r\n\r\n"
+}
+
+// parseFieldList extracts the field names from a HEADER.FIELDS (a b c) section.
+func parseFieldList(section string) []string {
+	o := strings.Index(section, "(")
+	c := strings.LastIndex(section, ")")
+	if o >= 0 && c > o {
+		return strings.Fields(section[o+1 : c])
+	}
+	return nil
+}
+
+// parsePartialSpec parses a "<start.len>" or "<start>" partial specifier.
+// A negative length means "to the end".
+func parsePartialSpec(p string) (start, length int) {
+	p = strings.TrimPrefix(p, "<")
+	p = strings.TrimSuffix(p, ">")
+	if dot := strings.Index(p, "."); dot >= 0 {
+		start, _ = strconv.Atoi(p[:dot])    //nolint:errcheck
+		length, _ = strconv.Atoi(p[dot+1:]) //nolint:errcheck
+		return start, length
+	}
+	start, _ = strconv.Atoi(p) //nolint:errcheck
+	return start, -1
 }
 
 // imapQuotedString quotes a string for use in an IMAP quoted-string per RFC 3501.
