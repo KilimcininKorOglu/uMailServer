@@ -162,11 +162,20 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     setSelectedEmails(new Set())
   }
 
-  const handleDelete = () => {
-    toast.success(`${selectedEmails.size} message${selectedEmails.size !== 1 ? "s" : ""} moved to trash`)
-    setEmails(emails.filter((e) => !selectedEmails.has(e.id)))
-    setSelectedEmails(new Set())
+  const deleteEmails = async (ids: string[]) => {
+    if (ids.length === 0) return
+    try {
+      await Promise.all(ids.map((id) => api.deleteMail(id)))
+      setEmails((prev) => prev.filter((e) => !ids.includes(e.id)))
+      setSelectedEmails(new Set())
+      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} moved to trash`)
+    } catch (err) {
+      console.error("Failed to delete messages:", err)
+      toast.error("Failed to delete messages")
+    }
   }
+
+  const handleDelete = () => deleteEmails([...selectedEmails])
 
   const handleMarkRead = () => {
     toast.success(`${selectedEmails.size} message${selectedEmails.size !== 1 ? "s" : ""} marked as read`)
@@ -278,7 +287,13 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
               Archive
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive" onClick={handleDelete}>
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={(e) => {
+                e.stopPropagation()
+                deleteEmails([email.id])
+              }}
+            >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
             </DropdownMenuItem>
