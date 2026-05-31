@@ -473,11 +473,12 @@ function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProp
           </div>
 
           {/* Last Login */}
-          {account.last_login && (
-            <div className="text-xs text-muted-foreground pt-2 border-t">
-              Last login: {new Date(account.last_login).toLocaleDateString()}
-            </div>
-          )}
+          <div className="text-xs text-muted-foreground pt-2 border-t">
+            Last login:{" "}
+            {account.last_login && new Date(account.last_login).getFullYear() > 1
+              ? new Date(account.last_login).toLocaleString()
+              : "Never"}
+          </div>
         </div>
       </CardContent>
     </Card>

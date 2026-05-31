@@ -499,6 +499,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.clearTOTPFailures(req.Email)
 	}
 
+	// Record the successful login time so the admin UI can show it.
+	account.LastLoginAt = time.Now()
+	if err := s.db.UpdateAccount(account); err != nil {
+		// Log but don't fail login if the timestamp update fails.
+		s.logger.Error("failed to record last login", "error", err, "email", account.Email)
+	}
+
 	mustChangePassword := requiresPasswordChange(account)
 
 	// Generate JWT
