@@ -442,7 +442,11 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
             </div>
             <h3 className="mt-4 text-lg font-semibold">No emails</h3>
             <p className="text-sm text-muted-foreground">
-              {activeFilter === "unread" ? "No unread messages." : activeFilter === "starred" ? "No starred messages." : "Your inbox is empty."}
+              {folder === "starred" || activeFilter === "starred"
+                ? "No starred messages."
+                : activeFilter === "unread"
+                ? "No unread messages."
+                : "Your inbox is empty."}
             </p>
           </div>
         ) : (
