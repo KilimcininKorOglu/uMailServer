@@ -95,6 +95,15 @@ export interface VacationAutoReply {
   ignore_bulk?: boolean
 }
 
+export interface ClientSession {
+  id: string
+  device_type: string
+  client_ip: string
+  created_at: string
+  last_active: string
+  user_agent: string
+}
+
 export interface PushSubscription {
   endpoint: string
   keys: {
@@ -250,6 +259,15 @@ class API {
   // changePassword updates the authenticated user's own password.
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {
     await this.post('/account/password', { currentPassword, newPassword })
+  }
+
+  // Active client sessions
+  async getSessions(): Promise<{ sessions?: ClientSession[] }> {
+    return this.get<{ sessions?: ClientSession[] }>('/sessions')
+  }
+
+  async revokeSession(id: string): Promise<void> {
+    await this.delete(`/sessions/${encodeURIComponent(id)}`)
   }
 
   // Mail

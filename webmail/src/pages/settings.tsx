@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane } from "lucide-react"
+import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import api from "@/utils/api"
-import type { VacationAutoReply } from "@/utils/api"
+import type { VacationAutoReply, ClientSession } from "@/utils/api"
 
 // rfc3339ToDate extracts the YYYY-MM-DD part from an RFC3339 string for <input type="date">.
 function rfc3339ToDate(value?: string): string {
@@ -45,6 +45,34 @@ export function SettingsPage() {
   const [pwNew, setPwNew] = useState("")
   const [pwConfirm, setPwConfirm] = useState("")
   const [pwSaving, setPwSaving] = useState(false)
+
+  // Active sessions
+  const [sessions, setSessions] = useState<ClientSession[]>([])
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const res = await api.getSessions()
+      setSessions(res.sessions ?? [])
+    } catch (err) {
+      console.error("Failed to load sessions:", err)
+      setSessions([])
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSessions()
+  }, [loadSessions])
+
+  const handleRevokeSession = async (id: string) => {
+    try {
+      await api.revokeSession(id)
+      toast.success("Session revoked")
+      setSessions((prev) => prev.filter((s) => s.id !== id))
+    } catch (err) {
+      console.error("Failed to revoke session:", err)
+      toast.error("Failed to revoke session")
+    }
+  }
 
   const handleChangePassword = async () => {
     if (pwNew.length < 8) {
@@ -462,6 +490,36 @@ export function SettingsPage() {
             View Keyboard Shortcuts
           </Button>
         </div>
+      </SettingSection>
+
+      {/* Active Sessions */}
+      <SettingSection
+        icon={Monitor}
+        title="Active Sessions"
+        description="Devices currently signed in to your account"
+      >
+        {sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active sessions found.</p>
+        ) : (
+          <div className="space-y-2">
+            {sessions.map((s) => (
+              <div key={s.id} className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {s.device_type || "Unknown device"} · {s.client_ip || "unknown IP"}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {s.user_agent || "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Last active: {s.last_active}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => handleRevokeSession(s.id)}>
+                  Revoke
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </SettingSection>
 
       {/* Account */}
