@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -156,7 +157,9 @@ func (s *ManageSieveServer) handleConn(conn net.Conn) {
 	// Set read timeout
 	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // Best-effort
 
-	// Send greeting
+	// Send capabilities then the greeting (RFC 5804 §2.2): a compliant client
+	// reads the advertised SASL mechanisms and SIEVE extensions on connect.
+	s.writeCapabilities(conn)
 	if err := s.sendResponse(conn, "OK \"ManageSieve server ready\""); err != nil {
 		return
 	}
@@ -174,9 +177,20 @@ func (s *ManageSieveServer) handleConn(conn net.Conn) {
 		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // Best-effort
 
 		if err := s.processCommandSession(session, line); err != nil {
+			if err == io.EOF {
+				// Clean session end (e.g. LOGOUT already sent its OK).
+				return
+			}
+			// RFC 5804: a command-level failure is reported with a NO
+			// response, after which the session stays open. Only IO/protocol
+			// errors tear down the connection.
 			slog.Error("managesieve command error", "error", err)
-			_ = s.sendResponse(conn, "NO command failed")
-			return
+			reason := strings.ReplaceAll(err.Error(), "\"", "'")
+			reason = strings.ReplaceAll(reason, "\r", " ")
+			reason = strings.ReplaceAll(reason, "\n", " ")
+			if werr := s.sendResponse(conn, "NO \"%s\"", reason); werr != nil {
+				return
+			}
 		}
 	}
 }
@@ -243,6 +257,9 @@ func (s *ManageSieveServer) processCommandSession(session *manageSieveSession, l
 // processCommandSession so the tracing wrapper has a single error site.
 func (s *ManageSieveServer) dispatchCommand(session *manageSieveSession, cmd string, args []string) error {
 	switch cmd {
+	case "CAPABILITY":
+		s.writeCapabilities(session.conn)
+		return s.sendResponse(session.conn, "OK \"Capability completed\"")
 	case "AUTHENTICATE":
 		return s.cmdAuthenticate(session, args)
 	case "LOGOUT":
@@ -317,6 +334,28 @@ func parseManageSieveLine(line string) []string {
 	return parts
 }
 
+// unquote strips the surrounding double quotes RFC 5804 puts around string
+// arguments (script names, mechanisms). parseManageSieveLine preserves quotes,
+// so command handlers normalize names through this before storing/looking up.
+func unquote(s string) string {
+	return strings.Trim(s, "\"")
+}
+
+// parseScriptSize parses a ManageSieve script-size argument. It accepts the
+// RFC 5804 literal forms {N} and {N+} (what real clients send) as well as a
+// bare decimal N. Returns 0 when the argument is not a valid size.
+func parseScriptSize(arg string) int {
+	s := strings.TrimSpace(arg)
+	s = strings.TrimPrefix(s, "{")
+	s = strings.TrimSuffix(s, "}")
+	s = strings.TrimSuffix(s, "+")
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // cmdAuthenticate handles AUTHENTICATE command
 // Format: AUTHENTICATE <mechanism> <initial-response>
 func (s *ManageSieveServer) cmdAuthenticate(session *manageSieveSession, args []string) error {
@@ -324,19 +363,26 @@ func (s *ManageSieveServer) cmdAuthenticate(session *manageSieveSession, args []
 		return fmt.Errorf("AUTHENTICATE requires mechanism")
 	}
 
-	mechanism := strings.ToUpper(args[0])
+	// RFC 5804 sends the mechanism (and optional initial response) as quoted
+	// strings, e.g. AUTHENTICATE "PLAIN" "<base64>"; strip the quotes.
+	mechanism := strings.ToUpper(strings.Trim(args[0], "\""))
 
 	// Handle PLAIN authentication mechanism
 	if mechanism == "PLAIN" {
-		// Send continuation request
-		if err := s.sendResponse(session.conn, "OK \"Continue authentication\""); err != nil {
-			return err
-		}
-
-		// Read the authentication data
-		data, err := session.reader.ReadLine()
-		if err != nil {
-			return fmt.Errorf("authentication failed: %w", err)
+		var data string
+		if len(args) >= 2 {
+			// Inline initial response (RFC 5804): no continuation round-trip.
+			data = strings.Trim(args[1], "\"")
+		} else {
+			// Send continuation request and read the base64 auth data.
+			if err := s.sendResponse(session.conn, "OK \"Continue authentication\""); err != nil {
+				return err
+			}
+			line, err := session.reader.ReadLine()
+			if err != nil {
+				return fmt.Errorf("authentication failed: %w", err)
+			}
+			data = strings.Trim(line, "\"")
 		}
 
 		// Decode PLAIN auth: [authzid]\x00authcid\x00password
@@ -440,9 +486,8 @@ func (s *ManageSieveServer) cmdPutScript(session *manageSieveSession, args []str
 		return fmt.Errorf("PUTSCRIPT requires script-name and script-size")
 	}
 
-	scriptName := args[0]
-	scriptSize := 0
-	_, _ = fmt.Sscanf(args[1], "%d", &scriptSize)
+	scriptName := unquote(args[0])
+	scriptSize := parseScriptSize(args[1])
 
 	if scriptSize <= 0 || scriptSize > 1024*1024 {
 		return fmt.Errorf("invalid script size")
@@ -490,16 +535,15 @@ func (s *ManageSieveServer) cmdListScripts(session *manageSieveSession, _ []stri
 	scripts := s.manager.ListScripts(session.user)
 	activeName := s.manager.GetActiveScriptName(session.user)
 
-	if err := s.sendResponse(session.conn, "OK \"List scripts\""); err != nil {
-		return err
-	}
+	// RFC 5804: the script listing comes first, terminated by a single tagged
+	// OK. Do not emit a leading OK, which would desynchronize the client.
 	for _, name := range scripts {
 		if name == activeName {
-			if err := s.sendResponse(session.conn, "%s \"active script\"", name); err != nil {
+			if err := s.sendResponse(session.conn, "\"%s\" ACTIVE", name); err != nil {
 				return err
 			}
 		} else {
-			if err := s.sendResponse(session.conn, "%s", name); err != nil {
+			if err := s.sendResponse(session.conn, "\"%s\"", name); err != nil {
 				return err
 			}
 		}
@@ -521,7 +565,7 @@ func (s *ManageSieveServer) cmdSetActive(session *manageSieveSession, args []str
 		return fmt.Errorf("SETACTIVE requires script-name")
 	}
 
-	scriptName := args[0]
+	scriptName := unquote(args[0])
 	if scriptName == "" {
 		return fmt.Errorf("script name cannot be empty")
 	}
@@ -548,7 +592,7 @@ func (s *ManageSieveServer) cmdDeleteScript(session *manageSieveSession, args []
 		return fmt.Errorf("DELETESCRIPT requires script-name")
 	}
 
-	scriptName := args[0]
+	scriptName := unquote(args[0])
 	if scriptName == "" {
 		return fmt.Errorf("script name cannot be empty")
 	}
@@ -572,7 +616,7 @@ func (s *ManageSieveServer) cmdGetScript(session *manageSieveSession, args []str
 		return fmt.Errorf("GETSCRIPT requires script-name")
 	}
 
-	scriptName := args[0]
+	scriptName := unquote(args[0])
 
 	// Get script source for the authenticated user
 	source := s.manager.GetScriptSource(session.user, scriptName)
@@ -584,7 +628,8 @@ func (s *ManageSieveServer) cmdGetScript(session *manageSieveSession, args []str
 	if err := s.sendResponse(session.conn, "{%d}", len(source)); err != nil {
 		return err
 	}
-	_, _ = session.conn.Write([]byte(source)) // Best-effort write
+	// RFC 5804: literal octets are followed by CRLF before the tagged OK.
+	_, _ = session.conn.Write([]byte(source + "\r\n")) //nolint:errcheck // best-effort write
 	if err := s.sendResponse(session.conn, "OK \"Get script complete\""); err != nil {
 		return err
 	}
@@ -598,8 +643,7 @@ func (s *ManageSieveServer) cmdCheckScript(session *manageSieveSession, args []s
 		return fmt.Errorf("CHECKSCRIPT requires script-size")
 	}
 
-	scriptSize := 0
-	_, _ = fmt.Sscanf(args[0], "%d", &scriptSize)
+	scriptSize := parseScriptSize(args[0])
 
 	if scriptSize <= 0 || scriptSize > 1024*1024 {
 		return fmt.Errorf("invalid script size")
@@ -638,6 +682,20 @@ func (s *ManageSieveServer) cmdNoop(conn net.Conn) error {
 }
 
 // sendResponse sends a formatted response
+// writeCapabilities emits the RFC 5804 capability lines (IMPLEMENTATION, SASL,
+// SIEVE extensions, VERSION). Sent on connect and in response to CAPABILITY.
+func (s *ManageSieveServer) writeCapabilities(conn net.Conn) {
+	lines := []string{
+		`"IMPLEMENTATION" "uMailServer ManageSieve"`,
+		`"SASL" "PLAIN LOGIN"`,
+		`"SIEVE" "fileinto reject vacation imap4flags editheader body"`,
+		`"VERSION" "1.0"`,
+	}
+	for _, line := range lines {
+		_ = s.sendResponse(conn, "%s", line) //nolint:errcheck
+	}
+}
+
 func (s *ManageSieveServer) sendResponse(conn net.Conn, format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
 	// ManageSieve uses CRLF line endings
