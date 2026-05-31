@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Dialog,
   DialogContent,
@@ -373,6 +373,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
   }
 
   return (
+    <TooltipProvider>
     <aside
       className={cn(
         "fixed left-0 top-0 z-40 h-screen border-r bg-card transition-all duration-300 ease-in-out",
@@ -666,5 +667,6 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
         </Button>
       )}
     </aside>
+    </TooltipProvider>
   )
 }
