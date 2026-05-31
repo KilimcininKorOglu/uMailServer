@@ -142,11 +142,17 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     ))
   }
 
-  const markAsRead = (id: string, e: React.MouseEvent) => {
+  const markAsRead = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setEmails(emails.map((email) =>
-      email.id === id ? { ...email, read: true } : email
-    ))
+    try {
+      await api.setFlag(id, "\\Seen", true)
+      setEmails((prev) => prev.map((email) =>
+        email.id === id ? { ...email, read: true } : email
+      ))
+    } catch (err) {
+      console.error("Failed to mark message as read:", err)
+      toast.error("Failed to mark as read")
+    }
   }
 
   const handleRefresh = () => {
@@ -177,12 +183,20 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
 
   const handleDelete = () => deleteEmails([...selectedEmails])
 
-  const handleMarkRead = () => {
-    toast.success(`${selectedEmails.size} message${selectedEmails.size !== 1 ? "s" : ""} marked as read`)
-    setEmails(emails.map((e) =>
-      selectedEmails.has(e.id) ? { ...e, read: true } : e
-    ))
-    setSelectedEmails(new Set())
+  const handleMarkRead = async () => {
+    const ids = [...selectedEmails]
+    if (ids.length === 0) return
+    try {
+      await Promise.all(ids.map((id) => api.setFlag(id, "\\Seen", true)))
+      setEmails((prev) => prev.map((e) =>
+        ids.includes(e.id) ? { ...e, read: true } : e
+      ))
+      setSelectedEmails(new Set())
+      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} marked as read`)
+    } catch (err) {
+      console.error("Failed to mark messages as read:", err)
+      toast.error("Failed to mark as read")
+    }
   }
 
   const filteredEmails = emails

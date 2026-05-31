@@ -652,6 +652,81 @@ func (h *MailHandler) moveMessageMetadata(userEmail, src, dst string, srcUID uin
 	return h.mailDB.DeleteMessage(userEmail, src, srcUID)
 }
 
+// flagRequest sets or clears an IMAP flag on a message.
+type flagRequest struct {
+	ID    string `json:"id"`
+	Flag  string `json:"flag"`
+	Value bool   `json:"value"`
+}
+
+// allowedFlags is the set of IMAP flags the web client is permitted to toggle.
+var allowedFlags = map[string]bool{
+	"\\Seen":    true,
+	"\\Flagged": true,
+}
+
+// handleMailFlag sets or clears a single IMAP flag (read/unread via \Seen,
+// star via \Flagged) on a message so those states persist server-side.
+func (h *MailHandler) handleMailFlag(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	user := r.Context().Value("user")
+	userEmail, ok := user.(string)
+	if !ok {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req flagRequest
+	if err := decodeJSON(r, &req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "Invalid request")
+		return
+	}
+	if req.ID == "" {
+		h.sendError(w, http.StatusBadRequest, "Message ID required")
+		return
+	}
+	if !allowedFlags[req.Flag] {
+		h.sendError(w, http.StatusBadRequest, "Unsupported flag")
+		return
+	}
+	if h.mailDB == nil {
+		h.sendError(w, http.StatusInternalServerError, "Storage not available")
+		return
+	}
+
+	mailbox, uid, meta, found := h.findMessage(userEmail, req.ID)
+	if !found {
+		h.sendError(w, http.StatusNotFound, "Email not found")
+		return
+	}
+
+	has := hasFlag(meta.Flags, req.Flag)
+	switch {
+	case req.Value && !has:
+		meta.Flags = append(meta.Flags, req.Flag)
+	case !req.Value && has:
+		meta.Flags = storage.RemoveFlag(meta.Flags, req.Flag)
+	}
+
+	if err := h.mailDB.UpdateMessageMetadata(userEmail, mailbox, uid, meta); err != nil {
+		h.sendError(w, http.StatusInternalServerError, "Failed to update message")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":    req.ID,
+		"flag":  req.Flag,
+		"value": req.Value,
+	}); err != nil {
+		fmt.Printf("ERROR: failed to encode flag response: %v\n", err)
+	}
+}
+
 // deleteMessageMetadata finds and deletes message metadata by messageID
 func (h *MailHandler) deleteMessageMetadata(userEmail, messageID string) {
 	mailboxes := []string{"INBOX", "Sent", "Drafts", "Trash", "Junk", "Archive"}

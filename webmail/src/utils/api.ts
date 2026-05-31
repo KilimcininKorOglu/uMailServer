@@ -263,6 +263,12 @@ class API {
     await this.delete(`/mail/delete?id=${id}`)
   }
 
+  // setFlag sets or clears an IMAP flag (\\Seen for read, \\Flagged for star)
+  // on a message so the state persists server-side.
+  async setFlag(id: string, flag: '\\Seen' | '\\Flagged', value: boolean): Promise<void> {
+    await this.post('/mail/flag', { id, flag, value })
+  }
+
   // Filters
   async getFilters(): Promise<{ filters?: Filter[] }> {
     return this.get<{ filters?: Filter[] }>('/filters')
