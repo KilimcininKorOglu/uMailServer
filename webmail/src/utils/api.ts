@@ -34,6 +34,7 @@ export interface SendMailRequest {
   body: string
   from?: string // Sender identity for send-as or send-on-behalf
   attachments?: MailAttachment[]
+  requestReadReceipt?: boolean // ask the recipient's client for a read receipt
 }
 
 export interface AuthLoginRequest {

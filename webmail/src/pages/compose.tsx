@@ -141,6 +141,7 @@ export function ComposePage() {
     loadDiagnostics()
   }, [])
 
+  const [requestReadReceipt, setRequestReadReceipt] = useState(false)
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -469,6 +470,7 @@ export function ComposePage() {
         body,
         from: senderEmail, // Pass sender identity to API
         attachments: encoded.length > 0 ? encoded : undefined,
+        requestReadReceipt: requestReadReceipt || undefined,
       })
 
       toast.success("Email sent successfully")
@@ -1025,6 +1027,17 @@ export function ComposePage() {
             className="hidden"
             onChange={handleAttach}
           />
+          <Button
+            type="button"
+            variant={requestReadReceipt ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => setRequestReadReceipt((v) => !v)}
+            title="Request a read receipt"
+            aria-pressed={requestReadReceipt}
+          >
+            <Check className={requestReadReceipt ? "mr-1.5 h-4 w-4" : "mr-1.5 h-4 w-4 opacity-40"} />
+            Read receipt
+          </Button>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <kbd className="rounded border px-1.5 py-0.5 text-xs bg-muted">⌘</kbd>

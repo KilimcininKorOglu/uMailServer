@@ -48,6 +48,10 @@ type SendMailRequest struct {
 	Body        string       `json:"body"`
 	From        string       `json:"from,omitempty"` // Sender identity for send-as or send-on-behalf
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// RequestReadReceipt adds a Disposition-Notification-To header so the
+	// recipient's client is asked to send a read receipt (MDN) back to the
+	// sender. The MDN is generated on the receiving side when present.
+	RequestReadReceipt bool `json:"requestReadReceipt,omitempty"`
 }
 
 // buildMultipartBody assembles a multipart/mixed body (a text part plus
@@ -524,6 +528,10 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(&sb, "Subject: %s\r\n", safeSubject)
 	fmt.Fprintf(&sb, "Date: %s\r\n", dateStr)
 	sb.WriteString("MIME-Version: 1.0\r\n")
+	if req.RequestReadReceipt {
+		// Ask the recipient's client to return a read receipt to the sender.
+		fmt.Fprintf(&sb, "Disposition-Notification-To: %s\r\n", sanitizeHeaderValue(senderEmail))
+	}
 
 	if len(req.Attachments) > 0 {
 		mpBody, ctype, err := buildMultipartBody(req.Body, req.Attachments)
