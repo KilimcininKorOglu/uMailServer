@@ -144,9 +144,33 @@ export function SettingsPage() {
     spellCheck: true,
   })
 
-  const handleToggle = (key: keyof typeof settings) => {
-    setSettings({ ...settings, [key]: !settings[key] })
-    toast.success("Setting updated")
+  // Load persisted preferences on mount and merge over the defaults.
+  useEffect(() => {
+    let cancelled = false
+    api.getPreferences()
+      .then((res) => {
+        if (cancelled || !res.preferences) return
+        setSettings((prev) => ({ ...prev, ...res.preferences }))
+      })
+      .catch(() => {
+        // keep defaults
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleToggle = async (key: keyof typeof settings) => {
+    const next = { ...settings, [key]: !settings[key] }
+    setSettings(next)
+    try {
+      await api.setPreferences(next)
+      toast.success("Setting updated")
+    } catch (err) {
+      console.error("Failed to save setting:", err)
+      toast.error("Failed to save setting")
+      setSettings(settings) // revert
+    }
   }
 
   // Vacation / Out-of-Office auto-reply (backed by /api/v1/vacation).

@@ -578,6 +578,9 @@ func (s *Server) initRouter() {
 	// Self-service password change for the authenticated user.
 	api.HandleFunc("/api/v1/account/password", s.handleAccountPassword)
 
+	// Per-user UI preferences (settings toggles).
+	api.HandleFunc("/api/v1/preferences", s.handlePreferences)
+
 	if !s.config.SeparateAdminListener {
 		s.registerAdminAPIRoutes(api)
 	}

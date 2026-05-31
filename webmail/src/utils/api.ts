@@ -261,6 +261,15 @@ class API {
     await this.post('/account/password', { currentPassword, newPassword })
   }
 
+  // Per-user UI preferences (settings toggles)
+  async getPreferences(): Promise<{ preferences?: Record<string, boolean> }> {
+    return this.get<{ preferences?: Record<string, boolean> }>('/preferences')
+  }
+
+  async setPreferences(prefs: Record<string, boolean>): Promise<void> {
+    await this.put('/preferences', prefs)
+  }
+
   // Active client sessions
   async getSessions(): Promise<{ sessions?: ClientSession[] }> {
     return this.get<{ sessions?: ClientSession[] }>('/sessions')
