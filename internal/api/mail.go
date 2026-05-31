@@ -250,10 +250,6 @@ func (h *MailHandler) handleMailGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	emailID := r.URL.Query().Get("id")
-	if emailID == "" {
-		h.sendError(w, http.StatusBadRequest, "Message ID required")
-		return
-	}
 
 	// Build the list of mailboxes to search. If the caller named a folder, try
 	// it first; otherwise (and as a fallback) search every mailbox, because the
