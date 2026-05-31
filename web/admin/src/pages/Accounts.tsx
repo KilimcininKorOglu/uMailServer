@@ -42,6 +42,17 @@ import { useAccounts } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import type { Account } from "@/types";
 
+// useApi rejects with a plain { message, status } object rather than an Error,
+// so unwrap that shape (and a genuine Error) to recover the server's reason.
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "object" && err !== null && "message" in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === "string" && msg) return msg;
+  }
+  return fallback;
+}
+
 export function Accounts() {
   const {
     accounts,
@@ -63,6 +74,8 @@ export function Accounts() {
   const [newAccountIsAdmin, setNewAccountIsAdmin] = useState(false);
   const [newAccountQuotaMB, setNewAccountQuotaMB] = useState(0);
   const [requirePasswordChangeOnReset, setRequirePasswordChangeOnReset] = useState(true);
+  const [originalIsAdmin, setOriginalIsAdmin] = useState(false);
+  const [currentAdminPassword, setCurrentAdminPassword] = useState("");
   const [formError, setFormError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -121,8 +134,17 @@ export function Accounts() {
   const handleUpdateAccount = async () => {
     if (!selectedAccount) return;
 
+    const adminChanged = selectedAccount.is_admin !== originalIsAdmin;
+    if (adminChanged && !currentAdminPassword) {
+      setFormError("Enter your admin password to change admin privileges.");
+      return;
+    }
+
     try {
-      const updates: Partial<Account> & { password?: string } = {
+      const updates: Partial<Account> & {
+        password?: string;
+        current_admin_password?: string;
+      } = {
         is_admin: selectedAccount.is_admin,
         is_active: selectedAccount.is_active,
         quota_limit: selectedAccount.quota_limit,
@@ -131,13 +153,19 @@ export function Accounts() {
         updates.password = newAccountPassword;
         updates.must_change_password = requirePasswordChangeOnReset;
       }
+      // The backend requires re-authentication with the acting admin's password
+      // before it will grant or revoke admin privileges.
+      if (adminChanged) {
+        updates.current_admin_password = currentAdminPassword;
+      }
       await updateAccount(selectedAccount.email, updates);
       setIsEditDialogOpen(false);
       setSelectedAccount(null);
       setNewAccountPassword("");
       setRequirePasswordChangeOnReset(true);
+      setCurrentAdminPassword("");
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to update account");
+      setFormError(errorMessage(err, "Failed to update account"));
     }
   };
 
@@ -291,6 +319,8 @@ export function Accounts() {
               account={account}
               onEdit={() => {
                 setSelectedAccount(account);
+                setOriginalIsAdmin(account.is_admin);
+                setCurrentAdminPassword("");
                 setNewAccountPassword("");
                 setRequirePasswordChangeOnReset(true);
                 setFormError("");
@@ -333,6 +363,22 @@ export function Accounts() {
                   }
                 />
               </div>
+              {selectedAccount.is_admin !== originalIsAdmin && (
+                <div className="space-y-2">
+                  <Label htmlFor="current-admin-password">Your admin password</Label>
+                  <Input
+                    id="current-admin-password"
+                    type="password"
+                    placeholder="Confirm to change admin privileges"
+                    value={currentAdminPassword}
+                    onChange={(e) => setCurrentAdminPassword(e.target.value)}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Granting or revoking admin access requires re-entering your own
+                    password.
+                  </p>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <Label htmlFor="edit-is-active">Active</Label>
                 <Switch
@@ -393,6 +439,7 @@ export function Accounts() {
                 setIsEditDialogOpen(false);
                 setNewAccountPassword("");
                 setRequirePasswordChangeOnReset(true);
+                setCurrentAdminPassword("");
                 setFormError("");
               }}
             >
