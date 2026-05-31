@@ -146,6 +146,7 @@ func (s *Server) startSMTP() {
 		smtpServer := smtp.NewServer(smtpCfg, s.logger)
 		smtpServer.SetAuthHandler(s.authenticate)
 		smtpServer.SetDeliveryHandlerWithSieve(s.deliverMessageWithSieve)
+		smtpServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken (CVE-2022-37454, etc.)
 		// smtpServer.SetUserSecretHandler(s.getUserSecret)
 		smtpServer.SetLoginResultHandler(s.protoLoginHandler("smtp"))
@@ -174,6 +175,7 @@ func (s *Server) startSMTP() {
 		submissionServer := smtp.NewServer(submissionCfg, s.logger)
 		submissionServer.SetAuthHandler(s.authenticate)
 		submissionServer.SetDeliveryHandlerWithSieve(s.deliverMessageWithSieve)
+		submissionServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionServer.SetUserSecretHandler(s.getUserSecret)
 		submissionServer.SetAuthLimits(s.config.Security.MaxLoginAttempts, time.Duration(s.config.Security.LockoutDuration))
@@ -208,6 +210,7 @@ func (s *Server) startSMTP() {
 		submissionTLSServer := smtp.NewServer(submissionTLSCfg, s.logger)
 		submissionTLSServer.SetAuthHandler(s.authenticate)
 		submissionTLSServer.SetDeliveryHandlerWithSieve(s.deliverMessageWithSieve)
+		submissionTLSServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionTLSServer.SetUserSecretHandler(s.getUserSecret)
 		submissionTLSServer.SetAuthLimits(s.config.Security.MaxLoginAttempts, time.Duration(s.config.Security.LockoutDuration))
@@ -223,4 +226,15 @@ func (s *Server) startSMTP() {
 		s.submissionTLSServer = submissionTLSServer
 		s.logger.Info("Submission TLS server started", "addr", submissionTLSAddr)
 	}
+}
+
+// isLocalDomainName reports whether the given domain is a locally hosted,
+// active domain. It backs the SMTP anti-relay policy: unauthenticated sessions
+// may only address local recipients.
+func (s *Server) isLocalDomainName(domain string) bool {
+	if domain == "" || s.database == nil {
+		return false
+	}
+	d, err := s.database.GetDomain(domain)
+	return err == nil && d != nil && d.IsActive
 }

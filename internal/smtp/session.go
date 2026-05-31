@@ -319,6 +319,19 @@ func (s *Session) handleRCPT(arg string) error {
 		return s.WriteResponse(452, "4.5.3 Too many recipients")
 	}
 
+	// Anti-relay: an unauthenticated client may only address locally hosted
+	// domains. Relaying to an external domain requires authentication. This
+	// prevents the inbound listener (port 25) from acting as an open relay.
+	if !s.isAuth && s.server.isLocalDomain != nil {
+		domain := ""
+		if at := strings.LastIndex(validated, "@"); at >= 0 {
+			domain = validated[at+1:]
+		}
+		if !s.server.isLocalDomain(domain) {
+			return s.WriteResponse(550, "5.7.1 Relaying denied: authentication required for external recipients")
+		}
+	}
+
 	s.rcptTo = append(s.rcptTo, validated)
 	s.rcptToNotify = append(s.rcptToNotify, notify)
 	s.state = StateRcptTo

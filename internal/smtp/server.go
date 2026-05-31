@@ -42,6 +42,7 @@ type Server struct {
 	onGetUserSecret    func(username string) (string, error) // Get user's shared secret for CRAM-MD5
 	onGetPassword      func(username string) (string, error) // Get user's password for SCRAM-SHA-256
 	onLoginResult      func(username string, success bool, ip, reason string)
+	isLocalDomain      func(domain string) bool // reports whether a domain is locally hosted (anti-relay)
 	pipeline           *Pipeline
 
 	// Rate limiting
@@ -271,6 +272,14 @@ func (s *Server) SetDeliveryHandler(handler func(from string, to []string, data 
 // SetDeliveryHandlerWithSieve sets the message delivery handler with sieve action support
 func (s *Server) SetDeliveryHandlerWithSieve(handler func(from string, to []string, data []byte, sieveActions []string) error) {
 	s.onDeliverWithSieve = handler
+}
+
+// SetLocalDomainFunc wires the local-domain check used for anti-relay policy.
+// When set, an unauthenticated session may only address recipients in locally
+// hosted domains; relaying to external domains requires authentication. This
+// closes the open-relay hole on the inbound (port 25) listener.
+func (s *Server) SetLocalDomainFunc(fn func(domain string) bool) {
+	s.isLocalDomain = fn
 }
 
 // SetPipeline sets the message processing pipeline
