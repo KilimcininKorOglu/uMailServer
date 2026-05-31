@@ -2,8 +2,6 @@ import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import {
   ArrowLeft,
-  Reply,
-  Forward,
   Archive,
   Trash2,
   MoreHorizontal,
@@ -51,7 +49,7 @@ export function EmailDetailPage() {
   const [email, setEmail] = useState<EmailDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [isStarred, setIsStarred] = useState(false)
-  const [folder, setFolder] = useState("inbox")
+  const [folder] = useState("inbox")
   
   // Load email from API
   useEffect(() => {

@@ -13,7 +13,7 @@ describe('API Error Handling', () => {
 
   describe('HTTP Error Responses', () => {
     it('handles 401 Unauthorized by redirecting to login', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
@@ -31,11 +31,12 @@ describe('API Error Handling', () => {
       expect(window.location.href).toBe('/login')
 
       // Restore window.location
+      // @ts-expect-error - restoring mocked window.location
       window.location = originalLocation
     })
 
     it('throws error for 500 Internal Server Error', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',
@@ -45,7 +46,7 @@ describe('API Error Handling', () => {
     })
 
     it('throws error for 404 Not Found', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 404,
         statusText: 'Not Found',
@@ -55,7 +56,7 @@ describe('API Error Handling', () => {
     })
 
     it('throws error for 403 Forbidden', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 403,
         statusText: 'Forbidden',
@@ -65,7 +66,7 @@ describe('API Error Handling', () => {
     })
 
     it('throws error for 400 Bad Request', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 400,
         statusText: 'Bad Request',
@@ -75,7 +76,7 @@ describe('API Error Handling', () => {
     })
 
     it('throws error for 429 Too Many Requests', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 429,
         statusText: 'Too Many Requests',
@@ -85,7 +86,7 @@ describe('API Error Handling', () => {
     })
 
     it('throws error for 503 Service Unavailable', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 503,
         statusText: 'Service Unavailable',
@@ -97,25 +98,25 @@ describe('API Error Handling', () => {
 
   describe('Network Errors', () => {
     it('throws error on network failure', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
 
       await expect(API.get('/test')).rejects.toThrow('Network error')
     })
 
     it('throws error on timeout', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error('Timeout'))
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Timeout'))
 
       await expect(API.get('/test')).rejects.toThrow('Timeout')
     })
 
     it('throws error on DNS failure', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+      globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
 
       await expect(API.get('/test')).rejects.toThrow('Failed to fetch')
     })
 
     it('throws error on CORS failure', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new TypeError('CORS error'))
+      globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('CORS error'))
 
       await expect(API.get('/test')).rejects.toThrow('CORS error')
     })
@@ -125,7 +126,7 @@ describe('API Error Handling', () => {
     it('includes Authorization header when token is set', async () => {
       API.setToken('test-token-123')
 
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -134,7 +135,7 @@ describe('API Error Handling', () => {
 
       await API.get('/test')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -147,7 +148,7 @@ describe('API Error Handling', () => {
     it('does not include Authorization header when token is null', async () => {
       API.setToken(null)
 
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -156,7 +157,7 @@ describe('API Error Handling', () => {
 
       await API.get('/test')
 
-      const callArgs = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
       expect(callArgs.headers['Authorization']).toBeUndefined()
     })
   })
@@ -165,7 +166,7 @@ describe('API Error Handling', () => {
     it('parses JSON response correctly', async () => {
       const mockData = { emails: [{ id: '1', subject: 'Test' }] }
 
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -177,7 +178,7 @@ describe('API Error Handling', () => {
     })
 
     it('handles empty JSON response', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -189,7 +190,7 @@ describe('API Error Handling', () => {
     })
 
     it('handles non-JSON response', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'text/plain' }),
@@ -201,7 +202,7 @@ describe('API Error Handling', () => {
     })
 
     it('handles response without content-type header', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers(),
@@ -213,7 +214,7 @@ describe('API Error Handling', () => {
     })
 
     it('handles null response body', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 204,
         headers: new Headers(),
@@ -227,7 +228,7 @@ describe('API Error Handling', () => {
 
   describe('Request Methods', () => {
     it('sends GET request correctly', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -236,7 +237,7 @@ describe('API Error Handling', () => {
 
       await API.get('/test')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           method: 'GET',
@@ -245,7 +246,7 @@ describe('API Error Handling', () => {
     })
 
     it('sends POST request with body correctly', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -255,7 +256,7 @@ describe('API Error Handling', () => {
       const body = { name: 'test', value: 123 }
       await API.post('/test', body)
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           method: 'POST',
@@ -265,7 +266,7 @@ describe('API Error Handling', () => {
     })
 
     it('sends PUT request with body correctly', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -275,7 +276,7 @@ describe('API Error Handling', () => {
       const body = { name: 'updated', value: 456 }
       await API.put('/test', body)
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           method: 'PUT',
@@ -285,7 +286,7 @@ describe('API Error Handling', () => {
     })
 
     it('sends DELETE request correctly', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -294,7 +295,7 @@ describe('API Error Handling', () => {
 
       await API.delete('/test')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           method: 'DELETE',
@@ -303,7 +304,7 @@ describe('API Error Handling', () => {
     })
 
     it('sends POST request without body correctly', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -312,7 +313,7 @@ describe('API Error Handling', () => {
 
       await API.post('/test')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           method: 'POST',
@@ -324,7 +325,7 @@ describe('API Error Handling', () => {
 
   describe('Request Headers', () => {
     it('includes default Content-Type header', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -333,7 +334,7 @@ describe('API Error Handling', () => {
 
       await API.get('/test')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -344,7 +345,7 @@ describe('API Error Handling', () => {
     })
 
     it('allows custom headers to be passed', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -355,7 +356,7 @@ describe('API Error Handling', () => {
         headers: { 'X-Custom-Header': 'custom-value' },
       })
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -367,7 +368,7 @@ describe('API Error Handling', () => {
     })
 
     it('includes credentials: include for cookie handling', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -376,7 +377,7 @@ describe('API Error Handling', () => {
 
       await API.get('/test')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           credentials: 'include',
@@ -389,7 +390,7 @@ describe('API Error Handling', () => {
     it('logs API errors to console', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
 
       try {
         await API.get('/test')
@@ -405,7 +406,7 @@ describe('API Error Handling', () => {
 
   describe('API Specific Endpoints', () => {
     it('login endpoint constructs correct request', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -414,7 +415,7 @@ describe('API Error Handling', () => {
 
       await API.login({ email: 'user@test.com', password: 'pass123' })
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/auth/login'),
         expect.objectContaining({
           method: 'POST',
@@ -424,7 +425,7 @@ describe('API Error Handling', () => {
     })
 
     it('getMail endpoint constructs correct URL', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -433,7 +434,7 @@ describe('API Error Handling', () => {
 
       await API.getMail('inbox')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/mail/inbox'),
         expect.objectContaining({
           method: 'GET',
@@ -442,7 +443,7 @@ describe('API Error Handling', () => {
     })
 
     it('search endpoint encodes query parameter', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -451,14 +452,14 @@ describe('API Error Handling', () => {
 
       await API.search('hello world')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/search?q=hello%20world'),
         expect.any(Object)
       )
     })
 
     it('deleteMail endpoint constructs correct URL with query parameter', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers(),
@@ -467,7 +468,7 @@ describe('API Error Handling', () => {
 
       await API.deleteMail('msg-123')
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/mail/delete?id=msg-123'),
         expect.objectContaining({
           method: 'DELETE',

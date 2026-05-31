@@ -46,7 +46,7 @@ export function ContactsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
   const [formData, setFormData] = useState({
     name: "",
     email: "",

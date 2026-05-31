@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import api from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 
@@ -196,7 +195,6 @@ const SharedMailboxItemComponent = ({
 
 export function Sidebar({ collapsed, onToggle, unreadCount: _unreadCount = 0 }: SidebarProps) {
   const navigate = useNavigate()
-  const location = useLocation()
   const [hovered, setHovered] = useState(false)
   const { user } = useAuth()
   const { currentMailbox, switchMailbox, loadSharedMailboxes, sharedMailboxes } = useMailbox()
