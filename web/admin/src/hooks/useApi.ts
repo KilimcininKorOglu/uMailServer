@@ -8,7 +8,6 @@ import type {
   BookingPolicy,
   RoomList,
   PolicyRule,
-  RateLimitConfig,
   MailboxDiagnostics,
   SubscriptionInfo,
   ProtocolFailure,
@@ -459,24 +458,6 @@ export function useAdminRules() {
 }
 
 // Rate-limit config (flat, read-only display) API hook
-export function useRateLimitConfig() {
-  const [config, setConfig] = useState<RateLimitConfig | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const fetchRateLimitConfig = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await apiRequest<RateLimitConfig>("/admin/ratelimits/config");
-      setConfig(result);
-      return result;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  return { config, loading, fetchRateLimitConfig };
-}
-
 // Admin diagnostics API hooks
 interface DiagnosticsResponse {
   mailboxes: MailboxDiagnostics[];

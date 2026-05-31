@@ -25,8 +25,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { useAdminRules, useRateLimitConfig } from "@/hooks/useApi";
-import type { PolicyRule, RateLimitConfig } from "@/types";
+import { useAdminRules, useConfig } from "@/hooks/useApi";
+import type { PolicyRule, ServerConfig } from "@/types";
 
 interface OOFSettings {
   enabled: boolean;
@@ -39,22 +39,18 @@ interface OOFSettings {
 
 // Display labels for the flat rate-limit config fields. The backend exposes a
 // single global config (no per-policy enable flags), so these are read-only.
-const RATE_LIMIT_FIELDS: { key: keyof RateLimitConfig; label: string; window: string }[] = [
-  { key: "ip_per_minute", label: "Per IP", window: "minute" },
-  { key: "ip_per_hour", label: "Per IP", window: "hour" },
-  { key: "ip_per_day", label: "Per IP", window: "day" },
-  { key: "ip_connections", label: "IP connections", window: "concurrent" },
-  { key: "user_per_minute", label: "Per user", window: "minute" },
-  { key: "user_per_hour", label: "Per user", window: "hour" },
-  { key: "user_per_day", label: "Per user", window: "day" },
-  { key: "user_max_recipients", label: "Max recipients per user", window: "message" },
-  { key: "global_per_minute", label: "Global", window: "minute" },
-  { key: "global_per_hour", label: "Global", window: "hour" },
+// Read the rate-limiting values from the same /admin/config source that the
+// Settings page edits, so the two screens stay consistent. The live rate-limit
+// manager endpoint (/admin/ratelimits/config) returns 503 when the manager is
+// not enabled, which is what produced the "not available" empty state here.
+const RATE_LIMIT_FIELDS: { key: keyof ServerConfig; label: string; description: string }[] = [
+  { key: "max_emails_per_hour", label: "Max emails per user", description: "per hour" },
+  { key: "max_login_attempts", label: "Max auth attempts", description: "before lockout" },
 ];
 
 export function Policies() {
   const { rules, loading: rulesLoading, fetchRules, toggleRule, deleteRule } = useAdminRules();
-  const { config: rateLimitConfig, loading: rateLoading, fetchRateLimitConfig } = useRateLimitConfig();
+  const { config: rateLimitConfig, loading: rateLoading, fetchConfig: fetchRateLimitConfig } = useConfig();
 
   const [activeTab, setActiveTab] = useState("oof");
   const [oofLoading, setOofLoading] = useState(false);
@@ -350,7 +346,7 @@ export function Policies() {
                         </div>
                         <div>
                           <div className="font-medium">{field.label}</div>
-                          <div className="text-sm text-muted-foreground">per {field.window}</div>
+                          <div className="text-sm text-muted-foreground">{field.description}</div>
                         </div>
                       </div>
                       <Badge variant="secondary">{rateLimitConfig[field.key]}</Badge>
