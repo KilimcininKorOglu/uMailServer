@@ -4,8 +4,6 @@ import {
   Users,
   Globe,
   Server,
-  TrendingUp,
-  TrendingDown,
   Activity,
   CheckCircle,
   AlertTriangle,
@@ -66,8 +64,6 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
       value: stats?.domains || 0,
       icon: Globe,
       color: "from-blue-500 to-blue-600",
-      trend: "+0",
-      trendUp: true,
       description: "Active email domains",
     },
     {
@@ -75,8 +71,6 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
       value: stats?.accounts || 0,
       icon: Users,
       color: "from-emerald-500 to-emerald-600",
-      trend: "+0",
-      trendUp: true,
       description: "Registered users",
     },
     {
@@ -84,8 +78,6 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
       value: stats?.messages || 0,
       icon: Mail,
       color: "from-violet-500 to-violet-600",
-      trend: "+0",
-      trendUp: true,
       description: "Processed messages",
     },
     {
@@ -93,8 +85,6 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
       value: stats?.queue_size || 0,
       icon: Server,
       color: "from-orange-500 to-orange-600",
-      trend: "0",
-      trendUp: true,
       description: "Pending emails",
     },
   ];
@@ -216,13 +206,11 @@ interface StatCardProps {
   value: number;
   icon: React.ElementType;
   color: string;
-  trend: string;
-  trendUp: boolean;
   description: string;
   loading?: boolean;
 }
 
-function StatCard({ title, value, icon: Icon, color, trend, trendUp, description, loading }: StatCardProps) {
+function StatCard({ title, value, icon: Icon, color, description, loading }: StatCardProps) {
   if (loading) {
     return (
       <Card>
@@ -242,17 +230,6 @@ function StatCard({ title, value, icon: Icon, color, trend, trendUp, description
         <div className="flex items-start justify-between">
           <div className={cn("p-3 rounded-xl bg-gradient-to-br", color)}>
             <Icon className="h-6 w-6 text-white" />
-          </div>
-          <div className={cn(
-            "flex items-center text-sm font-medium",
-            trendUp ? "text-emerald-500" : "text-red-500"
-          )}>
-            {trendUp ? (
-              <TrendingUp className="mr-1 h-4 w-4" />
-            ) : (
-              <TrendingDown className="mr-1 h-4 w-4" />
-            )}
-            {trend}
           </div>
         </div>
         <div className="mt-4">
