@@ -411,6 +411,34 @@ func (db *Database) GetNextUID(user, mailbox string) (uint32, error) {
 	return uid, err
 }
 
+// ReconcileUIDNext ensures the stored UIDNEXT exceeds every UID present in the
+// mailbox. RFC 3501 requires UIDNEXT to be greater than any current UID; a
+// mailbox whose counter drifted below the highest assigned UID (e.g. from an
+// older code path) would otherwise hand a client a duplicate or stale UID.
+// It is a cheap O(1) check (bbolt Cursor.Last) and a no-op when already
+// consistent, so it is safe to call on every mailbox select.
+func (db *Database) ReconcileUIDNext(user, mailbox string) error {
+	if db.bolt == nil {
+		return nil
+	}
+	return db.bolt.Update(func(tx *bbolt.Tx) error {
+		mb := tx.Bucket([]byte(mailboxKey(user, mailbox)))
+		msgs := tx.Bucket([]byte(messagesBucket(user, mailbox)))
+		if mb == nil || msgs == nil {
+			return nil
+		}
+		lastKey, _ := msgs.Cursor().Last()
+		if lastKey == nil {
+			return nil
+		}
+		maxUID := btoi(lastKey)
+		if btoi(mb.Get([]byte("uidnext"))) <= maxUID {
+			return mb.Put([]byte("uidnext"), itob(maxUID+1))
+		}
+		return nil
+	})
+}
+
 // GetNextModSeq returns the next modification sequence number for a mailbox and increments it (RFC 7162)
 func (db *Database) GetNextModSeq(user, mailbox string) (uint64, error) {
 	if db.bolt == nil {

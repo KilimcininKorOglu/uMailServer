@@ -116,6 +116,13 @@ func (m *BboltMailstore) Authenticate(username, password string) (bool, error) {
 
 // SelectMailbox returns mailbox information
 func (m *BboltMailstore) SelectMailbox(user, mailbox string) (*Mailbox, error) {
+	// Repair a UIDNEXT that drifted below the highest existing UID before
+	// reporting it, so SELECT/STATUS never advertise a UIDNEXT that would
+	// collide with an existing message (RFC 3501).
+	if err := m.db.ReconcileUIDNext(user, mailbox); err != nil {
+		return nil, err
+	}
+
 	// Get mailbox info from database
 	mb, err := m.db.GetMailbox(user, mailbox)
 	if err != nil {
