@@ -9,8 +9,13 @@ import {
   Mail,
   FolderInput,
   Flag,
+  Tag,
+  X,
+  Plus,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -33,6 +38,7 @@ interface EmailDetail {
   date: string
   content: string
   flagged: boolean
+  labels: string[]
 }
 
 export function EmailDetailPage() {
@@ -41,6 +47,8 @@ export function EmailDetailPage() {
   const { user } = useAuth()
   const [email, setEmail] = useState<EmailDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [newLabel, setNewLabel] = useState("")
+  const [labelEditing, setLabelEditing] = useState(false)
 
   // Load the message by id (the backend resolves it across all folders).
   useEffect(() => {
@@ -66,6 +74,7 @@ export function EmailDetailPage() {
             date: result.date,
             content: result.body,
             flagged: !!result.starred,
+            labels: result.labels ?? [],
           })
         } else {
           toast.error("Email not found")
@@ -160,6 +169,35 @@ export function EmailDetailPage() {
       setEmail({ ...email, flagged: !next })
       toast.error("Failed to update follow-up flag")
     }
+  }
+
+  // saveLabels persists the full label set and updates state on success.
+  const saveLabels = async (next: string[]) => {
+    if (!email) return
+    const prev = email.labels
+    setEmail({ ...email, labels: next })
+    try {
+      await api.setMailLabels(email.id, next)
+    } catch {
+      setEmail({ ...email, labels: prev })
+      toast.error("Failed to update labels")
+    }
+  }
+
+  const handleAddLabel = () => {
+    if (!email) return
+    const value = newLabel.trim()
+    if (!value || email.labels.includes(value)) {
+      setNewLabel("")
+      return
+    }
+    setNewLabel("")
+    void saveLabels([...email.labels, value])
+  }
+
+  const handleRemoveLabel = (label: string) => {
+    if (!email) return
+    void saveLabels(email.labels.filter((l) => l !== label))
   }
 
   const handleMove = async (folder: string, label: string) => {
@@ -270,6 +308,45 @@ export function EmailDetailPage() {
                   </div>
 
                   <div className="mt-1 text-sm text-muted-foreground">{email.date}</div>
+
+                  {/* Category labels */}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                    {email.labels.map((label) => (
+                      <Badge key={label} variant="secondary" className="gap-1">
+                        {label}
+                        <button
+                          onClick={() => handleRemoveLabel(label)}
+                          className="text-muted-foreground hover:text-destructive"
+                          aria-label={`Remove ${label}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                    {labelEditing ? (
+                      <Input
+                        autoFocus
+                        value={newLabel}
+                        onChange={(e) => setNewLabel(e.target.value)}
+                        onBlur={() => { handleAddLabel(); setLabelEditing(false) }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { handleAddLabel(); setLabelEditing(false) }
+                          if (e.key === "Escape") { setNewLabel(""); setLabelEditing(false) }
+                        }}
+                        placeholder="Label"
+                        className="h-6 w-28 text-xs"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setLabelEditing(true)}
+                        className="flex items-center gap-1 rounded border border-dashed px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Add label
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

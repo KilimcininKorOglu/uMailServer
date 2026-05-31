@@ -493,6 +493,9 @@ type MessageMetadata struct {
 	References   []string  `json:"references,omitempty"`
 	ThreadID     string    `json:"thread_id,omitempty"`
 	IsThreadRoot bool      `json:"is_thread_root,omitempty"`
+	// Labels are user-assigned categories/tags for the message (Outlook-style
+	// categories). They are stored alongside the message metadata.
+	Labels []string `json:"labels,omitempty"`
 }
 
 // Thread represents an email conversation thread

@@ -101,7 +101,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
             starred: mail.starred,
             hasAttachments: mail.hasAttachments,
             folder: mail.folder.toLowerCase(),
-            labels: [], // Labels from API if available
+            labels: mail.labels ?? [],
           }
         })
 

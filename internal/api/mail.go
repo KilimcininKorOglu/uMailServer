@@ -30,6 +30,7 @@ type Mail struct {
 	Folder         string   `json:"folder"`
 	HasAttachments bool     `json:"hasAttachments"`
 	Size           int64    `json:"size"`
+	Labels         []string `json:"labels,omitempty"`
 }
 
 // Attachment is a base64-encoded file attached to an outgoing message.
@@ -271,6 +272,7 @@ func (h *MailHandler) getEmailsFromStorage(userEmail, mailbox string) ([]Mail, e
 			Starred: hasFlag(meta.Flags, "\\Flagged"),
 			Folder:  folderName,
 			Size:    meta.Size,
+			Labels:  meta.Labels,
 		}
 		emails = append(emails, email)
 	}
@@ -394,6 +396,7 @@ func (h *MailHandler) getEmailFromStorage(userEmail, mailbox, messageID string) 
 				Starred: hasFlag(meta.Flags, "\\Flagged"),
 				Folder:  folderName,
 				Size:    meta.Size,
+				Labels:  meta.Labels,
 			}, nil
 		}
 	}
@@ -807,6 +810,76 @@ func (h *MailHandler) handleMailFlag(w http.ResponseWriter, r *http.Request) {
 		"value": req.Value,
 	}); err != nil {
 		fmt.Printf("ERROR: failed to encode flag response: %v\n", err)
+	}
+}
+
+// labelsRequest replaces the category labels on a message.
+type labelsRequest struct {
+	ID     string   `json:"id"`
+	Labels []string `json:"labels"`
+}
+
+const maxLabelsPerMessage = 50
+const maxLabelLength = 100
+
+// handleMailLabels replaces the set of category labels on a message. Labels are
+// stored in the message metadata (Outlook-style categories).
+func (h *MailHandler) handleMailLabels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	user := r.Context().Value("user")
+	userEmail, ok := user.(string)
+	if !ok {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var req labelsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "Invalid request")
+		return
+	}
+	if req.ID == "" {
+		h.sendError(w, http.StatusBadRequest, "Message ID required")
+		return
+	}
+	if len(req.Labels) > maxLabelsPerMessage {
+		h.sendError(w, http.StatusBadRequest, "Too many labels")
+		return
+	}
+	// Normalize: trim, drop empties, dedupe, enforce length.
+	seen := make(map[string]bool, len(req.Labels))
+	labels := make([]string, 0, len(req.Labels))
+	for _, l := range req.Labels {
+		l = strings.TrimSpace(l)
+		if l == "" || len(l) > maxLabelLength || seen[l] {
+			continue
+		}
+		seen[l] = true
+		labels = append(labels, l)
+	}
+	if h.mailDB == nil {
+		h.sendError(w, http.StatusInternalServerError, "Storage not available")
+		return
+	}
+
+	mailbox, uid, meta, found := h.findMessage(userEmail, req.ID)
+	if !found {
+		h.sendError(w, http.StatusNotFound, "Email not found")
+		return
+	}
+	meta.Labels = labels
+	if err := h.mailDB.UpdateMessageMetadata(userEmail, mailbox, uid, meta); err != nil {
+		h.sendError(w, http.StatusInternalServerError, "Failed to update message")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":     req.ID,
+		"labels": labels,
+	}); err != nil {
+		fmt.Printf("ERROR: failed to encode labels response: %v\n", err)
 	}
 }
 

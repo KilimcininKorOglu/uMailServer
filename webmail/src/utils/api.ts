@@ -18,6 +18,7 @@ export interface Mail {
   folder: string
   hasAttachments: boolean
   size: number
+  labels?: string[]
 }
 
 export interface MailAttachment {
@@ -348,6 +349,11 @@ class API {
   // getMessage fetches a single message by id (resolved across all folders).
   async getMessage(id: string): Promise<Mail> {
     return this.get<Mail>(`/mail/message?id=${encodeURIComponent(id)}`)
+  }
+
+  // setMailLabels replaces the category labels on a message.
+  async setMailLabels(id: string, labels: string[]): Promise<{ id: string; labels: string[] }> {
+    return this.post<{ id: string; labels: string[] }>('/mail/labels', { id, labels })
   }
 
   // getMailboxes returns the user's mailbox names.
