@@ -28,6 +28,7 @@ import (
 	"github.com/umailserver/umailserver/internal/metrics"
 	"github.com/umailserver/umailserver/internal/queue"
 	"github.com/umailserver/umailserver/internal/search"
+	"github.com/umailserver/umailserver/internal/sieve"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
 	"github.com/umailserver/umailserver/internal/websocket"
@@ -112,6 +113,11 @@ type Server struct {
 	// Canonical semantic-core store, used by admin surfaces (delegation,
 	// directory/resources, rules, jobs). Nil when semantic-core is disabled.
 	semStore *semcore.Store
+
+	// Runtime Sieve manager, used to recompile and install a user's active
+	// Sieve script after the webmail filter endpoints mutate canonical rules.
+	// Nil when Sieve is disabled (recompile becomes a no-op).
+	sieveManager *sieve.Manager
 
 	// Read-only durable-job store view, built lazily from semStore. Nil when
 	// semantic-core is disabled or the job bucket could not be opened.
@@ -800,6 +806,14 @@ func (s *Server) SetSemcoreStore(store *semcore.Store) {
 			s.jobStore = js
 		}
 	}
+}
+
+// SetSieveManager injects the runtime Sieve manager so the webmail filter
+// endpoints can recompile and install a user's active Sieve script after they
+// mutate canonical inbox rules. When nil, rule mutations are persisted but no
+// Sieve recompile occurs.
+func (s *Server) SetSieveManager(mgr *sieve.Manager) {
+	s.sieveManager = mgr
 }
 
 // SetACMEChallengeHandler injects the ACME HTTP-01 challenge handler.

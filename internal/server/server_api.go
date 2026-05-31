@@ -94,6 +94,11 @@ func (s *Server) startAPI() {
 		// directory/resources, rules, jobs).
 		s.apiServer.SetSemcoreStore(s.semcoreStore)
 
+		// Give the API server the Sieve manager so the webmail filter endpoints
+		// can recompile and install a user's active Sieve script after they
+		// mutate canonical inbox rules (the same path EWS uses).
+		s.apiServer.SetSieveManager(s.sieveManager)
+
 		ewsServer := ews.NewServer(
 			s.semcoreStore.Identity(),
 			s.semcoreStore.SyncState(),

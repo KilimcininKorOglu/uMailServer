@@ -20,8 +20,25 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/umailserver/umailserver/internal/auth"
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// attachSemStore gives a test server a real semcore store so the filter
+// endpoints (now backed by the canonical rule store) can persist.
+func attachSemStore(t *testing.T, server *Server) {
+	t.Helper()
+	store, err := semcore.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to open semcore store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close semcore store: %v", err)
+		}
+	})
+	server.SetSemcoreStore(store)
+}
 
 // --- handleGetFilters Coverage Tests ---
 
@@ -48,6 +65,7 @@ func TestHandleGetFilters_WithDatabaseError(t *testing.T) {
 func TestHandleCreateFilter_WithConditions(t *testing.T) {
 	server, database, token := helperSetupAccount(t)
 	defer database.Close()
+	attachSemStore(t, server)
 
 	filterReq := map[string]interface{}{
 		"name":       "Test Filter",

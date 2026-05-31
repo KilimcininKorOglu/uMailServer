@@ -5,15 +5,35 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/umailserver/umailserver/internal/semcore"
 )
+
+// newFilterTestServer builds a test API server backed by a real semcore store,
+// since the filter endpoints are now a projection of the canonical rule store.
+func newFilterTestServer(t *testing.T, tmpDir string) *Server {
+	t.Helper()
+	server := NewTestServer(t, tmpDir)
+	store, err := semcore.NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to open semcore store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close semcore store: %v", err)
+		}
+	})
+	server.SetSemcoreStore(store)
+	return server
+}
 
 // Test handleFilters dispatcher
 func TestHandleFilters_Get(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("GET", "/api/v1/filters", nil)
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -28,7 +48,7 @@ func TestHandleFilters_Get(t *testing.T) {
 
 func TestHandleFilters_Post(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	body := map[string]interface{}{
 		"name":     "Test Filter",
@@ -56,7 +76,7 @@ func TestHandleFilters_Post(t *testing.T) {
 
 func TestHandleFilters_MethodNotAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("PATCH", "/api/v1/filters", nil)
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -72,7 +92,7 @@ func TestHandleFilters_MethodNotAllowed(t *testing.T) {
 // Test handleFilter dispatcher
 func TestHandleFilter_Get(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Create a filter first
 	filter := createTestFilter(t, server, "user@example.com")
@@ -90,7 +110,7 @@ func TestHandleFilter_Get(t *testing.T) {
 
 func TestHandleFilter_Put(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Create a filter first
 	filter := createTestFilter(t, server, "user@example.com")
@@ -114,7 +134,7 @@ func TestHandleFilter_Put(t *testing.T) {
 
 func TestHandleFilter_Delete(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Create a filter first
 	filter := createTestFilter(t, server, "user@example.com")
@@ -132,7 +152,7 @@ func TestHandleFilter_Delete(t *testing.T) {
 
 func TestHandleFilter_MethodNotAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("PATCH", "/api/v1/filters/filter-id", nil)
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -148,7 +168,7 @@ func TestHandleFilter_MethodNotAllowed(t *testing.T) {
 // Test handleGetFilters
 func TestHandleGetFilters_Unauthorized(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("GET", "/api/v1/filters", nil)
 	// No user context
@@ -163,7 +183,7 @@ func TestHandleGetFilters_Unauthorized(t *testing.T) {
 
 func TestHandleGetFilters_WithFilters(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Create multiple filters
 	createTestFilter(t, server, "user@example.com")
@@ -197,7 +217,7 @@ func TestHandleGetFilters_WithFilters(t *testing.T) {
 // Test handleGetFilter
 func TestHandleGetFilter_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("GET", "/api/v1/filters/nonexistent-id", nil)
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -212,7 +232,7 @@ func TestHandleGetFilter_NotFound(t *testing.T) {
 
 func TestHandleGetFilter_Unauthorized(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("GET", "/api/v1/filters/filter-id", nil)
 	// No user context
@@ -228,7 +248,7 @@ func TestHandleGetFilter_Unauthorized(t *testing.T) {
 // Test handleCreateFilter
 func TestHandleCreateFilter_InvalidBody(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("POST", "/api/v1/filters", bytes.NewReader([]byte("invalid json")))
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -244,7 +264,7 @@ func TestHandleCreateFilter_InvalidBody(t *testing.T) {
 
 func TestHandleCreateFilter_MissingName(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	body := map[string]interface{}{
 		"name": "",
@@ -271,7 +291,7 @@ func TestHandleCreateFilter_MissingName(t *testing.T) {
 
 func TestHandleCreateFilter_MissingConditions(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	body := map[string]interface{}{
 		"name":       "Test Filter",
@@ -296,7 +316,7 @@ func TestHandleCreateFilter_MissingConditions(t *testing.T) {
 
 func TestHandleCreateFilter_MissingActions(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	body := map[string]interface{}{
 		"name": "Test Filter",
@@ -321,7 +341,7 @@ func TestHandleCreateFilter_MissingActions(t *testing.T) {
 
 func TestHandleCreateFilter_Unauthorized(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	body := map[string]interface{}{
 		"name": "Test Filter",
@@ -349,7 +369,7 @@ func TestHandleCreateFilter_Unauthorized(t *testing.T) {
 // Test handleUpdateFilter
 func TestHandleUpdateFilter_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	body := map[string]interface{}{
 		"name": "Updated Name",
@@ -370,7 +390,7 @@ func TestHandleUpdateFilter_NotFound(t *testing.T) {
 
 func TestHandleUpdateFilter_InvalidBody(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Create a filter first
 	filter := createTestFilter(t, server, "user@example.com")
@@ -389,7 +409,7 @@ func TestHandleUpdateFilter_InvalidBody(t *testing.T) {
 
 func TestHandleUpdateFilter_Unauthorized(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	body := map[string]interface{}{
 		"name": "Updated Name",
@@ -410,7 +430,7 @@ func TestHandleUpdateFilter_Unauthorized(t *testing.T) {
 
 func TestHandleUpdateFilter_ToggleEnabled(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Create a filter first
 	filter := createTestFilter(t, server, "user@example.com")
@@ -445,7 +465,7 @@ func TestHandleUpdateFilter_ToggleEnabled(t *testing.T) {
 // Test handleDeleteFilter
 func TestHandleDeleteFilter_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/filters/nonexistent-id", nil)
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -453,15 +473,16 @@ func TestHandleDeleteFilter_NotFound(t *testing.T) {
 
 	server.handleDeleteFilter(w, req)
 
-	// Delete returns 200 even if filter doesn't exist (bbolt delete doesn't error on missing key)
-	if w.Code != http.StatusOK {
-		t.Errorf("Status = %d, want %d", w.Code, http.StatusOK)
+	// Deleting a nonexistent rule fails the ownership lookup, so the canonical
+	// store returns not-found rather than silently succeeding.
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 }
 
 func TestHandleDeleteFilter_Unauthorized(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/filters/filter-id", nil)
 	// No user context
@@ -477,7 +498,7 @@ func TestHandleDeleteFilter_Unauthorized(t *testing.T) {
 // Test handleFilterToggle
 func TestHandleFilterToggle(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Create a filter first
 	filter := createTestFilter(t, server, "user@example.com")
@@ -505,7 +526,7 @@ func TestHandleFilterToggle(t *testing.T) {
 
 func TestHandleFilterToggle_MethodNotAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("GET", "/api/v1/filters/filter-id/toggle", nil)
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -520,7 +541,7 @@ func TestHandleFilterToggle_MethodNotAllowed(t *testing.T) {
 
 func TestHandleFilterToggle_Unauthorized(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("POST", "/api/v1/filters/filter-id/toggle", nil)
 	// No user context
@@ -535,7 +556,7 @@ func TestHandleFilterToggle_Unauthorized(t *testing.T) {
 
 func TestHandleFilterToggle_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("POST", "/api/v1/filters/nonexistent-id/toggle", nil)
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -550,7 +571,7 @@ func TestHandleFilterToggle_NotFound(t *testing.T) {
 
 func TestHandleFilterToggle_InvalidPath(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Path with empty filter ID results in 404 (filter not found)
 	req := httptest.NewRequest("POST", "/api/v1/filters//toggle", nil)
@@ -568,7 +589,7 @@ func TestHandleFilterToggle_InvalidPath(t *testing.T) {
 // Test handleFilterReorder
 func TestHandleFilterReorder(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	// Create multiple filters
 	filter1 := createTestFilter(t, server, "user@example.com")
@@ -593,7 +614,7 @@ func TestHandleFilterReorder(t *testing.T) {
 
 func TestHandleFilterReorder_MethodNotAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("GET", "/api/v1/filters/reorder", nil)
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -608,7 +629,7 @@ func TestHandleFilterReorder_MethodNotAllowed(t *testing.T) {
 
 func TestHandleFilterReorder_Unauthorized(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	body := map[string]interface{}{
 		"filterIds": []string{"filter-1", "filter-2"},
@@ -629,7 +650,7 @@ func TestHandleFilterReorder_Unauthorized(t *testing.T) {
 
 func TestHandleFilterReorder_InvalidBody(t *testing.T) {
 	tmpDir := t.TempDir()
-	server := NewTestServer(t, tmpDir)
+	server := newFilterTestServer(t, tmpDir)
 
 	req := httptest.NewRequest("POST", "/api/v1/filters/reorder", bytes.NewReader([]byte("invalid json")))
 	req = req.WithContext(withUser(req.Context(), "user@example.com"))
@@ -643,12 +664,42 @@ func TestHandleFilterReorder_InvalidBody(t *testing.T) {
 	}
 }
 
-// Test filterKey helper
-func TestFilterKey(t *testing.T) {
-	key := filterKey("user@example.com", "filter-123")
-	expected := "user@example.com:filter-123"
-	if key != expected {
-		t.Errorf("filterKey = %s, want %s", key, expected)
+// TestFilterRuleRoundTrip verifies that mapping a filter to a canonical rule
+// and back preserves every condition and action field, including the richer
+// action kinds (reject/addHeader/flag) that the simple editor must not drop.
+func TestFilterRuleRoundTrip(t *testing.T) {
+	mbid, err := semcore.NewMailboxId("user@example.com")
+	if err != nil {
+		t.Fatalf("mailbox id: %v", err)
+	}
+	orig := &EmailFilter{
+		ID:       "rule-roundtrip",
+		UserID:   "user@example.com",
+		Name:     "Complex",
+		Enabled:  true,
+		MatchAll: true,
+		Priority: 3,
+		Conditions: []FilterCondition{
+			{Field: "subject", Operator: "contains", Value: "invoice"},
+			{Field: "header", Operator: "equals", Value: "x", HeaderName: "X-Foo"},
+		},
+		Actions: []FilterAction{
+			{Type: "moveToFolder", Target: "Archive"},
+			{Type: "forward", ForwardTo: "boss@example.com"},
+			{Type: "reject", Message: "rejected"},
+			{Type: "addHeader", HeaderName: "X-Tag", HeaderValue: "1"},
+			{Type: "flag", FlagName: "\\Flagged"},
+		},
+	}
+
+	rule, err := filterToRule(orig, mbid)
+	if err != nil {
+		t.Fatalf("filterToRule: %v", err)
+	}
+	got := ruleToFilter(rule)
+
+	if !reflect.DeepEqual(orig, got) {
+		t.Errorf("round-trip mismatch:\n orig = %+v\n  got = %+v", orig, got)
 	}
 }
 
