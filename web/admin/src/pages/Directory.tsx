@@ -11,7 +11,6 @@ import {
   Building,
   MapPin,
   CheckCircle,
-  XCircle,
   AlertCircle,
   List,
 } from "lucide-react";
@@ -70,6 +69,9 @@ export function Directory() {
   const [editResourceTarget, setEditResourceTarget] = useState<DirectoryObject | null>(null);
   const [editResourceCapacity, setEditResourceCapacity] = useState(0);
 
+  // Per-policy max-duration text being edited; saved on blur.
+  const [maxDurationDrafts, setMaxDurationDrafts] = useState<Record<string, string>>({});
+
   const [isAddRoomListDialogOpen, setIsAddRoomListDialogOpen] = useState(false);
   const [newRoomListName, setNewRoomListName] = useState("");
   const [newRoomListRooms, setNewRoomListRooms] = useState<string[]>([]);
@@ -124,6 +126,18 @@ export function Directory() {
       setFormError(null);
     } catch (err) {
       setFormError((err as { message?: string }).message || "Failed to remove resource");
+    }
+  };
+
+  // handleBookingUpdate applies a partial booking-policy change to the
+  // underlying resource. The backend single-sources the booking decision, so
+  // toggling auto-accept/requires-approval both write requiresApproval.
+  const handleBookingUpdate = async (id: string, patch: { allowRecurring?: boolean; requiresApproval?: boolean; maxDuration?: number }) => {
+    try {
+      await updateResource(id, patch);
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to update booking policy");
     }
   };
 
@@ -659,31 +673,59 @@ export function Directory() {
                       <div className="grid gap-4 md:grid-cols-4">
                         <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
                           <Label className="text-xs">Auto-Accept</Label>
-                          {policy.autoAccept ? (
-                            <CheckCircle className="h-4 w-4 text-emerald-500" />
-                          ) : (
-                            <XCircle className="h-4 w-4 text-red-500" />
-                          )}
+                          {/* Auto-accept is the inverse of requires-approval. */}
+                          <Switch
+                            checked={policy.autoAccept}
+                            onCheckedChange={(v) =>
+                              handleBookingUpdate(policy.id, { requiresApproval: !v })
+                            }
+                          />
                         </div>
                         <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
                           <Label className="text-xs">Allow Recurring</Label>
-                          {policy.allowRecurring ? (
-                            <CheckCircle className="h-4 w-4 text-emerald-500" />
-                          ) : (
-                            <XCircle className="h-4 w-4 text-red-500" />
-                          )}
+                          <Switch
+                            checked={policy.allowRecurring}
+                            onCheckedChange={(v) =>
+                              handleBookingUpdate(policy.id, { allowRecurring: v })
+                            }
+                          />
                         </div>
                         <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
                           <Label className="text-xs">Requires Approval</Label>
-                          {policy.requiresApproval ? (
-                            <AlertCircle className="h-4 w-4 text-amber-500" />
-                          ) : (
-                            <CheckCircle className="h-4 w-4 text-emerald-500" />
-                          )}
+                          <Switch
+                            checked={policy.requiresApproval}
+                            onCheckedChange={(v) =>
+                              handleBookingUpdate(policy.id, { requiresApproval: v })
+                            }
+                          />
                         </div>
-                        <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
-                          <Label className="text-xs">Max Duration</Label>
-                          <span className="text-sm font-medium">{policy.maxDuration}m</span>
+                        <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-muted">
+                          <Label className="text-xs" htmlFor={`maxdur-${policy.id}`}>
+                            Max Duration (min)
+                          </Label>
+                          <Input
+                            id={`maxdur-${policy.id}`}
+                            type="number"
+                            min={0}
+                            className="h-8 w-20"
+                            value={maxDurationDrafts[policy.id] ?? String(policy.maxDuration)}
+                            onChange={(e) =>
+                              setMaxDurationDrafts((d) => ({ ...d, [policy.id]: e.target.value }))
+                            }
+                            onBlur={() => {
+                              const raw = maxDurationDrafts[policy.id];
+                              if (raw === undefined) return;
+                              const next = Math.max(0, parseInt(raw, 10) || 0);
+                              setMaxDurationDrafts((d) => {
+                                const { [policy.id]: _drop, ...rest } = d;
+                                void _drop;
+                                return rest;
+                              });
+                              if (next !== policy.maxDuration) {
+                                handleBookingUpdate(policy.id, { maxDuration: next });
+                              }
+                            }}
+                          />
                         </div>
                       </div>
                     </div>
