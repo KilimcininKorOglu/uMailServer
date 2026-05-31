@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Shield,
   Mail,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,6 +67,8 @@ export function Domains() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editMaxAccounts, setEditMaxAccounts] = useState(0);
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [newDomainName, setNewDomainName] = useState("");
   const [newDomainMaxAccounts, setNewDomainMaxAccounts] = useState(100);
@@ -118,9 +121,31 @@ export function Domains() {
 
   const handleToggleDomain = async (domain: Domain) => {
     try {
-      await updateDomain(domain.name, { is_active: !domain.is_active });
+      // The update endpoint reads max_accounts and is_active together from the
+      // body (non-pointer fields), so omitting max_accounts would reset it to 0.
+      // Send the current value alongside the toggled status to preserve it.
+      await updateDomain(domain.name, {
+        is_active: !domain.is_active,
+        max_accounts: domain.max_accounts,
+      });
     } catch (err) {
       toast.error(errorMessage(err, "Failed to update domain"));
+    }
+  };
+
+  const handleEditDomain = async () => {
+    if (!selectedDomain) return;
+    setFormError("");
+
+    try {
+      await updateDomain(selectedDomain.name, {
+        max_accounts: editMaxAccounts,
+        is_active: selectedDomain.is_active,
+      });
+      setIsEditDialogOpen(false);
+      setSelectedDomain(null);
+    } catch (err) {
+      setFormError(errorMessage(err, "Failed to update domain"));
     }
   };
 
@@ -263,6 +288,12 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
               key={domain.name}
               domain={domain}
               onToggle={() => handleToggleDomain(domain)}
+              onEdit={() => {
+                setSelectedDomain(domain);
+                setEditMaxAccounts(domain.max_accounts);
+                setFormError("");
+                setIsEditDialogOpen(true);
+              }}
               onDelete={() => {
                 setSelectedDomain(domain);
                 setIsDeleteDialogOpen(true);
@@ -273,6 +304,42 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
           ))}
         </div>
       )}
+
+      {/* Edit Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Domain</DialogTitle>
+            <DialogDescription>
+              Update settings for {selectedDomain?.name}.
+            </DialogDescription>
+          </DialogHeader>
+          {formError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-max-accounts">Max Accounts</Label>
+              <Input
+                id="edit-max-accounts"
+                type="number"
+                min={0}
+                value={editMaxAccounts}
+                onChange={(e) => setEditMaxAccounts(Math.max(0, Number(e.target.value) || 0))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditDomain}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
@@ -302,12 +369,13 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
 interface DomainCardProps {
   domain: Domain;
   onToggle: () => void;
+  onEdit: () => void;
   onDelete: () => void;
   onCopyDNS: () => void;
   copiedDNS: boolean;
 }
 
-function DomainCard({ domain, onToggle, onDelete, onCopyDNS, copiedDNS }: DomainCardProps) {
+function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }: DomainCardProps) {
   const [showDNS, setShowDNS] = useState(false);
 
   return (
@@ -340,6 +408,10 @@ function DomainCard({ domain, onToggle, onDelete, onCopyDNS, copiedDNS }: Domain
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setShowDNS(true)}>
                 <Mail className="mr-2 h-4 w-4" />
                 View DNS Records
