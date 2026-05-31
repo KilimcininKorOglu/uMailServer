@@ -34,16 +34,16 @@ import (
 type CreateItemRequest struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateItem"`
 	Items   struct {
-		XMLName      xml.Name                       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-		Item         []MessageTypeNew               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
-		CalendarItem []CreateItemCalendarItemType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
-		Contact      []CreateItemContactType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
-		Task         []CreateItemTaskType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
-		ReplyToItem  []ReplyCreateItemType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyToItem"`
-		ReplyAllItem []ReplyCreateItemType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyAllToItem"`
-		AcceptItem            []MeetingReplyType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types AcceptItem"`
-		TentativelyAcceptItem []MeetingReplyType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types TentativelyAcceptItem"`
-		DeclineItem           []MeetingReplyType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types DeclineItem"`
+		XMLName               xml.Name                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+		Item                  []MessageTypeNew             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+		CalendarItem          []CreateItemCalendarItemType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
+		Contact               []CreateItemContactType      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+		Task                  []CreateItemTaskType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
+		ReplyToItem           []ReplyCreateItemType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyToItem"`
+		ReplyAllItem          []ReplyCreateItemType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReplyAllToItem"`
+		AcceptItem            []MeetingReplyType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types AcceptItem"`
+		TentativelyAcceptItem []MeetingReplyType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types TentativelyAcceptItem"`
+		DeclineItem           []MeetingReplyType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types DeclineItem"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
 	SavedItemFolderID struct {
 		DistinguishedFolderID *struct {
@@ -153,9 +153,9 @@ type CreateAttendeesType struct {
 // Cannot reuse ContactTypeNew from collab.go due to XMLName conflicts with
 // PhysicalAddressType when embedded in the same Items container.
 type CreateItemContactType struct {
-	XMLName     xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
-	DisplayName string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
-	FullName    string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
+	XMLName        xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+	DisplayName    string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
+	FullName       string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
 	GivenName      string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
 	Surname        string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
 	EmailAddresses *EmailAddressesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
@@ -166,11 +166,11 @@ type CreateItemContactType struct {
 // Cannot reuse TaskTypeNew from collab.go due to potential XMLName conflicts
 // when embedded in the same Items container.
 type CreateItemTaskType struct {
-	XMLName  xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
-	Subject  string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Body     *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
-	DueDate  string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
-	Status   string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
+	XMLName xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
+	Subject string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body    *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	DueDate string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
+	Status  string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
 }
 
 // ReplyCreateItemType is shared by the ReplyToItem and ReplyAllToItem create
@@ -266,21 +266,21 @@ type ItemsContainer struct {
 
 // MessageTypeResponse is a message item in responses (read/fetched).
 type MessageTypeResponse struct {
-	XMLName          xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
-	ItemID           ItemIdType             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
-	ParentFolderID   FolderIdComponents     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
-	Subject          string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	DateTimeReceived string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
-	Size             int                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
-	Body             BodyTypeResponse       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
-	From             *RecipientResponse     `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
-	Sender           *RecipientResponse     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sender,omitempty"`
-	ToRecipients     *RecipientsResponse    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
-	CcRecipients     *RecipientsResponse    `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
-	IsRead           bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
-	Categories       *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
-	Attachments      *AttachmentsType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attachments,omitempty"`
-	ConversationID   *ConversationIdType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ConversationId,omitempty"`
+	XMLName          xml.Name                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	ItemID           ItemIdType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
+	ParentFolderID   FolderIdComponents          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+	Subject          string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	DateTimeReceived string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
+	Size             int                         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
+	Body             BodyTypeResponse            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
+	From             *RecipientResponse          `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
+	Sender           *RecipientResponse          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sender,omitempty"`
+	ToRecipients     *RecipientsResponse         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
+	CcRecipients     *RecipientsResponse         `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
+	IsRead           bool                        `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
+	Categories       *MessageCategoriesType      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
+	Attachments      *AttachmentsType            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attachments,omitempty"`
+	ConversationID   *ConversationIdType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ConversationId,omitempty"`
 	InternetHeaders  *InternetMessageHeadersType `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternetMessageHeaders,omitempty"`
 	// isMeetingRequest is an internal marker (never serialized) flagging that
 	// FindItem should surface this item as a MeetingRequest element so clients
@@ -2154,8 +2154,8 @@ type ItemUpdateField struct {
 		XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
 		URI     string   `xml:"FieldURI,attr"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`
-	Message      ItemUpdateValue `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
-	Contact      *ItemUpdateContact `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact,omitempty"`
+	Message      ItemUpdateValue     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	Contact      *ItemUpdateContact  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact,omitempty"`
 	CalendarItem *ItemUpdateCalendar `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem,omitempty"`
 	Task         *ItemUpdateTask     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task,omitempty"`
 }

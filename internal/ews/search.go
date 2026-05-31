@@ -739,8 +739,8 @@ func truncateBody(body string, maxLen int) string {
 // FindPeopleRequest is the EWS FindPeople operation request. exchangelib's
 // folder.people() sends a single ParentFolderId plus an optional Restriction.
 type FindPeopleRequest struct {
-	XMLName     xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindPeople"`
-	Restriction *RestrictionContainer `xml:"Restriction,omitempty"`
+	XMLName      xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindPeople"`
+	Restriction  *RestrictionContainer `xml:"Restriction,omitempty"`
 	ParentFolder struct {
 		Distinguished *struct {
 			ID string `xml:"Id,attr"`
