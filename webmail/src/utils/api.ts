@@ -38,26 +38,38 @@ export interface AuthLoginResponse {
   expiresIn?: number
 }
 
+// Filter mirrors the backend /api/v1/filters contract
+// (internal/api/filters.go EmailFilter): camelCase JSON keys.
 export interface Filter {
   id: string
   name: string
+  enabled: boolean
+  matchAll: boolean
   conditions: FilterCondition[]
   actions: FilterAction[]
-  enabled: boolean
   priority: number
 }
 
 export interface FilterCondition {
   field: 'from' | 'to' | 'subject' | 'body' | 'header'
-  operator: 'contains' | 'equals' | 'starts_with' | 'ends_with' | 'exists' | 'not_exists'
+  operator: 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'matches'
   value: string
   headerName?: string
 }
 
 export interface FilterAction {
-  type: 'move' | 'copy' | 'label' | 'star' | 'mark_read' | 'forward' | 'reject' | 'discard'
-  destination?: string
-  label?: string
+  type: 'move' | 'copy' | 'delete' | 'markRead' | 'markSpam' | 'forward' | 'flag'
+  target?: string
+  forwardTo?: string
+}
+
+// FilterInput is the create/update payload the backend accepts.
+export interface FilterInput {
+  name: string
+  enabled?: boolean
+  matchAll: boolean
+  conditions: FilterCondition[]
+  actions: FilterAction[]
 }
 
 // VacationAutoReply mirrors the backend /api/v1/vacation contract
@@ -232,12 +244,12 @@ class API {
     return this.get<{ filters?: Filter[] }>('/filters')
   }
 
-  async createFilter(filter: Omit<Filter, 'id'>): Promise<{ filter?: Filter }> {
-    return this.post<{ filter?: Filter }>('/filters', filter)
+  async createFilter(filter: FilterInput): Promise<Filter> {
+    return this.post<Filter>('/filters', filter)
   }
 
-  async updateFilter(id: string, filter: Partial<Filter>): Promise<{ filter?: Filter }> {
-    return this.put<{ filter?: Filter }>(`/filters/${id}`, filter)
+  async updateFilter(id: string, filter: Partial<FilterInput>): Promise<Filter> {
+    return this.put<Filter>(`/filters/${id}`, filter)
   }
 
   async deleteFilter(id: string): Promise<void> {

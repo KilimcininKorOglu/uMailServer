@@ -16,6 +16,7 @@ import {
   Users,
   Search,
   Mail,
+  Filter,
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
@@ -51,6 +52,7 @@ const mainNavItems: NavItem[] = [
   { icon: FileText, label: "Drafts", path: "/drafts", shortcut: "gd" },
   { icon: Trash2, label: "Trash", path: "/trash", shortcut: "gT" },
   { icon: Users, label: "Contacts", path: "/contacts" },
+  { icon: Filter, label: "Filters", path: "/filters" },
 ]
 
 const folderItems: NavItem[] = [
