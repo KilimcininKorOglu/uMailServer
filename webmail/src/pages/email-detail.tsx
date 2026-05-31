@@ -8,6 +8,7 @@ import {
   Forward,
   Mail,
   FolderInput,
+  Flag,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -31,6 +32,7 @@ interface EmailDetail {
   subject: string
   date: string
   content: string
+  flagged: boolean
 }
 
 export function EmailDetailPage() {
@@ -63,6 +65,7 @@ export function EmailDetailPage() {
             subject: result.subject,
             date: result.date,
             content: result.body,
+            flagged: !!result.starred,
           })
         } else {
           toast.error("Email not found")
@@ -143,6 +146,22 @@ export function EmailDetailPage() {
     }
   }
 
+  // handleToggleFollowUp flags/unflags the message for follow-up. This is the
+  // IMAP \Flagged flag — the same primitive Outlook/EWS exposes as a follow-up
+  // flag (and what the list view's star uses), surfaced here in the reading view.
+  const handleToggleFollowUp = async () => {
+    if (!email) return
+    const next = !email.flagged
+    setEmail({ ...email, flagged: next })
+    try {
+      await api.setFlag(email.id, "\\Flagged", next)
+      toast.success(next ? "Flagged for follow-up" : "Follow-up flag cleared")
+    } catch {
+      setEmail({ ...email, flagged: !next })
+      toast.error("Failed to update follow-up flag")
+    }
+  }
+
   const handleMove = async (folder: string, label: string) => {
     if (!email) return
     try {
@@ -188,6 +207,15 @@ export function EmailDetailPage() {
               </Button>
             </div>
             <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleToggleFollowUp}
+                title={email.flagged ? "Clear follow-up flag" : "Flag for follow-up"}
+                aria-pressed={email.flagged}
+              >
+                <Flag className={email.flagged ? "h-5 w-5 fill-amber-500 text-amber-500" : "h-5 w-5"} />
+              </Button>
               <Button variant="ghost" size="icon" onClick={handleMarkUnread} title="Mark as unread">
                 <Mail className="h-5 w-5" />
               </Button>
