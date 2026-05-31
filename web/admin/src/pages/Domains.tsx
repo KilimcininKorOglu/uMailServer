@@ -157,7 +157,7 @@ ${domain.name}.    IN    MX    10    mail.${domain.name}.
 ${domain.name}.    IN    TXT    "v=spf1 mx ~all"
 
 # DKIM Record:
-default._domainkey.${domain.name}.    IN    TXT    "v=DKIM1; k=rsa; p=${domain.dkim_public_key?.replace(/\n/g, "") || "KEY"}"
+${domain.dkim_selector || "default"}._domainkey.${domain.name}.    IN    TXT    "v=DKIM1; k=rsa; p=${domain.dkim_public_key?.replace(/\n/g, "") || "KEY"}"
 
 # DMARC Record:
 _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc@${domain.name}"`;
@@ -469,6 +469,9 @@ ${domain.name}.    IN    MX    10    mail.${domain.name}.
 
 # SPF Record:
 ${domain.name}.    IN    TXT    "v=spf1 mx ~all"
+
+# DKIM Record:
+${domain.dkim_selector || "default"}._domainkey.${domain.name}.    IN    TXT    "v=DKIM1; k=rsa; p=${domain.dkim_public_key?.replace(/\n/g, "") || "KEY"}"
 
 # DMARC Record:
 _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc@${domain.name}"`}</pre>
