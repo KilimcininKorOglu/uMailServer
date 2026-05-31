@@ -50,6 +50,7 @@ interface Email {
 
 type ViewMode = "list" | "compact"
 type SortOption = "date" | "from" | "subject"
+type SortDir = "asc" | "desc"
 
 interface InboxPageProps {
   folder?: string
@@ -63,6 +64,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>("list")
   const [sortBy, setSortBy] = useState<SortOption>("date")
+  const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [showWelcome, setShowWelcome] = useState(true)
 
   // Load emails from API (reused by the initial load and the Refresh button)
@@ -222,10 +224,15 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
       return true
     })
     .sort((a, b) => {
-      if (sortBy === "date") return 0 // Keep original order for date
-      if (sortBy === "from") return a.from.localeCompare(b.from)
-      if (sortBy === "subject") return a.subject.localeCompare(b.subject)
-      return 0
+      const ts = (d: string) => {
+        const t = Date.parse(d)
+        return isNaN(t) ? 0 : t
+      }
+      let cmp = 0
+      if (sortBy === "date") cmp = ts(a.date) - ts(b.date)
+      else if (sortBy === "from") cmp = a.from.localeCompare(b.from)
+      else if (sortBy === "subject") cmp = a.subject.localeCompare(b.subject)
+      return sortDir === "asc" ? cmp : -cmp
     })
 
   const unreadCount = emails.filter((e) => !e.read).length
@@ -405,6 +412,10 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSortBy("subject")}>
                 Subject {sortBy === "subject" && "✓"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}>
+                {sortDir === "asc" ? "Ascending" : "Descending"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
