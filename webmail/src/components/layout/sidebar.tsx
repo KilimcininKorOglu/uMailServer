@@ -31,6 +31,8 @@ import api from "@/utils/api"
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
+  mobileOpen?: boolean
+  onMobileClose?: () => void
 }
 
 interface NavItem {
@@ -195,7 +197,7 @@ const SharedMailboxItemComponent = ({
   return content
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const navigate = useNavigate()
   const [hovered, setHovered] = useState(false)
   const { user } = useAuth()
@@ -291,7 +293,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <aside
       className={cn(
         "fixed left-0 top-0 z-40 h-screen border-r bg-card transition-all duration-300 ease-in-out",
-        isExpanded ? "w-64" : "w-16"
+        isExpanded ? "w-64" : "w-16",
+        // Hidden off-canvas on small screens unless toggled open; always shown on lg+.
+        mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
       )}
       onMouseEnter={() => collapsed && setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -342,7 +346,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       </div>
 
       {/* Main Navigation */}
-      <nav className="flex-1 space-y-1 px-2 py-2 overflow-y-auto">
+      <nav className="flex-1 space-y-1 px-2 py-2 overflow-y-auto" onClick={() => onMobileClose?.()}>
         {mainNav.map((item) => (
           <NavItemComponent key={item.path} item={item} isExpanded={isExpanded} />
         ))}

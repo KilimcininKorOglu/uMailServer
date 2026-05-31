@@ -13,6 +13,8 @@ export function Layout() {
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
 
       <Header
@@ -20,10 +22,18 @@ export function Layout() {
         sidebarCollapsed={sidebarCollapsed}
       />
 
+      {/* Backdrop for the mobile sidebar */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       <main
         className={cn(
           "pt-16 transition-all duration-300",
-          sidebarCollapsed ? "pl-16" : "pl-64"
+          sidebarCollapsed ? "lg:pl-16" : "lg:pl-64"
         )}
       >
         <div className="p-4 lg:p-6">
