@@ -36,9 +36,21 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 import { useDomains } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import type { Domain } from "@/types";
+
+// useApi rejects with a plain { message, status } object rather than an Error,
+// so unwrap that shape (and a genuine Error) to recover the server's reason.
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "object" && err !== null && "message" in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === "string" && msg) return msg;
+  }
+  return fallback;
+}
 
 export function Domains() {
   const {
@@ -81,7 +93,7 @@ export function Domains() {
       setNewDomainName("");
       setNewDomainMaxAccounts(100);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create domain");
+      setFormError(errorMessage(err, "Failed to create domain"));
     }
   };
 
@@ -93,7 +105,7 @@ export function Domains() {
       setIsDeleteDialogOpen(false);
       setSelectedDomain(null);
     } catch (err) {
-      console.error("Failed to delete domain:", err);
+      toast.error(errorMessage(err, "Failed to delete domain"));
     }
   };
 
@@ -101,7 +113,7 @@ export function Domains() {
     try {
       await updateDomain(domain.name, { is_active: !domain.is_active });
     } catch (err) {
-      console.error("Failed to update domain:", err);
+      toast.error(errorMessage(err, "Failed to update domain"));
     }
   };
 
