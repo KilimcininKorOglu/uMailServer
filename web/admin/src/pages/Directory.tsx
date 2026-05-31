@@ -67,6 +67,9 @@ export function Directory() {
   const [newResourceType, setNewResourceType] = useState<"room" | "equipment">("room");
   const [newResourceCapacity, setNewResourceCapacity] = useState(10);
 
+  const [editResourceTarget, setEditResourceTarget] = useState<DirectoryObject | null>(null);
+  const [editResourceCapacity, setEditResourceCapacity] = useState(0);
+
   const [isAddRoomListDialogOpen, setIsAddRoomListDialogOpen] = useState(false);
   const [newRoomListName, setNewRoomListName] = useState("");
   const [newRoomListRooms, setNewRoomListRooms] = useState<string[]>([]);
@@ -121,6 +124,25 @@ export function Directory() {
       setFormError(null);
     } catch (err) {
       setFormError((err as { message?: string }).message || "Failed to remove resource");
+    }
+  };
+
+  const openEditResource = (obj: DirectoryObject) => {
+    setEditResourceTarget(obj);
+    setEditResourceCapacity(obj.capacity ?? 0);
+    setFormError(null);
+  };
+
+  // The backend resource update accepts capacity (name and type are fixed at
+  // creation); booking rules are managed on the Booking Policy tab.
+  const handleEditResource = async () => {
+    if (!editResourceTarget) return;
+    try {
+      await updateResource(editResourceTarget.id, { capacity: editResourceCapacity });
+      setEditResourceTarget(null);
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to update resource");
     }
   };
 
@@ -258,7 +280,44 @@ export function Directory() {
         </div>
       </div>
 
-      {formError && !isAddResourceDialogOpen && !isAddRoomListDialogOpen && (
+      {/* Edit Resource Dialog */}
+      <Dialog open={editResourceTarget !== null} onOpenChange={(open) => { if (!open) setEditResourceTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Resource</DialogTitle>
+            <DialogDescription>
+              Update {editResourceTarget?.name}. Name and type are fixed at
+              creation; booking rules are on the Booking Policy tab.
+            </DialogDescription>
+          </DialogHeader>
+          {formError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-resource-capacity">Capacity</Label>
+              <Input
+                id="edit-resource-capacity"
+                type="number"
+                min={0}
+                value={editResourceCapacity}
+                onChange={(e) => setEditResourceCapacity(Math.max(0, parseInt(e.target.value) || 0))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditResourceTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditResource}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {formError && !isAddResourceDialogOpen && !isAddRoomListDialogOpen && editResourceTarget === null && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{formError}</AlertDescription>
@@ -353,7 +412,7 @@ export function Directory() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem disabled>
+                            <DropdownMenuItem onClick={() => openEditResource(obj)}>
                               <Edit className="mr-2 h-4 w-4" />
                               Edit
                             </DropdownMenuItem>
