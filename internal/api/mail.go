@@ -67,11 +67,12 @@ func (h *MailHandler) sendError(w http.ResponseWriter, status int, message strin
 
 // folderMap maps webmail folder names to internal mailbox names
 var folderMap = map[string]string{
-	"inbox":  "INBOX",
-	"sent":   "Sent",
-	"drafts": "Drafts",
-	"trash":  "Trash",
-	"spam":   "Junk",
+	"inbox":   "INBOX",
+	"sent":    "Sent",
+	"drafts":  "Drafts",
+	"trash":   "Trash",
+	"spam":    "Junk",
+	"archive": "Archive",
 }
 
 // reverseFolderMap maps internal mailbox names to webmail folder names

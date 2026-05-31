@@ -172,10 +172,20 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     }, 1000)
   }
 
-  const handleArchive = () => {
-    toast.success(`${selectedEmails.size} message${selectedEmails.size !== 1 ? "s" : ""} archived`)
-    setSelectedEmails(new Set())
+  const archiveEmails = async (ids: string[]) => {
+    if (ids.length === 0) return
+    try {
+      await Promise.all(ids.map((id) => api.moveMail(id, "archive")))
+      setEmails((prev) => prev.filter((e) => !ids.includes(e.id)))
+      setSelectedEmails(new Set())
+      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} archived`)
+    } catch (err) {
+      console.error("Failed to archive messages:", err)
+      toast.error("Failed to archive messages")
+    }
   }
+
+  const handleArchive = () => archiveEmails([...selectedEmails])
 
   const deleteEmails = async (ids: string[]) => {
     if (ids.length === 0) return
@@ -305,7 +315,12 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
               <Star className={cn("mr-2 h-4 w-4", email.starred && "fill-current")} />
               {email.starred ? "Remove star" : "Add star"}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleArchive}>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation()
+                archiveEmails([email.id])
+              }}
+            >
               <Archive className="mr-2 h-4 w-4" />
               Archive
             </DropdownMenuItem>
