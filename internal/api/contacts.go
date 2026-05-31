@@ -294,15 +294,18 @@ func (h *ContactsHandler) getAddressbooks(userEmail string) ([]*carddav.Addressb
 		return []*carddav.Addressbook{}, err
 	}
 
-	// If no addressbooks exist, create default one
-	if len(addressbooks) == 0 {
-		defaultAB := &carddav.Addressbook{
-			ID:   "default",
-			Name: "Contacts",
+	// Always include the "default" addressbook, which is where webmail saves
+	// contacts. It may hold .vcf files without registered metadata (e.g. when
+	// the user already had other addressbooks), so listing must still read it.
+	hasDefault := false
+	for _, ab := range addressbooks {
+		if ab.ID == "default" {
+			hasDefault = true
+			break
 		}
-		if err := storage.CreateAddressbook(userEmail, defaultAB); err == nil {
-			addressbooks = append(addressbooks, defaultAB)
-		}
+	}
+	if !hasDefault {
+		addressbooks = append(addressbooks, &carddav.Addressbook{ID: "default", Name: "Contacts"})
 	}
 
 	return addressbooks, nil
