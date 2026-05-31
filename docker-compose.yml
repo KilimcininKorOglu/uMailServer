@@ -14,6 +14,9 @@ services:
       - "2143:143"
       - "4190:4190"
       - "8084:8084"
+      - "2110:110"
+      - "8082:8082"
+      - "8083:8083"
     volumes:
       - /usr/share/zoneinfo/Europe/Istanbul:/etc/localtime:ro
       - ./docker-data:/data
