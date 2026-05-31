@@ -175,6 +175,18 @@ export function ComposePage() {
     }
   }, [searchParams, contacts])
 
+  // Prefill subject/body from query params (used by reply and forward).
+  useEffect(() => {
+    const subjectParam = searchParams.get("subject")
+    if (subjectParam) {
+      setSubject(subjectParam)
+    }
+    const bodyParam = searchParams.get("body")
+    if (bodyParam) {
+      setBody(bodyParam)
+    }
+  }, [searchParams])
+
   const filteredContacts = contacts.filter(
     (c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

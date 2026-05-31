@@ -231,6 +231,16 @@ class API {
     return this.get<{ emails?: Mail[] }>(`/mail/${folder}`)
   }
 
+  // getMessage fetches a single message by id (resolved across all folders).
+  async getMessage(id: string): Promise<Mail> {
+    return this.get<Mail>(`/mail/message?id=${encodeURIComponent(id)}`)
+  }
+
+  // getMailboxes returns the user's mailbox names.
+  async getMailboxes(): Promise<{ mailboxes?: string[] }> {
+    return this.get<{ mailboxes?: string[] }>('/mailboxes')
+  }
+
   async sendMail(mail: SendMailRequest): Promise<void> {
     await this.post('/mail/send', mail)
   }
