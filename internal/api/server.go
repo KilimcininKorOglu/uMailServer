@@ -592,6 +592,10 @@ func (s *Server) initRouter() {
 	// Per-user outgoing-mail signature.
 	api.HandleFunc("/api/v1/signature", s.handleSignature)
 
+	// Self-service delegation management (the authenticated user is the owner).
+	api.HandleFunc("/api/v1/delegations", s.handleMyDelegations)
+	api.HandleFunc("/api/v1/delegations/", s.handleMyDelegationDetail)
+
 	if !s.config.SeparateAdminListener {
 		s.registerAdminAPIRoutes(api)
 	}

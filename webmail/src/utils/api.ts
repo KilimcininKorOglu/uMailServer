@@ -60,6 +60,24 @@ export interface Task {
 
 export type TaskInput = Omit<Task, "uid"> & { uid?: string }
 
+export interface Delegation {
+  id: string
+  owner: string
+  grantee: string
+  mailbox: string
+  rights: string
+  canSendAs: boolean
+  canSendOnBehalf: boolean
+  createdAt: string
+}
+
+export interface DelegationInput {
+  grantee: string
+  rights: string[]
+  canSendAs?: boolean
+  canSendOnBehalf?: boolean
+}
+
 export interface AuthLoginRequest {
   email: string
   password: string
@@ -312,6 +330,19 @@ class API {
   // changePassword updates the authenticated user's own password.
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {
     await this.post('/account/password', { currentPassword, newPassword })
+  }
+
+  // Self-service delegation (the authenticated user is always the owner)
+  async getDelegations(): Promise<{ delegations?: Delegation[] }> {
+    return this.get<{ delegations?: Delegation[] }>('/delegations')
+  }
+
+  async createDelegation(input: DelegationInput): Promise<Delegation> {
+    return this.post<Delegation>('/delegations', input)
+  }
+
+  async deleteDelegation(id: string): Promise<void> {
+    await this.delete(`/delegations/${encodeURIComponent(id)}`)
   }
 
   // Per-user UI preferences (settings toggles)

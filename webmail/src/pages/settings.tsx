@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor } from "lucide-react"
+import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import api from "@/utils/api"
-import type { VacationAutoReply, ClientSession } from "@/utils/api"
+import type { VacationAutoReply, ClientSession, Delegation } from "@/utils/api"
 import { enablePushNotifications, disablePushNotifications, pushSupported } from "@/utils/push"
 
 // rfc3339ToDate extracts the YYYY-MM-DD part from an RFC3339 string for <input type="date">.
@@ -255,6 +255,64 @@ export function SettingsPage() {
       toast.error("Failed to save signature")
     } finally {
       setSignatureSaving(false)
+    }
+  }
+
+  // Delegates: people the user grants access to their own mailbox.
+  const [delegations, setDelegations] = useState<Delegation[]>([])
+  const [delEmail, setDelEmail] = useState("")
+  const [delWrite, setDelWrite] = useState(false)
+  const [delSendOnBehalf, setDelSendOnBehalf] = useState(false)
+  const [delBusy, setDelBusy] = useState(false)
+
+  const loadDelegations = useCallback(async () => {
+    try {
+      const res = await api.getDelegations()
+      setDelegations(res.delegations ?? [])
+    } catch {
+      setDelegations([])
+    }
+  }, [])
+
+  useEffect(() => {
+    loadDelegations()
+  }, [loadDelegations])
+
+  const handleAddDelegate = async () => {
+    const grantee = delEmail.trim().toLowerCase()
+    if (!grantee) {
+      toast.error("Delegate email is required")
+      return
+    }
+    setDelBusy(true)
+    try {
+      await api.createDelegation({
+        grantee,
+        rights: delWrite ? ["read", "write"] : ["read"],
+        canSendOnBehalf: delSendOnBehalf,
+      })
+      toast.success("Delegate added")
+      setDelEmail("")
+      setDelWrite(false)
+      setDelSendOnBehalf(false)
+      await loadDelegations()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add delegate")
+    } finally {
+      setDelBusy(false)
+    }
+  }
+
+  const handleRemoveDelegate = async (id: string) => {
+    setDelBusy(true)
+    try {
+      await api.deleteDelegation(id)
+      toast.success("Delegate removed")
+      await loadDelegations()
+    } catch {
+      toast.error("Failed to remove delegate")
+    } finally {
+      setDelBusy(false)
     }
   }
 
@@ -534,6 +592,69 @@ export function SettingsPage() {
           <Button onClick={handleSignatureSave} disabled={signatureSaving}>
             Save
           </Button>
+        </div>
+      </SettingSection>
+
+      {/* Delegates */}
+      <SettingSection
+        icon={UserCog}
+        title="Delegates"
+        description="Let other people access your mailbox and send on your behalf"
+      >
+        <div className="space-y-4">
+          {delegations.length > 0 && (
+            <div className="space-y-2">
+              {delegations.map((d) => (
+                <div key={d.id} className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{d.grantee}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {d.rights || "no access"}
+                      {d.canSendOnBehalf ? " · send on behalf" : ""}
+                      {d.canSendAs ? " · send as" : ""}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive"
+                    onClick={() => handleRemoveDelegate(d.id)}
+                    disabled={delBusy}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="space-y-2">
+              <Label htmlFor="delegate-email">Add a delegate</Label>
+              <Input
+                id="delegate-email"
+                type="email"
+                value={delEmail}
+                onChange={(e) => setDelEmail(e.target.value)}
+                placeholder="colleague@example.com"
+              />
+            </div>
+            <SettingRow
+              title="Allow editing"
+              description="Delegate can change items, not just read them"
+              checked={delWrite}
+              onChange={() => setDelWrite((v) => !v)}
+            />
+            <SettingRow
+              title="Send on behalf"
+              description="Delegate can send mail on your behalf"
+              checked={delSendOnBehalf}
+              onChange={() => setDelSendOnBehalf((v) => !v)}
+            />
+            <Button onClick={handleAddDelegate} disabled={delBusy || !delEmail.trim()}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add delegate
+            </Button>
+          </div>
         </div>
       </SettingSection>
 
