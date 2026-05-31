@@ -269,6 +269,12 @@ class API {
     await this.post('/mail/flag', { id, flag, value })
   }
 
+  // moveMail moves a message to another folder (e.g. "inbox" to restore from
+  // Trash, or "archive" to archive).
+  async moveMail(id: string, to: string): Promise<void> {
+    await this.post('/mail/move', { id, to })
+  }
+
   // Filters
   async getFilters(): Promise<{ filters?: Filter[] }> {
     return this.get<{ filters?: Filter[] }>('/filters')

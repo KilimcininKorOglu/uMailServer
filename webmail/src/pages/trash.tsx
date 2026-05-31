@@ -79,11 +79,11 @@ export function TrashPage() {
   const handleRestore = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     try {
-      // Move back to inbox - for now just delete from trash
-      await api.delete(`/mail/delete?id=${id}`)
+      await api.moveMail(id, "inbox")
       toast.success("Message restored")
       setEmails(emails.filter((email) => email.id !== id))
     } catch (err) {
+      console.error("Failed to restore message:", err)
       toast.error("Failed to restore message")
     }
   }

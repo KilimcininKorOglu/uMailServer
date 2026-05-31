@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -724,6 +725,86 @@ func (h *MailHandler) handleMailFlag(w http.ResponseWriter, r *http.Request) {
 		"value": req.Value,
 	}); err != nil {
 		fmt.Printf("ERROR: failed to encode flag response: %v\n", err)
+	}
+}
+
+// moveRequest moves a message to a different folder.
+type moveRequest struct {
+	ID string `json:"id"`
+	To string `json:"to"`
+}
+
+// isStandardMailbox reports whether name is one of the built-in mailboxes.
+func isStandardMailbox(name string) bool {
+	return slices.Contains(allMailboxes, name)
+}
+
+// handleMailMove moves a message to another folder (e.g. Trash -> INBOX to
+// restore, or any folder -> Archive). It only metadata-moves; the shared
+// message file is left untouched.
+func (h *MailHandler) handleMailMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	user := r.Context().Value("user")
+	userEmail, ok := user.(string)
+	if !ok {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req moveRequest
+	if err := decodeJSON(r, &req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "Invalid request")
+		return
+	}
+	if req.ID == "" || req.To == "" {
+		h.sendError(w, http.StatusBadRequest, "Message ID and target folder required")
+		return
+	}
+	if h.mailDB == nil {
+		h.sendError(w, http.StatusInternalServerError, "Storage not available")
+		return
+	}
+
+	// Resolve the destination mailbox. Allow the standard mailboxes or any
+	// folder the user already owns; reject unknown names so move cannot create
+	// arbitrary mailboxes.
+	dst := folderMap[strings.ToLower(req.To)]
+	if dst == "" {
+		dst = req.To
+	}
+	if !isStandardMailbox(dst) {
+		// GetMailbox synthesizes a default for missing mailboxes, so check the
+		// real mailbox list instead to reject folders the user does not own.
+		owned, err := h.mailDB.ListMailboxes(userEmail)
+		if err != nil || !slices.Contains(owned, dst) {
+			h.sendError(w, http.StatusBadRequest, "Unknown target folder")
+			return
+		}
+	}
+
+	mailbox, uid, meta, found := h.findMessage(userEmail, req.ID)
+	if !found {
+		h.sendError(w, http.StatusNotFound, "Email not found")
+		return
+	}
+
+	if mailbox != dst {
+		if err := h.moveMessageMetadata(userEmail, mailbox, dst, uid, meta); err != nil {
+			h.sendError(w, http.StatusInternalServerError, "Failed to move message")
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"id":     req.ID,
+		"folder": dst,
+	}); err != nil {
+		fmt.Printf("ERROR: failed to encode move response: %v\n", err)
 	}
 }
 

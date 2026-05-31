@@ -622,6 +622,7 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/mail/send", http.HandlerFunc(s.mailHandler.handleMailSend).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/delete", http.HandlerFunc(s.mailHandler.handleMailDelete).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/flag", http.HandlerFunc(s.mailHandler.handleMailFlag).ServeHTTP)
+	api.HandleFunc("/api/v1/mail/move", http.HandlerFunc(s.mailHandler.handleMailMove).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/diagnostics", s.handleMailDiagnostics)
 	// Generic per-folder listing for any other mailbox (e.g. Archive or custom
 	// folders). Exact routes above take precedence in the mux.
