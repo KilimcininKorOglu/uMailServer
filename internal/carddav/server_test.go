@@ -194,7 +194,7 @@ func TestCardDAVHandleMkCol(t *testing.T) {
 		return true, nil
 	})
 
-	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/new-ab", nil)
+	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/user@example.com/new-ab", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -218,7 +218,7 @@ FN:John Doe
 EMAIL:john@example.com
 END:VCARD`
 
-	req := httptest.NewRequest("PUT", "/dav/addressbooks/test-ab/test-contact-123.vcf", strings.NewReader(vcardData))
+	req := httptest.NewRequest("PUT", "/dav/addressbooks/user@example.com/test-ab/test-contact-123.vcf", strings.NewReader(vcardData))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -242,7 +242,7 @@ func TestCardDAVHandlePut_InvalidVCard(t *testing.T) {
 
 	invalidData := "This is not vCard data"
 
-	req := httptest.NewRequest("PUT", "/dav/addressbooks/test-ab/contact.vcf", strings.NewReader(invalidData))
+	req := httptest.NewRequest("PUT", "/dav/addressbooks/user@example.com/test-ab/contact.vcf", strings.NewReader(invalidData))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -267,7 +267,7 @@ END:VCARD`
 	contact := &Contact{UID: "test-contact-123"}
 	_ = server.storage.SaveContact("user@example.com", "test-ab", contact, vcardData)
 
-	req := httptest.NewRequest("GET", "/dav/addressbooks/test-ab/test-contact-123.vcf", nil)
+	req := httptest.NewRequest("GET", "/dav/addressbooks/user@example.com/test-ab/test-contact-123.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -294,7 +294,7 @@ func TestCardDAVHandleGet_NotFound(t *testing.T) {
 		return true, nil
 	})
 
-	req := httptest.NewRequest("GET", "/dav/addressbooks/test-ab/nonexistent.vcf", nil)
+	req := httptest.NewRequest("GET", "/dav/addressbooks/user@example.com/test-ab/nonexistent.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -319,7 +319,7 @@ END:VCARD`
 	contact := &Contact{UID: "test-contact-123"}
 	_ = server.storage.SaveContact("user@example.com", "test-ab", contact, vcardData)
 
-	req := httptest.NewRequest("DELETE", "/dav/addressbooks/test-ab/test-contact-123.vcf", nil)
+	req := httptest.NewRequest("DELETE", "/dav/addressbooks/user@example.com/test-ab/test-contact-123.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -354,7 +354,7 @@ END:VCARD`
 <prop><address-data/></prop>
 </addressbook-query>`
 
-	req := httptest.NewRequest("REPORT", "/dav/addressbooks/test-ab", strings.NewReader(reportBody))
+	req := httptest.NewRequest("REPORT", "/dav/addressbooks/user@example.com/test-ab", strings.NewReader(reportBody))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -378,7 +378,7 @@ func TestCardDAVHandleReport_InvalidQuery(t *testing.T) {
 
 	invalidBody := "This is not valid XML"
 
-	req := httptest.NewRequest("REPORT", "/dav/addressbooks/test-ab", strings.NewReader(invalidBody))
+	req := httptest.NewRequest("REPORT", "/dav/addressbooks/user@example.com/test-ab", strings.NewReader(invalidBody))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -408,7 +408,7 @@ func TestCardDAVHandleProppatch(t *testing.T) {
 </set>
 </propertyupdate>`
 
-	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/test-ab", strings.NewReader(proppatchBody))
+	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/user@example.com/test-ab", strings.NewReader(proppatchBody))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -765,7 +765,7 @@ func TestCardDAVHandleDelete_NotFound(t *testing.T) {
 	ab := &Addressbook{ID: "test-ab", Name: "Test"}
 	_ = server.storage.CreateAddressbook("user@example.com", ab)
 
-	req := httptest.NewRequest("DELETE", "/dav/addressbooks/test-ab/nonexistent.vcf", nil)
+	req := httptest.NewRequest("DELETE", "/dav/addressbooks/user@example.com/test-ab/nonexistent.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -794,7 +794,7 @@ func TestCardDAVHandleMkCol_WithBody(t *testing.T) {
   </set>
 </mkcol>`
 
-	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/new-contacts", bytes.NewReader([]byte(mkcolBody)))
+	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/user@example.com/new-contacts", bytes.NewReader([]byte(mkcolBody)))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -822,7 +822,7 @@ func TestCardDAVHandleMkCol_InvalidBody(t *testing.T) {
 	})
 
 	// Send invalid XML
-	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/test-mkcol", bytes.NewReader([]byte("invalid xml")))
+	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/user@example.com/test-mkcol", bytes.NewReader([]byte("invalid xml")))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -846,7 +846,7 @@ func TestCardDAVHandleProppatch_NoBody(t *testing.T) {
 	_ = server.storage.CreateAddressbook("user@example.com", ab)
 
 	// Send PROPPATCH without body
-	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/test-ab/", nil)
+	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/user@example.com/test-ab/", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -986,7 +986,7 @@ FN:John Updated
 EMAIL:john.updated@example.com
 END:VCARD`
 
-	req := httptest.NewRequest("PUT", "/dav/addressbooks/test-ab/test-contact.vcf", strings.NewReader(updatedVCard))
+	req := httptest.NewRequest("PUT", "/dav/addressbooks/user@example.com/test-ab/test-contact.vcf", strings.NewReader(updatedVCard))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	req.Header.Set("Content-Type", "text/vcard")
 	w := httptest.NewRecorder()
@@ -1005,7 +1005,7 @@ func TestCardDAVHandleDelete_InvalidPath(t *testing.T) {
 	})
 
 	// Path doesn't have proper format - only one part
-	req := httptest.NewRequest("DELETE", "/dav/addressbooks/test-ab", nil)
+	req := httptest.NewRequest("DELETE", "/dav/addressbooks/user@example.com/test-ab", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1113,7 +1113,7 @@ func TestCardDAVHandlePut_InvalidVCard_NoBegin(t *testing.T) {
 FN:John Doe
 END:VCARD`
 
-	req := httptest.NewRequest("PUT", "/dav/addressbooks/test-ab/test-contact.vcf", strings.NewReader(vcard))
+	req := httptest.NewRequest("PUT", "/dav/addressbooks/user@example.com/test-ab/test-contact.vcf", strings.NewReader(vcard))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1139,7 +1139,7 @@ func TestCardDAVHandlePut_InvalidVCard_NoUID(t *testing.T) {
 FN:John Doe
 END:VCARD`
 
-	req := httptest.NewRequest("PUT", "/dav/addressbooks/test-ab/test-contact.vcf", strings.NewReader(vcard))
+	req := httptest.NewRequest("PUT", "/dav/addressbooks/user@example.com/test-ab/test-contact.vcf", strings.NewReader(vcard))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1161,7 +1161,7 @@ func TestCardDAVHandleGet_NotFoundAtStorage(t *testing.T) {
 	ab := &Addressbook{ID: "test-ab", Name: "Test"}
 	_ = server.storage.CreateAddressbook("user@example.com", ab)
 
-	req := httptest.NewRequest("GET", "/dav/addressbooks/test-ab/nonexistent.vcf", nil)
+	req := httptest.NewRequest("GET", "/dav/addressbooks/user@example.com/test-ab/nonexistent.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1206,7 +1206,7 @@ func TestCardDAVHandleProppatch_NotFound(t *testing.T) {
   </D:set>
 </D:propertyupdate>`
 
-	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/nonexistent", strings.NewReader(body))
+	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/user@example.com/nonexistent", strings.NewReader(body))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1287,7 +1287,7 @@ func TestCardDAVHandleProppatch_WithBody(t *testing.T) {
   </D:set>
 </D:propertyupdate>`
 
-	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/test-ab", strings.NewReader(body))
+	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/user@example.com/test-ab", strings.NewReader(body))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1332,7 +1332,7 @@ UID:test-contact
 FN:Test Contact
 END:VCARD`
 
-	req := httptest.NewRequest("PUT", "/dav/addressbooks/test-ab/test-contact.vcf", strings.NewReader(vcard))
+	req := httptest.NewRequest("PUT", "/dav/addressbooks/user@example.com/test-ab/test-contact.vcf", strings.NewReader(vcard))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1363,7 +1363,7 @@ func TestCardDAVHandleProppatch_RemoveProperty(t *testing.T) {
   </D:remove>
 </D:propertyupdate>`
 
-	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/test-ab", strings.NewReader(body))
+	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/user@example.com/test-ab", strings.NewReader(body))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1400,7 +1400,7 @@ END:VCARD`, i, i)
 <prop><address-data/></prop>
 </addressbook-query>`
 
-	req := httptest.NewRequest("REPORT", "/dav/addressbooks/test-ab", strings.NewReader(reportBody))
+	req := httptest.NewRequest("REPORT", "/dav/addressbooks/user@example.com/test-ab", strings.NewReader(reportBody))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1431,7 +1431,7 @@ func TestCardDAVHandleReport_NonExistentAddressbook(t *testing.T) {
 <prop><address-data/></prop>
 </addressbook-query>`
 
-	req := httptest.NewRequest("REPORT", "/dav/addressbooks/nonexistent-ab", strings.NewReader(reportBody))
+	req := httptest.NewRequest("REPORT", "/dav/addressbooks/user@example.com/nonexistent-ab", strings.NewReader(reportBody))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1497,7 +1497,7 @@ END:VCARD`
 	_ = server.storage.SaveContact("user@example.com", "test-ab", contact, vcard)
 
 	// Delete the contact
-	req := httptest.NewRequest("DELETE", "/dav/addressbooks/test-ab/test-contact.vcf", nil)
+	req := httptest.NewRequest("DELETE", "/dav/addressbooks/user@example.com/test-ab/test-contact.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1508,7 +1508,7 @@ END:VCARD`
 	}
 
 	// Try to get the deleted contact
-	req2 := httptest.NewRequest("GET", "/dav/addressbooks/test-ab/test-contact.vcf", nil)
+	req2 := httptest.NewRequest("GET", "/dav/addressbooks/user@example.com/test-ab/test-contact.vcf", nil)
 	req2.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w2 := httptest.NewRecorder()
 
@@ -1535,7 +1535,7 @@ func TestCardDAVHandleMkCol_SpecialChars(t *testing.T) {
   </set>
 </mkcol>`
 
-	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/special-chars", strings.NewReader(mkcolBody))
+	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/user@example.com/special-chars", strings.NewReader(mkcolBody))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1586,7 +1586,7 @@ UID:test-contact
 FN:Test Contact
 END:VCARD`
 
-	req := httptest.NewRequest("PUT", "/dav/addressbooks/test-ab/test-contact.vcf", strings.NewReader(vcard))
+	req := httptest.NewRequest("PUT", "/dav/addressbooks/user@example.com/test-ab/test-contact.vcf", strings.NewReader(vcard))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	// No Content-Type header
 	w := httptest.NewRecorder()

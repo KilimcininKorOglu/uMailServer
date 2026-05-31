@@ -144,16 +144,16 @@ func TestServer_handleDelete_InvalidPath(t *testing.T) {
 		return true, nil
 	})
 
-	req := httptest.NewRequest("DELETE", "/dav/addressbooks/test-ab/", nil)
+	// Username-scoped path with no contact UID: the resource is the address
+	// book collection, not a contact, so DELETE reports the contact missing.
+	req := httptest.NewRequest("DELETE", "/dav/addressbooks/test/test-ab/", nil)
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
 
-	// Empty contact UID returns 204 (NoContent) since there's no contact to delete
-	// This is actually the expected behavior per the current implementation
-	if rr.Code != http.StatusNoContent {
-		t.Errorf("expected %d, got %d", http.StatusNoContent, rr.Code)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected %d, got %d", http.StatusNotFound, rr.Code)
 	}
 }
 
@@ -184,7 +184,7 @@ func TestServer_handleMkCol_InvalidBody(t *testing.T) {
 
 	// Invalid XML body - should still work and use defaults
 	body := []byte("not xml")
-	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/test-ab/", bytes.NewReader(body))
+	req := httptest.NewRequest("MKCOL", "/dav/addressbooks/test/test-ab/", bytes.NewReader(body))
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 
@@ -239,7 +239,7 @@ func TestServer_handleProppatch_NotFound(t *testing.T) {
   </set>
 </propertyupdate>`)
 
-	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/nonexistent/", bytes.NewReader(body))
+	req := httptest.NewRequest("PROPPATCH", "/dav/addressbooks/test/nonexistent/", bytes.NewReader(body))
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 

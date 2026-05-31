@@ -212,10 +212,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request, username s
 	multistatus := &Multistatus{}
 
 	// Extract address book ID from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/dav/addressbooks/")
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) > 0 {
-		addressbookID := parts[0]
+	if addressbookID, _ := addressbookPathIDs(r.URL.Path); addressbookID != "" {
 		contacts, err := s.storage.GetContacts(username, addressbookID)
 		if err == nil {
 			for _, contact := range contacts {
@@ -259,13 +256,11 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request, username stri
 	}
 
 	// Extract address book ID from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/dav/addressbooks/")
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) < 1 || parts[0] == "" {
+	addressbookID, _ := addressbookPathIDs(r.URL.Path)
+	if addressbookID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid addressbook ID")
 		return
 	}
-	addressbookID := parts[0]
 
 	// Parse vCard to create contact object
 	contact := &Contact{
@@ -288,15 +283,11 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request, username stri
 // handleGet handles GET requests for retrieving contacts
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, username string) {
 	// Extract address book ID and contact UID from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/dav/addressbooks/")
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) < 2 {
+	addressbookID, contactUID := addressbookPathIDs(r.URL.Path)
+	if addressbookID == "" || contactUID == "" {
 		s.sendError(w, http.StatusNotFound, "contact not found")
 		return
 	}
-
-	addressbookID := parts[0]
-	contactUID := strings.TrimSuffix(parts[1], filepath.Ext(parts[1]))
 
 	// Retrieve contact from storage
 	vcardData, err := s.storage.GetContact(username, addressbookID, contactUID)
@@ -314,15 +305,11 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, username stri
 // handleDelete handles DELETE requests
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, username string) {
 	// Extract address book ID and contact UID from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/dav/addressbooks/")
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) < 2 {
+	addressbookID, contactUID := addressbookPathIDs(r.URL.Path)
+	if addressbookID == "" || contactUID == "" {
 		s.sendError(w, http.StatusNotFound, "contact not found")
 		return
 	}
-
-	addressbookID := parts[0]
-	contactUID := strings.TrimSuffix(parts[1], filepath.Ext(parts[1]))
 
 	// Delete contact from storage
 	if err := s.storage.DeleteContact(username, addressbookID, contactUID); err != nil {
@@ -337,9 +324,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, username s
 // handleMkCol handles MKCOL requests
 func (s *Server) handleMkCol(w http.ResponseWriter, r *http.Request, username string) {
 	// Extract address book ID from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/dav/addressbooks/")
-	addressbookID := strings.TrimSuffix(path, "/")
-
+	addressbookID, _ := addressbookPathIDs(r.URL.Path)
 	if addressbookID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid addressbook ID")
 		return
@@ -390,13 +375,11 @@ func (s *Server) handleMkCol(w http.ResponseWriter, r *http.Request, username st
 // handleProppatch handles PROPPATCH requests
 func (s *Server) handleProppatch(w http.ResponseWriter, r *http.Request, username string) {
 	// Extract address book ID from URL path
-	path := strings.TrimPrefix(r.URL.Path, "/dav/addressbooks/")
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) < 1 || parts[0] == "" {
+	addressbookID, _ := addressbookPathIDs(r.URL.Path)
+	if addressbookID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid addressbook ID")
 		return
 	}
-	addressbookID := parts[0]
 
 	// Read and parse PROPPATCH request
 	body, err := io.ReadAll(r.Body)
@@ -641,6 +624,25 @@ func (s *Server) buildContactResponse(username, addressbookID, uid, vcardData st
 			Status: "HTTP/1.1 200 OK",
 		}},
 	}
+}
+
+// addressbookPathIDs parses a CardDAV resource path of the form
+// /dav/addressbooks/{username}/{addressbookID}/{contactUID} and returns the
+// address book ID and contact UID (with any file extension stripped). The
+// username segment matches the hrefs the server advertises (addressbook-home-
+// set), so handlers must skip it; the authenticated user is always used for
+// storage, never the path segment.
+func addressbookPathIDs(path string) (addressbookID, contactUID string) {
+	rest := strings.TrimPrefix(path, "/dav/addressbooks/")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	// parts: [username, addressbookID, contactUID]
+	if len(parts) >= 2 {
+		addressbookID = parts[1]
+	}
+	if len(parts) >= 3 {
+		contactUID = strings.TrimSuffix(parts[2], filepath.Ext(parts[2]))
+	}
+	return addressbookID, contactUID
 }
 
 // extractUIDFromVCard extracts the UID from vCard data
