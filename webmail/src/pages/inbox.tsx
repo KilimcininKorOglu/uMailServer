@@ -65,6 +65,13 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("list")
   const [sortBy, setSortBy] = useState<SortOption>("date")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 25
+
+  // Reset to the first page when the folder or filter changes.
+  useEffect(() => {
+    setPage(0)
+  }, [folder, activeFilter])
   const [showWelcome, setShowWelcome] = useState(true)
 
   // Load emails from API (reused by the initial load and the Refresh button)
@@ -236,6 +243,10 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     })
 
   const unreadCount = emails.filter((e) => !e.read).length
+
+  const totalPages = Math.max(1, Math.ceil(filteredEmails.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages - 1)
+  const pageEmails = filteredEmails.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE)
 
   const EmailRow = ({ email }: { email: Email }) => (
     <div
@@ -474,7 +485,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
           </div>
         ) : (
           <div className={cn(viewMode === "list" ? "divide-y" : "")}>
-            {filteredEmails.map((email) => (
+            {pageEmails.map((email) => (
               <EmailRow key={email.id} email={email} />
             ))}
           </div>
@@ -484,12 +495,23 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
           {filteredEmails.length} message{filteredEmails.length !== 1 ? "s" : ""}
+          {totalPages > 1 && ` · Page ${currentPage + 1} of ${totalPages}`}
         </span>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" disabled>
+          <Button
+            variant="outline"
+            size="icon"
+            disabled={currentPage <= 0}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" disabled>
+          <Button
+            variant="outline"
+            size="icon"
+            disabled={currentPage >= totalPages - 1}
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
