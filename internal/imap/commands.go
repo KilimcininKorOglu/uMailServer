@@ -2564,9 +2564,12 @@ func parseFlags(flagsStr string) []string {
 	// Remove parentheses if present
 	flagsStr = strings.Trim(flagsStr, "()")
 
+	// Preserve flag tokens verbatim, including the leading backslash on system
+	// flags (\Seen, \Deleted, ...). The storage layer's canonical representation
+	// is backslash-prefixed (e.g. Expunge checks hasFlag(flags, "\\Deleted")),
+	// so stripping it here would silently break flag matching across the server.
 	flags := []string{}
 	for _, f := range strings.Fields(flagsStr) {
-		f = strings.Trim(f, "\\")
 		if f != "" {
 			flags = append(flags, f)
 		}
