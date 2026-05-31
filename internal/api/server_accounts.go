@@ -189,6 +189,14 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Provision the standard folders so every protocol (IMAP/JMAP/EWS/webmail)
+	// sees a consistent set immediately after creation. Best-effort.
+	if s.mailDB != nil {
+		if err := s.mailDB.EnsureDefaultMailboxes(req.Email); err != nil {
+			s.logger.Warn("failed to provision default mailboxes", "email", req.Email, "error", err)
+		}
+	}
+
 	// Audit account creation
 	actor := "system"
 	if authUser := r.Context().Value("user"); authUser != nil {

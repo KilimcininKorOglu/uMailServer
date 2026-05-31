@@ -501,10 +501,11 @@ func (s *Session) authenticateUser(username, password, okMsg, failMsg string) er
 		s.server.onLoginResult(usernameNormalized, true, ip, "")
 	}
 
-	// Auto-create default mailboxes after first successful authentication
+	// Auto-create the standard folders after first successful authentication.
+	// This backstops accounts created through paths that do not provision at
+	// creation time, so a client always sees a consistent folder set.
 	if s.server.mailstore != nil {
-		// Best-effort: create INBOX if the mailstore supports it
-		_ = s.server.mailstore.CreateMailbox(s.user, "INBOX")
+		_ = s.server.mailstore.EnsureDefaultMailboxes(s.user) //nolint:errcheck
 	}
 
 	if span != nil {

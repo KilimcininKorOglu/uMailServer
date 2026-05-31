@@ -150,6 +150,27 @@ func (db *Database) CreateMailbox(user, mailbox string) error {
 	return err
 }
 
+// DefaultMailboxes is the canonical set of standard folders provisioned for
+// every account so all protocols (IMAP, JMAP, EWS, webmail) expose a consistent
+// view. This is the single source of truth for the default folder set.
+var DefaultMailboxes = []string{"INBOX", "Sent", "Drafts", "Junk", "Trash", "Archive"}
+
+// EnsureDefaultMailboxes creates the standard folders for user if they do not
+// already exist. CreateMailbox is idempotent, so repeated calls are safe; this
+// is invoked at account creation (and as a backstop on first protocol access).
+func (db *Database) EnsureDefaultMailboxes(user string) error {
+	if db == nil || db.bolt == nil {
+		return nil
+	}
+	var firstErr error
+	for _, name := range DefaultMailboxes {
+		if err := db.CreateMailbox(user, name); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // DeleteMailbox deletes a mailbox
 func (db *Database) DeleteMailbox(user, mailbox string) error {
 	if db.bolt == nil {

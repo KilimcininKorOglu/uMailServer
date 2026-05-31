@@ -303,6 +303,13 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize search service
 	s.storageDB = storageDB
+
+	// Provision standard folders for every existing account so that accounts
+	// created through any path (admin API, CLI, quickstart, bootstrap, MCP,
+	// migration) expose a consistent folder set across IMAP/JMAP/EWS/webmail.
+	// Idempotent; covers accounts created while the server was offline.
+	ensureAllAccountsDefaultMailboxes(database, storageDB, logger)
+
 	searchSvc := search.NewService(storageDB, msgStore, logger)
 	s.searchSvc = searchSvc
 	s.indexWork = make(chan indexJob, 1000)
@@ -490,6 +497,39 @@ func ensureBootstrapAdminAccounts(database *db.DB, configuredDomains []config.Do
 	}
 
 	return nil
+}
+
+// ensureAllAccountsDefaultMailboxes provisions the standard folders for every
+// existing account at startup. It is idempotent and runs regardless of which
+// path created the account, so the default folder set is consistent across all
+// protocols even for accounts created while the server was offline.
+func ensureAllAccountsDefaultMailboxes(database *db.DB, storageDB *storage.Database, logger *slog.Logger) {
+	if database == nil || storageDB == nil {
+		return
+	}
+	domains, err := database.ListDomains()
+	if err != nil {
+		logger.Warn("failed to list domains for default mailbox provisioning", "error", err)
+		return
+	}
+	provisioned := 0
+	for _, domain := range domains {
+		accounts, err := database.ListAccountsByDomain(domain.Name)
+		if err != nil {
+			logger.Warn("failed to list accounts for default mailbox provisioning", "domain", domain.Name, "error", err)
+			continue
+		}
+		for _, account := range accounts {
+			if err := storageDB.EnsureDefaultMailboxes(account.Email); err != nil {
+				logger.Warn("failed to provision default mailboxes", "email", account.Email, "error", err)
+				continue
+			}
+			provisioned++
+		}
+	}
+	if provisioned > 0 {
+		logger.Info("Ensured default mailboxes for existing accounts", "accounts", provisioned)
+	}
 }
 
 // GetDatabase returns the database instance

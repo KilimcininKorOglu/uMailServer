@@ -1293,15 +1293,15 @@ func (m *BboltMailstore) ListGranteesMailboxes(owner string) ([]string, error) {
 // Default Mailbox Provisioning
 // ---------------------------------------------------------------------------
 
-// EnsureDefaultMailboxes creates default mailboxes (INBOX, Sent, Drafts, Junk, Trash, Archive)
-// for the given user if they do not already exist. Errors creating individual mailboxes
-// are silently ignored since the mailbox creation is idempotent.
+// EnsureDefaultMailboxes creates the standard default mailboxes for the given
+// user if they do not already exist. It delegates to the shared storage helper
+// (storage.DefaultMailboxes) so the default folder set has a single source of
+// truth across protocols. Mailbox creation is idempotent.
 func (m *BboltMailstore) EnsureDefaultMailboxes(user string) error {
-	defaults := []string{"INBOX", "Sent", "Drafts", "Junk", "Trash", "Archive"}
-	for _, name := range defaults {
-		_ = m.CreateMailbox(user, name)
+	if m.db == nil {
+		return nil
 	}
-	return nil
+	return m.db.EnsureDefaultMailboxes(user)
 }
 
 // distinguishedRole returns the canonical distinguished folder role for well-known
