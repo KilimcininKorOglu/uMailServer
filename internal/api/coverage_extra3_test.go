@@ -440,6 +440,49 @@ func TestHandleLogin_TokenGeneration_Cov3(t *testing.T) {
 	}
 }
 
+// TestHandleLogin_InactiveAccount verifies a deactivated account cannot obtain a
+// token even with correct credentials (the admin "Active" toggle must enforce).
+func TestHandleLogin_InactiveAccount(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+	server := NewServer(database, nil, Config{JWTSecret: "test-secret", TokenExpiry: time.Hour})
+
+	domain := &db.DomainData{Name: "login.com", MaxAccounts: 10, IsActive: true}
+	if err := database.CreateDomain(domain); err != nil {
+		t.Fatalf("create domain: %v", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte("mypass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	account := &db.AccountData{
+		Email: "user@login.com", LocalPart: "user", Domain: "login.com",
+		PasswordHash: string(hash), IsActive: false,
+	}
+	if err := database.CreateAccount(account); err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+
+	body, err := json.Marshal(map[string]string{"email": "user@login.com", "password": "mypass"})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	server.handleLogin(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("Expected 403 for inactive account, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // =======================================================================
 // handleLogin - account not found path
 // =======================================================================

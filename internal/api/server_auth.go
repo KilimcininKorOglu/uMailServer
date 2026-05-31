@@ -441,6 +441,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject inactive accounts. An admin can deactivate an account via the
+	// "Active" toggle; a deactivated account must not be able to obtain a token.
+	if !account.IsActive {
+		s.auditLogger.LogLoginFailure(req.Email, ip, "account_inactive")
+		s.sendError(w, http.StatusForbidden, "account is inactive")
+		return
+	}
+
 	// Rehash password if using older algorithm and argon2id is preferred
 	if needsRehash {
 		newHash, err := s.hashPassword(req.Password)
