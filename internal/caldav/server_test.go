@@ -192,9 +192,8 @@ func TestHandleMkCalendar(t *testing.T) {
 		return true, nil
 	})
 
-	// Note: Implementation uses parts[2] as calendarID
-	// Path format: /dav/calendars/{calendarID}
-	req := httptest.NewRequest("MKCALENDAR", "/dav/calendars/new-cal", nil)
+	// Path format: /dav/calendars/{username}/{calendarID}
+	req := httptest.NewRequest("MKCALENDAR", "/dav/calendars/user@example.com/new-cal", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -231,9 +230,8 @@ DTEND:20260403T110000Z
 END:VEVENT
 END:VCALENDAR`
 
-	// Note: Implementation uses parts[2] as calendarID, parts[3] as eventUID
-	// Path format: /dav/calendars/{calendarID}/{eventUID}
-	req := httptest.NewRequest("PUT", "/dav/calendars/test-cal/test-event-123", strings.NewReader(icsData))
+	// Path format: /dav/calendars/{username}/{calendarID}/{eventUID}
+	req := httptest.NewRequest("PUT", "/dav/calendars/user@example.com/test-cal/test-event-123", strings.NewReader(icsData))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -267,7 +265,7 @@ func TestHandlePut_InvalidData(t *testing.T) {
 
 	invalidData := "This is not iCalendar data"
 
-	req := httptest.NewRequest("PUT", "/dav/calendars/test-cal/event", strings.NewReader(invalidData))
+	req := httptest.NewRequest("PUT", "/dav/calendars/user@example.com/test-cal/event", strings.NewReader(invalidData))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -295,7 +293,7 @@ END:VCALENDAR`
 	event := &CalendarEvent{UID: "test-event-123"}
 	server.storage.SaveEvent("user@example.com", "test-cal", event, icsData)
 
-	req := httptest.NewRequest("GET", "/dav/calendars/test-cal/test-event-123", nil)
+	req := httptest.NewRequest("GET", "/dav/calendars/user@example.com/test-cal/test-event-123", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -322,7 +320,7 @@ func TestHandleGet_NotFound(t *testing.T) {
 		return true, nil
 	})
 
-	req := httptest.NewRequest("GET", "/dav/calendars/test-cal/nonexistent", nil)
+	req := httptest.NewRequest("GET", "/dav/calendars/user@example.com/test-cal/nonexistent", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -350,7 +348,7 @@ END:VCALENDAR`
 	event := &CalendarEvent{UID: "test-event-123"}
 	server.storage.SaveEvent("user@example.com", "test-cal", event, icsData)
 
-	req := httptest.NewRequest("DELETE", "/dav/calendars/test-cal/test-event-123", nil)
+	req := httptest.NewRequest("DELETE", "/dav/calendars/user@example.com/test-cal/test-event-123", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -457,7 +455,7 @@ func TestHandleProppatch(t *testing.T) {
 	cal := &Calendar{ID: "test-cal", Name: "Test"}
 	_ = server.storage.CreateCalendar("user@example.com", cal)
 
-	req := httptest.NewRequest("PROPPATCH", "/dav/calendars/test-cal", nil)
+	req := httptest.NewRequest("PROPPATCH", "/dav/calendars/user@example.com/test-cal", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1409,7 +1407,7 @@ SUMMARY:Test Event
 END:VCALENDAR`
 
 	// Path with non-existent calendar
-	req := httptest.NewRequest("PUT", "/dav/calendars/nonexistent-cal/test-event", strings.NewReader(icsData))
+	req := httptest.NewRequest("PUT", "/dav/calendars/user@example.com/nonexistent-cal/test-event", strings.NewReader(icsData))
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -1428,7 +1426,7 @@ func TestHandleDelete_CalendarNotFound(t *testing.T) {
 	})
 
 	// Try to delete event from non-existent calendar - returns 204 (idempotent)
-	req := httptest.NewRequest("DELETE", "/dav/calendars/nonexistent-cal/event", nil)
+	req := httptest.NewRequest("DELETE", "/dav/calendars/user@example.com/nonexistent-cal/event", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 

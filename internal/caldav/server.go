@@ -191,14 +191,12 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request, username s
 		return
 	}
 
-	// Parse path to get calendar ID
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 3 {
+	// Parse path: /dav/calendars/{username}/{calendarID}
+	calendarID, _ := calendarPathIDs(r.URL.Path)
+	if calendarID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
-
-	calendarID := parts[2]
 
 	// Build response
 	multistatus := &Multistatus{}
@@ -239,16 +237,12 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request, username stri
 		return
 	}
 
-	// Parse path to get calendar ID and event UID
-	// Format: /dav/calendars/{username}/{calendarID}/{eventUID}
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 4 {
+	// Parse path: /dav/calendars/{username}/{calendarID}/{eventUID}
+	calendarID, eventUID := calendarPathIDs(r.URL.Path)
+	if calendarID == "" || eventUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
-
-	calendarID := parts[2]
-	eventUID := parts[3]
 
 	// Extract UID from ICS if available, otherwise use path
 	uid := extractUIDFromICS(icsData)
@@ -278,15 +272,12 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request, username stri
 
 // handleGet handles GET requests for retrieving events
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, username string) {
-	// Parse path
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 4 {
+	// Parse path: /dav/calendars/{username}/{calendarID}/{eventUID}
+	calendarID, eventUID := calendarPathIDs(r.URL.Path)
+	if calendarID == "" || eventUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
-
-	calendarID := parts[2]
-	eventUID := parts[3]
 
 	// Get event
 	eventData, err := s.storage.GetEvent(username, calendarID, eventUID)
@@ -307,15 +298,12 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, username stri
 
 // handleDelete handles DELETE requests
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, username string) {
-	// Parse path
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 4 {
+	// Parse path: /dav/calendars/{username}/{calendarID}/{eventUID}
+	calendarID, eventUID := calendarPathIDs(r.URL.Path)
+	if calendarID == "" || eventUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
-
-	calendarID := parts[2]
-	eventUID := parts[3]
 
 	// Delete event
 	if err := s.storage.DeleteEvent(username, calendarID, eventUID); err != nil {
@@ -329,14 +317,12 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, username s
 
 // handleMkCalendar handles MKCALENDAR requests
 func (s *Server) handleMkCalendar(w http.ResponseWriter, r *http.Request, username string) {
-	// Parse path to get calendar ID
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 3 {
+	// Parse path: /dav/calendars/{username}/{calendarID}
+	calendarID, _ := calendarPathIDs(r.URL.Path)
+	if calendarID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
-
-	calendarID := parts[2]
 
 	// Create default calendar
 	cal := &Calendar{
@@ -363,14 +349,12 @@ func (s *Server) handleMkCol(w http.ResponseWriter, r *http.Request, username st
 
 // handleProppatch handles PROPPATCH requests
 func (s *Server) handleProppatch(w http.ResponseWriter, r *http.Request, username string) {
-	// Parse path
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 3 {
+	// Parse path: /dav/calendars/{username}/{calendarID}
+	calendarID, _ := calendarPathIDs(r.URL.Path)
+	if calendarID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
-
-	calendarID := parts[2]
 
 	// Get calendar
 	cal, err := s.storage.GetCalendar(username, calendarID)
@@ -615,12 +599,34 @@ func (s *Server) buildEventResponse(username, calendarID, eventUID, eventData st
 	}
 }
 
+// calendarPathIDs parses a CalDAV resource path of the form
+// /dav/calendars/{username}/{calendarID}/{eventUID} and returns the calendar
+// ID and event UID (with any .ics extension stripped). The username segment is
+// part of the hrefs the server advertises (calendar-home-set), so write/read
+// handlers must skip it just as handleCalendarPropfind does; the authenticated
+// user is always used for storage, never the path segment.
+func calendarPathIDs(path string) (calendarID, eventUID string) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	// parts: [dav, calendars, username, calendarID, eventUID]
+	if len(parts) >= 4 {
+		calendarID = parts[3]
+	}
+	if len(parts) >= 5 {
+		eventUID = strings.TrimSuffix(parts[4], ".ics")
+	}
+	return calendarID, eventUID
+}
+
 // extractUIDFromICS extracts the UID from iCalendar data
 func extractUIDFromICS(icsData string) string {
 	lines := strings.Split(icsData, "\n")
 	for _, line := range lines {
+		// iCalendar uses CRLF line endings (RFC 5545); trim so the UID does
+		// not retain a trailing CR, which would corrupt the stored filename
+		// and break direct GET/DELETE by UID.
+		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "UID:") {
-			return strings.TrimPrefix(line, "UID:")
+			return strings.TrimSpace(strings.TrimPrefix(line, "UID:"))
 		}
 	}
 	return ""
