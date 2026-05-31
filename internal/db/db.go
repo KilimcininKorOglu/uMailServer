@@ -28,6 +28,7 @@ const (
 	BucketAliases        = "aliases"
 	BucketContacts       = "contacts"
 	BucketFilters        = "filters"
+	BucketVacation       = "vacation"
 	BucketRevokedTokens  = "revoked_tokens"
 	BucketClientSessions = "client_sessions"
 )
@@ -221,6 +222,7 @@ func (d *DB) initBuckets() error {
 		BucketContacts,
 		BucketAliases,
 		BucketFilters,
+		BucketVacation,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {

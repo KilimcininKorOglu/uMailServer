@@ -1,9 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
 
@@ -191,15 +193,24 @@ func (s *Server) getVacationConfig(user string) (*vacation.Config, error) {
 	if s.vacationMgr != nil {
 		return s.vacationMgr.GetConfig(user)
 	}
-	// Placeholder - in real implementation, get from vacation manager
-	return &vacation.Config{
+	// Default config returned when the user has nothing stored yet.
+	defaultConfig := &vacation.Config{
 		Enabled:      false,
 		Subject:      "Out of Office",
 		Message:      "I am currently out of office. I will respond to your email when I return.",
 		SendInterval: 7 * 24 * time.Hour,
 		IgnoreLists:  true,
 		IgnoreBulk:   true,
-	}, nil
+	}
+	if s.db == nil {
+		return defaultConfig, nil
+	}
+	// Load from the database; a missing key means no config is set yet.
+	var config vacation.Config
+	if err := s.db.Get(db.BucketVacation, user, &config); err != nil {
+		return defaultConfig, nil
+	}
+	return &config, nil
 }
 
 // setVacationConfig sets vacation config for a user
@@ -212,8 +223,10 @@ func (s *Server) setVacationConfig(user string, config *vacation.Config) error {
 	if s.vacationMgr != nil {
 		return s.vacationMgr.SetConfig(user, config)
 	}
-	// Placeholder - in real implementation, save to vacation manager
-	return nil
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
+	return s.db.Put(db.BucketVacation, user, config)
 }
 
 // deleteVacationConfig deletes vacation config for a user
@@ -226,8 +239,10 @@ func (s *Server) deleteVacationConfig(user string) error {
 	if s.vacationMgr != nil {
 		return s.vacationMgr.DeleteConfig(user)
 	}
-	// Placeholder - in real implementation, delete from vacation manager
-	return nil
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
+	return s.db.Delete(db.BucketVacation, user)
 }
 
 // listActiveVacations lists all active vacations
