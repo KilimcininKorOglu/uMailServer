@@ -96,6 +96,40 @@ func (s *BoltPolicyStore) ListRules(mailboxID MailboxId) ([]*Rule, error) {
 	return result, nil
 }
 
+// ListAllRules returns every inbox rule across all mailboxes, sorted by
+// priority. Intended for admin surfaces that need a global view.
+func (s *BoltPolicyStore) ListAllRules() ([]*Rule, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*Rule
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketRule))
+		return b.ForEach(func(_, v []byte) error {
+			var rule Rule
+			if err := json.Unmarshal(v, &rule); err != nil {
+				return nil // skip corrupted entries
+			}
+			rc := rule
+			result = append(result, &rc)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort by priority (lower = higher precedence).
+	for i := 0; i < len(result)-1; i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].Priority < result[i].Priority {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+	return result, nil
+}
+
 // GetRule returns a rule by RuleId.
 func (s *BoltPolicyStore) GetRule(id RuleId) (*Rule, error) {
 	s.mu.RLock()

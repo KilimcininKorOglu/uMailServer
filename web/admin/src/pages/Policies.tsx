@@ -2,12 +2,12 @@ import { useState, useEffect } from "react";
 import {
   Shield,
   MoreHorizontal,
-  Edit,
   Trash2,
   RefreshCw,
   Mail,
   Bell,
   Clock,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
@@ -26,15 +25,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-
-interface PolicyRule {
-  id: string;
-  name: string;
-  enabled: boolean;
-  priority: number;
-  conditions: string;
-  actions: string;
-}
+import { useAdminRules, useRateLimitConfig } from "@/hooks/useApi";
+import type { PolicyRule, RateLimitConfig } from "@/types";
 
 interface OOFSettings {
   enabled: boolean;
@@ -45,18 +37,29 @@ interface OOFSettings {
   internalOnly: boolean;
 }
 
-interface RateLimitPolicy {
-  id: string;
-  name: string;
-  type: "ip" | "user" | "domain";
-  limit: number;
-  window: number;
-  enabled: boolean;
-}
+// Display labels for the flat rate-limit config fields. The backend exposes a
+// single global config (no per-policy enable flags), so these are read-only.
+const RATE_LIMIT_FIELDS: { key: keyof RateLimitConfig; label: string; window: string }[] = [
+  { key: "ip_per_minute", label: "Per IP", window: "minute" },
+  { key: "ip_per_hour", label: "Per IP", window: "hour" },
+  { key: "ip_per_day", label: "Per IP", window: "day" },
+  { key: "ip_connections", label: "IP connections", window: "concurrent" },
+  { key: "user_per_minute", label: "Per user", window: "minute" },
+  { key: "user_per_hour", label: "Per user", window: "hour" },
+  { key: "user_per_day", label: "Per user", window: "day" },
+  { key: "user_max_recipients", label: "Max recipients per user", window: "message" },
+  { key: "global_per_minute", label: "Global", window: "minute" },
+  { key: "global_per_hour", label: "Global", window: "hour" },
+];
 
 export function Policies() {
+  const { rules, loading: rulesLoading, fetchRules, toggleRule, deleteRule } = useAdminRules();
+  const { config: rateLimitConfig, loading: rateLoading, fetchRateLimitConfig } = useRateLimitConfig();
+
   const [activeTab, setActiveTab] = useState("oof");
-  const [loading, setLoading] = useState(false);
+  const [oofLoading, setOofLoading] = useState(false);
+  const [activeOOFCount, setActiveOOFCount] = useState(0);
+  const [formError, setFormError] = useState<string | null>(null);
   const [oofSettings, setOofSettings] = useState<OOFSettings>({
     enabled: false,
     subject: "",
@@ -65,62 +68,55 @@ export function Policies() {
     endDate: "",
     internalOnly: false,
   });
-  const [rules, setRules] = useState<PolicyRule[]>([]);
-  const [rateLimits, setRateLimits] = useState<RateLimitPolicy[]>([]);
 
   useEffect(() => {
-    // Load initial data
     fetchOOF();
-    fetchRules();
-    fetchRateLimits();
-  }, []);
+    fetchRules().catch(() => {});
+    fetchRateLimitConfig().catch(() => {});
+  }, [fetchRules, fetchRateLimitConfig]);
 
   const fetchOOF = async () => {
-    setLoading(true);
+    setOofLoading(true);
     try {
       const response = await fetch("/api/v1/admin/vacations", {
         credentials: "include",
       });
       if (response.ok) {
-        // Active vacations list - would need to show actual OOF settings per mailbox
-        await response.json();
+        const data = await response.json();
+        setActiveOOFCount(data.count ?? (data.active_vacations?.length ?? 0));
       }
     } catch (err) {
       console.error("Failed to fetch OOF settings:", err);
     } finally {
-      setLoading(false);
+      setOofLoading(false);
     }
   };
 
-  const fetchRules = async () => {
-    // Placeholder - would fetch from /api/v1/admin/rules
-    setRules([
-      { id: "1", name: "Auto-reply to external", enabled: true, priority: 1, conditions: "From external domains", actions: "Set vacation" },
-      { id: "2", name: "Block spam sender", enabled: true, priority: 2, conditions: "Header contains spam", actions: "Move to junk" },
-    ]);
+  const handleToggleRule = async (rule: PolicyRule) => {
+    try {
+      await toggleRule(rule.id, !rule.enabled);
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to update rule");
+    }
   };
 
-  const fetchRateLimits = async () => {
-    // Placeholder - would fetch from /api/v1/admin/ratelimits/config
-    setRateLimits([
-      { id: "1", name: "SMTP per IP", type: "ip", limit: 100, window: 60, enabled: true },
-      { id: "2", name: "SMTP per user", type: "user", limit: 500, window: 3600, enabled: true },
-      { id: "3", name: "HTTP requests", type: "user", limit: 1000, window: 60, enabled: true },
-    ]);
+  const handleDeleteRule = async (id: string) => {
+    try {
+      await deleteRule(id);
+      setFormError(null);
+    } catch (err) {
+      setFormError((err as { message?: string }).message || "Failed to delete rule");
+    }
   };
 
-  const toggleRule = async (rule: PolicyRule) => {
-    // Toggle rule enabled state
-    setRules((prev) =>
-      prev.map((r) => (r.id === rule.id ? { ...r, enabled: !r.enabled } : r))
-    );
+  const refreshAll = () => {
+    fetchOOF();
+    fetchRules().catch(() => {});
+    fetchRateLimitConfig().catch(() => {});
   };
 
-  const toggleRateLimit = async (limit: RateLimitPolicy) => {
-    setRateLimits((prev) =>
-      prev.map((r) => (r.id === limit.id ? { ...r, enabled: !r.enabled } : r))
-    );
-  };
+  const loading = rulesLoading || rateLoading || oofLoading;
 
   return (
     <div className="space-y-6">
@@ -132,11 +128,18 @@ export function Policies() {
             Manage OOF, inbox rules, and Exchange protocol settings
           </p>
         </div>
-        <Button variant="outline" onClick={() => { fetchOOF(); fetchRules(); fetchRateLimits(); }} disabled={loading}>
+        <Button variant="outline" onClick={refreshAll} disabled={loading}>
           <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
           Refresh
         </Button>
       </div>
+
+      {formError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{formError}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Active OOF Summary */}
       <Card>
@@ -150,9 +153,8 @@ export function Policies() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {oofLoading ? (
             <div className="space-y-2">
-              <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
             </div>
           ) : (
@@ -163,18 +165,10 @@ export function Policies() {
                   Click into a specific mailbox to view or edit its OOF settings
                 </AlertDescription>
               </Alert>
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-1 max-w-xs">
                 <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">0</div>
+                  <div className="text-2xl font-bold">{activeOOFCount}</div>
                   <div className="text-sm text-muted-foreground">Active OOF</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">0</div>
-                  <div className="text-sm text-muted-foreground">Scheduled</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">0</div>
-                  <div className="text-sm text-muted-foreground">Expired</div>
                 </div>
               </div>
             </div>
@@ -202,9 +196,10 @@ export function Policies() {
         <TabsContent value="oof" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>OOF Settings</CardTitle>
+              <CardTitle>OOF Defaults</CardTitle>
               <CardDescription>
-                Configure default OOF behavior and Exchange protocol policy gates
+                Default OOF behavior shown to users. Per-mailbox OOF is managed by
+                each user; these defaults are not yet persisted server-side.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -259,11 +254,11 @@ export function Policies() {
             <CardHeader>
               <CardTitle>Inbox Rules Policy</CardTitle>
               <CardDescription>
-                Manage global inbox rules that apply across mailboxes
+                All inbox rules across mailboxes. Toggle to enable/disable or remove a rule.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {loading ? (
+              {rulesLoading ? (
                 <div className="space-y-4">
                   <Skeleton className="h-16 w-full" />
                   <Skeleton className="h-16 w-full" />
@@ -273,7 +268,7 @@ export function Policies() {
                   <Shield className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <h3 className="text-lg font-medium">No rules configured</h3>
                   <p className="text-muted-foreground mt-1">
-                    Global inbox rules will appear here
+                    Inbox rules created by users will appear here
                   </p>
                 </div>
               ) : (
@@ -288,13 +283,15 @@ export function Policies() {
                           <Shield className={cn("h-4 w-4", rule.enabled ? "text-emerald-500" : "text-muted-foreground")} />
                         </div>
                         <div>
-                          <div className="font-medium">{rule.name}</div>
-                          <div className="text-sm text-muted-foreground">{rule.conditions}</div>
+                          <div className="font-medium">{rule.name || "(unnamed rule)"}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {rule.mailbox} &middot; {rule.conditions} &rarr; {rule.actions}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary">{rule.priority}</Badge>
-                        <Switch checked={rule.enabled} onCheckedChange={() => toggleRule(rule)} />
+                        <Switch checked={rule.enabled} onCheckedChange={() => handleToggleRule(rule)} />
                         <DropdownMenu>
                           {/* @ts-expect-error asChild prop not typed in Base UI but works at runtime */}
                           <DropdownMenuTrigger asChild>
@@ -303,12 +300,10 @@ export function Policies() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
-                              <Edit className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-red-600">
+                            <DropdownMenuItem
+                              className="text-red-600"
+                              onClick={() => handleDeleteRule(rule.id)}
+                            >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Delete
                             </DropdownMenuItem>
@@ -328,51 +323,37 @@ export function Policies() {
             <CardHeader>
               <CardTitle>Rate Limiting Policy</CardTitle>
               <CardDescription>
-                Configure throttling and rate limits for protocol access
+                Current global throttling configuration (read-only here; edit under Settings)
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {loading ? (
+              {rateLoading ? (
                 <div className="space-y-4">
                   <Skeleton className="h-16 w-full" />
                   <Skeleton className="h-16 w-full" />
                 </div>
+              ) : !rateLimitConfig ? (
+                <div className="text-center py-8">
+                  <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-medium">Rate limiting not available</h3>
+                </div>
               ) : (
                 <div className="space-y-2">
-                  {rateLimits.map((limit) => (
+                  {RATE_LIMIT_FIELDS.map((field) => (
                     <div
-                      key={limit.id}
-                      className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors"
+                      key={field.key}
+                      className="flex items-center justify-between p-4 rounded-lg border"
                     >
                       <div className="flex items-center gap-3">
-                        <div className={cn("p-2 rounded-lg", limit.enabled ? "bg-blue-500/10" : "bg-muted")}>
-                          <Clock className={cn("h-4 w-4", limit.enabled ? "text-blue-500" : "text-muted-foreground")} />
+                        <div className="p-2 rounded-lg bg-blue-500/10">
+                          <Clock className="h-4 w-4 text-blue-500" />
                         </div>
                         <div>
-                          <div className="font-medium">{limit.name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {limit.limit} requests per {limit.window} seconds
-                          </div>
+                          <div className="font-medium">{field.label}</div>
+                          <div className="text-sm text-muted-foreground">per {field.window}</div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary">{limit.type}</Badge>
-                        <Switch checked={limit.enabled} onCheckedChange={() => toggleRateLimit(limit)} />
-                        <DropdownMenu>
-                          {/* @ts-expect-error asChild prop not typed in Base UI but works at runtime */}
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
-                              <Edit className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                      <Badge variant="secondary">{rateLimitConfig[field.key]}</Badge>
                     </div>
                   ))}
                 </div>

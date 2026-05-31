@@ -7,6 +7,8 @@ import type {
   DirectoryObject,
   BookingPolicy,
   RoomList,
+  PolicyRule,
+  RateLimitConfig,
 } from "@/types";
 
 interface ApiError {
@@ -410,4 +412,59 @@ export function useDirectory() {
     updateRoomList,
     deleteRoomList,
   };
+}
+
+// Admin inbox-rules API hooks
+export function useAdminRules() {
+  const [rules, setRules] = useState<PolicyRule[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchRules = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<{ rules: PolicyRule[] }>("/admin/rules");
+      setRules(result.rules ?? []);
+      return result.rules ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const toggleRule = useCallback(async (id: string, enabled: boolean) => {
+    await apiRequest(`/admin/rules/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    });
+    await fetchRules();
+  }, [fetchRules]);
+
+  const deleteRule = useCallback(async (id: string) => {
+    await apiRequest(`/admin/rules/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await fetchRules();
+  }, [fetchRules]);
+
+  return { rules, loading, error, fetchRules, toggleRule, deleteRule };
+}
+
+// Rate-limit config (flat, read-only display) API hook
+export function useRateLimitConfig() {
+  const [config, setConfig] = useState<RateLimitConfig | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchRateLimitConfig = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<RateLimitConfig>("/admin/ratelimits/config");
+      setConfig(result);
+      return result;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { config, loading, fetchRateLimitConfig };
 }

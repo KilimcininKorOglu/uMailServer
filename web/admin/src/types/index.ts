@@ -119,3 +119,26 @@ export interface RoomList {
   name: string;
   rooms: string[];
 }
+
+export interface PolicyRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  conditions: string;
+  actions: string;
+  mailbox: string;
+}
+
+export interface RateLimitConfig {
+  ip_per_minute: number;
+  ip_per_hour: number;
+  ip_per_day: number;
+  ip_connections: number;
+  user_per_minute: number;
+  user_per_hour: number;
+  user_per_day: number;
+  user_max_recipients: number;
+  global_per_minute: number;
+  global_per_hour: number;
+}

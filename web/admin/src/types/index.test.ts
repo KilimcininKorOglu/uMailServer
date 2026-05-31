@@ -12,6 +12,8 @@ import type {
   DirectoryObject,
   BookingPolicy,
   RoomList,
+  PolicyRule,
+  RateLimitConfig,
 } from './index'
 
 describe('Domain type', () => {
@@ -280,5 +282,40 @@ describe('RoomList type', () => {
     }
     expect(list.rooms).toHaveLength(2)
     expect(list.name).toBe('Floor 1 Rooms')
+  })
+})
+
+describe('PolicyRule type', () => {
+  it('accepts a valid inbox rule', () => {
+    const rule: PolicyRule = {
+      id: 'rule-1',
+      name: 'Move newsletters',
+      enabled: true,
+      priority: 1,
+      conditions: 'Subject contains "newsletter"',
+      actions: 'moveToFolder -> Newsletters',
+      mailbox: 'user@example.com',
+    }
+    expect(rule.enabled).toBe(true)
+    expect(rule.mailbox).toBe('user@example.com')
+  })
+})
+
+describe('RateLimitConfig type', () => {
+  it('accepts a valid flat rate-limit config', () => {
+    const cfg: RateLimitConfig = {
+      ip_per_minute: 60,
+      ip_per_hour: 1000,
+      ip_per_day: 10000,
+      ip_connections: 10,
+      user_per_minute: 30,
+      user_per_hour: 500,
+      user_per_day: 5000,
+      user_max_recipients: 100,
+      global_per_minute: 600,
+      global_per_hour: 10000,
+    }
+    expect(cfg.user_per_hour).toBe(500)
+    expect(cfg.ip_connections).toBe(10)
   })
 })
