@@ -8,7 +8,12 @@
     "domains": "Domains",
     "accounts": "Accounts",
     "aliases": "Aliases",
-    "queue": "Mail Queue",
+    "queue": "Queue",
+    "policies": "Policies",
+    "delegation": "Delegation",
+    "diagnostics": "Diagnostics",
+    "directory": "Directory",
+    "jobs": "Jobs",
     "settings": "Settings",
     "logout": "Logout"
   },

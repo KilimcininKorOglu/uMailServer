@@ -16,6 +16,8 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/hooks/useI18n";
+import LanguageSelector from "@/components/LanguageSelector";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -33,20 +35,21 @@ interface SidebarProps {
 }
 
 const menuItems = [
-  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { path: "/domains", icon: Globe, label: "Domains" },
-  { path: "/accounts", icon: Users, label: "Accounts" },
-  { path: "/queue", icon: Mail, label: "Queue" },
-  { path: "/policies", icon: Shield, label: "Policies" },
-  { path: "/delegation", icon: UsersRound, label: "Delegation" },
-  { path: "/diagnostics", icon: ActivitySquare, label: "Diagnostics" },
-  { path: "/directory", icon: FolderSearch, label: "Directory" },
-  { path: "/jobs", icon: Briefcase, label: "Jobs" },
-  { path: "/settings", icon: Settings, label: "Settings" },
+  { path: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
+  { path: "/domains", icon: Globe, labelKey: "nav.domains" },
+  { path: "/accounts", icon: Users, labelKey: "nav.accounts" },
+  { path: "/queue", icon: Mail, labelKey: "nav.queue" },
+  { path: "/policies", icon: Shield, labelKey: "nav.policies" },
+  { path: "/delegation", icon: UsersRound, labelKey: "nav.delegation" },
+  { path: "/diagnostics", icon: ActivitySquare, labelKey: "nav.diagnostics" },
+  { path: "/directory", icon: FolderSearch, labelKey: "nav.directory" },
+  { path: "/jobs", icon: Briefcase, labelKey: "nav.jobs" },
+  { path: "/settings", icon: Settings, labelKey: "nav.settings" },
 ];
 
 export function Sidebar({ isCollapsed, onToggle, user, onLogout }: SidebarProps) {
   const location = useLocation();
+  const { t } = useI18n();
 
   return (
     <TooltipProvider delay={0}>
@@ -84,6 +87,7 @@ export function Sidebar({ isCollapsed, onToggle, user, onLogout }: SidebarProps)
         <nav className="flex-1 p-2 space-y-1">
           {menuItems.map((item) => {
             const isActive = location.pathname === item.path;
+            const label = t(item.labelKey);
             const content = (
               <Link
                 to={item.path}
@@ -95,7 +99,7 @@ export function Sidebar({ isCollapsed, onToggle, user, onLogout }: SidebarProps)
                 )}
               >
                 <item.icon className={cn("h-5 w-5 flex-shrink-0", isActive && "text-primary")} />
-                {!isCollapsed && <span className="truncate">{item.label}</span>}
+                {!isCollapsed && <span className="truncate">{label}</span>}
               </Link>
             );
 
@@ -104,7 +108,7 @@ export function Sidebar({ isCollapsed, onToggle, user, onLogout }: SidebarProps)
                 <Tooltip key={item.path}>
                   {/* @ts-expect-error asChild prop not typed in Base UI but works at runtime */}
                   <TooltipTrigger asChild>{content}</TooltipTrigger>
-                  <TooltipContent side="right">{item.label}</TooltipContent>
+                  <TooltipContent side="right">{label}</TooltipContent>
                 </Tooltip>
               );
             }
@@ -115,6 +119,11 @@ export function Sidebar({ isCollapsed, onToggle, user, onLogout }: SidebarProps)
 
         {/* Footer */}
         <div className="absolute bottom-0 left-0 right-0 p-2 border-t border-border">
+          {!isCollapsed && (
+            <div className="px-3 py-2">
+              <LanguageSelector />
+            </div>
+          )}
           <div className={cn("flex items-center gap-3 px-3 py-2", isCollapsed && "justify-center")}>
             {!isCollapsed && (
               <div className="flex-1 min-w-0">
@@ -134,7 +143,7 @@ export function Sidebar({ isCollapsed, onToggle, user, onLogout }: SidebarProps)
                   <LogOut className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side={isCollapsed ? "right" : "top"}>Logout</TooltipContent>
+              <TooltipContent side={isCollapsed ? "right" : "top"}>{t("nav.logout")}</TooltipContent>
             </Tooltip>
           </div>
         </div>

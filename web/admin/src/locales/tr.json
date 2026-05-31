@@ -8,7 +8,12 @@
     "domains": "Alan Adları",
     "accounts": "Hesaplar",
     "aliases": "Takma Adlar",
-    "queue": "E-posta Kuyruğu",
+    "queue": "Kuyruk",
+    "policies": "Politikalar",
+    "delegation": "Yetkilendirme",
+    "diagnostics": "Tanılama",
+    "directory": "Dizin",
+    "jobs": "İşler",
     "settings": "Ayarlar",
     "logout": "Çıkış"
   },

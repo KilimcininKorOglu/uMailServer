@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 
 type TranslationMessages = Record<string, unknown>
 
@@ -10,7 +10,21 @@ const translations: Record<string, () => Promise<{ default: TranslationMessages 
 
 const STORAGE_KEY = 'umailserver-language'
 
-export function useI18n() {
+interface I18nContextValue {
+  locale: string
+  changeLocale: (newLocale: string) => void
+  t: (key: string, params?: Record<string, string>) => string
+  loading: boolean
+  supportedLocales: string[]
+}
+
+const I18nContext = createContext<I18nContextValue | null>(null)
+
+// useI18nState holds the actual locale/messages state. It lives once in the
+// provider so every consumer shares the same locale and a language change
+// re-renders the whole app (a bare hook gave each component its own state, so
+// switching languages never propagated).
+function useI18nState(): I18nContextValue {
   const [locale, setLocale] = useState(() => {
     return localStorage.getItem(STORAGE_KEY) || navigator.language.split('-')[0] || 'en'
   })
@@ -65,6 +79,21 @@ export function useI18n() {
   )
 
   return { locale, changeLocale, t, loading, supportedLocales: Object.keys(translations) }
+}
+
+// I18nProvider supplies the shared i18n state to the whole admin app.
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const value = useI18nState()
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
+}
+
+// useI18n reads the shared i18n context. Must be used within I18nProvider.
+export function useI18n(): I18nContextValue {
+  const ctx = useContext(I18nContext)
+  if (!ctx) {
+    throw new Error('useI18n must be used within an I18nProvider')
+  }
+  return ctx
 }
 
 export default useI18n
