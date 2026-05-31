@@ -24,9 +24,13 @@ interface HeaderProps {
 
 export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
   const { setTheme, resolvedTheme } = useTheme()
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
+
+  const email = user?.email ?? ""
+  const displayName = email ? email.split("@")[0] : "Account"
+  const initials = (email ? email.slice(0, 2) : "?").toUpperCase()
 
   const handleSignOut = async () => {
     await logout()
@@ -129,9 +133,9 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">
                 <Avatar className="h-9 w-9 ring-2 ring-primary/20">
-                  <AvatarImage src="" alt="User" />
+                  <AvatarImage src="" alt={email} />
                   <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-semibold">
-                    UK
+                    {initials}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -139,8 +143,8 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div className="flex flex-col">
-                  <span className="font-semibold">User Name</span>
-                  <span className="text-xs text-muted-foreground">user@example.com</span>
+                  <span className="font-semibold">{displayName}</span>
+                  <span className="text-xs text-muted-foreground">{email}</span>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
