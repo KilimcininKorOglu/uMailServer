@@ -135,11 +135,20 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     setSelectedEmails(newSelected)
   }
 
-  const toggleStar = (id: string, e: React.MouseEvent) => {
+  const toggleStar = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setEmails(emails.map((email) =>
-      email.id === id ? { ...email, starred: !email.starred } : email
-    ))
+    const email = emails.find((em) => em.id === id)
+    if (!email) return
+    const next = !email.starred
+    try {
+      await api.setFlag(id, "\\Flagged", next)
+      setEmails((prev) => prev.map((em) =>
+        em.id === id ? { ...em, starred: next } : em
+      ))
+    } catch (err) {
+      console.error("Failed to update star:", err)
+      toast.error("Failed to update star")
+    }
   }
 
   const markAsRead = async (id: string, e: React.MouseEvent) => {
