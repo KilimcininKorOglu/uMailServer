@@ -6,7 +6,6 @@ import {
   Server,
   AlertCircle,
   CheckCircle,
-  Database,
   Bell,
   XCircle,
 } from "lucide-react";
@@ -214,11 +213,17 @@ export function Diagnostics() {
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <Button variant="outline" size="sm">
-                              <Database className="mr-2 h-4 w-4" />
-                              View Sync State
-                            </Button>
-                            <Button variant="outline" size="sm">
+                            {/* The sync state is already shown inline above
+                                (Sync Health); this jumps to the per-mailbox
+                                subscription list on the Subscriptions tab. */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveTab("subscriptions");
+                              }}
+                            >
                               <Bell className="mr-2 h-4 w-4" />
                               View Subscriptions
                             </Button>
