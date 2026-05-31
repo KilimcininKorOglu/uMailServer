@@ -259,6 +259,46 @@ export function useHealth() {
   return { health, loading, fetchHealth };
 }
 
+// Real server counters from /api/v1/metrics (the live metrics collector). This
+// is what the Dashboard surfaces instead of CPU/memory/disk gauges, which the
+// server does not collect.
+export interface ServerMetrics {
+  smtp?: { connections: number; messages: number; auth_failures: number };
+  imap?: { connections: number };
+  delivery?: { success: number; failed: number };
+  spam?: { detected: number; ham: number };
+  api?: { requests: number };
+  queue?: {
+    pending: number;
+    sending: number;
+    failed: number;
+    delivered: number;
+    bounced: number;
+    total: number;
+  };
+}
+
+export function useMetrics() {
+  const [metrics, setMetrics] = useState<ServerMetrics | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchMetrics = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<ServerMetrics>("/metrics");
+      setMetrics(result);
+      return result;
+    } catch {
+      setMetrics(null);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { metrics, loading, fetchMetrics };
+}
+
 // Queue API hooks
 export function useQueue() {
   const [data, setData] = useState<QueueEntry[] | null>(null);

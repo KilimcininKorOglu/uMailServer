@@ -16,7 +16,7 @@ import { Diagnostics } from "@/pages/Diagnostics";
 import { Directory } from "@/pages/Directory";
 import { Jobs } from "@/pages/Jobs";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import type { User, Activity, RealtimeMetrics } from "@/types";
+import type { User, Activity } from "@/types";
 
 const adminEmailStorageKey = "umail-admin-email";
 const adminPasswordChangeStorageKey = "umail-admin-requires-password-change";
@@ -26,7 +26,6 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [metrics, setMetrics] = useState<RealtimeMetrics | undefined>();
 
   // Check for existing session on mount
   // Token is stored in HttpOnly cookie (more secure against XSS)
@@ -95,9 +94,6 @@ function App() {
 
   // WebSocket connection for realtime updates
   const { isConnected } = useWebSocket({
-    onMetrics: (newMetrics) => {
-      setMetrics(newMetrics);
-    },
     onActivity: (activity) => {
       setActivities((prev) => [activity, ...prev].slice(0, 50));
     },
@@ -132,7 +128,6 @@ function App() {
     setUser(null);
     setMustChangePassword(false);
     setActivities([]);
-    setMetrics(undefined);
     localStorage.removeItem(adminEmailStorageKey);
     localStorage.removeItem(adminPasswordChangeStorageKey);
   };
@@ -178,7 +173,6 @@ function App() {
               element={
                 <Dashboard
                   isConnected={isConnected}
-                  metrics={metrics}
                   activities={activities}
                 />
               }

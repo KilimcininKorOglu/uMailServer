@@ -19,12 +19,11 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useStats, useHealth } from "@/hooks/useApi";
-import type { Activity as ActivityType, ServiceStatus, RealtimeMetrics } from "@/types";
+import { useStats, useHealth, useMetrics } from "@/hooks/useApi";
+import type { Activity as ActivityType, ServiceStatus } from "@/types";
 
 interface DashboardProps {
   isConnected: boolean;
-  metrics?: RealtimeMetrics;
   activities: ActivityType[];
 }
 
@@ -35,19 +34,22 @@ function subsystemStatus(value?: string): ServiceStatus["status"] {
   return "down";
 }
 
-export function Dashboard({ isConnected, metrics, activities }: DashboardProps) {
+export function Dashboard({ isConnected, activities }: DashboardProps) {
   const { stats, loading, fetchStats } = useStats();
   const { health, fetchHealth } = useHealth();
+  const { metrics, fetchMetrics } = useMetrics();
 
   useEffect(() => {
     fetchStats();
     fetchHealth();
+    fetchMetrics();
     const interval = setInterval(() => {
       fetchStats();
       fetchHealth();
+      fetchMetrics();
     }, 30000);
     return () => clearInterval(interval);
-  }, [fetchStats, fetchHealth]);
+  }, [fetchStats, fetchHealth, fetchMetrics]);
 
   // Derive the service cards from the real /health response instead of a static
   // always-"operational" array. If the health request failed entirely, health
@@ -149,28 +151,24 @@ export function Dashboard({ isConnected, metrics, activities }: DashboardProps) 
               <>
                 <Separator className="my-6" />
                 <div className="space-y-4">
-                  <h4 className="text-sm font-medium">Resource Usage</h4>
+                  <h4 className="text-sm font-medium">Server Metrics</h4>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <ResourceBar
-                      label="CPU"
-                      value={metrics.cpu_usage}
-                      color="from-blue-500 to-blue-600"
+                    <MetricStat
+                      label="SMTP Connections"
+                      value={metrics.smtp?.connections ?? 0}
                     />
-                    <ResourceBar
-                      label="Memory"
-                      value={metrics.memory_usage}
-                      color="from-emerald-500 to-emerald-600"
+                    <MetricStat
+                      label="IMAP Connections"
+                      value={metrics.imap?.connections ?? 0}
                     />
-                    <ResourceBar
-                      label="Disk"
-                      value={metrics.disk_usage}
-                      color="from-violet-500 to-violet-600"
+                    <MetricStat
+                      label="Messages Received"
+                      value={metrics.smtp?.messages ?? 0}
                     />
-                    <ResourceBar
-                      label="Connections"
-                      value={metrics.smtp_connections + metrics.imap_connections}
-                      max={100}
-                      color="from-orange-500 to-orange-600"
+                    <MetricStat
+                      label="Deliveries"
+                      value={metrics.delivery?.success ?? 0}
+                      sub={`${metrics.delivery?.failed ?? 0} failed`}
                     />
                   </div>
                 </div>
@@ -301,28 +299,18 @@ function ServiceCard({ name, status, port }: ServiceStatus) {
   );
 }
 
-interface ResourceBarProps {
+interface MetricStatProps {
   label: string;
   value: number;
-  max?: number;
-  color: string;
+  sub?: string;
 }
 
-function ResourceBar({ label, value, max = 100, color }: ResourceBarProps) {
-  const percentage = Math.min((value / max) * 100, 100);
-
+function MetricStat({ label, value, sub }: MetricStatProps) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium">{label}</span>
-        <span className="text-muted-foreground">{value}{max === 100 && "%"}</span>
-      </div>
-      <div className="h-2 rounded-full bg-muted overflow-hidden">
-        <div
-          className={cn("h-full rounded-full bg-gradient-to-r transition-all duration-500", color)}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
+    <div className="rounded-lg border p-4">
+      <div className="text-2xl font-bold">{value.toLocaleString()}</div>
+      <div className="text-sm font-medium text-muted-foreground">{label}</div>
+      {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
     </div>
   );
 }
