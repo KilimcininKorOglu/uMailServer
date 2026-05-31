@@ -378,9 +378,14 @@ type Session struct {
 	reader   *bufio.Reader
 	writer   *bufio.Writer
 	server   *Server
-	state    State
+	state    State // owned by the session goroutine; do not access from other goroutines
 	user     string
 	selected *Mailbox
+
+	// closed is set by Close() (called from Server.Stop() on another goroutine).
+	// It lets Stop() signal shutdown without touching state, which is owned by
+	// the session goroutine.
+	closed atomic.Bool
 
 	// TLS
 	tlsConn   *tls.Conn
@@ -435,8 +440,12 @@ func (s *Session) ID() string {
 	return s.id
 }
 
-// State returns the current session state
+// State returns the current session state. Once Close() has run, the session
+// is logged out regardless of the goroutine-owned state field.
 func (s *Session) State() State {
+	if s.closed.Load() {
+		return StateLoggedOut
+	}
 	return s.state
 }
 
@@ -450,15 +459,19 @@ func (s *Session) Selected() *Mailbox {
 	return s.selected
 }
 
-// Close closes the session
+// Close closes the session. It is called from Server.Stop() on a different
+// goroutine than the one running Handle(), so it must not touch s.state (which
+// is owned by the session goroutine). It sets the atomic closed flag and closes
+// the connection; closing unblocks readLine, which makes Handle() return and
+// the owner goroutine tear the session down.
 func (s *Session) Close() {
-	s.state = StateLoggedOut
+	s.closed.Store(true)
 	_ = s.conn.Close() // Best-effort close
 }
 
 // Handle processes commands from the client
 func (s *Session) Handle() {
-	for s.state != StateLoggedOut {
+	for s.state != StateLoggedOut && !s.closed.Load() {
 		if s.server.readTimeout > 0 && !s.idleActive {
 			_ = s.conn.SetReadDeadline(time.Now().Add(s.server.readTimeout)) // Best-effort deadline
 		}
