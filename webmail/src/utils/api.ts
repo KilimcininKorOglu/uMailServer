@@ -235,6 +235,11 @@ class API {
     await this.post('/auth/logout')
   }
 
+  // me returns the authenticated user's identity for session rehydration.
+  async me(): Promise<{ email: string; isAdmin?: boolean }> {
+    return this.get<{ email: string; isAdmin?: boolean }>('/auth/me')
+  }
+
   // Mail
   async getMail(folder: string): Promise<{ emails?: Mail[] }> {
     return this.get<{ emails?: Mail[] }>(`/mail/${folder}`)

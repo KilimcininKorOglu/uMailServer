@@ -689,3 +689,30 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		"expiresIn": int(s.config.TokenExpiry.Seconds()),
 	})
 }
+
+// handleMe returns the authenticated user's identity. The web client stores
+// its JWT in an HttpOnly cookie it cannot read, so after a page reload it
+// calls this endpoint to rehydrate its in-memory session instead of dropping
+// the user back to the login page.
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// The auth middleware already validated the token and populated the context.
+	user, ok := r.Context().Value("user").(string)
+	if !ok || user == "" {
+		s.sendError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	isAdmin, hasAdmin := r.Context().Value("isAdmin").(bool)
+	if !hasAdmin {
+		isAdmin = false
+	}
+
+	s.sendJSON(w, http.StatusOK, map[string]interface{}{
+		"email":   user,
+		"isAdmin": isAdmin,
+	})
+}

@@ -572,6 +572,9 @@ func (s *Server) initRouter() {
 	// Refresh token (requires auth)
 	api.HandleFunc("/api/v1/auth/refresh", s.handleRefresh)
 
+	// Current user identity (lets the SPA rehydrate its session after reload)
+	api.HandleFunc("/api/v1/auth/me", s.handleMe)
+
 	if !s.config.SeparateAdminListener {
 		s.registerAdminAPIRoutes(api)
 	}

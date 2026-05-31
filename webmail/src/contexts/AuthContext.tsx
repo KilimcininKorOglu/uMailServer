@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import api from '../utils/api'
 
 interface AuthContextType {
@@ -18,6 +18,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  // hydrating gates routing until we know whether a valid session cookie exists.
+  const [hydrating, setHydrating] = useState(true)
+
+  // On mount, ask the server who we are. The JWT lives in an HttpOnly cookie the
+  // client cannot read, so this is the only way to restore the session after a
+  // page reload instead of bouncing the user to /login.
+  useEffect(() => {
+    let active = true
+    api.me()
+      .then((me) => {
+        if (active && me?.email) {
+          setUser({ email: me.email })
+          setIsAuthenticated(true)
+        }
+      })
+      .catch(() => {
+        // No valid session: remain logged out (no redirect, /auth/* 401s throw).
+      })
+      .finally(() => {
+        if (active) setHydrating(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setLoading(true)
@@ -52,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value: AuthContextType = {
     user,
     isAuthenticated,
-    isLoading: false,
+    isLoading: hydrating,
     loading,
     error,
     login,
