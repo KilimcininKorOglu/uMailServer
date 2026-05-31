@@ -89,7 +89,7 @@ func TestServer_handlePut_InvalidVCard(t *testing.T) {
 	_ = srv.storage.CreateAddressbook("test", ab)
 
 	body := []byte("not a vcard")
-	req := httptest.NewRequest("PUT", "/dav/addressbooks/test-ab/contact1.vcf", bytes.NewReader(body))
+	req := httptest.NewRequest("PUT", "/dav/addressbooks/test/test-ab/contact1.vcf", bytes.NewReader(body))
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 
@@ -275,7 +275,7 @@ func TestServer_handleMove_NoDestination(t *testing.T) {
 		return true, nil
 	})
 
-	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test-ab/contact1.vcf", nil)
+	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test/test-ab/contact1.vcf", nil)
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 
@@ -309,17 +309,17 @@ func TestServer_handleMove_InvalidDestinationPath(t *testing.T) {
 	vcard := "BEGIN:VCARD\r\nUID:contact1\r\nFN:Test User\r\nEND:VCARD"
 	_ = srv.storage.SaveContact("test", "test-ab", contact, vcard)
 
-	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test-ab/contact1.vcf", nil)
+	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test/test-ab/contact1.vcf", nil)
 	req.Header.Set("Destination", "/invalid/path")
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
 
-	// With an invalid destination path, the code attempts to save and fails
-	// resulting in 500 (Internal Server Error)
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("expected %d, got %d", http.StatusInternalServerError, rr.Code)
+	// An invalid destination path is rejected up front with 400 (Bad Request)
+	// before any save is attempted.
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 }
 
@@ -337,8 +337,8 @@ func TestServer_handleMove_SourceNotFound(t *testing.T) {
 	}
 	_ = srv.storage.CreateAddressbook("test", ab)
 
-	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test-ab/contact1.vcf", nil)
-	req.Header.Set("Destination", "http://example.com/dav/addressbooks/test-ab/contact2.vcf")
+	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test/test-ab/contact1.vcf", nil)
+	req.Header.Set("Destination", "http://example.com/dav/addressbooks/test/test-ab/contact2.vcf")
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 
@@ -374,7 +374,7 @@ func TestServer_handleCopy_NoDestination(t *testing.T) {
 		return true, nil
 	})
 
-	req := httptest.NewRequest("COPY", "/dav/addressbooks/test-ab/contact1.vcf", nil)
+	req := httptest.NewRequest("COPY", "/dav/addressbooks/test/test-ab/contact1.vcf", nil)
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 
@@ -408,17 +408,17 @@ func TestServer_handleCopy_InvalidDestinationPath(t *testing.T) {
 	vcard := "BEGIN:VCARD\r\nUID:contact1\r\nFN:Test User\r\nEND:VCARD"
 	_ = srv.storage.SaveContact("test", "test-ab", contact, vcard)
 
-	req := httptest.NewRequest("COPY", "/dav/addressbooks/test-ab/contact1.vcf", nil)
+	req := httptest.NewRequest("COPY", "/dav/addressbooks/test/test-ab/contact1.vcf", nil)
 	req.Header.Set("Destination", "/invalid/path")
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
 
-	// With an invalid destination path, the code attempts to save and fails
-	// resulting in 500 (Internal Server Error)
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("expected %d, got %d", http.StatusInternalServerError, rr.Code)
+	// An invalid destination path is rejected up front with 400 (Bad Request)
+	// before any save is attempted.
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 }
 
@@ -436,8 +436,8 @@ func TestServer_handleCopy_SourceNotFound(t *testing.T) {
 	}
 	_ = srv.storage.CreateAddressbook("test", ab)
 
-	req := httptest.NewRequest("COPY", "/dav/addressbooks/test-ab/contact1.vcf", nil)
-	req.Header.Set("Destination", "http://example.com/dav/addressbooks/test-ab/contact2.vcf")
+	req := httptest.NewRequest("COPY", "/dav/addressbooks/test/test-ab/contact1.vcf", nil)
+	req.Header.Set("Destination", "http://example.com/dav/addressbooks/test/test-ab/contact2.vcf")
 	req.SetBasicAuth("test", "pass")
 	rr := httptest.NewRecorder()
 

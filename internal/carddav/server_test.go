@@ -436,9 +436,9 @@ END:VCARD`
 	contact := &Contact{UID: "test-contact-123"}
 	_ = server.storage.SaveContact("user@example.com", "test-ab", contact, vcardData)
 
-	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test-ab/test-contact-123.vcf", nil)
+	req := httptest.NewRequest("MOVE", "/dav/addressbooks/user@example.com/test-ab/test-contact-123.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/addressbooks/test-ab/moved-contact.vcf")
+	req.Header.Set("Destination", "/dav/addressbooks/user@example.com/test-ab/moved-contact.vcf")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -454,7 +454,7 @@ func TestCardDAVHandleMove_MissingDestination(t *testing.T) {
 		return true, nil
 	})
 
-	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test-ab/contact.vcf", nil)
+	req := httptest.NewRequest("MOVE", "/dav/addressbooks/user@example.com/test-ab/contact.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
 	w := httptest.NewRecorder()
 
@@ -482,9 +482,9 @@ END:VCARD`
 	contact := &Contact{UID: "test-contact-123"}
 	_ = server.storage.SaveContact("user@example.com", "test-ab", contact, vcardData)
 
-	req := httptest.NewRequest("COPY", "/dav/addressbooks/test-ab/test-contact-123.vcf", nil)
+	req := httptest.NewRequest("COPY", "/dav/addressbooks/user@example.com/test-ab/test-contact-123.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/addressbooks/test-ab/copied-contact.vcf")
+	req.Header.Set("Destination", "/dav/addressbooks/user@example.com/test-ab/copied-contact.vcf")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -877,9 +877,9 @@ END:VCARD`
 	_ = server.storage.SaveContact("user@example.com", "test-ab", contact, vcardData)
 
 	// Copy to same location (overwrite)
-	req := httptest.NewRequest("COPY", "/dav/addressbooks/test-ab/test-contact.vcf", nil)
+	req := httptest.NewRequest("COPY", "/dav/addressbooks/user@example.com/test-ab/test-contact.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/addressbooks/test-ab/test-contact-copy.vcf")
+	req.Header.Set("Destination", "/dav/addressbooks/user@example.com/test-ab/test-contact-copy.vcf")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -911,9 +911,9 @@ END:VCARD`
 	server.storage.SaveContact("user@example.com", "ab1", contact, vcardData)
 
 	// Copy to second addressbook
-	req := httptest.NewRequest("COPY", "/dav/addressbooks/ab1/test-contact.vcf", nil)
+	req := httptest.NewRequest("COPY", "/dav/addressbooks/user@example.com/ab1/test-contact.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/addressbooks/ab2/test-contact.vcf")
+	req.Header.Set("Destination", "/dav/addressbooks/user@example.com/ab2/test-contact.vcf")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -945,9 +945,9 @@ END:VCARD`
 	server.storage.SaveContact("user@example.com", "ab1", contact, vcardData)
 
 	// Move to second addressbook
-	req := httptest.NewRequest("MOVE", "/dav/addressbooks/ab1/test-contact.vcf", nil)
+	req := httptest.NewRequest("MOVE", "/dav/addressbooks/user@example.com/ab1/test-contact.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/addressbooks/ab2/moved-contact.vcf")
+	req.Header.Set("Destination", "/dav/addressbooks/user@example.com/ab2/moved-contact.vcf")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -1064,9 +1064,9 @@ func TestCardDAVHandleMove_SourceNotFound(t *testing.T) {
 	ab := &Addressbook{ID: "test-ab", Name: "Test"}
 	_ = server.storage.CreateAddressbook("user@example.com", ab)
 
-	req := httptest.NewRequest("MOVE", "/dav/addressbooks/test-ab/nonexistent.vcf", nil)
+	req := httptest.NewRequest("MOVE", "/dav/addressbooks/user@example.com/test-ab/nonexistent.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/addressbooks/test-ab/contact.vcf")
+	req.Header.Set("Destination", "/dav/addressbooks/user@example.com/test-ab/contact.vcf")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -1086,9 +1086,9 @@ func TestCardDAVHandleCopy_SourceNotFound(t *testing.T) {
 	ab := &Addressbook{ID: "test-ab", Name: "Test"}
 	_ = server.storage.CreateAddressbook("user@example.com", ab)
 
-	req := httptest.NewRequest("COPY", "/dav/addressbooks/test-ab/nonexistent.vcf", nil)
+	req := httptest.NewRequest("COPY", "/dav/addressbooks/user@example.com/test-ab/nonexistent.vcf", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("user@example.com:pass")))
-	req.Header.Set("Destination", "/dav/addressbooks/test-ab/contact.vcf")
+	req.Header.Set("Destination", "/dav/addressbooks/user@example.com/test-ab/contact.vcf")
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)

@@ -438,16 +438,12 @@ func (s *Server) handleProppatch(w http.ResponseWriter, r *http.Request, usernam
 
 // handleMove handles MOVE requests
 func (s *Server) handleMove(w http.ResponseWriter, r *http.Request, username string) {
-	// Extract source address book and contact from URL path
-	srcPath := strings.TrimPrefix(r.URL.Path, "/dav/addressbooks/")
-	srcParts := strings.SplitN(srcPath, "/", 2)
-	if len(srcParts) < 2 {
+	// Parse source: /dav/addressbooks/{username}/{addressbookID}/{contactUID}
+	srcAddressbookID, srcContactUID := addressbookPathIDs(r.URL.Path)
+	if srcAddressbookID == "" || srcContactUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid source path")
 		return
 	}
-
-	srcAddressbookID := srcParts[0]
-	srcContactUID := strings.TrimSuffix(srcParts[1], filepath.Ext(srcParts[1]))
 
 	// Get destination from Destination header
 	dest := r.Header.Get("Destination")
@@ -456,16 +452,12 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request, username str
 		return
 	}
 
-	// Parse destination path
-	destPath := strings.TrimPrefix(dest, "/dav/addressbooks/")
-	destParts := strings.SplitN(destPath, "/", 2)
-	if len(destParts) < 2 {
+	// Parse destination: /dav/addressbooks/{username}/{addressbookID}/{contactUID}
+	destAddressbookID, destContactUID := addressbookPathIDs(davDestinationPath(dest))
+	if destAddressbookID == "" || destContactUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid destination path")
 		return
 	}
-
-	destAddressbookID := destParts[0]
-	destContactUID := strings.TrimSuffix(destParts[1], filepath.Ext(destParts[1]))
 
 	// Get contact data
 	vcardData, err := s.storage.GetContact(username, srcAddressbookID, srcContactUID)
@@ -502,16 +494,12 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request, username str
 
 // handleCopy handles COPY requests
 func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request, username string) {
-	// Extract source address book and contact from URL path
-	srcPath := strings.TrimPrefix(r.URL.Path, "/dav/addressbooks/")
-	srcParts := strings.SplitN(srcPath, "/", 2)
-	if len(srcParts) < 2 {
+	// Parse source: /dav/addressbooks/{username}/{addressbookID}/{contactUID}
+	srcAddressbookID, srcContactUID := addressbookPathIDs(r.URL.Path)
+	if srcAddressbookID == "" || srcContactUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid source path")
 		return
 	}
-
-	srcAddressbookID := srcParts[0]
-	srcContactUID := strings.TrimSuffix(srcParts[1], filepath.Ext(srcParts[1]))
 
 	// Get destination from Destination header
 	dest := r.Header.Get("Destination")
@@ -520,16 +508,12 @@ func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request, username str
 		return
 	}
 
-	// Parse destination path
-	destPath := strings.TrimPrefix(dest, "/dav/addressbooks/")
-	destParts := strings.SplitN(destPath, "/", 2)
-	if len(destParts) < 2 {
+	// Parse destination: /dav/addressbooks/{username}/{addressbookID}/{contactUID}
+	destAddressbookID, destContactUID := addressbookPathIDs(davDestinationPath(dest))
+	if destAddressbookID == "" || destContactUID == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid destination path")
 		return
 	}
-
-	destAddressbookID := destParts[0]
-	destContactUID := strings.TrimSuffix(destParts[1], filepath.Ext(destParts[1]))
 
 	// Get contact data
 	vcardData, err := s.storage.GetContact(username, srcAddressbookID, srcContactUID)
@@ -643,6 +627,16 @@ func addressbookPathIDs(path string) (addressbookID, contactUID string) {
 		contactUID = strings.TrimSuffix(parts[2], filepath.Ext(parts[2]))
 	}
 	return addressbookID, contactUID
+}
+
+// davDestinationPath reduces a MOVE/COPY Destination header to its DAV path.
+// The header may be a full URI (RFC 4918), so slice from the /dav/ prefix when
+// present so addressbookPathIDs sees the same shape as r.URL.Path.
+func davDestinationPath(dest string) string {
+	if i := strings.Index(dest, "/dav/"); i >= 0 {
+		return dest[i:]
+	}
+	return dest
 }
 
 // extractUIDFromVCard extracts the UID from vCard data
