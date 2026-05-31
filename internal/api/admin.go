@@ -104,6 +104,7 @@ func (s *AdminServer) router() http.Handler {
 	mux.Handle("/api/v1/auth/login", s.Server.limitBodyMiddleware(http.HandlerFunc(s.Server.handleLogin)))
 	mux.Handle("/api/v1/auth/logout", s.Server.rateLimitMiddleware(s.Server.authMiddleware(http.HandlerFunc(s.Server.handleLogout))))
 	mux.Handle("/api/v1/auth/refresh", s.Server.rateLimitMiddleware(s.Server.authMiddleware(http.HandlerFunc(s.Server.handleRefresh))))
+	mux.Handle("/api/v1/auth/me", s.authMiddleware(http.HandlerFunc(s.handleMe)))
 	mux.Handle("/api/v1/events", s.Server.authMiddleware(s.Server.sseServer.Handler()))
 
 	// Admin API routes (all require admin auth)

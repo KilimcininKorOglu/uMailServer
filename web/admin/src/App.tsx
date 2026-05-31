@@ -44,9 +44,24 @@ function App() {
         }
 
         if (response.ok) {
-          const savedEmail = localStorage.getItem(adminEmailStorageKey) || "admin@example.com";
+          // Resolve the real email: prefer the value stored at login, but if it
+          // is missing (e.g. localStorage was cleared) ask the server via
+          // /auth/me instead of showing a misleading placeholder address.
+          let email = localStorage.getItem(adminEmailStorageKey) ?? "";
+          if (!email) {
+            const me = await fetch("/api/v1/auth/me", { credentials: "include" })
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null);
+            if (cancelled) {
+              return;
+            }
+            email = me?.email ?? "";
+            if (email) {
+              localStorage.setItem(adminEmailStorageKey, email);
+            }
+          }
           setIsAuthenticated(true);
-          setUser({ email: savedEmail, isAdmin: true });
+          setUser({ email, isAdmin: true });
           setMustChangePassword(false);
           localStorage.removeItem(adminPasswordChangeStorageKey);
           return;
