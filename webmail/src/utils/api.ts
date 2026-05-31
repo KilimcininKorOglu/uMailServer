@@ -247,6 +247,11 @@ class API {
     return this.get<{ email: string; isAdmin?: boolean }>('/auth/me')
   }
 
+  // changePassword updates the authenticated user's own password.
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await this.post('/account/password', { currentPassword, newPassword })
+  }
+
   // Mail
   async getMail(folder: string): Promise<{ emails?: Mail[] }> {
     return this.get<{ emails?: Mail[] }>(`/mail/${folder}`)

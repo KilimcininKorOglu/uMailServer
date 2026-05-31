@@ -575,6 +575,9 @@ func (s *Server) initRouter() {
 	// Current user identity (lets the SPA rehydrate its session after reload)
 	api.HandleFunc("/api/v1/auth/me", s.handleMe)
 
+	// Self-service password change for the authenticated user.
+	api.HandleFunc("/api/v1/account/password", s.handleAccountPassword)
+
 	if !s.config.SeparateAdminListener {
 		s.registerAdminAPIRoutes(api)
 	}

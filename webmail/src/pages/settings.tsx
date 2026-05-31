@@ -7,6 +7,14 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { toast } from "sonner"
 import api from "@/utils/api"
 import type { VacationAutoReply } from "@/utils/api"
@@ -31,6 +39,37 @@ const emptyVacation: VacationAutoReply = {
 
 export function SettingsPage() {
   const { theme, setTheme, resolvedTheme } = useTheme()
+  // Password change dialog (Manage Account)
+  const [pwOpen, setPwOpen] = useState(false)
+  const [pwCurrent, setPwCurrent] = useState("")
+  const [pwNew, setPwNew] = useState("")
+  const [pwConfirm, setPwConfirm] = useState("")
+  const [pwSaving, setPwSaving] = useState(false)
+
+  const handleChangePassword = async () => {
+    if (pwNew.length < 8) {
+      toast.error("New password must be at least 8 characters")
+      return
+    }
+    if (pwNew !== pwConfirm) {
+      toast.error("Passwords do not match")
+      return
+    }
+    setPwSaving(true)
+    try {
+      await api.changePassword(pwCurrent, pwNew)
+      toast.success("Password updated")
+      setPwOpen(false)
+      setPwCurrent("")
+      setPwNew("")
+      setPwConfirm("")
+    } catch (err) {
+      console.error("Failed to change password:", err)
+      toast.error("Failed to change password. Check your current password.")
+    } finally {
+      setPwSaving(false)
+    }
+  }
   const [settings, setSettings] = useState({
     // Notifications
     emailNotifications: true,
@@ -439,9 +478,60 @@ export function SettingsPage() {
               </p>
             </div>
           </div>
-          <Button variant="outline">Manage Account</Button>
+          <Button variant="outline" onClick={() => setPwOpen(true)}>Manage Account</Button>
         </div>
       </div>
+
+      <Dialog open={pwOpen} onOpenChange={setPwOpen}>
+        <DialogContent aria-describedby="change-password-desc">
+          <DialogHeader>
+            <DialogTitle>Change password</DialogTitle>
+            <DialogDescription id="change-password-desc">
+              Update the password for your mailbox account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="pw-current">Current password</Label>
+              <Input
+                id="pw-current"
+                type="password"
+                value={pwCurrent}
+                onChange={(e) => setPwCurrent(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="pw-new">New password</Label>
+              <Input
+                id="pw-new"
+                type="password"
+                value={pwNew}
+                onChange={(e) => setPwNew(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="pw-confirm">Confirm new password</Label>
+              <Input
+                id="pw-confirm"
+                type="password"
+                value={pwConfirm}
+                onChange={(e) => setPwConfirm(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPwOpen(false)} disabled={pwSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleChangePassword} disabled={pwSaving}>
+              {pwSaving ? "Saving..." : "Update password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="text-center text-sm text-muted-foreground pb-8">
         <p>uMail Server v1.0.0</p>
