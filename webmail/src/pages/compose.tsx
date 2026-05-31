@@ -138,6 +138,7 @@ export function ComposePage() {
   const [sending, setSending] = useState(false)
   const [draftId, setDraftId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   
   // Contacts loaded from API for recipient selection
@@ -287,6 +288,47 @@ export function ComposePage() {
 
   const removeAttachment = (id: string) => {
     setAttachments(attachments.filter((a) => a.id !== id))
+  }
+
+  // applyFormat wraps the current selection with markdown-style markers (the
+  // body is plain text, sent as text/plain). It keeps focus in the textarea.
+  const applyFormat = (kind: "bold" | "italic" | "underline" | "link" | "list" | "image") => {
+    const ta = bodyRef.current
+    const start = ta ? ta.selectionStart : body.length
+    const end = ta ? ta.selectionEnd : body.length
+    const selected = body.slice(start, end)
+    let insert = selected
+    switch (kind) {
+      case "bold":
+        insert = `**${selected || "bold text"}**`
+        break
+      case "italic":
+        insert = `*${selected || "italic text"}*`
+        break
+      case "underline":
+        insert = `__${selected || "underlined text"}__`
+        break
+      case "link":
+        insert = `[${selected || "link text"}](https://)`
+        break
+      case "image":
+        insert = `![${selected || "image"}](https://)`
+        break
+      case "list":
+        insert = (selected || "item")
+          .split("\n")
+          .map((line) => `- ${line}`)
+          .join("\n")
+        break
+    }
+    const next = body.slice(0, start) + insert + body.slice(end)
+    setBody(next)
+    requestAnimationFrame(() => {
+      if (!ta) return
+      ta.focus()
+      const pos = start + insert.length
+      ta.setSelectionRange(pos, pos)
+    })
   }
 
   const formatSize = (bytes: number) => {
@@ -854,23 +896,23 @@ export function ComposePage() {
 
       {/* Formatting Toolbar */}
       <div className="flex items-center gap-1 border-b px-4 py-1 bg-muted/30">
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bold (⌘B)">
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bold" onClick={() => applyFormat("bold")}>
           <Bold className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Italic (⌘I)">
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Italic" onClick={() => applyFormat("italic")}>
           <Italic className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Underline (⌘U)">
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Underline" onClick={() => applyFormat("underline")}>
           <Underline className="h-4 w-4" />
         </Button>
         <Separator orientation="vertical" className="h-6" />
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert link">
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert link" onClick={() => applyFormat("link")}>
           <Link className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bullet list">
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bullet list" onClick={() => applyFormat("list")}>
           <List className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert image">
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert image link" onClick={() => applyFormat("image")}>
           <Image className="h-4 w-4" />
         </Button>
         <span className="text-xs text-muted-foreground ml-2">
@@ -881,6 +923,7 @@ export function ComposePage() {
       {/* Body */}
       <div className="flex-1 overflow-hidden">
         <Textarea
+          ref={bodyRef}
           className="h-full resize-none border-0 shadow-none focus-visible:ring-0 p-4"
           placeholder="Write your message..."
           value={body}
