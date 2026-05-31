@@ -41,6 +41,8 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+
+	"github.com/umailserver/umailserver/internal/mailthread"
 )
 
 // ---------------------------------------------------------------------------
@@ -189,44 +191,15 @@ func (p *MutationPipeline) Identity() *BoltIdentityStore {
 //     resolves to the SAME ConversationId. Only when no Message-ID is present
 //     do we fall back to a random ID.
 func computeConversationID(inReplyTo string, references []string, ownMessageID string) (convID ConversationId, isRoot bool) {
-	// Use the most recent parent from References if available.
-	if len(references) > 0 {
-		lastRef := strings.TrimSpace(references[len(references)-1])
-		if lastRef != "" {
-			// References are space-separated Message-ID values per RFC 2822.
-			id := stripAngleBrackets(lastRef)
-			if id != "" {
-				cid, err := NewConversationId(id)
-				if err == nil {
-					return cid, false // Not a root — has a parent in References
-				}
-			}
+	// Shared rooting (mailthread.Root) so EWS groups a conversation identically
+	// to the storage thread index: References-last → In-Reply-To → own Message-ID.
+	if root, r := mailthread.Root(ownMessageID, inReplyTo, references); root != "" {
+		if cid, err := NewConversationId(root); err == nil {
+			return cid, r
 		}
 	}
 
-	// Fall back to In-Reply-To.
-	if inReplyTo != "" {
-		id := stripAngleBrackets(strings.TrimSpace(inReplyTo))
-		if id != "" {
-			cid, err := NewConversationId(id)
-			if err == nil {
-				return cid, false // Not a root — has In-Reply-To
-			}
-		}
-	}
-
-	// No threading context — root the conversation on the message's own
-	// Message-ID when available so replies can rejoin this thread.
-	if ownMessageID != "" {
-		id := stripAngleBrackets(strings.TrimSpace(ownMessageID))
-		if id != "" {
-			if cid, err := NewConversationId(id); err == nil {
-				return cid, true
-			}
-		}
-	}
-
-	// No Message-ID either — generate a new random conversation root.
+	// No usable Message-ID — generate a new random conversation root.
 	cid, err := NewConversationId(generateID())
 	if err != nil {
 		// Defensive: generateID should never fail.
@@ -235,16 +208,11 @@ func computeConversationID(inReplyTo string, references []string, ownMessageID s
 	return cid, true
 }
 
-// stripAngleBrackets removes surrounding < and > from a Message-ID or
-// message-id value.
+// stripAngleBrackets removes surrounding < and > from a Message-ID value. It
+// delegates to the shared mailthread.StripBrackets so the header parser and the
+// rooting logic strip identically.
 func stripAngleBrackets(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 {
-		if s[0] == '<' && s[len(s)-1] == '>' {
-			return s[1 : len(s)-1]
-		}
-	}
-	return s
+	return mailthread.StripBrackets(s)
 }
 
 // ---------------------------------------------------------------------------

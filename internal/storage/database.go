@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/mailthread"
 	"go.etcd.io/bbolt"
 	bolterrors "go.etcd.io/bbolt/errors"
 )
@@ -832,29 +833,13 @@ func (db *Database) GetOrCreateThreadID(user, mailbox, subject, ownMessageID, in
 	return generateThreadID(subject), nil
 }
 
-// threadRootID returns the conversation-root Message-ID (without angle brackets)
-// using the same precedence as semcore.computeConversationID: most recent
-// References entry, else In-Reply-To, else the message's own Message-ID. Returns
-// "" when the message carries none of these.
+// threadRootID returns the conversation-root Message-ID (without angle
+// brackets), delegating to the shared mailthread.Root so EWS (semcore) and JMAP
+// (storage) root a conversation identically. Returns "" when the message
+// carries no usable Message-ID.
 func threadRootID(ownMessageID, inReplyTo string, references []string) string {
-	if n := len(references); n > 0 {
-		if id := stripMessageIDBrackets(references[n-1]); id != "" {
-			return id
-		}
-	}
-	if id := stripMessageIDBrackets(inReplyTo); id != "" {
-		return id
-	}
-	return stripMessageIDBrackets(ownMessageID)
-}
-
-// stripMessageIDBrackets trims surrounding angle brackets and whitespace from a
-// Message-ID value.
-func stripMessageIDBrackets(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "<")
-	s = strings.TrimSuffix(s, ">")
-	return strings.TrimSpace(s)
+	root, _ := mailthread.Root(ownMessageID, inReplyTo, references)
+	return root
 }
 
 // deterministicThreadID maps a conversation-root Message-ID to a stable 16-byte
