@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   Star,
@@ -65,57 +65,57 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   const [sortBy, setSortBy] = useState<SortOption>("date")
   const [showWelcome, setShowWelcome] = useState(true)
 
-  // Load emails from API
-  useEffect(() => {
-    const loadEmails = async () => {
-      setLoading(true)
-      try {
-        // Map folder to API folder name
-        const apiFolder = folder === "starred" ? "inbox" : folder
-        const result = await api.get<{ emails?: Mail[] }>(`/mail/${apiFolder}`)
-        
-        if (result && result.emails) {
-          // Convert API Mail to Email format
-          const loadedEmails: Email[] = result.emails.map((mail: Mail) => {
-            // Parse from field to extract name and email
-            const fromParts = mail.from.split('<')
-            const fromEmail = fromParts.length > 1 ? fromParts[1].replace('>', '') : mail.from
-            const fromName = fromParts.length > 1 ? fromParts[0].trim() : mail.from
-            
-            return {
-              id: mail.id,
-              from: fromName,
-              fromEmail: fromEmail,
-              subject: mail.subject,
-              preview: mail.preview,
-              date: mail.date,
-              read: mail.read,
-              starred: mail.starred,
-              hasAttachments: mail.hasAttachments,
-              folder: mail.folder.toLowerCase(),
-              labels: [], // Labels from API if available
-            }
-          })
-          
-          // Filter for starred if needed
-          const filteredEmails = folder === "starred"
-            ? loadedEmails.filter(e => e.starred)
-            : loadedEmails
-          
-          setEmails(filteredEmails)
-        } else {
-          setEmails([])
-        }
-      } catch (err) {
-        console.error('Failed to load emails:', err)
+  // Load emails from API (reused by the initial load and the Refresh button)
+  const loadEmails = useCallback(async () => {
+    setLoading(true)
+    try {
+      // Map folder to API folder name
+      const apiFolder = folder === "starred" ? "inbox" : folder
+      const result = await api.get<{ emails?: Mail[] }>(`/mail/${apiFolder}`)
+
+      if (result && result.emails) {
+        // Convert API Mail to Email format
+        const loadedEmails: Email[] = result.emails.map((mail: Mail) => {
+          // Parse from field to extract name and email
+          const fromParts = mail.from.split('<')
+          const fromEmail = fromParts.length > 1 ? fromParts[1].replace('>', '') : mail.from
+          const fromName = fromParts.length > 1 ? fromParts[0].trim() : mail.from
+
+          return {
+            id: mail.id,
+            from: fromName,
+            fromEmail: fromEmail,
+            subject: mail.subject,
+            preview: mail.preview,
+            date: mail.date,
+            read: mail.read,
+            starred: mail.starred,
+            hasAttachments: mail.hasAttachments,
+            folder: mail.folder.toLowerCase(),
+            labels: [], // Labels from API if available
+          }
+        })
+
+        // Filter for starred if needed
+        const filteredEmails = folder === "starred"
+          ? loadedEmails.filter(e => e.starred)
+          : loadedEmails
+
+        setEmails(filteredEmails)
+      } else {
         setEmails([])
-      } finally {
-        setLoading(false)
       }
+    } catch (err) {
+      console.error('Failed to load emails:', err)
+      setEmails([])
+    } finally {
+      setLoading(false)
     }
-    
-    loadEmails()
   }, [folder])
+
+  useEffect(() => {
+    loadEmails()
+  }, [loadEmails])
 
   const toggleSelectAll = () => {
     if (selectedEmails.size === emails.length) {
@@ -164,12 +164,9 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     }
   }
 
-  const handleRefresh = () => {
-    setLoading(true)
-    setTimeout(() => {
-      setLoading(false)
-      toast.success(" inbox refreshed")
-    }, 1000)
+  const handleRefresh = async () => {
+    await loadEmails()
+    toast.success("Inbox refreshed")
   }
 
   const archiveEmails = async (ids: string[]) => {
