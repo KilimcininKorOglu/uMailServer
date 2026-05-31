@@ -14,6 +14,13 @@ import (
 	"github.com/umailserver/umailserver/internal/sieve"
 )
 
+// SetConfigPath records the path of the config file the server was loaded from,
+// so the admin config API can persist runtime changes back to it. An empty path
+// disables config persistence (defaults-only runs).
+func (s *Server) SetConfigPath(path string) {
+	s.configPath = path
+}
+
 // startAPI creates and starts the HTTP API server (webmail + admin).
 func (s *Server) startAPI() {
 	if !s.config.HTTP.Enabled {
@@ -77,6 +84,8 @@ func (s *Server) startAPI() {
 	}
 	// Configure API rate limiting
 	s.apiServer.SetAPIRateLimit(s.config.Security.RateLimit.HTTPRequestsPerMinute)
+	// Expose the loaded config + its file path to the admin Settings API.
+	s.apiServer.SetConfigManager(s.config, s.configPath)
 
 	// Wire EWS SOAP handler into the API server.
 	// This requires semcoreStore to be initialized (done in server.go startup).

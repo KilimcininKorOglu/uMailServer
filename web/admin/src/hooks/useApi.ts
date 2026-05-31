@@ -13,6 +13,7 @@ import type {
   SubscriptionInfo,
   ProtocolFailure,
   Job,
+  ServerConfig,
 } from "@/types";
 
 interface ApiError {
@@ -531,4 +532,41 @@ export function useJobs() {
   }, []);
 
   return { jobs, loading, error, fetchJobs };
+}
+
+// Server config (Settings) API hook
+export interface ConfigUpdateResult {
+  status: string;
+  applied: string[];
+  restart_required: string[];
+  message: string;
+}
+
+export function useConfig() {
+  const [config, setConfig] = useState<ServerConfig | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchConfig = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<ServerConfig>("/admin/config");
+      setConfig(result);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const updateConfig = useCallback(async (cfg: ServerConfig) => {
+    return apiRequest<ConfigUpdateResult>("/admin/config", {
+      method: "PUT",
+      body: JSON.stringify(cfg),
+    });
+  }, []);
+
+  return { config, setConfig, loading, error, fetchConfig, updateConfig };
 }

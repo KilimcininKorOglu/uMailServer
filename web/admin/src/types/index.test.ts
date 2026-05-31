@@ -18,6 +18,7 @@ import type {
   SubscriptionInfo,
   ProtocolFailure,
   Job,
+  ServerConfig,
 } from './index'
 
 describe('Domain type', () => {
@@ -400,5 +401,28 @@ describe('Job type', () => {
       error: 'Disk full',
     }
     expect(job.error).toBe('Disk full')
+  })
+})
+
+describe('ServerConfig type', () => {
+  it('accepts a valid server config', () => {
+    const cfg: ServerConfig = {
+      hostname: 'mail.example.com',
+      data_dir: '/var/lib/umailserver',
+      smtp_port: 25,
+      submission_port: 587,
+      imap_port: 993,
+      max_message_size_mb: 50,
+      max_recipients: 100,
+      max_emails_per_hour: 1000,
+      greylisting_enabled: true,
+      auto_tls: true,
+      require_tls_smtp: true,
+      dkim_signing: true,
+      max_login_attempts: 5,
+    }
+    expect(cfg.hostname).toBe('mail.example.com')
+    expect(cfg.smtp_port).toBe(25)
+    expect(cfg.dkim_signing).toBe(true)
   })
 })

@@ -43,6 +43,7 @@ import (
 // Server is the main uMailServer instance
 type Server struct {
 	config            *config.Config
+	configPath        string
 	logger            *slog.Logger
 	database          *db.DB
 	queue             *queue.Manager

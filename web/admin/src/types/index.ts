@@ -184,3 +184,19 @@ export interface Job {
   completedAt?: string;
   error?: string;
 }
+
+export interface ServerConfig {
+  hostname: string;
+  data_dir: string;
+  smtp_port: number;
+  submission_port: number;
+  imap_port: number;
+  max_message_size_mb: number;
+  max_recipients: number;
+  max_emails_per_hour: number;
+  greylisting_enabled: boolean;
+  auto_tls: boolean;
+  require_tls_smtp: boolean;
+  dkim_signing: boolean;
+  max_login_attempts: number;
+}

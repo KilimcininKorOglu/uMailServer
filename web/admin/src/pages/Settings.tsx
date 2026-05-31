@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import {
   Settings,
   Shield,
@@ -17,6 +17,8 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useConfig } from "@/hooks/useApi";
+import type { ServerConfig } from "@/types";
 
 interface SettingsPageProps {
   userEmail?: string;
@@ -29,15 +31,39 @@ export function SettingsPage({
   requirePasswordChange = false,
   onPasswordChanged,
 }: SettingsPageProps) {
+  const { config, setConfig, fetchConfig, updateConfig } = useConfig();
   const [saved, setSaved] = useState(false);
+  const [restartFields, setRestartFields] = useState<string[]>([]);
+  const [savingConfig, setSavingConfig] = useState(false);
   const [error, setError] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+  useEffect(() => {
+    if (!requirePasswordChange) {
+      fetchConfig().catch(() => setError("Failed to load server configuration"));
+    }
+  }, [requirePasswordChange, fetchConfig]);
+
+  const setField = <K extends keyof ServerConfig>(key: K, value: ServerConfig[K]) => {
+    setConfig((prev) => (prev ? { ...prev, [key]: value } : prev));
+  };
+
+  const handleSave = async () => {
+    if (!config) return;
+    setSavingConfig(true);
+    setError("");
+    try {
+      const result = await updateConfig(config);
+      setRestartFields(result.restart_required ?? []);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 5000);
+    } catch (err) {
+      setError((err as { message?: string }).message || "Failed to save settings");
+    } finally {
+      setSavingConfig(false);
+    }
   };
 
   const handleRequiredPasswordChange = async (event: FormEvent<HTMLFormElement>) => {
@@ -160,10 +186,20 @@ export function SettingsPage({
         </p>
       </div>
 
-      {saved && (
+      {saved && restartFields.length === 0 && (
         <Alert className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
           <Check className="h-4 w-4" />
           <AlertDescription>Settings saved successfully</AlertDescription>
+        </Alert>
+      )}
+
+      {saved && restartFields.length > 0 && (
+        <Alert className="bg-amber-500/10 text-amber-600 border-amber-500/20">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Settings saved. A server restart is required for these changes to take
+            effect: {restartFields.join(", ")}
+          </AlertDescription>
         </Alert>
       )}
 
@@ -208,7 +244,8 @@ export function SettingsPage({
                   <Input
                     id="hostname"
                     placeholder="mail.example.com"
-                    defaultValue="mail.example.com"
+                    value={config?.hostname ?? ""}
+                    onChange={(e) => setField("hostname", e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -216,7 +253,8 @@ export function SettingsPage({
                   <Input
                     id="data-dir"
                     placeholder="/var/lib/umailserver"
-                    defaultValue="./data"
+                    value={config?.data_dir ?? ""}
+                    onChange={(e) => setField("data_dir", e.target.value)}
                   />
                 </div>
               </div>
@@ -231,7 +269,8 @@ export function SettingsPage({
                     <Input
                       id="smtp-port"
                       type="number"
-                      defaultValue={25}
+                      value={config?.smtp_port ?? 0}
+                      onChange={(e) => setField("smtp_port", parseInt(e.target.value) || 0)}
                     />
                   </div>
                   <div className="space-y-2">
@@ -239,7 +278,8 @@ export function SettingsPage({
                     <Input
                       id="submission-port"
                       type="number"
-                      defaultValue={587}
+                      value={config?.submission_port ?? 0}
+                      onChange={(e) => setField("submission_port", parseInt(e.target.value) || 0)}
                     />
                   </div>
                   <div className="space-y-2">
@@ -247,7 +287,8 @@ export function SettingsPage({
                     <Input
                       id="imap-port"
                       type="number"
-                      defaultValue={993}
+                      value={config?.imap_port ?? 0}
+                      onChange={(e) => setField("imap_port", parseInt(e.target.value) || 0)}
                     />
                   </div>
                 </div>
@@ -272,7 +313,8 @@ export function SettingsPage({
                   <Input
                     id="max-message-size"
                     type="number"
-                    defaultValue={50}
+                    value={config?.max_message_size_mb ?? 0}
+                    onChange={(e) => setField("max_message_size_mb", parseInt(e.target.value) || 0)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -280,7 +322,8 @@ export function SettingsPage({
                   <Input
                     id="max-recipients"
                     type="number"
-                    defaultValue={100}
+                    value={config?.max_recipients ?? 0}
+                    onChange={(e) => setField("max_recipients", parseInt(e.target.value) || 0)}
                   />
                 </div>
               </div>
@@ -291,15 +334,18 @@ export function SettingsPage({
                     Temporarily reject unknown senders to reduce spam
                   </p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={config?.greylisting_enabled ?? false}
+                  onCheckedChange={(c) => setField("greylisting_enabled", c)}
+                />
               </div>
             </CardContent>
           </Card>
 
           <div className="flex justify-end">
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} disabled={savingConfig || !config}>
               <Save className="mr-2 h-4 w-4" />
-              Save Changes
+              {savingConfig ? "Saving..." : "Save Changes"}
             </Button>
           </div>
         </TabsContent>
@@ -320,7 +366,10 @@ export function SettingsPage({
                     Automatically obtain and renew certificates
                   </p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={config?.auto_tls ?? false}
+                  onCheckedChange={(c) => setField("auto_tls", c)}
+                />
               </div>
               <Separator />
               <div className="flex items-center justify-between">
@@ -330,7 +379,10 @@ export function SettingsPage({
                     Only accept encrypted connections
                   </p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={config?.require_tls_smtp ?? false}
+                  onCheckedChange={(c) => setField("require_tls_smtp", c)}
+                />
               </div>
               <Separator />
               <div className="flex items-center justify-between">
@@ -340,7 +392,10 @@ export function SettingsPage({
                     Sign outgoing emails with DKIM
                   </p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={config?.dkim_signing ?? false}
+                  onCheckedChange={(c) => setField("dkim_signing", c)}
+                />
               </div>
             </CardContent>
           </Card>
@@ -359,7 +414,8 @@ export function SettingsPage({
                   <Input
                     id="rate-limit"
                     type="number"
-                    defaultValue={100}
+                    value={config?.max_emails_per_hour ?? 0}
+                    onChange={(e) => setField("max_emails_per_hour", parseInt(e.target.value) || 0)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -367,12 +423,20 @@ export function SettingsPage({
                   <Input
                     id="auth-attempts"
                     type="number"
-                    defaultValue={5}
+                    value={config?.max_login_attempts ?? 0}
+                    onChange={(e) => setField("max_login_attempts", parseInt(e.target.value) || 0)}
                   />
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={savingConfig || !config}>
+              <Save className="mr-2 h-4 w-4" />
+              {savingConfig ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
         </TabsContent>
 
         <TabsContent value="notifications" className="space-y-6">
@@ -380,7 +444,7 @@ export function SettingsPage({
             <CardHeader>
               <CardTitle>Email Notifications</CardTitle>
               <CardDescription>
-                Configure when and how you receive notifications
+                Notification preferences (not yet persisted server-side)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

@@ -161,6 +161,10 @@ func cmdServe(args []string) {
 		os.Exit(1)
 	}
 
+	// Record the loaded config path so the admin config API can persist
+	// runtime changes back to it.
+	srv.SetConfigPath(configPath)
+
 	// Start server
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start server: %v\n", err)

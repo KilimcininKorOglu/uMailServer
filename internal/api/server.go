@@ -22,6 +22,7 @@ import (
 	"github.com/umailserver/umailserver/internal/audit"
 	"github.com/umailserver/umailserver/internal/backup"
 	"github.com/umailserver/umailserver/internal/cluster"
+	"github.com/umailserver/umailserver/internal/config"
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/mcp"
 	"github.com/umailserver/umailserver/internal/metrics"
@@ -115,6 +116,14 @@ type Server struct {
 	// Read-only durable-job store view, built lazily from semStore. Nil when
 	// semantic-core is disabled or the job bucket could not be opened.
 	jobStore *semcore.BoltJobStore
+
+	// Runtime config view for the admin Settings API. liveConfig is swapped to a
+	// validated clone on each successful PUT; it is never mutated in place, so it
+	// never races the running server's own config pointer. configPath is the file
+	// changes are persisted to (empty disables persistence).
+	configMu   sync.Mutex
+	liveConfig *config.Config
+	configPath string
 
 	// HTTP router (cached)
 	router http.Handler
@@ -674,6 +683,7 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/admin/diagnostics", s.adminMiddleware(http.HandlerFunc(s.handleAdminDiagnostics)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/diagnostics/", s.adminMiddleware(http.HandlerFunc(s.handleAdminDiagnosticsDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/jobs", s.adminMiddleware(http.HandlerFunc(s.handleAdminJobs)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/config", s.adminMiddleware(http.HandlerFunc(s.handleConfig)).ServeHTTP)
 }
 
 // limitBodyMiddleware restricts request body size to prevent DoS.
