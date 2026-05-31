@@ -25,6 +25,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -287,6 +288,9 @@ export function ContactsPage() {
             <DialogTitle>
               {editingContact ? "Edit Contact" : "Add Contact"}
             </DialogTitle>
+            <DialogDescription>
+              {editingContact ? "Update this contact's details." : "Add a new contact to your address book."}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>

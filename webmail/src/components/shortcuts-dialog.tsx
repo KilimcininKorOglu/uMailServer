@@ -3,6 +3,7 @@ import { Keyboard } from "lucide-react"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -33,6 +34,9 @@ export function ShortcutsDialog() {
             <Keyboard className="h-5 w-5" />
             Keyboard Shortcuts
           </DialogTitle>
+          <DialogDescription>
+            Speed up your workflow with these keyboard shortcuts.
+          </DialogDescription>
         </DialogHeader>
         <div className="flex-1 overflow-y-auto">
           <div className="grid gap-6 md:grid-cols-2">

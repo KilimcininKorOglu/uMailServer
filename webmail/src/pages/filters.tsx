@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogFooter,
   DialogTitle,
@@ -296,6 +297,9 @@ export function FiltersPage() {
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editingId ? "Edit Filter" : "New Filter"}</DialogTitle>
+            <DialogDescription>
+              Define conditions and the actions to apply to matching messages.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5">
