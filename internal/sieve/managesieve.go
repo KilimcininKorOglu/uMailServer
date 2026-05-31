@@ -565,9 +565,15 @@ func (s *ManageSieveServer) cmdSetActive(session *manageSieveSession, args []str
 		return fmt.Errorf("SETACTIVE requires script-name")
 	}
 
+	// RFC 5804: SETACTIVE with an empty script name deactivates the currently
+	// active script rather than being an error.
 	scriptName := unquote(args[0])
 	if scriptName == "" {
-		return fmt.Errorf("script name cannot be empty")
+		s.manager.DeactivateScript(session.user)
+		if err := s.sendResponse(session.conn, "OK \"Active script deactivated\""); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	// Set active script for the user

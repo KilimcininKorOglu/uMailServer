@@ -82,6 +82,15 @@ func (m *Manager) SetActiveScriptByName(userID string, scriptName string) error 
 	return fmt.Errorf("no scripts found for user")
 }
 
+// DeactivateScript clears the active script for a user without deleting any
+// stored scripts. Backs RFC 5804 SETACTIVE "" (deactivate the active script).
+func (m *Manager) DeactivateScript(userID string) {
+	m.scriptsMu.Lock()
+	defer m.scriptsMu.Unlock()
+	delete(m.activeScripts, userID)
+	m.persistUserLocked(userID)
+}
+
 // SetActiveScript sets the active script for a user (stores script with given name and activates)
 func (m *Manager) SetActiveScript(userID string, scriptName string, source string) error {
 	if err := m.StoreScript(userID, scriptName, source); err != nil {

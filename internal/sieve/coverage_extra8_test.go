@@ -311,26 +311,35 @@ func TestManageSieve_cmdSetActive_MissingScriptName(t *testing.T) {
 	}
 }
 
-func TestManageSieve_cmdSetActive_EmptyScriptName(t *testing.T) {
+func TestManageSieve_cmdSetActive_EmptyScriptNameDeactivates(t *testing.T) {
 	mgr := NewManager()
 	srv := NewManageSieveServer(mgr, nil)
+
+	// Store and activate a script so there is something to deactivate.
+	if err := mgr.SetActiveScript("testuser", "active", "keep;"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if mgr.GetActiveScriptName("testuser") != "active" {
+		t.Fatalf("setup: expected 'active' to be the active script")
+	}
 
 	conn := &mockConn{
 		readBuf:  bytes.NewBuffer([]byte{}),
 		writeBuf: bytes.NewBuffer([]byte{}),
 	}
-	reader := &manageSieveReader{r: conn}
-
 	session := &manageSieveSession{
 		conn:    conn,
-		reader:  reader,
+		reader:  &manageSieveReader{r: conn},
 		user:    "testuser",
 		manager: mgr,
 	}
 
-	err := srv.cmdSetActive(session, []string{""})
-	if err == nil {
-		t.Fatal("Expected error for empty script name")
+	// RFC 5804: SETACTIVE "" deactivates the active script and succeeds.
+	if err := srv.cmdSetActive(session, []string{`""`}); err != nil {
+		t.Fatalf(`SETACTIVE "" should deactivate, got error: %v`, err)
+	}
+	if name := mgr.GetActiveScriptName("testuser"); name != "" {
+		t.Fatalf("expected no active script after deactivation, got %q", name)
 	}
 }
 
