@@ -21,7 +21,6 @@ func (s *Server) startPOP3(mailstore *imap.BboltMailstore) error {
 	}
 	pop3Server := pop3.NewServer(pop3Addr, pop3Adapter, s.logger)
 	pop3Server.SetAuthFunc(s.authenticate)
-	pop3Server.SetRequireTLS(true)
 	pop3Server.SetAuthLimits(s.config.Security.MaxLoginAttempts, time.Duration(s.config.Security.LockoutDuration))
 	pop3Server.SetReadTimeout(10 * time.Minute)
 	pop3Server.SetWriteTimeout(10 * time.Minute)
@@ -29,7 +28,12 @@ func (s *Server) startPOP3(mailstore *imap.BboltMailstore) error {
 	pop3Server.SetLoginResultHandler(s.protoLoginHandler("pop3"))
 	pop3Server.SetTracingProvider(s.tracingProvider)
 
+	// Only enforce TLS-before-auth when TLS is actually available. STLS is
+	// gated on the TLS config, so requiring TLS without it would leave POP3
+	// permanently unauthenticatable (matches IMAP, which allows plaintext auth
+	// when TLS is disabled).
 	if s.tlsManager.IsEnabled() {
+		pop3Server.SetRequireTLS(true)
 		pop3Server.SetTLSConfig(&pop3.TLSConfig{
 			CertFile: s.config.TLS.CertFile,
 			KeyFile:  s.config.TLS.KeyFile,
