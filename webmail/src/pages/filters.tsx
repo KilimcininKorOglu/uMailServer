@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Filter as FilterIcon, Plus, Pencil, Trash2, X } from "lucide-react"
+import { Filter as FilterIcon, Plus, Pencil, Trash2, X, ArrowUp, ArrowDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -92,6 +92,23 @@ export function FiltersPage() {
   useEffect(() => {
     loadFilters()
   }, [loadFilters])
+
+  // Move a filter up/down in priority order and persist the new order.
+  const moveFilter = async (index: number, dir: -1 | 1) => {
+    const target = index + dir
+    if (target < 0 || target >= filters.length) return
+    const reordered = [...filters]
+    const [item] = reordered.splice(index, 1)
+    reordered.splice(target, 0, item)
+    setFilters(reordered)
+    try {
+      await api.reorderFilters(reordered.map((f) => f.id))
+    } catch (err) {
+      console.error("Failed to reorder filters:", err)
+      toast.error("Failed to reorder filters")
+      loadFilters()
+    }
+  }
 
   const openCreate = () => {
     setEditingId(null)
@@ -245,10 +262,32 @@ export function FiltersPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filters.map((filter) => (
+          {filters.map((filter, index) => (
             <div key={filter.id} className="rounded-lg border bg-card p-4">
               <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
+                <div className="flex flex-col">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    disabled={index === 0}
+                    onClick={() => moveFilter(index, -1)}
+                    title="Move up"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    disabled={index === filters.length - 1}
+                    onClick={() => moveFilter(index, 1)}
+                    title="Move down"
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{filter.name}</span>
                     {!filter.enabled && (

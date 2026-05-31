@@ -328,6 +328,11 @@ class API {
     await this.delete(`/filters/${id}`)
   }
 
+  // reorderFilters sets the filter priority order (first id = highest priority).
+  async reorderFilters(filterIds: string[]): Promise<void> {
+    await this.post('/filters/reorder', { filterIds })
+  }
+
   // Vacation/Auto-reply
   async getVacation(): Promise<VacationAutoReply> {
     return this.get<VacationAutoReply>('/vacation')
