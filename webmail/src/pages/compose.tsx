@@ -199,6 +199,32 @@ export function ComposePage() {
     }
   }, [searchParams])
 
+  // Load an existing draft into the composer when ?draft=<id> is present so
+  // "Edit draft" reopens its content instead of a blank message.
+  useEffect(() => {
+    const draftParam = searchParams.get("draft")
+    if (!draftParam) return
+    let active = true
+    api.getMessage(draftParam)
+      .then((msg) => {
+        if (!active || !msg) return
+        setDraftId(msg.id || draftParam)
+        setSubject(msg.subject || "")
+        setBody(msg.body || "")
+        if (Array.isArray(msg.to)) {
+          const recipients = msg.to
+            .map((t) => t.trim())
+            .filter(Boolean)
+            .map((email, idx) => ({ id: `draft-to-${idx}-${email}`, name: email, email }))
+          if (recipients.length > 0) setTo(recipients)
+        }
+      })
+      .catch((err) => console.error("Failed to load draft:", err))
+    return () => {
+      active = false
+    }
+  }, [searchParams])
+
   const filteredContacts = contacts.filter(
     (c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
