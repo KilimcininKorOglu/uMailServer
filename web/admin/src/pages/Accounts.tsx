@@ -416,20 +416,24 @@ export function Accounts() {
                   onChange={(e) => setNewAccountPassword(e.target.value)}
                 />
               </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="require-password-change">Require password change on next login</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Useful when an admin resets someone else&apos;s password.
-                  </p>
+              {/* Only relevant when actually resetting the password; rendering it
+                  unconditionally showed a checked-but-disabled switch that
+                  implied it would apply even with no new password set. */}
+              {newAccountPassword && (
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="require-password-change">Require password change on next login</Label>
+                    <p className="text-sm text-muted-foreground">
+                      The user must set a new password the next time they sign in.
+                    </p>
+                  </div>
+                  <Switch
+                    id="require-password-change"
+                    checked={requirePasswordChangeOnReset}
+                    onCheckedChange={setRequirePasswordChangeOnReset}
+                  />
                 </div>
-                <Switch
-                  id="require-password-change"
-                  checked={requirePasswordChangeOnReset}
-                  disabled={!newAccountPassword}
-                  onCheckedChange={setRequirePasswordChangeOnReset}
-                />
-              </div>
+              )}
             </div>
           )}
           <DialogFooter>
