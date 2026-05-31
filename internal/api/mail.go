@@ -564,17 +564,36 @@ func (h *MailHandler) handleMailDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete from message store (actual file)
+	// A first delete moves the message to Trash; deleting again from Trash (or
+	// passing permanent=true, as the Trash view does) purges it for good. The
+	// message file is shared across mailboxes, so a soft delete only moves
+	// metadata and the file is removed only on a permanent delete.
+	permanent := r.URL.Query().Get("permanent") == "true"
+	mailbox, uid, meta, found := h.findMessage(userEmail, messageID)
+
+	if found && !permanent && mailbox != "Trash" {
+		if err := h.moveMessageMetadata(userEmail, mailbox, "Trash", uid, meta); err != nil {
+			h.sendError(w, http.StatusInternalServerError, "Failed to move message to trash")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]string{
+			"message": "Email moved to trash",
+			"id":      messageID,
+		}); err != nil {
+			fmt.Printf("ERROR: failed to encode delete confirmation: %v\n", err)
+		}
+		return
+	}
+
+	// Permanent delete: remove the shared message file and its metadata.
 	if h.msgStore != nil {
 		if err := h.msgStore.DeleteMessage(userEmail, messageID); err != nil {
 			// Log but don't fail - message might already be deleted
 			fmt.Printf("Warning: failed to delete message file: %v\n", err)
 		}
 	}
-
-	// Also remove from mailDB metadata (find and delete by messageID)
 	if h.mailDB != nil {
-		// Search through all mailboxes to find the message
 		h.deleteMessageMetadata(userEmail, messageID)
 	}
 
@@ -585,6 +604,52 @@ func (h *MailHandler) handleMailDelete(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		fmt.Printf("ERROR: failed to encode delete confirmation: %v\n", err)
 	}
+}
+
+// findMessage locates a message by id across the user's mailboxes, returning the
+// mailbox it lives in along with its UID and metadata.
+func (h *MailHandler) findMessage(userEmail, messageID string) (string, uint32, *storage.MessageMetadata, bool) {
+	if h.mailDB == nil {
+		return "", 0, nil, false
+	}
+	for _, mailbox := range allMailboxes {
+		uids, err := h.mailDB.GetMessageUIDs(userEmail, mailbox)
+		if err != nil {
+			continue
+		}
+		for _, uid := range uids {
+			meta, err := h.mailDB.GetMessageMetadata(userEmail, mailbox, uid)
+			if err != nil {
+				continue
+			}
+			if meta.MessageID == messageID {
+				return mailbox, uid, meta, true
+			}
+		}
+	}
+	return "", 0, nil, false
+}
+
+// moveMessageMetadata moves a message from src to dst by writing its metadata
+// under a fresh UID in dst and removing it from src. The message file is keyed
+// by user+id and shared across mailboxes, so it is intentionally left in place.
+func (h *MailHandler) moveMessageMetadata(userEmail, src, dst string, srcUID uint32, meta *storage.MessageMetadata) error {
+	if src == dst || meta == nil {
+		return nil
+	}
+	if err := h.mailDB.CreateMailbox(userEmail, dst); err != nil {
+		return fmt.Errorf("ensure mailbox %s: %w", dst, err)
+	}
+	newUID, err := h.mailDB.GetNextUID(userEmail, dst)
+	if err != nil {
+		return fmt.Errorf("next uid for %s: %w", dst, err)
+	}
+	newMeta := *meta
+	newMeta.UID = newUID
+	if err := h.mailDB.StoreMessageMetadata(userEmail, dst, newUID, &newMeta); err != nil {
+		return fmt.Errorf("store metadata in %s: %w", dst, err)
+	}
+	return h.mailDB.DeleteMessage(userEmail, src, srcUID)
 }
 
 // deleteMessageMetadata finds and deletes message metadata by messageID
