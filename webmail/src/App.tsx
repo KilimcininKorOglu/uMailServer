@@ -11,6 +11,7 @@ import { DraftsPage } from "@/pages/drafts"
 import { TrashPage } from "@/pages/trash"
 import { ContactsPage } from "@/pages/contacts"
 import { CalendarPage } from "@/pages/calendar"
+import { TasksPage } from "@/pages/tasks"
 import { SettingsPage } from "@/pages/settings"
 import { SearchPage } from "@/pages/search"
 import { SpamPage } from "@/pages/spam"
@@ -67,6 +68,7 @@ function AppContent() {
           <Route path="trash" element={<TrashPage />} />
           <Route path="contacts" element={<ContactsPage />} />
           <Route path="calendar" element={<CalendarPage />} />
+          <Route path="tasks" element={<TasksPage />} />
           <Route path="filters" element={<FiltersPage />} />
           <Route path="threads" element={<ThreadsPage />} />
           <Route path="settings" element={<SettingsPage />} />

@@ -54,15 +54,25 @@ type CalendarEventDTO struct {
 	AllDay      bool   `json:"allDay,omitempty"`
 }
 
-const defaultCalendarID = "default"
+const (
+	defaultCalendarID = "default"
+	// taskListID is the dedicated collection for VTODO items; the events
+	// calendar deliberately excludes it so tasks and events stay separate.
+	taskListID = "tasks"
+)
 
-// ensureCalendar returns the ID of the user's calendar, creating a default one
-// if none exists yet.
+// ensureCalendar returns the ID of the user's events calendar, creating a
+// default one if none exists. The task list collection is never treated as the
+// events calendar.
 func (h *CalendarHandler) ensureCalendar(user string) (string, error) {
 	store := h.getStorage()
 	cals, err := store.GetCalendars(user)
-	if err == nil && len(cals) > 0 {
-		return cals[0].ID, nil
+	if err == nil {
+		for _, c := range cals {
+			if c.ID != taskListID {
+				return c.ID, nil
+			}
+		}
 	}
 	cal := &caldav.Calendar{
 		ID:       defaultCalendarID,

@@ -16,6 +16,7 @@ import {
   Pencil,
   MoreHorizontal,
   CalendarDays,
+  ListTodo,
   Users,
   Search,
   Mail,
@@ -76,6 +77,7 @@ const mainNavItems: NavItem[] = [
   { icon: Trash2, label: "Trash", path: "/trash", shortcut: "gT" },
   { icon: Users, label: "Contacts", path: "/contacts" },
   { icon: CalendarDays, label: "Calendar", path: "/calendar" },
+  { icon: ListTodo, label: "Tasks", path: "/tasks" },
   { icon: Filter, label: "Filters", path: "/filters" },
 ]
 

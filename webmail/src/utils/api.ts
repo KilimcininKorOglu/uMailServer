@@ -49,6 +49,16 @@ export interface CalendarEvent {
 
 export type CalendarEventInput = Omit<CalendarEvent, "uid"> & { uid?: string }
 
+export interface Task {
+  uid: string
+  summary: string
+  description?: string
+  due?: string // RFC3339 or YYYY-MM-DD
+  completed: boolean
+}
+
+export type TaskInput = Omit<Task, "uid"> & { uid?: string }
+
 export interface AuthLoginRequest {
   email: string
   password: string
@@ -534,6 +544,23 @@ class API {
 
   async deleteCalendarEvent(uid: string): Promise<void> {
     await this.delete(`/calendar/events/${encodeURIComponent(uid)}`)
+  }
+
+  // Tasks (CalDAV VTODO-backed)
+  async getTasks(): Promise<{ tasks?: Task[] }> {
+    return this.get<{ tasks?: Task[] }>('/tasks')
+  }
+
+  async createTask(task: TaskInput): Promise<Task> {
+    return this.post<Task>('/tasks', task)
+  }
+
+  async updateTask(uid: string, task: TaskInput): Promise<Task> {
+    return this.put<Task>(`/tasks/${encodeURIComponent(uid)}`, task)
+  }
+
+  async deleteTask(uid: string): Promise<void> {
+    await this.delete(`/tasks/${encodeURIComponent(uid)}`)
   }
 
   // Generic methods

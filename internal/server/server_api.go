@@ -79,6 +79,8 @@ func (s *Server) startAPI() {
 	s.apiServer.SetContactsDataDir(s.config.Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API
 	s.apiServer.SetCalendarDataDir(s.config.Server.DataDir)
+	// Set task handler data directory for CalDAV-backed (VTODO) tasks API
+	s.apiServer.SetTaskDataDir(s.config.Server.DataDir)
 	// Set backup manager for backup/restore operations
 	if s.storageDB != nil {
 		backupMgr := backup.NewManager(s.config.Server.DataDir, s.storageDB, s.msgStore)
