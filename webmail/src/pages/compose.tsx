@@ -1040,23 +1040,26 @@ export function ComposePage() {
 
       {/* Formatting Toolbar */}
       <div className="flex items-center gap-1 border-b px-4 py-1 bg-muted/30">
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bold" onClick={() => applyFormat("bold")}>
+        {/* onMouseDown preventDefault keeps focus (and the selection) in the
+            body textarea so applyFormat wraps the selected text instead of
+            inserting a placeholder. */}
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("bold")}>
           <Bold className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Italic" onClick={() => applyFormat("italic")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("italic")}>
           <Italic className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Underline" onClick={() => applyFormat("underline")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Underline" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("underline")}>
           <Underline className="h-4 w-4" />
         </Button>
         <Separator orientation="vertical" className="h-6" />
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert link" onClick={() => applyFormat("link")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert link" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("link")}>
           <Link className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bullet list" onClick={() => applyFormat("list")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bullet list" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("list")}>
           <List className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert image link" onClick={() => applyFormat("image")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert image link" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("image")}>
           <Image className="h-4 w-4" />
         </Button>
         <span className="text-xs text-muted-foreground ml-2">
