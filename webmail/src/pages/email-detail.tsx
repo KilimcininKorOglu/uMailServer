@@ -15,6 +15,8 @@ import {
   CalendarCheck,
   Check,
   HelpCircle,
+  Paperclip,
+  Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -30,8 +32,15 @@ import {
 import { toast } from "sonner"
 import { sanitizeHTML } from "@/utils/sanitize"
 import api from "@/utils/api"
-import type { MeetingInvite } from "@/utils/api"
+import type { MeetingInvite, AttachmentInfo } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
+
+// formatFileSize renders a byte count as a human-readable size.
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 interface EmailDetail {
   id: string
@@ -43,6 +52,7 @@ interface EmailDetail {
   content: string
   flagged: boolean
   labels: string[]
+  attachments: AttachmentInfo[]
 }
 
 export function EmailDetailPage() {
@@ -82,6 +92,7 @@ export function EmailDetailPage() {
             content: result.body,
             flagged: !!result.starred,
             labels: result.labels ?? [],
+            attachments: result.attachments ?? [],
           })
           // Detect a meeting invite so we can offer RSVP actions. A failure
           // here must not block reading the message.
@@ -234,6 +245,15 @@ export function EmailDetailPage() {
       toast.error("Failed to respond to the invitation")
     } finally {
       setRsvpBusy(false)
+    }
+  }
+
+  const handleDownloadAttachment = async (att: AttachmentInfo) => {
+    if (!email) return
+    try {
+      await api.downloadAttachment(email.id, att.index, att.filename)
+    } catch {
+      toast.error("Failed to download attachment")
     }
   }
 
@@ -453,6 +473,33 @@ export function EmailDetailPage() {
                 dangerouslySetInnerHTML={{ __html: sanitizeHTML(email.content) }}
               />
             </div>
+
+            {/* Attachments */}
+            {email.attachments.length > 0 && (
+              <div className="border-t px-6 py-4">
+                <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                  <Paperclip className="h-4 w-4" />
+                  {email.attachments.length} attachment{email.attachments.length > 1 ? "s" : ""}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {email.attachments.map((att) => (
+                    <button
+                      key={att.index}
+                      onClick={() => handleDownloadAttachment(att)}
+                      className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left text-sm hover:bg-accent/50 transition-colors"
+                      title={`Download ${att.filename}`}
+                    >
+                      <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{att.filename}</span>
+                        <span className="block text-xs text-muted-foreground">{formatFileSize(att.size)}</span>
+                      </span>
+                      <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

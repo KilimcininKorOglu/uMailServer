@@ -31,6 +31,9 @@ type Mail struct {
 	HasAttachments bool     `json:"hasAttachments"`
 	Size           int64    `json:"size"`
 	Labels         []string `json:"labels,omitempty"`
+	// Attachments lists a received message's attachment parts (metadata only);
+	// bytes are fetched on demand via /api/v1/mail/attachment.
+	Attachments []AttachmentInfo `json:"attachments,omitempty"`
 }
 
 // Attachment is a base64-encoded file attached to an outgoing message.
@@ -384,9 +387,11 @@ func (h *MailHandler) getEmailFromStorage(userEmail, mailbox, messageID string) 
 			// Read message body (strip headers so the client shows the body,
 			// not the raw MIME message).
 			var body string
+			var attachments []AttachmentInfo
 			data, err := h.msgStore.ReadMessage(userEmail, meta.MessageID)
 			if err == nil {
 				body = h.extractBody(string(data))
+				attachments = listAttachments(data)
 			}
 
 			folderName := reverseFolderMap[mailbox]
@@ -395,18 +400,20 @@ func (h *MailHandler) getEmailFromStorage(userEmail, mailbox, messageID string) 
 			}
 
 			return &Mail{
-				ID:      meta.MessageID,
-				From:    meta.From,
-				To:      strings.Split(meta.To, ","),
-				Subject: meta.Subject,
-				Body:    body,
-				Preview: body,
-				Date:    meta.InternalDate.Format(time.RFC1123Z),
-				Read:    hasFlag(meta.Flags, "\\Seen"),
-				Starred: hasFlag(meta.Flags, "\\Flagged"),
-				Folder:  folderName,
-				Size:    meta.Size,
-				Labels:  meta.Labels,
+				ID:             meta.MessageID,
+				From:           meta.From,
+				To:             strings.Split(meta.To, ","),
+				Subject:        meta.Subject,
+				Body:           body,
+				Preview:        body,
+				Date:           meta.InternalDate.Format(time.RFC1123Z),
+				Read:           hasFlag(meta.Flags, "\\Seen"),
+				Starred:        hasFlag(meta.Flags, "\\Flagged"),
+				Folder:         folderName,
+				Size:           meta.Size,
+				Labels:         meta.Labels,
+				HasAttachments: len(attachments) > 0,
+				Attachments:    attachments,
 			}, nil
 		}
 	}

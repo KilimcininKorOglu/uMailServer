@@ -19,12 +19,22 @@ export interface Mail {
   hasAttachments: boolean
   size: number
   labels?: string[]
+  attachments?: AttachmentInfo[]
 }
 
 export interface MailAttachment {
   filename: string
   contentType: string
   content: string // base64-encoded file bytes
+}
+
+// AttachmentInfo describes a received message's attachment (metadata only).
+// The bytes are fetched on demand by index.
+export interface AttachmentInfo {
+  filename: string
+  contentType: string
+  size: number
+  index: number
 }
 
 export interface SendMailRequest {
@@ -400,6 +410,27 @@ class API {
   // getMessage fetches a single message by id (resolved across all folders).
   async getMessage(id: string): Promise<Mail> {
     return this.get<Mail>(`/mail/message?id=${encodeURIComponent(id)}`)
+  }
+
+  // downloadAttachment fetches one attachment of a received message by index and
+  // triggers a browser save. Auth rides the HttpOnly cookie (and Bearer if set).
+  async downloadAttachment(id: string, index: number, filename: string): Promise<void> {
+    const headers: Record<string, string> = {}
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const res = await fetch(
+      `${API_URL}/mail/attachment?id=${encodeURIComponent(id)}&index=${index}`,
+      { headers, credentials: 'include' }
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename || 'attachment'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
   }
 
   // setMailLabels replaces the category labels on a message.
