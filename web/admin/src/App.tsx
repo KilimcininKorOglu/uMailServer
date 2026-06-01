@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Layout } from "@/components/layout";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -27,6 +27,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
+  const navigate = useNavigate();
 
   // Check for existing session on mount
   // Token is stored in HttpOnly cookie (more secure against XSS)
@@ -145,6 +146,9 @@ function App() {
     setActivities([]);
     localStorage.removeItem(adminEmailStorageKey);
     localStorage.removeItem(adminPasswordChangeStorageKey);
+    // Reset the address bar to the admin root so it does not linger on the
+    // sub-route the user was viewing when they logged out.
+    navigate("/", { replace: true });
   };
 
   const handlePasswordChangeComplete = () => {
