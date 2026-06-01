@@ -110,6 +110,7 @@ function App() {
 
   // WebSocket connection for realtime updates
   const { isConnected } = useWebSocket({
+    enabled: isAuthenticated,
     onActivity: (activity) => {
       setActivities((prev) => [activity, ...prev].slice(0, 50));
     },

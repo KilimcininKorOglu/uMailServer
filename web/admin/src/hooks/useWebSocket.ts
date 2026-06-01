@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { RealtimeMetrics, Activity } from "@/types";
 
 interface UseWebSocketOptions {
+  // When false, no EventSource is opened. The SSE endpoint requires auth, so
+  // connecting before login produces a 401 console error on the login screen.
+  enabled?: boolean;
   onMetrics?: (metrics: RealtimeMetrics) => void;
   onActivity?: (activity: Activity) => void;
   onStatus?: (status: unknown) => void;
@@ -113,10 +116,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   // SSE is a one-way channel; kept as a no-op for API compatibility.
   const sendMessage = useCallback(() => {}, []);
 
+  const enabled = options.enabled ?? true;
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     connect();
     return () => disconnect();
-  }, [connect, disconnect]);
+  }, [enabled, connect, disconnect]);
 
   return {
     isConnected,
