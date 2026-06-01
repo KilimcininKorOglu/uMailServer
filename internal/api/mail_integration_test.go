@@ -54,6 +54,8 @@ func helperSetupMailIntegration(t *testing.T) (*Server, *db.DB, *storage.Databas
 	// Set storage on server
 	server.SetMailDB(mailDB)
 	server.SetMsgStore(msgStore)
+	// Wire a no-op delivery path so send returns success in tests.
+	server.SetMailDeliveryFunc(func(_ string, _ []string, _ []byte) error { return nil })
 
 	token := helperLogin(t, server, "user@mailtest.com", "password123")
 	return server, database, mailDB, msgStore, token

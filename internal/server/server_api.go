@@ -75,6 +75,10 @@ func (s *Server) startAPI() {
 	if s.msgStore != nil {
 		s.apiServer.SetMsgStore(s.msgStore)
 	}
+	// Wire webmail send to the same submission delivery path EWS/JMAP use, so a
+	// composed message is actually delivered (local + relay), not just filed in
+	// Sent.
+	s.apiServer.SetMailDeliveryFunc(s.submitMessageWithSieve)
 	// Set contacts handler data directory for CardDAV-backed contacts API
 	s.apiServer.SetContactsDataDir(s.config.Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API

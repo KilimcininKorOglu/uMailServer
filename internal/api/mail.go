@@ -109,6 +109,11 @@ func buildMultipartBody(textBody string, attachments []Attachment) (string, stri
 type MailHandler struct {
 	msgStore *storage.MessageStore
 	mailDB   *storage.Database
+	// deliver routes a submitted outbound message through the shared delivery
+	// path (local delivery for local domains, queue relay for external),
+	// identical to the SMTP submission / EWS / JMAP send path. When nil, send
+	// only files a copy in Sent and does not deliver.
+	deliver func(from string, to []string, data []byte) error
 }
 
 // NewMailHandler creates a new mail handler
@@ -120,6 +125,11 @@ func NewMailHandler() *MailHandler {
 func (h *MailHandler) SetStorage(msgStore *storage.MessageStore, mailDB *storage.Database) {
 	h.msgStore = msgStore
 	h.mailDB = mailDB
+}
+
+// SetDeliveryFunc wires the shared outbound delivery path used by webmail send.
+func (h *MailHandler) SetDeliveryFunc(fn func(from string, to []string, data []byte) error) {
+	h.deliver = fn
 }
 
 // sendError sends a JSON error response
@@ -551,6 +561,28 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rawEmail := sb.String()
+
+	// Deliver to all envelope recipients (To + Cc + Bcc) through the shared
+	// delivery path: local mailboxes are delivered directly, external ones are
+	// queued for relay. Bcc recipients receive the message but are not listed in
+	// the headers. Without a delivery func, send would only file a Sent copy and
+	// silently never reach anyone, so treat its absence as a hard error.
+	if h.deliver == nil {
+		h.sendError(w, http.StatusServiceUnavailable, "Mail delivery is not available")
+		return
+	}
+	recipients := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
+	for _, group := range [][]string{req.To, req.CC, req.BCC} {
+		for _, addr := range group {
+			if a := strings.TrimSpace(addr); a != "" {
+				recipients = append(recipients, a)
+			}
+		}
+	}
+	if err := h.deliver(senderEmail, recipients, []byte(rawEmail)); err != nil {
+		h.sendError(w, http.StatusBadGateway, "Failed to deliver message")
+		return
+	}
 
 	// Store the message
 	var msgID string

@@ -69,6 +69,7 @@ type Server struct {
 	searchSvc       *search.Service
 	msgStore        *storage.MessageStore
 	mailDB          *storage.Database
+	mailDeliver     func(from string, to []string, data []byte) error
 	queueMgr        *queue.Manager
 	httpServer      *http.Server
 	plainHTTPServer *http.Server
@@ -632,6 +633,9 @@ func (s *Server) initRouter() {
 	if s.mailHandler == nil {
 		s.mailHandler = NewMailHandler()
 		s.mailHandler.SetStorage(s.msgStore, s.mailDB)
+	}
+	if s.mailDeliver != nil {
+		s.mailHandler.SetDeliveryFunc(s.mailDeliver)
 	}
 
 	api.HandleFunc("/api/v1/mail/inbox", s.mailHandler.handleMailList)
@@ -1307,6 +1311,13 @@ func (s *Server) SetMsgStore(msgStore *storage.MessageStore) {
 	s.initMailHandler()
 }
 
+// SetMailDeliveryFunc wires the shared outbound delivery path so webmail send
+// actually delivers to recipients (local + relay), not just files a Sent copy.
+func (s *Server) SetMailDeliveryFunc(fn func(from string, to []string, data []byte) error) {
+	s.mailDeliver = fn
+	s.initMailHandler()
+}
+
 // initMailHandler initializes the mail handler with storage backends
 func (s *Server) initMailHandler() {
 	if s.mailHandler == nil && (s.msgStore != nil || s.mailDB != nil) {
@@ -1314,6 +1325,9 @@ func (s *Server) initMailHandler() {
 		s.mailHandler.SetStorage(s.msgStore, s.mailDB)
 	} else if s.mailHandler != nil {
 		s.mailHandler.SetStorage(s.msgStore, s.mailDB)
+	}
+	if s.mailHandler != nil && s.mailDeliver != nil {
+		s.mailHandler.SetDeliveryFunc(s.mailDeliver)
 	}
 }
 

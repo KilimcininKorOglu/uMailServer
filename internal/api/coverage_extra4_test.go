@@ -922,6 +922,7 @@ func TestMailSend_WithBCC(t *testing.T) {
 	defer database.Close()
 
 	server := NewServer(database, nil, Config{JWTSecret: "test-secret", TokenExpiry: time.Hour})
+	server.SetMailDeliveryFunc(func(_ string, _ []string, _ []byte) error { return nil })
 
 	domain := &db.DomainData{Name: "mailtest.com", MaxAccounts: 10, IsActive: true}
 	_ = database.CreateDomain(domain)
@@ -978,6 +979,8 @@ func TestHandleMailSend_WithStorage(t *testing.T) {
 	server := NewServer(database, nil, Config{JWTSecret: "test-secret", TokenExpiry: time.Hour})
 	server.SetMailDB(mailDB)
 	server.SetMsgStore(msgStore)
+	delivered := false
+	server.SetMailDeliveryFunc(func(_ string, _ []string, _ []byte) error { delivered = true; return nil })
 
 	domain := &db.DomainData{Name: "mailtest.com", MaxAccounts: 10, IsActive: true}
 	_ = database.CreateDomain(domain)
@@ -1006,6 +1009,10 @@ func TestHandleMailSend_WithStorage(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("Expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if !delivered {
+		t.Error("Expected the message to be handed to the delivery path")
 	}
 
 	// Verify message was stored in Sent folder

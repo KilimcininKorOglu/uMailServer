@@ -37,6 +37,7 @@ func sendAndReadBack(t *testing.T, reqBody string) string {
 	h := NewMailHandler()
 	h.mailDB = mailDB
 	h.msgStore = msgStore
+	h.SetDeliveryFunc(func(_ string, _ []string, _ []byte) error { return nil })
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mail/send", strings.NewReader(reqBody))
 	req = req.WithContext(context.WithValue(req.Context(), "user", "alice@test.com")) //nolint:staticcheck // matches handler lookup
