@@ -68,6 +68,7 @@ export function Directory() {
 
   const [editResourceTarget, setEditResourceTarget] = useState<DirectoryObject | null>(null);
   const [editResourceCapacity, setEditResourceCapacity] = useState(0);
+  const [deleteResourceTarget, setDeleteResourceTarget] = useState<DirectoryObject | null>(null);
 
   // Per-policy max-duration text being edited; saved on blur.
   const [maxDurationDrafts, setMaxDurationDrafts] = useState<Record<string, string>>({});
@@ -120,9 +121,11 @@ export function Directory() {
     }
   };
 
-  const handleDeleteResource = async (id: string) => {
+  const handleDeleteResource = async () => {
+    if (!deleteResourceTarget) return;
     try {
-      await deleteResource(id);
+      await deleteResource(deleteResourceTarget.id);
+      setDeleteResourceTarget(null);
       setFormError(null);
     } catch (err) {
       setFormError((err as { message?: string }).message || "Failed to remove resource");
@@ -331,7 +334,34 @@ export function Directory() {
         </DialogContent>
       </Dialog>
 
-      {formError && !isAddResourceDialogOpen && !isAddRoomListDialogOpen && editResourceTarget === null && (
+      {/* Remove Resource Confirmation Dialog */}
+      <Dialog open={deleteResourceTarget !== null} onOpenChange={(open) => { if (!open) setDeleteResourceTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Resource</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove {deleteResourceTarget?.name}? This
+              action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {formError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteResourceTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteResource}>
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {formError && !isAddResourceDialogOpen && !isAddRoomListDialogOpen && editResourceTarget === null && deleteResourceTarget === null && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{formError}</AlertDescription>
@@ -433,7 +463,7 @@ export function Directory() {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-red-600"
-                              onClick={() => handleDeleteResource(obj.id)}
+                              onClick={() => setDeleteResourceTarget(obj)}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Remove
