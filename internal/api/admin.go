@@ -227,12 +227,16 @@ func (s *AdminServer) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	// Try to serve the file
 	data, err := s.adminFS.Open(filePath)
 	if err != nil {
-		// Try index.html for SPA routing
+		// Try index.html for SPA routing. Deep-link/refresh paths such as
+		// /admin/accounts have no extension, so serve the SPA shell and force
+		// its content type to text/html (otherwise the extensionless path
+		// resolves to application/octet-stream and the browser downloads it).
 		data, err = s.adminFS.Open("index.html")
 		if err != nil {
 			http.Error(w, "Admin panel not found", http.StatusNotFound)
 			return
 		}
+		filePath = "index.html"
 	}
 	defer data.Close()
 

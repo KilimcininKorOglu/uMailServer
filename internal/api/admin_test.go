@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -678,6 +680,45 @@ type mockFileSystem struct {
 
 func (m *mockFileSystem) Open(name string) (http.File, error) {
 	return nil, io.EOF // Simplified mock
+}
+
+// fakeAdminFS adapts an in-memory fstest.MapFS to the FileSystem interface so
+// handleAdmin can be exercised with real file lookups in tests.
+type fakeAdminFS struct{ m fstest.MapFS }
+
+func (f fakeAdminFS) Open(name string) (fs.File, error)    { return f.m.Open(name) }
+func (f fakeAdminFS) ReadFile(name string) ([]byte, error) { return f.m.ReadFile(name) }
+func (f fakeAdminFS) Exists(name string) bool {
+	_, err := f.m.Open(name)
+	return err == nil
+}
+
+// TestAdminServer_handleAdmin_SPAFallbackContentType is a regression guard for
+// the deep-link/refresh bug: extensionless admin sub-routes (e.g. /admin/accounts)
+// have no matching file, so the SPA shell (index.html) must be served as
+// text/html. Previously the content type was derived from the extensionless
+// request path and resolved to application/octet-stream, making the browser
+// download the page instead of rendering it.
+func TestAdminServer_handleAdmin_SPAFallbackContentType(t *testing.T) {
+	adminServer, _, cleanup := setupAdminTestServer(t)
+	defer cleanup()
+
+	adminServer.adminFS = fakeAdminFS{m: fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>admin</title>")},
+	}}
+
+	for _, path := range []string{"/admin/accounts", "/admin/domains", "/admin/settings"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		adminServer.handleAdmin(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d", path, w.Code)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "text/html" {
+			t.Errorf("%s: fallback Content-Type = %q, want text/html", path, ct)
+		}
+	}
 }
 
 // TestAdminServer_Routes_Health tests health check route
