@@ -44,9 +44,10 @@ interface EventForm {
   allDay: boolean
   location: string
   description: string
+  attendees: string
 }
 
-const emptyForm: EventForm = { summary: "", start: "", end: "", allDay: false, location: "", description: "" }
+const emptyForm: EventForm = { summary: "", start: "", end: "", allDay: false, location: "", description: "", attendees: "" }
 
 function dayKey(value: string): string {
   const d = new Date(value)
@@ -115,6 +116,7 @@ export function CalendarPage() {
       allDay: !!ev.allDay,
       location: ev.location ?? "",
       description: ev.description ?? "",
+      attendees: (ev.attendees ?? []).join(", "),
     })
     setDialogOpen(true)
   }
@@ -128,6 +130,10 @@ export function CalendarPage() {
       toast.error("Start is required")
       return
     }
+    const attendees = form.attendees
+      .split(/[\s,;]+/)
+      .map((a) => a.trim())
+      .filter(Boolean)
     const payload = {
       summary: form.summary.trim(),
       start: form.allDay ? form.start : localInputToRFC3339(form.start),
@@ -135,6 +141,7 @@ export function CalendarPage() {
       allDay: form.allDay || undefined,
       location: form.location || undefined,
       description: form.description || undefined,
+      attendees: attendees.length > 0 ? attendees : undefined,
     }
     setBusy(true)
     try {
@@ -351,6 +358,18 @@ export function CalendarPage() {
                 rows={3}
                 placeholder="Optional"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ev-attendees">Attendees</Label>
+              <Input
+                id="ev-attendees"
+                value={form.attendees}
+                onChange={(e) => setForm({ ...form, attendees: e.target.value })}
+                placeholder="email1@example.com, email2@example.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                Attendees receive an email invitation they can accept or decline.
+              </p>
             </div>
           </div>
           <DialogFooter>

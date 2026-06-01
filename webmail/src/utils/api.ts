@@ -56,6 +56,9 @@ export interface CalendarEvent {
   start: string // RFC3339, or YYYY-MM-DD when allDay
   end?: string
   allDay?: boolean
+  organizer?: string
+  attendees?: string[]
+  recurrence?: string // raw RRULE value, e.g. "FREQ=WEEKLY"
 }
 
 export type CalendarEventInput = Omit<CalendarEvent, "uid"> & { uid?: string }

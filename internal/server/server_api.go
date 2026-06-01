@@ -83,6 +83,8 @@ func (s *Server) startAPI() {
 	s.apiServer.SetContactsDataDir(s.config.Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API
 	s.apiServer.SetCalendarDataDir(s.config.Server.DataDir)
+	// Let the calendar email meeting invitations through the shared delivery path.
+	s.apiServer.SetCalendarDeliveryFunc(s.submitMessageWithSieve)
 	// Set task handler data directory for CalDAV-backed (VTODO) tasks API
 	s.apiServer.SetTaskDataDir(s.config.Server.DataDir)
 	// Set backup manager for backup/restore operations

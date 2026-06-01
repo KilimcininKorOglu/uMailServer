@@ -18,11 +18,20 @@ import (
 // visible to CalDAV clients (and vice versa). It mirrors ContactsHandler.
 type CalendarHandler struct {
 	dataDir string
+	// deliver sends meeting-invite (iMIP) emails to attendees through the
+	// shared submission path. When nil, events are still saved to the
+	// organizer's calendar but no invitations are emailed.
+	deliver func(from string, to []string, data []byte) error
 }
 
 // NewCalendarHandler creates a calendar REST handler rooted at dataDir.
 func NewCalendarHandler(dataDir string) *CalendarHandler {
 	return &CalendarHandler{dataDir: dataDir}
+}
+
+// SetDeliveryFunc wires the outbound delivery path used to email meeting invites.
+func (h *CalendarHandler) SetDeliveryFunc(fn func(from string, to []string, data []byte) error) {
+	h.deliver = fn
 }
 
 // getStorage returns the CalDAV storage. caldav.NewStorage appends the "caldav"
@@ -45,13 +54,16 @@ func (h *CalendarHandler) sendError(w http.ResponseWriter, code int, msg string)
 
 // CalendarEventDTO is the JSON projection of a VEVENT exchanged with webmail.
 type CalendarEventDTO struct {
-	UID         string `json:"uid"`
-	Summary     string `json:"summary"`
-	Description string `json:"description,omitempty"`
-	Location    string `json:"location,omitempty"`
-	Start       string `json:"start"` // RFC3339 (or YYYY-MM-DD when allDay)
-	End         string `json:"end,omitempty"`
-	AllDay      bool   `json:"allDay,omitempty"`
+	UID         string   `json:"uid"`
+	Summary     string   `json:"summary"`
+	Description string   `json:"description,omitempty"`
+	Location    string   `json:"location,omitempty"`
+	Start       string   `json:"start"` // RFC3339 (or YYYY-MM-DD when allDay)
+	End         string   `json:"end,omitempty"`
+	AllDay      bool     `json:"allDay,omitempty"`
+	Organizer   string   `json:"organizer,omitempty"`
+	Attendees   []string `json:"attendees,omitempty"`
+	Recurrence  string   `json:"recurrence,omitempty"` // raw RRULE value, e.g. "FREQ=WEEKLY"
 }
 
 const (
@@ -150,6 +162,11 @@ func (h *CalendarHandler) handleCalendarEvents(w http.ResponseWriter, r *http.Re
 		if dto.UID == "" {
 			dto.UID = uuid.New().String()
 		}
+		// A meeting with attendees records the organizer so the stored copy and
+		// the emailed invitation agree on who owns it.
+		if dto.Organizer == "" && len(dto.Attendees) > 0 {
+			dto.Organizer = user
+		}
 		ics, err := buildICSEvent(dto)
 		if err != nil {
 			h.sendError(w, http.StatusBadRequest, err.Error())
@@ -158,6 +175,10 @@ func (h *CalendarHandler) handleCalendarEvents(w http.ResponseWriter, r *http.Re
 		event := &caldav.CalendarEvent{UID: dto.UID, Summary: dto.Summary, Created: time.Now(), Modified: time.Now()}
 		if err := store.SaveEvent(user, calID, event, ics); err != nil {
 			h.sendError(w, http.StatusInternalServerError, "failed to save event")
+			return
+		}
+		if err := h.sendInvites(user, dto); err != nil {
+			h.sendError(w, http.StatusBadGateway, "event saved but invitations could not be sent")
 			return
 		}
 		h.sendJSON(w, http.StatusCreated, dto)
@@ -198,6 +219,9 @@ func (h *CalendarHandler) handleCalendarEventDetail(w http.ResponseWriter, r *ht
 			h.sendError(w, http.StatusBadRequest, "summary is required")
 			return
 		}
+		if dto.Organizer == "" && len(dto.Attendees) > 0 {
+			dto.Organizer = user
+		}
 		ics, err := buildICSEvent(dto)
 		if err != nil {
 			h.sendError(w, http.StatusBadRequest, err.Error())
@@ -206,6 +230,11 @@ func (h *CalendarHandler) handleCalendarEventDetail(w http.ResponseWriter, r *ht
 		event := &caldav.CalendarEvent{UID: uid, Summary: dto.Summary, Modified: time.Now()}
 		if err := store.SaveEvent(user, calID, event, ics); err != nil {
 			h.sendError(w, http.StatusInternalServerError, "failed to save event")
+			return
+		}
+		// Re-send the invitation so attendees get the updated details.
+		if err := h.sendInvites(user, dto); err != nil {
+			h.sendError(w, http.StatusBadGateway, "event saved but the updated invitation could not be sent")
 			return
 		}
 		h.sendJSON(w, http.StatusOK, dto)
@@ -218,6 +247,36 @@ func (h *CalendarHandler) handleCalendarEventDetail(w http.ResponseWriter, r *ht
 	default:
 		h.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// sendInvites emails an iMIP meeting request to the event's attendees. It is a
+// best-effort notification: a delivery error is returned so the caller can
+// surface it, but the event has already been saved to the organizer's calendar.
+func (h *CalendarHandler) sendInvites(organizer string, dto CalendarEventDTO) error {
+	if h.deliver == nil || len(dto.Attendees) == 0 {
+		return nil
+	}
+	invite := dto
+	invite.Organizer = organizer
+	ics, err := buildICSEvent(invite)
+	if err != nil {
+		return err
+	}
+	// Promote the calendar to a METHOD:REQUEST so recipients treat it as an
+	// actionable invitation (the RSVP UI keys on METHOD:REQUEST).
+	ics = strings.Replace(ics, "VERSION:2.0\r\n", "VERSION:2.0\r\nMETHOD:REQUEST\r\n", 1)
+
+	subject := sanitizeHeaderValue("Invitation: " + dto.Summary)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "From: %s\r\n", sanitizeHeaderValue(organizer))
+	fmt.Fprintf(&sb, "To: %s\r\n", sanitizeHeaderValue(strings.Join(dto.Attendees, ", ")))
+	fmt.Fprintf(&sb, "Subject: %s\r\n", subject)
+	sb.WriteString("MIME-Version: 1.0\r\n")
+	sb.WriteString("Content-Type: text/calendar; method=REQUEST; charset=utf-8\r\n")
+	sb.WriteString("\r\n")
+	sb.WriteString(ics)
+
+	return h.deliver(organizer, dto.Attendees, []byte(sb.String()))
 }
 
 // --- minimal iCalendar (RFC 5545) VEVENT parse/generate ---
@@ -300,6 +359,18 @@ func buildICSEvent(dto CalendarEventDTO) (string, error) {
 	if dto.Description != "" {
 		lines = append(lines, foldICSLine("DESCRIPTION:"+icsEscape(dto.Description)))
 	}
+	if dto.Recurrence != "" {
+		lines = append(lines, foldICSLine("RRULE:"+dto.Recurrence))
+	}
+	if dto.Organizer != "" {
+		lines = append(lines, foldICSLine("ORGANIZER:mailto:"+dto.Organizer))
+	}
+	for _, a := range dto.Attendees {
+		if a == "" {
+			continue
+		}
+		lines = append(lines, foldICSLine("ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:"+a))
+	}
 	lines = append(lines, "END:VEVENT", "END:VCALENDAR")
 	return strings.Join(lines, "\r\n") + "\r\n", nil
 }
@@ -339,6 +410,14 @@ func parseICSEvent(ics string) (CalendarEventDTO, bool) {
 			dto.Start, dto.AllDay = parseICSTime(params, value)
 		case "DTEND":
 			dto.End, _ = parseICSTime(params, value)
+		case "RRULE":
+			dto.Recurrence = value
+		case "ORGANIZER":
+			dto.Organizer = strings.TrimPrefix(strings.ToLower(value), "mailto:")
+		case "ATTENDEE":
+			if addr := strings.TrimPrefix(strings.ToLower(value), "mailto:"); addr != "" {
+				dto.Attendees = append(dto.Attendees, addr)
+			}
 		}
 	}
 	if dto.UID == "" || dto.Start == "" {

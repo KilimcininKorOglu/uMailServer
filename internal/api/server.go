@@ -70,6 +70,7 @@ type Server struct {
 	msgStore        *storage.MessageStore
 	mailDB          *storage.Database
 	mailDeliver     func(from string, to []string, data []byte) error
+	calendarDeliver func(from string, to []string, data []byte) error
 	queueMgr        *queue.Manager
 	httpServer      *http.Server
 	plainHTTPServer *http.Server
@@ -1339,7 +1340,20 @@ func (s *Server) SetContactsDataDir(dataDir string) {
 
 // SetCalendarDataDir initializes the calendar handler with the data directory.
 func (s *Server) SetCalendarDataDir(dataDir string) {
+	fn := s.calendarDeliver
 	s.calendarHandler = NewCalendarHandler(dataDir)
+	if fn != nil {
+		s.calendarHandler.SetDeliveryFunc(fn)
+	}
+}
+
+// SetCalendarDeliveryFunc wires the outbound delivery path the calendar uses to
+// email meeting invitations to attendees.
+func (s *Server) SetCalendarDeliveryFunc(fn func(from string, to []string, data []byte) error) {
+	s.calendarDeliver = fn
+	if s.calendarHandler != nil {
+		s.calendarHandler.SetDeliveryFunc(fn)
+	}
 }
 
 // SetTaskDataDir initializes the task handler with the data directory.
