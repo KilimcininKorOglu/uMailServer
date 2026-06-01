@@ -66,6 +66,21 @@ export function EmailDetailPage() {
   const [invite, setInvite] = useState<MeetingInvite | null>(null)
   const [rsvpStatus, setRsvpStatus] = useState<string | null>(null)
   const [rsvpBusy, setRsvpBusy] = useState(false)
+  // Category name → color, so labels render with their configured color.
+  const [categoryColors, setCategoryColors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    api.getCategories()
+      .then((res) => {
+        if (cancelled) return
+        const map: Record<string, string> = {}
+        for (const c of res.categories ?? []) map[c.name.toLowerCase()] = c.color
+        setCategoryColors(map)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Load the message by id (the backend resolves it across all folders).
   useEffect(() => {
@@ -369,18 +384,26 @@ export function EmailDetailPage() {
                   {/* Category labels */}
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-                    {email.labels.map((label) => (
-                      <Badge key={label} variant="secondary" className="gap-1">
-                        {label}
-                        <button
-                          onClick={() => handleRemoveLabel(label)}
-                          className="text-muted-foreground hover:text-destructive"
-                          aria-label={`Remove ${label}`}
+                    {email.labels.map((label) => {
+                      const color = categoryColors[label.toLowerCase()]
+                      return (
+                        <Badge
+                          key={label}
+                          variant="secondary"
+                          className="gap-1"
+                          style={color ? { backgroundColor: color, color: "#fff" } : undefined}
                         >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ))}
+                          {label}
+                          <button
+                            onClick={() => handleRemoveLabel(label)}
+                            className={color ? "opacity-80 hover:opacity-100" : "text-muted-foreground hover:text-destructive"}
+                            aria-label={`Remove ${label}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      )
+                    })}
                     {labelEditing ? (
                       <Input
                         autoFocus

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/umailserver/umailserver/internal/db"
 )
@@ -84,6 +85,84 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.db.Put(db.BucketPreferences, key, pref); err != nil {
 			s.sendError(w, http.StatusInternalServerError, "failed to save signature")
+			return
+		}
+		s.sendJSON(w, http.StatusOK, pref)
+	default:
+		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// category is one named master category with a display color, the Exchange-style
+// colored classification a user can apply to messages as a label.
+type category struct {
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+type categoriesPref struct {
+	Categories []category `json:"categories"`
+}
+
+const (
+	maxCategories     = 50
+	maxCategoryName   = 100
+	maxCategoryColor  = 32
+	categoriesPrefKey = ":categories"
+)
+
+// handleCategories stores and returns the user's master category list (name +
+// color), used to render message labels with a consistent color. Stored under
+// its own preferences key, separate from the per-message Labels themselves.
+func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value("user").(string)
+	if !ok || user == "" {
+		s.sendError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.db == nil {
+		s.sendError(w, http.StatusInternalServerError, "database not available")
+		return
+	}
+
+	key := user + categoriesPrefKey
+	switch r.Method {
+	case http.MethodGet:
+		var pref categoriesPref
+		if err := s.db.Get(db.BucketPreferences, key, &pref); err != nil {
+			pref = categoriesPref{}
+		}
+		if pref.Categories == nil {
+			pref.Categories = []category{}
+		}
+		s.sendJSON(w, http.StatusOK, pref)
+	case http.MethodPut, http.MethodPost:
+		var pref categoriesPref
+		if err := decodeJSON(r, &pref); err != nil {
+			s.sendError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		// Normalize: trim, drop empties, dedupe by name (case-insensitive), cap.
+		seen := map[string]bool{}
+		normalized := make([]category, 0, len(pref.Categories))
+		for _, c := range pref.Categories {
+			name := strings.TrimSpace(c.Name)
+			if name == "" || len(name) > maxCategoryName || len(c.Color) > maxCategoryColor {
+				continue
+			}
+			lc := strings.ToLower(name)
+			if seen[lc] {
+				continue
+			}
+			seen[lc] = true
+			normalized = append(normalized, category{Name: name, Color: strings.TrimSpace(c.Color)})
+			if len(normalized) >= maxCategories {
+				break
+			}
+		}
+		pref.Categories = normalized
+		if err := s.db.Put(db.BucketPreferences, key, pref); err != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to save categories")
 			return
 		}
 		s.sendJSON(w, http.StatusOK, pref)

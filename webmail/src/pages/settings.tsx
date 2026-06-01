@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus } from "lucide-react"
+import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import api from "@/utils/api"
-import type { VacationAutoReply, ClientSession, Delegation } from "@/utils/api"
+import type { VacationAutoReply, ClientSession, Delegation, Category } from "@/utils/api"
 import { enablePushNotifications, disablePushNotifications, pushSupported } from "@/utils/push"
 
 // rfc3339ToDate extracts the YYYY-MM-DD part from an RFC3339 string for <input type="date">.
@@ -245,6 +245,48 @@ export function SettingsPage() {
       cancelled = true
     }
   }, [])
+
+  // Categories: named, colored labels the user can apply to messages.
+  const [categories, setCategories] = useState<Category[]>([])
+  const [catName, setCatName] = useState("")
+  const [catColor, setCatColor] = useState("#ef4444")
+  const [catBusy, setCatBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getCategories()
+      .then((res) => { if (!cancelled) setCategories(res.categories ?? []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const saveCategories = async (next: Category[]) => {
+    const prev = categories
+    setCategories(next)
+    setCatBusy(true)
+    try {
+      const res = await api.setCategories(next)
+      setCategories(res.categories ?? next)
+    } catch {
+      setCategories(prev)
+      toast.error("Failed to save categories")
+    } finally {
+      setCatBusy(false)
+    }
+  }
+
+  const addCategory = () => {
+    const name = catName.trim()
+    if (!name) return
+    if (categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      toast.error("That category already exists")
+      return
+    }
+    setCatName("")
+    void saveCategories([...categories, { name, color: catColor }])
+  }
+
+  const removeCategory = (name: string) => void saveCategories(categories.filter((c) => c.name !== name))
 
   const handleSignatureSave = async () => {
     setSignatureSaving(true)
@@ -592,6 +634,57 @@ export function SettingsPage() {
           <Button onClick={handleSignatureSave} disabled={signatureSaving}>
             Save
           </Button>
+        </div>
+      </SettingSection>
+
+      {/* Categories */}
+      <SettingSection
+        icon={Tag}
+        title="Categories"
+        description="Color-coded labels you can apply to messages"
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {categories.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No categories yet.</p>
+            ) : (
+              categories.map((c) => (
+                <span
+                  key={c.name}
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white"
+                  style={{ backgroundColor: c.color || "#64748b" }}
+                >
+                  {c.name}
+                  <button
+                    onClick={() => removeCategory(c.name)}
+                    aria-label={`Remove ${c.name}`}
+                    className="opacity-80 hover:opacity-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={catColor}
+              onChange={(e) => setCatColor(e.target.value)}
+              className="h-9 w-12 cursor-pointer rounded border bg-transparent"
+              aria-label="Category color"
+            />
+            <Input
+              value={catName}
+              onChange={(e) => setCatName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addCategory() }}
+              placeholder="Category name"
+            />
+            <Button onClick={addCategory} disabled={catBusy || !catName.trim()}>
+              <Plus className="mr-1 h-4 w-4" />
+              Add
+            </Button>
+          </div>
         </div>
       </SettingSection>
 

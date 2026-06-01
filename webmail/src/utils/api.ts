@@ -112,6 +112,11 @@ export interface DirectoryEntry {
   name: string
 }
 
+export interface Category {
+  name: string
+  color: string
+}
+
 export interface MeetingInvite {
   isInvite: boolean
   uid?: string
@@ -460,6 +465,16 @@ class API {
   // rsvp responds to a meeting invite; accept/tentative add it to the calendar.
   async rsvp(id: string, response: 'accept' | 'tentative' | 'decline'): Promise<{ status: string }> {
     return this.post<{ status: string }>('/mail/rsvp', { id, response })
+  }
+
+  // getCategories returns the user's master category list (name + color).
+  async getCategories(): Promise<{ categories?: Category[] }> {
+    return this.get<{ categories?: Category[] }>('/categories')
+  }
+
+  // setCategories replaces the user's master category list.
+  async setCategories(categories: Category[]): Promise<{ categories?: Category[] }> {
+    return this.put<{ categories?: Category[] }>('/categories', { categories })
   }
 
   // getMailboxes returns the user's mailbox names.

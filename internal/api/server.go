@@ -594,6 +594,9 @@ func (s *Server) initRouter() {
 	// Per-user outgoing-mail signature.
 	api.HandleFunc("/api/v1/signature", s.handleSignature)
 
+	// Per-user master category list (named colors for message labels).
+	api.HandleFunc("/api/v1/categories", s.handleCategories)
+
 	// Self-service delegation management (the authenticated user is the owner).
 	api.HandleFunc("/api/v1/delegations", s.handleMyDelegations)
 	api.HandleFunc("/api/v1/delegations/", s.handleMyDelegationDetail)
