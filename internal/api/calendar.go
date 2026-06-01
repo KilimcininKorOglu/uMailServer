@@ -22,6 +22,10 @@ type CalendarHandler struct {
 	// shared submission path. When nil, events are still saved to the
 	// organizer's calendar but no invitations are emailed.
 	deliver func(from string, to []string, data []byte) error
+	// roomLookup reports whether an attendee address is a bookable room and
+	// whether it auto-accepts, enabling resource auto-booking. When nil, room
+	// attendees are treated as ordinary invitees.
+	roomLookup func(email string) (autoAccept bool, ok bool)
 }
 
 // NewCalendarHandler creates a calendar REST handler rooted at dataDir.
@@ -32,6 +36,45 @@ func NewCalendarHandler(dataDir string) *CalendarHandler {
 // SetDeliveryFunc wires the outbound delivery path used to email meeting invites.
 func (h *CalendarHandler) SetDeliveryFunc(fn func(from string, to []string, data []byte) error) {
 	h.deliver = fn
+}
+
+// SetRoomLookup wires the resource resolver used for room auto-booking.
+func (h *CalendarHandler) SetRoomLookup(fn func(email string) (autoAccept bool, ok bool)) {
+	h.roomLookup = fn
+}
+
+// bookRooms reserves any auto-accepting room among the attendees by saving the
+// event to the room's own calendar when the room is free in the event window.
+// It returns the rooms it could not book because of a conflict.
+func (h *CalendarHandler) bookRooms(dto CalendarEventDTO) []string {
+	if h.roomLookup == nil || len(dto.Attendees) == 0 {
+		return nil
+	}
+	start, end, ok := eventBounds(dto)
+	var conflicts []string
+	for _, room := range dto.Attendees {
+		autoAccept, isRoom := h.roomLookup(room)
+		if !isRoom || !autoAccept {
+			continue
+		}
+		if ok && len(h.busyForUser(room, start, end)) > 0 {
+			conflicts = append(conflicts, room)
+			continue
+		}
+		roomCalID, err := h.ensureCalendar(room)
+		if err != nil {
+			continue
+		}
+		ics, err := buildICSEvent(dto)
+		if err != nil {
+			continue
+		}
+		ev := &caldav.CalendarEvent{UID: dto.UID, Summary: dto.Summary, Created: time.Now(), Modified: time.Now()}
+		if err := h.getStorage().SaveEvent(room, roomCalID, ev, ics); err != nil {
+			continue
+		}
+	}
+	return conflicts
 }
 
 // getStorage returns the CalDAV storage. caldav.NewStorage appends the "caldav"
@@ -177,11 +220,15 @@ func (h *CalendarHandler) handleCalendarEvents(w http.ResponseWriter, r *http.Re
 			h.sendError(w, http.StatusInternalServerError, "failed to save event")
 			return
 		}
+		conflicts := h.bookRooms(dto)
 		if err := h.sendInvites(user, dto); err != nil {
 			h.sendError(w, http.StatusBadGateway, "event saved but invitations could not be sent")
 			return
 		}
-		h.sendJSON(w, http.StatusCreated, dto)
+		h.sendJSON(w, http.StatusCreated, struct {
+			CalendarEventDTO
+			UnbookedRooms []string `json:"unbookedRooms,omitempty"`
+		}{dto, conflicts})
 	default:
 		h.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -256,6 +303,22 @@ func (h *CalendarHandler) sendInvites(organizer string, dto CalendarEventDTO) er
 	if h.deliver == nil || len(dto.Attendees) == 0 {
 		return nil
 	}
+	// Room resources are reserved directly on their own calendar (bookRooms);
+	// they have no human mailbox to email, so only human attendees receive the
+	// iMIP invitation.
+	var humans []string
+	for _, a := range dto.Attendees {
+		if h.roomLookup != nil {
+			if _, isRoom := h.roomLookup(a); isRoom {
+				continue
+			}
+		}
+		humans = append(humans, a)
+	}
+	if len(humans) == 0 {
+		return nil
+	}
+
 	invite := dto
 	invite.Organizer = organizer
 	ics, err := buildICSEvent(invite)
@@ -269,14 +332,14 @@ func (h *CalendarHandler) sendInvites(organizer string, dto CalendarEventDTO) er
 	subject := sanitizeHeaderValue("Invitation: " + dto.Summary)
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "From: %s\r\n", sanitizeHeaderValue(organizer))
-	fmt.Fprintf(&sb, "To: %s\r\n", sanitizeHeaderValue(strings.Join(dto.Attendees, ", ")))
+	fmt.Fprintf(&sb, "To: %s\r\n", sanitizeHeaderValue(strings.Join(humans, ", ")))
 	fmt.Fprintf(&sb, "Subject: %s\r\n", subject)
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	sb.WriteString("Content-Type: text/calendar; method=REQUEST; charset=utf-8\r\n")
 	sb.WriteString("\r\n")
 	sb.WriteString(ics)
 
-	return h.deliver(organizer, dto.Attendees, []byte(sb.String()))
+	return h.deliver(organizer, humans, []byte(sb.String()))
 }
 
 // --- minimal iCalendar (RFC 5545) VEVENT parse/generate ---

@@ -63,6 +63,12 @@ export interface CalendarEvent {
 
 export type CalendarEventInput = Omit<CalendarEvent, "uid"> & { uid?: string }
 
+export interface Room {
+  email: string
+  name: string
+  capacity?: number
+}
+
 export interface BusyInterval {
   start: string // RFC3339 UTC
   end: string // RFC3339 UTC
@@ -656,6 +662,11 @@ class API {
 
   async deleteCalendarEvent(uid: string): Promise<void> {
     await this.delete(`/calendar/events/${encodeURIComponent(uid)}`)
+  }
+
+  // getRooms lists the organization's bookable rooms for the room picker.
+  async getRooms(): Promise<{ rooms?: Room[] }> {
+    return this.get<{ rooms?: Room[] }>('/rooms')
   }
 
   // getFreeBusy returns busy intervals for the given users within a window,

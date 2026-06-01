@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "sonner"
-import api, { type CalendarEvent, type UserFreeBusy } from "@/utils/api"
+import api, { type CalendarEvent, type UserFreeBusy, type Room } from "@/utils/api"
 
 // rfc3339ToLocalInput converts an RFC3339 instant to the value a
 // datetime-local input expects ("YYYY-MM-DDTHH:mm" in local time).
@@ -95,6 +95,7 @@ export function CalendarPage() {
   const [form, setForm] = useState<EventForm>(emptyForm)
   const [busy, setBusy] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<CalendarEvent | null>(null)
+  const [rooms, setRooms] = useState<Room[]>([])
 
   // Availability (free/busy) lookup.
   const [fbOpen, setFbOpen] = useState(false)
@@ -123,6 +124,13 @@ export function CalendarPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Load the organization's bookable rooms for the room picker.
+  useEffect(() => {
+    api.getRooms()
+      .then((res) => setRooms(res.rooms ?? []))
+      .catch(() => setRooms([]))
+  }, [])
 
   const openCreate = () => {
     setEditingUID(null)
@@ -174,8 +182,13 @@ export function CalendarPage() {
         await api.updateCalendarEvent(editingUID, payload)
         toast.success("Event updated")
       } else {
-        await api.createCalendarEvent(payload)
-        toast.success("Event created")
+        const created = await api.createCalendarEvent(payload)
+        const unbooked = (created as { unbookedRooms?: string[] }).unbookedRooms
+        if (unbooked && unbooked.length > 0) {
+          toast.warning(`Event created, but these rooms are busy: ${unbooked.join(", ")}`)
+        } else {
+          toast.success("Event created")
+        }
       }
       setDialogOpen(false)
       await load()
@@ -420,6 +433,41 @@ export function CalendarPage() {
                 Attendees receive an email invitation they can accept or decline.
               </p>
             </div>
+            {rooms.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="ev-room">Room</Label>
+                <Select
+                  value=""
+                  onValueChange={(email) => {
+                    const room = rooms.find((r) => r.email === email)
+                    if (!room) return
+                    setForm((prev) => {
+                      const list = prev.attendees
+                        .split(/[\s,;]+/)
+                        .map((a) => a.trim())
+                        .filter(Boolean)
+                      if (!list.includes(room.email)) list.push(room.email)
+                      return { ...prev, attendees: list.join(", "), location: prev.location || room.name }
+                    })
+                  }}
+                >
+                  <SelectTrigger id="ev-room">
+                    <SelectValue placeholder="Add a room…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rooms.map((room) => (
+                      <SelectItem key={room.email} value={room.email}>
+                        {room.name}
+                        {room.capacity ? ` (seats ${room.capacity})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Booking a free room reserves it automatically.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={busy}>

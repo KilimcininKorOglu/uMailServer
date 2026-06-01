@@ -689,6 +689,8 @@ func (s *Server) initRouter() {
 	}
 	// User-facing organization directory (GAL) lookup for recipient autocomplete.
 	api.HandleFunc("/api/v1/directory", s.handleDirectorySearch)
+	// Bookable rooms for the calendar room picker.
+	api.HandleFunc("/api/v1/rooms", s.handleRooms)
 	if s.contactsHandler != nil {
 		// Dispatch by method: POST creates a contact, GET lists them. Previously
 		// POST fell through to the list handler, so created contacts never
@@ -715,6 +717,7 @@ func (s *Server) initRouter() {
 	// Calendar events (bridged to the same CalDAV store as the protocol server).
 	if s.calendarHandler == nil && s.config.DataDir != "" {
 		s.calendarHandler = NewCalendarHandler(s.config.DataDir)
+		s.calendarHandler.SetRoomLookup(s.roomLookup)
 	}
 	if s.calendarHandler != nil {
 		api.HandleFunc("/api/v1/calendar/events", s.calendarHandler.handleCalendarEvents)
@@ -1347,6 +1350,7 @@ func (s *Server) SetCalendarDataDir(dataDir string) {
 	if fn != nil {
 		s.calendarHandler.SetDeliveryFunc(fn)
 	}
+	s.calendarHandler.SetRoomLookup(s.roomLookup)
 }
 
 // SetCalendarDeliveryFunc wires the outbound delivery path the calendar uses to
