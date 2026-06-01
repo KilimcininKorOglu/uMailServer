@@ -687,6 +687,8 @@ func (s *Server) initRouter() {
 	if s.contactsHandler == nil && s.config.DataDir != "" {
 		s.contactsHandler = NewContactsHandler(s.config.DataDir)
 	}
+	// User-facing organization directory (GAL) lookup for recipient autocomplete.
+	api.HandleFunc("/api/v1/directory", s.handleDirectorySearch)
 	if s.contactsHandler != nil {
 		// Dispatch by method: POST creates a contact, GET lists them. Previously
 		// POST fell through to the list handler, so created contacts never

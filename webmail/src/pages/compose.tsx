@@ -275,6 +275,39 @@ export function ComposePage() {
       c.email.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
+  // Organization directory (GAL) results, fetched as the user types. Debounced
+  // and merged below personal contacts, deduped by email.
+  const [directoryResults, setDirectoryResults] = useState<Recipient[]>([])
+  useEffect(() => {
+    const q = searchQuery.trim()
+    if (q.length < 2) {
+      setDirectoryResults([])
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.searchDirectory(q)
+        if (cancelled) return
+        setDirectoryResults(
+          (res.entries ?? []).map((e) => ({ id: `gal-${e.email}`, name: e.name || e.email, email: e.email }))
+        )
+      } catch {
+        if (!cancelled) setDirectoryResults([])
+      }
+    }, 200)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [searchQuery])
+
+  const contactEmails = new Set(contacts.map((c) => c.email.toLowerCase()))
+  const suggestions = [
+    ...filteredContacts,
+    ...directoryResults.filter((d) => !contactEmails.has(d.email.toLowerCase())),
+  ]
+
   const addRecipient = (contact: Recipient, field: "to" | "cc" | "bcc") => {
     if (field === "to") {
       if (!to.find((r) => r.id === contact.id)) {
@@ -606,14 +639,14 @@ export function ComposePage() {
               <DropdownMenuContent align="start" className="w-72">
                 <div className="p-2">
                   <Input
-                    placeholder="Search contacts..."
+                    placeholder="Search people..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
                 </div>
                 <Separator />
                 <div className="max-h-48 overflow-auto">
-                  {filteredContacts.map((contact) => (
+                  {suggestions.map((contact) => (
                     <DropdownMenuItem
                       key={contact.id}
                       onClick={() => addRecipient(contact, "to")}
@@ -684,14 +717,14 @@ export function ComposePage() {
                 <DropdownMenuContent align="start" className="w-72">
                   <div className="p-2">
                     <Input
-                      placeholder="Search contacts..."
+                      placeholder="Search people..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
                   </div>
                   <Separator />
                   <div className="max-h-48 overflow-auto">
-                    {filteredContacts.map((contact) => (
+                    {suggestions.map((contact) => (
                       <DropdownMenuItem
                         key={contact.id}
                         onClick={() => addRecipient(contact, "cc")}
@@ -747,14 +780,14 @@ export function ComposePage() {
                 <DropdownMenuContent align="start" className="w-72">
                   <div className="p-2">
                     <Input
-                      placeholder="Search contacts..."
+                      placeholder="Search people..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
                   </div>
                   <Separator />
                   <div className="max-h-48 overflow-auto">
-                    {filteredContacts.map((contact) => (
+                    {suggestions.map((contact) => (
                       <DropdownMenuItem
                         key={contact.id}
                         onClick={() => addRecipient(contact, "bcc")}

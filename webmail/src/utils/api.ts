@@ -101,6 +101,11 @@ export interface DelegationInput {
   canSendOnBehalf?: boolean
 }
 
+export interface DirectoryEntry {
+  email: string
+  name: string
+}
+
 export interface MeetingInvite {
   isInvite: boolean
   uid?: string
@@ -454,6 +459,12 @@ class API {
   // getMailboxes returns the user's mailbox names.
   async getMailboxes(): Promise<{ mailboxes?: string[] }> {
     return this.get<{ mailboxes?: string[] }>('/mailboxes')
+  }
+
+  // searchDirectory resolves names/addresses from the organization directory
+  // (GAL) for recipient autocomplete.
+  async searchDirectory(query: string): Promise<{ entries?: DirectoryEntry[] }> {
+    return this.get<{ entries?: DirectoryEntry[] }>(`/directory?q=${encodeURIComponent(query)}`)
   }
 
   // Custom folder management (built-in folders cannot be renamed/deleted).
