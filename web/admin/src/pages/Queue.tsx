@@ -355,11 +355,11 @@ function QueueItem({ entry, onRetry, onDrop, getStatusIcon, getStatusBadge }: Qu
             also needs a manual retry: the backend resets its schedule to run
             now. Only "sending" (in progress) and "delivered" are excluded. */}
         {(entry.status === "pending" || entry.status === "failed") && (
-          <Button variant="ghost" size="sm" onClick={onRetry}>
+          <Button variant="ghost" size="sm" onClick={onRetry} aria-label="Retry sending" title="Retry sending">
             <RotateCcw className="h-4 w-4" />
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={onDrop}>
+        <Button variant="ghost" size="sm" onClick={onDrop} aria-label="Remove from queue" title="Remove from queue">
           <Trash2 className="h-4 w-4 text-red-500" />
         </Button>
       </div>
