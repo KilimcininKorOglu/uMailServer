@@ -28,7 +28,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const esRef = useRef<EventSource | null>(null);
 
-  const { onMetrics, onActivity, onError } = options;
+  // Keep the latest callbacks in refs so connect() does not depend on them.
+  // Callers typically pass fresh inline callbacks every render; if connect()
+  // depended on those, the effect below would tear down and re-open the
+  // EventSource on every re-render/navigation, making the connection badge
+  // flicker Offline -> Live each time. With refs the stream is opened once.
+  const onMetricsRef = useRef(options.onMetrics);
+  const onActivityRef = useRef(options.onActivity);
+  const onErrorRef = useRef(options.onError);
+  useEffect(() => {
+    onMetricsRef.current = options.onMetrics;
+    onActivityRef.current = options.onActivity;
+    onErrorRef.current = options.onError;
+  });
 
   const connect = useCallback(() => {
     // The server exposes a Server-Sent Events stream at /api/v1/events and
@@ -42,7 +54,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     es.addEventListener("connected", () => setIsConnected(true));
     es.onerror = () => {
       setIsConnected(false);
-      onError?.(new Error("EventSource error"));
+      onErrorRef.current?.(new Error("EventSource error"));
       // EventSource reconnects automatically; no manual retry loop needed.
     };
 
@@ -58,7 +70,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       } catch {
         // Ignore malformed payloads; still surface the activity.
       }
-      onActivity?.({
+      onActivityRef.current?.({
         id: activityId(label),
         type,
         message: label,
@@ -85,12 +97,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     // them; today metrics are fetched over REST instead.
     es.addEventListener("metrics", (e) => {
       try {
-        onMetrics?.(JSON.parse((e as MessageEvent).data) as RealtimeMetrics);
+        onMetricsRef.current?.(JSON.parse((e as MessageEvent).data) as RealtimeMetrics);
       } catch {
         // Ignore malformed payloads.
       }
     });
-  }, [onActivity, onMetrics, onError]);
+  }, []);
 
   const disconnect = useCallback(() => {
     esRef.current?.close();
