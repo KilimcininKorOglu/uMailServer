@@ -487,9 +487,12 @@ interface AccountCardProps {
 }
 
 function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProps) {
-  const quotaPercent = account.quota_limit > 0
-    ? Math.round((account.quota_used / account.quota_limit) * 100)
-    : 0;
+  // A quota_limit of 0 means unlimited storage; a percentage and progress bar
+  // are meaningless in that case, so show the usage without them.
+  const isUnlimited = account.quota_limit <= 0;
+  const quotaPercent = isUnlimited
+    ? 0
+    : Math.round((account.quota_used / account.quota_limit) * 100);
 
   return (
     <Card className="group">
@@ -557,15 +560,17 @@ function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProp
                 Storage
               </span>
               <span className="font-medium">
-                {formatBytes(account.quota_used)} / {formatBytes(account.quota_limit)}
+                {formatBytes(account.quota_used)} / {isUnlimited ? "Unlimited" : formatBytes(account.quota_limit)}
               </span>
             </div>
-            <Progress
-              value={quotaPercent}
-              className="h-2"
-            />
+            {!isUnlimited && (
+              <Progress
+                value={quotaPercent}
+                className="h-2"
+              />
+            )}
             <p className="text-xs text-muted-foreground text-right">
-              {quotaPercent}% used
+              {isUnlimited ? "No quota limit" : `${quotaPercent}% used`}
             </p>
           </div>
 
