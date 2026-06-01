@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users } from "lucide-react"
+import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users, Repeat } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,6 +19,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { toast } from "sonner"
 import api, { type CalendarEvent, type UserFreeBusy } from "@/utils/api"
 
@@ -45,9 +52,25 @@ interface EventForm {
   location: string
   description: string
   attendees: string
+  recurrence: string // "" | DAILY | WEEKLY | MONTHLY | YEARLY
 }
 
-const emptyForm: EventForm = { summary: "", start: "", end: "", allDay: false, location: "", description: "", attendees: "" }
+const emptyForm: EventForm = { summary: "", start: "", end: "", allDay: false, location: "", description: "", attendees: "", recurrence: "" }
+
+// recurrenceToForm maps a stored RRULE value to the form's frequency selector.
+function recurrenceToForm(rrule?: string): string {
+  if (!rrule) return ""
+  const m = /FREQ=([A-Z]+)/.exec(rrule)
+  return m ? m[1] : ""
+}
+
+const RECURRENCE_LABELS: Record<string, string> = {
+  "": "Does not repeat",
+  DAILY: "Daily",
+  WEEKLY: "Weekly",
+  MONTHLY: "Monthly",
+  YEARLY: "Yearly",
+}
 
 function dayKey(value: string): string {
   const d = new Date(value)
@@ -117,6 +140,7 @@ export function CalendarPage() {
       location: ev.location ?? "",
       description: ev.description ?? "",
       attendees: (ev.attendees ?? []).join(", "),
+      recurrence: recurrenceToForm(ev.recurrence),
     })
     setDialogOpen(true)
   }
@@ -142,6 +166,7 @@ export function CalendarPage() {
       location: form.location || undefined,
       description: form.description || undefined,
       attendees: attendees.length > 0 ? attendees : undefined,
+      recurrence: form.recurrence ? `FREQ=${form.recurrence}` : undefined,
     }
     setBusy(true)
     try {
@@ -266,6 +291,12 @@ export function CalendarPage() {
                           {ev.location}
                         </p>
                       )}
+                      {ev.recurrence && (
+                        <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <Repeat className="h-3.5 w-3.5" />
+                          {RECURRENCE_LABELS[recurrenceToForm(ev.recurrence)] ?? "Repeats"}
+                        </p>
+                      )}
                       {ev.description && (
                         <p className="text-sm text-muted-foreground truncate">{ev.description}</p>
                       )}
@@ -319,6 +350,24 @@ export function CalendarPage() {
                 checked={form.allDay}
                 onCheckedChange={(checked) => setForm({ ...form, allDay: checked })}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ev-recurrence">Repeat</Label>
+              <Select
+                value={form.recurrence}
+                onValueChange={(value) => setForm({ ...form, recurrence: value === "none" ? "" : value })}
+              >
+                <SelectTrigger id="ev-recurrence">
+                  <SelectValue placeholder="Does not repeat" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{RECURRENCE_LABELS[""]}</SelectItem>
+                  <SelectItem value="DAILY">{RECURRENCE_LABELS.DAILY}</SelectItem>
+                  <SelectItem value="WEEKLY">{RECURRENCE_LABELS.WEEKLY}</SelectItem>
+                  <SelectItem value="MONTHLY">{RECURRENCE_LABELS.MONTHLY}</SelectItem>
+                  <SelectItem value="YEARLY">{RECURRENCE_LABELS.YEARLY}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
