@@ -7,8 +7,8 @@ import {
   Database,
   Save,
   AlertCircle,
-  Check,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,8 +32,6 @@ export function SettingsPage({
   onPasswordChanged,
 }: SettingsPageProps) {
   const { config, setConfig, fetchConfig, updateConfig } = useConfig();
-  const [saved, setSaved] = useState(false);
-  const [restartFields, setRestartFields] = useState<string[]>([]);
   const [savingConfig, setSavingConfig] = useState(false);
   const [error, setError] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -56,11 +54,16 @@ export function SettingsPage({
     setError("");
     try {
       const result = await updateConfig(config);
-      setRestartFields(result.restart_required ?? []);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 5000);
+      const restart = result.restart_required ?? [];
+      if (restart.length > 0) {
+        toast.warning(
+          `Settings saved. A server restart is required for: ${restart.join(", ")}`,
+        );
+      } else {
+        toast.success("Settings saved successfully");
+      }
     } catch (err) {
-      setError((err as { message?: string }).message || "Failed to save settings");
+      toast.error((err as { message?: string }).message || "Failed to save settings");
     } finally {
       setSavingConfig(false);
     }
@@ -185,23 +188,6 @@ export function SettingsPage({
           Configure your email server settings
         </p>
       </div>
-
-      {saved && restartFields.length === 0 && (
-        <Alert className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
-          <Check className="h-4 w-4" />
-          <AlertDescription>Settings saved successfully</AlertDescription>
-        </Alert>
-      )}
-
-      {saved && restartFields.length > 0 && (
-        <Alert className="bg-amber-500/10 text-amber-600 border-amber-500/20">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Settings saved. A server restart is required for these changes to take
-            effect: {restartFields.join(", ")}
-          </AlertDescription>
-        </Alert>
-      )}
 
       {error && (
         <Alert variant="destructive">
