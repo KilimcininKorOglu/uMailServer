@@ -26,6 +26,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -47,6 +48,7 @@ export function ContactsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Contact | null>(null)
   const [, setLoading] = useState(true)
   const [formData, setFormData] = useState({
     name: "",
@@ -158,14 +160,17 @@ export function ContactsPage() {
     setShowAddDialog(false)
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async () => {
+    if (!deleteTarget) return
     try {
-      await api.deleteContact(id)
-      setContacts(contacts.filter((c) => c.id !== id))
+      await api.deleteContact(deleteTarget.id)
+      setContacts(contacts.filter((c) => c.id !== deleteTarget.id))
       toast.success("Contact deleted")
     } catch (err) {
       console.error('Failed to delete contact:', err)
       toast.error("Failed to delete contact")
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
@@ -255,7 +260,7 @@ export function ContactsPage() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive"
-                      onClick={() => handleDelete(contact.id)}
+                      onClick={() => setDeleteTarget(contact)}
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
                       Delete
@@ -339,6 +344,25 @@ export function ContactsPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Contact</DialogTitle>
+            <DialogDescription>
+              Delete {deleteTarget?.name || "this contact"}? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Delete
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

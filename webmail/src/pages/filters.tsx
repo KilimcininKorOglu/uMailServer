@@ -92,6 +92,7 @@ export function FiltersPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<FilterInput>(emptyDraft())
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Filter | null>(null)
 
   const loadFilters = useCallback(async () => {
     setLoading(true)
@@ -239,13 +240,16 @@ export function FiltersPage() {
     }
   }
 
-  const handleDelete = async (filter: Filter) => {
+  const handleDelete = async () => {
+    if (!deleteTarget) return
     try {
-      await api.deleteFilter(filter.id)
+      await api.deleteFilter(deleteTarget.id)
       toast.success("Filter deleted")
       await loadFilters()
     } catch {
       toast.error("Failed to delete filter")
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
@@ -349,7 +353,7 @@ export function FiltersPage() {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 text-destructive"
-                    onClick={() => handleDelete(filter)}
+                    onClick={() => setDeleteTarget(filter)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -602,6 +606,25 @@ export function FiltersPage() {
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               {editingId ? "Save" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Filter</DialogTitle>
+            <DialogDescription>
+              Delete the filter "{deleteTarget?.name || ""}"? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>
