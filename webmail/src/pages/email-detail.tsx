@@ -109,6 +109,12 @@ export function EmailDetailPage() {
             labels: result.labels ?? [],
             attachments: result.attachments ?? [],
           })
+          // Mark the message read on open (server-side) if it was unread, so
+          // the unread count reflects reading — standard mail-client behavior.
+          // Fire-and-forget: a failure must not block reading the message.
+          if (!result.read) {
+            api.setFlag(result.id, "\\Seen", true).catch(() => undefined)
+          }
           // Detect a meeting invite so we can offer RSVP actions. A failure
           // here must not block reading the message.
           try {
