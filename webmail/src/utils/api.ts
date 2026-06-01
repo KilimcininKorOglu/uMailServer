@@ -50,6 +50,16 @@ export interface CalendarEvent {
 
 export type CalendarEventInput = Omit<CalendarEvent, "uid"> & { uid?: string }
 
+export interface BusyInterval {
+  start: string // RFC3339 UTC
+  end: string // RFC3339 UTC
+}
+
+export interface UserFreeBusy {
+  user: string
+  busy: BusyInterval[]
+}
+
 export interface Task {
   uid: string
   summary: string
@@ -601,6 +611,17 @@ class API {
 
   async deleteCalendarEvent(uid: string): Promise<void> {
     await this.delete(`/calendar/events/${encodeURIComponent(uid)}`)
+  }
+
+  // getFreeBusy returns busy intervals for the given users within a window,
+  // computed from their real calendar events (no event details are exposed).
+  async getFreeBusy(
+    users: string[],
+    start: string,
+    end: string
+  ): Promise<{ freeBusy?: UserFreeBusy[] }> {
+    const params = new URLSearchParams({ users: users.join(','), start, end })
+    return this.get<{ freeBusy?: UserFreeBusy[] }>(`/calendar/freebusy?${params.toString()}`)
   }
 
   // Tasks (CalDAV VTODO-backed)

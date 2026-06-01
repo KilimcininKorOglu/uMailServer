@@ -711,6 +711,7 @@ func (s *Server) initRouter() {
 	if s.calendarHandler != nil {
 		api.HandleFunc("/api/v1/calendar/events", s.calendarHandler.handleCalendarEvents)
 		api.HandleFunc("/api/v1/calendar/events/", s.calendarHandler.handleCalendarEventDetail)
+		api.HandleFunc("/api/v1/calendar/freebusy", s.calendarHandler.handleFreeBusy)
 	}
 
 	// Tasks (VTODO items in the CalDAV store).

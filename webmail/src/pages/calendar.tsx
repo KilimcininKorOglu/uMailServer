@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal } from "lucide-react"
+import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
-import api, { type CalendarEvent } from "@/utils/api"
+import api, { type CalendarEvent, type UserFreeBusy } from "@/utils/api"
 
 // rfc3339ToLocalInput converts an RFC3339 instant to the value a
 // datetime-local input expects ("YYYY-MM-DDTHH:mm" in local time).
@@ -71,6 +71,17 @@ export function CalendarPage() {
   const [form, setForm] = useState<EventForm>(emptyForm)
   const [busy, setBusy] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<CalendarEvent | null>(null)
+
+  // Availability (free/busy) lookup.
+  const [fbOpen, setFbOpen] = useState(false)
+  const [fbEmails, setFbEmails] = useState("")
+  const [fbDate, setFbDate] = useState(() => {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  })
+  const [fbLoading, setFbLoading] = useState(false)
+  const [fbResults, setFbResults] = useState<UserFreeBusy[] | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -158,6 +169,34 @@ export function CalendarPage() {
     }
   }
 
+  const checkAvailability = async () => {
+    const emails = fbEmails
+      .split(/[\s,;]+/)
+      .map((e) => e.trim())
+      .filter(Boolean)
+    if (emails.length === 0) {
+      toast.error("Enter at least one email address")
+      return
+    }
+    if (!fbDate) {
+      toast.error("Pick a date")
+      return
+    }
+    // Query the whole local day.
+    const dayStart = new Date(`${fbDate}T00:00:00`)
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+    setFbLoading(true)
+    setFbResults(null)
+    try {
+      const res = await api.getFreeBusy(emails, dayStart.toISOString(), dayEnd.toISOString())
+      setFbResults(res.freeBusy ?? [])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to check availability")
+    } finally {
+      setFbLoading(false)
+    }
+  }
+
   // Group sorted events by day for the agenda view.
   const groups: { day: string; items: CalendarEvent[] }[] = []
   for (const ev of events) {
@@ -174,10 +213,16 @@ export function CalendarPage() {
           <CalendarDays className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-bold">Calendar</h1>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Event
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => { setFbResults(null); setFbOpen(true) }}>
+            <Users className="mr-2 h-4 w-4" />
+            Availability
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Event
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -314,6 +359,74 @@ export function CalendarPage() {
             </Button>
             <Button onClick={submit} disabled={busy}>
               {editingUID ? "Save" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Availability (free/busy) lookup */}
+      <Dialog open={fbOpen} onOpenChange={setFbOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Check Availability</DialogTitle>
+            <DialogDescription>
+              See when people are busy on a given day. Only busy time ranges are shown, never event details.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="fb-emails">People</Label>
+              <Textarea
+                id="fb-emails"
+                value={fbEmails}
+                onChange={(e) => setFbEmails(e.target.value)}
+                rows={2}
+                placeholder="email1@example.com, email2@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="fb-date">Date</Label>
+              <Input
+                id="fb-date"
+                type="date"
+                value={fbDate}
+                onChange={(e) => setFbDate(e.target.value)}
+              />
+            </div>
+            {fbResults && (
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                {fbResults.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No results.</p>
+                ) : (
+                  fbResults.map((r) => (
+                    <div key={r.user}>
+                      <p className="text-sm font-medium">{r.user}</p>
+                      {r.busy.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Free all day</p>
+                      ) : (
+                        <ul className="mt-1 space-y-0.5">
+                          {r.busy.map((b, i) => (
+                            <li key={i} className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                              <Clock className="h-3.5 w-3.5" />
+                              {new Date(b.start).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                              {" – "}
+                              {new Date(b.end).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFbOpen(false)} disabled={fbLoading}>
+              Close
+            </Button>
+            <Button onClick={checkAvailability} disabled={fbLoading}>
+              {fbLoading ? "Checking…" : "Check"}
             </Button>
           </DialogFooter>
         </DialogContent>
