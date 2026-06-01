@@ -87,7 +87,14 @@ function App() {
             setMustChangePassword(true);
             localStorage.setItem(adminPasswordChangeStorageKey, "true");
           }
+          return;
         }
+
+        // The stored session is no longer valid (e.g. the cookie expired). Clear
+        // the markers so subsequent login-page loads do not re-probe and log a
+        // 403 every time.
+        localStorage.removeItem(adminEmailStorageKey);
+        localStorage.removeItem(adminPasswordChangeStorageKey);
       } catch {
         // Not authenticated
       }
