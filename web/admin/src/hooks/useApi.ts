@@ -678,3 +678,29 @@ export function useConfig() {
 
   return { config, setConfig, loading, error, fetchConfig, updateConfig };
 }
+
+// JWT signing key (Security) API hook
+export interface JWTStatus {
+  currentKid: string;
+  activeKeys: number;
+  activeKids: string[];
+}
+
+export interface JWTRotateResult {
+  status: string;
+  newKid: string;
+  message: string;
+  activeKids: number;
+}
+
+export function useJWT() {
+  const fetchStatus = useCallback(async () => {
+    return apiRequest<JWTStatus>("/admin/jwt/status");
+  }, []);
+
+  const rotate = useCallback(async () => {
+    return apiRequest<JWTRotateResult>("/admin/jwt/rotate", { method: "POST" });
+  }, []);
+
+  return { fetchStatus, rotate };
+}

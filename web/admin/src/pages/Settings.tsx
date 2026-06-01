@@ -7,6 +7,8 @@ import {
   Database,
   Save,
   AlertCircle,
+  KeyRound,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,7 +19,15 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useConfig } from "@/hooks/useApi";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useConfig, useJWT, type JWTStatus } from "@/hooks/useApi";
 import type { ServerConfig } from "@/types";
 
 interface SettingsPageProps {
@@ -32,17 +42,39 @@ export function SettingsPage({
   onPasswordChanged,
 }: SettingsPageProps) {
   const { config, setConfig, fetchConfig, updateConfig } = useConfig();
+  const { fetchStatus: fetchJWTStatus, rotate: rotateJWT } = useJWT();
   const [savingConfig, setSavingConfig] = useState(false);
   const [error, setError] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [jwtStatus, setJwtStatus] = useState<JWTStatus | null>(null);
+  const [jwtRotating, setJwtRotating] = useState(false);
+  const [jwtDialogOpen, setJwtDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!requirePasswordChange) {
       fetchConfig().catch(() => setError("Failed to load server configuration"));
+      fetchJWTStatus()
+        .then(setJwtStatus)
+        .catch(() => undefined);
     }
-  }, [requirePasswordChange, fetchConfig]);
+  }, [requirePasswordChange, fetchConfig, fetchJWTStatus]);
+
+  const handleRotateJWT = async () => {
+    setJwtRotating(true);
+    try {
+      const result = await rotateJWT();
+      toast.success(result.message || "JWT signing key rotated");
+      const status = await fetchJWTStatus();
+      setJwtStatus(status);
+    } catch (err) {
+      toast.error((err as { message?: string }).message || "Failed to rotate JWT signing key");
+    } finally {
+      setJwtRotating(false);
+      setJwtDialogOpen(false);
+    }
+  };
 
   const setField = <K extends keyof ServerConfig>(key: K, value: ServerConfig[K]) => {
     setConfig((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -418,6 +450,39 @@ export function SettingsPage({
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <KeyRound className="h-5 w-5" />
+                JWT Signing Key
+              </CardTitle>
+              <CardDescription>
+                Rotate the secret used to sign admin and user session tokens.
+                Existing tokens stay valid until they expire.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Active Signing Keys</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {jwtStatus
+                      ? `${jwtStatus.activeKeys} active key(s); current: ${jwtStatus.currentKid}`
+                      : "Loading key status..."}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setJwtDialogOpen(true)}
+                  disabled={jwtRotating}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${jwtRotating ? "animate-spin" : ""}`} />
+                  {jwtRotating ? "Rotating..." : "Rotate Key"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="flex justify-end">
             <Button onClick={handleSave} disabled={savingConfig || !config}>
               <Save className="mr-2 h-4 w-4" />
@@ -482,6 +547,27 @@ export function SettingsPage({
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={jwtDialogOpen} onOpenChange={setJwtDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rotate JWT Signing Key</DialogTitle>
+            <DialogDescription>
+              A new signing key will be generated and used for all new session
+              tokens. Existing tokens remain valid until they expire, so signed-in
+              users are not logged out.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setJwtDialogOpen(false)} disabled={jwtRotating}>
+              Cancel
+            </Button>
+            <Button onClick={handleRotateJWT} disabled={jwtRotating}>
+              {jwtRotating ? "Rotating..." : "Rotate Key"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
