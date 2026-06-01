@@ -644,6 +644,8 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/mail/delete", http.HandlerFunc(s.mailHandler.handleMailDelete).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/flag", http.HandlerFunc(s.mailHandler.handleMailFlag).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/labels", http.HandlerFunc(s.mailHandler.handleMailLabels).ServeHTTP)
+	api.HandleFunc("/api/v1/mail/invite", s.handleMailInvite)
+	api.HandleFunc("/api/v1/mail/rsvp", s.handleMailRSVP)
 	api.HandleFunc("/api/v1/mail/move", http.HandlerFunc(s.mailHandler.handleMailMove).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/draft", http.HandlerFunc(s.mailHandler.handleMailDraft).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/diagnostics", s.handleMailDiagnostics)

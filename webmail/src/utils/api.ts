@@ -78,6 +78,16 @@ export interface DelegationInput {
   canSendOnBehalf?: boolean
 }
 
+export interface MeetingInvite {
+  isInvite: boolean
+  uid?: string
+  summary?: string
+  start?: string
+  end?: string
+  location?: string
+  organizer?: string
+}
+
 export interface AuthLoginRequest {
   email: string
   password: string
@@ -385,6 +395,16 @@ class API {
   // setMailLabels replaces the category labels on a message.
   async setMailLabels(id: string, labels: string[]): Promise<{ id: string; labels: string[] }> {
     return this.post<{ id: string; labels: string[] }>('/mail/labels', { id, labels })
+  }
+
+  // getInvite reports whether a message is a meeting invite and returns its details.
+  async getInvite(id: string): Promise<MeetingInvite> {
+    return this.get<MeetingInvite>(`/mail/invite?id=${encodeURIComponent(id)}`)
+  }
+
+  // rsvp responds to a meeting invite; accept/tentative add it to the calendar.
+  async rsvp(id: string, response: 'accept' | 'tentative' | 'decline'): Promise<{ status: string }> {
+    return this.post<{ status: string }>('/mail/rsvp', { id, response })
   }
 
   // getMailboxes returns the user's mailbox names.

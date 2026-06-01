@@ -12,6 +12,9 @@ import {
   Tag,
   X,
   Plus,
+  CalendarCheck,
+  Check,
+  HelpCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,6 +30,7 @@ import {
 import { toast } from "sonner"
 import { sanitizeHTML } from "@/utils/sanitize"
 import api from "@/utils/api"
+import type { MeetingInvite } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
 
 interface EmailDetail {
@@ -49,6 +53,9 @@ export function EmailDetailPage() {
   const [loading, setLoading] = useState(true)
   const [newLabel, setNewLabel] = useState("")
   const [labelEditing, setLabelEditing] = useState(false)
+  const [invite, setInvite] = useState<MeetingInvite | null>(null)
+  const [rsvpStatus, setRsvpStatus] = useState<string | null>(null)
+  const [rsvpBusy, setRsvpBusy] = useState(false)
 
   // Load the message by id (the backend resolves it across all folders).
   useEffect(() => {
@@ -76,6 +83,14 @@ export function EmailDetailPage() {
             flagged: !!result.starred,
             labels: result.labels ?? [],
           })
+          // Detect a meeting invite so we can offer RSVP actions. A failure
+          // here must not block reading the message.
+          try {
+            const inv = await api.getInvite(result.id)
+            setInvite(inv.isInvite ? inv : null)
+          } catch {
+            setInvite(null)
+          }
         } else {
           toast.error("Email not found")
           navigate("/inbox")
@@ -198,6 +213,28 @@ export function EmailDetailPage() {
   const handleRemoveLabel = (label: string) => {
     if (!email) return
     void saveLabels(email.labels.filter((l) => l !== label))
+  }
+
+  // handleRsvp responds to a meeting invite. Accept/tentative add the event to
+  // the user's calendar; decline removes it. (The send path is local-only, so
+  // the organizer is not emailed a reply.)
+  const handleRsvp = async (response: "accept" | "tentative" | "decline") => {
+    if (!email) return
+    setRsvpBusy(true)
+    try {
+      await api.rsvp(email.id, response)
+      setRsvpStatus(response)
+      const messages: Record<string, string> = {
+        accept: "Added to your calendar",
+        tentative: "Marked tentative on your calendar",
+        decline: "Removed from your calendar",
+      }
+      toast.success(messages[response])
+    } catch {
+      toast.error("Failed to respond to the invitation")
+    } finally {
+      setRsvpBusy(false)
+    }
   }
 
   const handleMove = async (folder: string, label: string) => {
@@ -350,6 +387,62 @@ export function EmailDetailPage() {
                 </div>
               </div>
             </div>
+
+            {/* Meeting invitation: RSVP actions */}
+            {invite && (
+              <div className="mx-6 mt-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <CalendarCheck className="h-4 w-4 text-primary" />
+                  Meeting invitation
+                </div>
+                <div className="mt-2 space-y-1 text-sm">
+                  {invite.summary && <div className="font-medium">{invite.summary}</div>}
+                  {invite.start && (
+                    <div className="text-muted-foreground">
+                      {(() => {
+                        const d = new Date(invite.start)
+                        return isNaN(d.getTime()) ? invite.start : d.toLocaleString()
+                      })()}
+                    </div>
+                  )}
+                  {invite.location && (
+                    <div className="text-muted-foreground">{invite.location}</div>
+                  )}
+                  {invite.organizer && (
+                    <div className="text-muted-foreground">Organizer: {invite.organizer}</div>
+                  )}
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={rsvpStatus === "accept" ? "default" : "outline"}
+                    onClick={() => handleRsvp("accept")}
+                    disabled={rsvpBusy}
+                  >
+                    <Check className="mr-1 h-4 w-4" />
+                    Accept
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={rsvpStatus === "tentative" ? "default" : "outline"}
+                    onClick={() => handleRsvp("tentative")}
+                    disabled={rsvpBusy}
+                  >
+                    <HelpCircle className="mr-1 h-4 w-4" />
+                    Tentative
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={rsvpStatus === "decline" ? "default" : "outline"}
+                    onClick={() => handleRsvp("decline")}
+                    disabled={rsvpBusy}
+                  >
+                    <X className="mr-1 h-4 w-4" />
+                    Decline
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <Separator className="my-6" />
 
