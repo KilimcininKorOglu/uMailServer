@@ -191,7 +191,7 @@ func (s *Server) handleSharedMailboxesList(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	s.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"shared_mailboxes": result,
 	})
 }
@@ -214,11 +214,13 @@ func (s *Server) handleMailboxListOwn(w http.ResponseWriter, r *http.Request) {
 		mailboxes = []string{}
 	}
 
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+	// Use sendJSON so the response carries Content-Type: application/json.
+	// Without it the webmail api client falls back to response.text() and the
+	// caller's `result.mailboxes` is undefined, so custom folders never render
+	// in the sidebar.
+	s.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"mailboxes": mailboxes,
-	}); err != nil {
-		s.logger.Error("failed to encode mailbox list", "error", err)
-	}
+	})
 }
 
 // handleGranteesMailboxesList handles GET for /api/v1/mailboxes/shared-as-owner
@@ -235,7 +237,7 @@ func (s *Server) handleGranteesMailboxesList(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	s.sendJSON(w, http.StatusOK, map[string]interface{}{
 		"shared_as_owner": mailboxes,
 	})
 }
