@@ -148,6 +148,10 @@ export function ComposePage() {
   const [searchQuery, setSearchQuery] = useState("")
   // Free-text recipient inputs (typed email addresses, not just picked contacts)
   const [recipientInput, setRecipientInput] = useState<{ to: string; cc: string; bcc: string }>({ to: "", cc: "", bcc: "" })
+  // Which recipient field is being typed in, so GAL suggestions show inline
+  // under that field (typing the main field — not just the "+" picker — surfaces
+  // directory matches).
+  const [activeField, setActiveField] = useState<"to" | "cc" | "bcc" | null>(null)
   const [showCc, setShowCc] = useState(false)
   const [showBcc, setShowBcc] = useState(false)
   const [sending, setSending] = useState(false)
@@ -324,6 +328,37 @@ export function ComposePage() {
     }
     setSearchQuery("")
   }
+
+  // pickSuggestion adds a GAL/contact suggestion picked from the inline list
+  // under a recipient field, then clears that field's typed text.
+  const pickSuggestion = (contact: Recipient, field: "to" | "cc" | "bcc") => {
+    addRecipient(contact, field)
+    setRecipientInput((p) => ({ ...p, [field]: "" }))
+    setActiveField(null)
+  }
+
+  // suggestionsPanel renders the inline GAL/contact suggestions under the
+  // currently active recipient field. onMouseDown preventDefault keeps the
+  // input's onBlur (which commits typed text) from firing before the click.
+  const suggestionsPanel = (field: "to" | "cc" | "bcc") =>
+    activeField === field && recipientInput[field].trim().length >= 2 && suggestions.length > 0 ? (
+      <div className="absolute left-0 top-full z-20 mt-1 w-72 max-h-48 overflow-auto rounded-md border bg-popover shadow-md">
+        {suggestions.map((contact) => (
+          <button
+            key={contact.id}
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              pickSuggestion(contact, field)
+            }}
+            className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-accent"
+          >
+            <span className="text-sm font-medium">{contact.name}</span>
+            <span className="text-xs text-muted-foreground">{contact.email}</span>
+          </button>
+        ))}
+      </div>
+    ) : null
 
   // addTypedRecipient adds a free-text email address to a recipient field,
   // validating its basic shape so users can email anyone, not just contacts.
@@ -618,7 +653,7 @@ export function ComposePage() {
       <div className="border-b px-4 py-2 space-y-2">
         <div className="flex items-center gap-2">
           <span className="w-12 text-sm text-muted-foreground">To:</span>
-          <div className="flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
+          <div className="relative flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
             {to.map((r) => (
               <Badge key={r.id} variant="secondary" className="gap-1 pr-1.5 py-1">
                 {r.name}
@@ -665,7 +700,12 @@ export function ComposePage() {
               className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               placeholder="Type an email, press Enter"
               value={recipientInput.to}
-              onChange={(e) => setRecipientInput((p) => ({ ...p, to: e.target.value }))}
+              onChange={(e) => {
+                setRecipientInput((p) => ({ ...p, to: e.target.value }))
+                setSearchQuery(e.target.value)
+                setActiveField("to")
+              }}
+              onFocus={() => setActiveField("to")}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === ",") {
                   e.preventDefault()
@@ -674,6 +714,7 @@ export function ComposePage() {
               }}
               onBlur={() => addTypedRecipient("to")}
             />
+            {suggestionsPanel("to")}
           </div>
           <Button
             variant="ghost"
@@ -696,7 +737,7 @@ export function ComposePage() {
         {showCc && (
           <div className="flex items-center gap-2">
             <span className="w-12 text-sm text-muted-foreground">Cc:</span>
-            <div className="flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
+            <div className="relative flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
               {cc.map((r) => (
                 <Badge key={r.id} variant="secondary" className="gap-1 pr-1.5 py-1">
                   {r.name}
@@ -743,7 +784,12 @@ export function ComposePage() {
                 className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 placeholder="Type an email, press Enter"
                 value={recipientInput.cc}
-                onChange={(e) => setRecipientInput((p) => ({ ...p, cc: e.target.value }))}
+                onChange={(e) => {
+                  setRecipientInput((p) => ({ ...p, cc: e.target.value }))
+                  setSearchQuery(e.target.value)
+                  setActiveField("cc")
+                }}
+                onFocus={() => setActiveField("cc")}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === ",") {
                     e.preventDefault()
@@ -752,6 +798,7 @@ export function ComposePage() {
                 }}
                 onBlur={() => addTypedRecipient("cc")}
               />
+              {suggestionsPanel("cc")}
             </div>
           </div>
         )}
@@ -759,7 +806,7 @@ export function ComposePage() {
         {showBcc && (
           <div className="flex items-center gap-2">
             <span className="w-12 text-sm text-muted-foreground">Bcc:</span>
-            <div className="flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
+            <div className="relative flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
               {bcc.map((r) => (
                 <Badge key={r.id} variant="secondary" className="gap-1 pr-1.5 py-1">
                   {r.name}
@@ -806,7 +853,12 @@ export function ComposePage() {
                 className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 placeholder="Type an email, press Enter"
                 value={recipientInput.bcc}
-                onChange={(e) => setRecipientInput((p) => ({ ...p, bcc: e.target.value }))}
+                onChange={(e) => {
+                  setRecipientInput((p) => ({ ...p, bcc: e.target.value }))
+                  setSearchQuery(e.target.value)
+                  setActiveField("bcc")
+                }}
+                onFocus={() => setActiveField("bcc")}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === ",") {
                     e.preventDefault()
@@ -815,6 +867,7 @@ export function ComposePage() {
                 }}
                 onBlur={() => addTypedRecipient("bcc")}
               />
+              {suggestionsPanel("bcc")}
             </div>
           </div>
         )}
