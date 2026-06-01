@@ -13,6 +13,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
+// Marker set on a successful login and cleared on logout / a stale-session
+// probe. Without it, the mount-time `api.me()` probe runs on a fresh or
+// logged-out browser and logs a 401 on the login screen before the user has
+// done anything. (The JWT itself lives in an unreadable HttpOnly cookie.)
+const sessionMarkerKey = 'umail-webmail-authed'
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<{ email: string } | null>(null)
   const [loading, setLoading] = useState(false)
@@ -26,6 +32,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // page reload instead of bouncing the user to /login.
   useEffect(() => {
     let active = true
+    // Only probe for a session if this browser previously logged in; otherwise
+    // skip the request so the login screen does not log a 401.
+    if (!localStorage.getItem(sessionMarkerKey)) {
+      setHydrating(false)
+      return
+    }
     api.me()
       .then((me) => {
         if (active && me?.email) {
@@ -34,7 +46,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       })
       .catch(() => {
-        // No valid session: remain logged out (no redirect, /auth/* 401s throw).
+        // Stored session is no longer valid: clear the marker so we stop
+        // probing (and logging 401s) on future loads.
+        localStorage.removeItem(sessionMarkerKey)
       })
       .finally(() => {
         if (active) setHydrating(false)
@@ -50,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // Token is now in HttpOnly cookie - no need to store in memory
       await api.post<{ expiresIn?: number }>('/auth/login', { email, password })
+      localStorage.setItem(sessionMarkerKey, '1')
       setUser({ email })
       setIsAuthenticated(true)
       return true
@@ -72,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     setIsAuthenticated(false)
     api.setToken(null)
+    localStorage.removeItem(sessionMarkerKey)
   }, [])
 
   const value: AuthContextType = {
