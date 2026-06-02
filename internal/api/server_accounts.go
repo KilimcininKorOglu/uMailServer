@@ -427,6 +427,22 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 	}
 	if req.VacationSettings != nil {
 		account.VacationSettings = *req.VacationSettings
+		// Bridge the admin-set vacation reply onto the canonical OOF policy
+		// (shared with webmail, EWS, and JMAP) so it is visible across every
+		// surface. When the canonical store is wired it is the single source, so
+		// the legacy field is cleared to avoid a second auto-reply at delivery.
+		if s.semStore != nil && *req.VacationSettings != "" {
+			cfg, perr := parseLegacyVacationSettings(*req.VacationSettings)
+			if perr != nil {
+				s.sendError(w, http.StatusBadRequest, "invalid vacation_settings JSON")
+				return
+			}
+			if serr := s.setVacationConfig(email, cfg); serr != nil {
+				s.sendError(w, http.StatusInternalServerError, "failed to apply vacation settings")
+				return
+			}
+			account.VacationSettings = ""
+		}
 	}
 	if req.DisplayName != nil {
 		account.DisplayName = *req.DisplayName

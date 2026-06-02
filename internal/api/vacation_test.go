@@ -442,4 +442,26 @@ func TestVacationConfig_PersistsToCanonicalOOF(t *testing.T) {
 	}
 }
 
+// TestParseLegacyVacationSettings verifies the admin-set legacy vacation JSON
+// parses into a vacation.Config for bridging onto the canonical OOF policy.
+func TestParseLegacyVacationSettings(t *testing.T) {
+	raw := `{"enabled":true,"subject":"OOO","message":"Away","start_date":"2026-06-10","end_date":"2026-06-20","send_interval":48}`
+	cfg, err := parseLegacyVacationSettings(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !cfg.Enabled || cfg.Subject != "OOO" || cfg.Message != "Away" {
+		t.Errorf("fields mismatch: %+v", cfg)
+	}
+	if cfg.StartDate.IsZero() || cfg.EndDate.IsZero() {
+		t.Errorf("dates not parsed: start=%v end=%v", cfg.StartDate, cfg.EndDate)
+	}
+	if cfg.SendInterval != 48*time.Hour {
+		t.Errorf("send interval = %v, want 48h", cfg.SendInterval)
+	}
+	if _, err := parseLegacyVacationSettings("not json"); err == nil {
+		t.Error("expected error on invalid JSON")
+	}
+}
+
 // Helper function

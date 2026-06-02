@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -308,6 +309,51 @@ func (s *Server) listActiveVacations() []string {
 	}
 	// Placeholder - in real implementation, get from vacation manager
 	return []string{}
+}
+
+// parseLegacyVacationSettings parses the raw account.VacationSettings JSON
+// (the admin-set legacy field) into a vacation.Config, so the admin path can be
+// bridged onto the canonical OOF policy shared with webmail/EWS/JMAP.
+func parseLegacyVacationSettings(raw string) (*vacation.Config, error) {
+	var s struct {
+		Enabled      bool   `json:"enabled"`
+		Subject      string `json:"subject"`
+		Message      string `json:"message"`
+		HTMLMessage  string `json:"html_message"`
+		StartDate    string `json:"start_date"`
+		EndDate      string `json:"end_date"`
+		SendInterval int    `json:"send_interval"` // hours (matches the API VacationConfig convention)
+	}
+	if err := json.Unmarshal([]byte(raw), &s); err != nil {
+		return nil, err
+	}
+	cfg := &vacation.Config{
+		Enabled:     s.Enabled,
+		Subject:     s.Subject,
+		Message:     s.Message,
+		HTMLMessage: s.HTMLMessage,
+		StartDate:   parseLegacyVacationDate(s.StartDate),
+		EndDate:     parseLegacyVacationDate(s.EndDate),
+	}
+	if s.SendInterval > 0 {
+		cfg.SendInterval = time.Duration(s.SendInterval) * time.Hour
+	}
+	return cfg, nil
+}
+
+// parseLegacyVacationDate parses a date that may be either a date-only
+// ("2006-01-02") or an RFC3339 timestamp; returns the zero time when empty.
+func parseLegacyVacationDate(v string) time.Time {
+	if v == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse("2006-01-02", v); err == nil {
+		return t.UTC()
+	}
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t.UTC()
+	}
+	return time.Time{}
 }
 
 // vacationConfigToOOF maps the webmail VacationConfig (vacation.Config) onto the
