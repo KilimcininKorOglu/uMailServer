@@ -26,9 +26,12 @@ func (s *Server) startCardDAV() {
 	})
 	carddavServer.SetTracingProvider(s.tracingProvider)
 
-	// Wire semcore collaboration store for ChangeKey-based ETags.
+	// Route contacts persistence through the canonical collaboration store so
+	// CardDAV shares one source of truth with EWS and webmail. SetCollaborationStore
+	// is also kept for ChangeKey-based ETag derivation in response building.
 	if s.semcoreStore != nil {
 		carddavServer.SetCollaborationStore(s.semcoreStore.Collaboration())
+		carddavServer.UseCanonicalStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())
 	}
 
 	s.carddavServer = carddavServer

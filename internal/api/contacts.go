@@ -15,6 +15,26 @@ import (
 // ContactsHandler handles contact-related API requests via CardDAV storage
 type ContactsHandler struct {
 	dataDir string
+	// store, when set, is the canonical semcore-backed contacts store so webmail
+	// reads/writes the same contact data as EWS and CardDAV. When nil, the legacy
+	// filesystem store rooted at dataDir is used.
+	store carddav.Store
+}
+
+// SetStore wires the canonical contacts store (semcore-backed), unifying the
+// webmail contacts list with the EWS/CardDAV source of truth.
+func (h *ContactsHandler) SetStore(store carddav.Store) {
+	h.store = store
+}
+
+// wireCollabContactsStore points the contacts handler at the canonical
+// semcore-backed contacts store when both the handler and the semcore store are
+// present, so webmail shares one source of truth with EWS and CardDAV.
+func (s *Server) wireCollabContactsStore() {
+	if s.semStore == nil || s.contactsHandler == nil {
+		return
+	}
+	s.contactsHandler.SetStore(carddav.NewCollabStore(s.semStore.Collaboration(), s.semStore.Identity()))
 }
 
 // Contact represents a contact in the API response
@@ -39,8 +59,13 @@ func NewContactsHandler(dataDir string) *ContactsHandler {
 	return &ContactsHandler{dataDir: dataDir}
 }
 
-// getStorage returns the CardDAV storage instance
-func (h *ContactsHandler) getStorage() *carddav.Storage {
+// getStorage returns the contacts store. When the canonical semcore-backed
+// store is wired (production), it is returned so webmail shares one source of
+// truth with EWS and CardDAV. Otherwise it falls back to the filesystem store.
+func (h *ContactsHandler) getStorage() carddav.Store {
+	if h.store != nil {
+		return h.store
+	}
 	// CardDAV storage path is {dataDir}/carddav (NewStorage adds carddav subdirectory)
 	carddavDataDir := filepath.Join(h.dataDir, "carddav")
 	return carddav.NewStorage(carddavDataDir)

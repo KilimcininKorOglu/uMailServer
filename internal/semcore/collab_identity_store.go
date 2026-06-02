@@ -277,6 +277,53 @@ func (s *BoltCollaborationStore) PutCalendarItemIdentityUnsafe(msgKey string, re
 	})
 }
 
+// FindCalendarItemByUID locates a calendar item in a folder by its iCalendar
+// UID and returns its storage key plus the stored record. found is false when
+// no item with that UID exists in the folder. This lets protocol adapters
+// (CalDAV, webmail) update or delete an event by UID regardless of which
+// surface (EWS, CalDAV, webmail) originally wrote it and chose its storage key.
+func (s *BoltCollaborationStore) FindCalendarItemByUID(folderID FolderId, icalUID string) (msgKey string, rec *StoredCalendarItemIdentity, found bool, err error) {
+	err = s.db.View(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketCalendarItem))
+		c := bkt.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var stored StoredCalendarItemIdentity
+			if uerr := json.Unmarshal(v, &stored); uerr != nil {
+				continue
+			}
+			if stored.FolderID.Equal(folderID) && stored.IcalUID == icalUID {
+				msgKey = string(k)
+				cp := stored
+				rec = &cp
+				found = true
+				return nil
+			}
+		}
+		return nil
+	})
+	return msgKey, rec, found, err
+}
+
+// DeleteCalendarItemByUID removes a calendar item located by folder + iCalendar
+// UID. It is a no-op (nil error) when no matching item exists, so adapters can
+// delete idempotently without first resolving the storage key.
+func (s *BoltCollaborationStore) DeleteCalendarItemByUID(folderID FolderId, icalUID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketCalendarItem))
+		c := bkt.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var stored StoredCalendarItemIdentity
+			if uerr := json.Unmarshal(v, &stored); uerr != nil {
+				continue
+			}
+			if stored.FolderID.Equal(folderID) && stored.IcalUID == icalUID {
+				return bkt.Delete(k)
+			}
+		}
+		return nil
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Contact identity operations
 // ---------------------------------------------------------------------------
@@ -398,6 +445,52 @@ func (s *BoltCollaborationStore) PutContactIdentityUnsafe(msgKey string, rec *St
 			return fmt.Errorf("PutContactIdentityUnsafe: marshal: %w", err)
 		}
 		return bkt.Put([]byte(msgKey), data)
+	})
+}
+
+// FindContactByUID locates a contact in a folder by its vCard UID and returns
+// its storage key plus the stored record. found is false when no contact with
+// that UID exists in the folder. Mirrors FindCalendarItemByUID so CardDAV and
+// webmail can update/delete a contact by UID regardless of which surface wrote
+// it and chose its storage key.
+func (s *BoltCollaborationStore) FindContactByUID(folderID FolderId, icalUID string) (msgKey string, rec *StoredContactIdentity, found bool, err error) {
+	err = s.db.View(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketContact))
+		c := bkt.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var stored StoredContactIdentity
+			if uerr := json.Unmarshal(v, &stored); uerr != nil {
+				continue
+			}
+			if stored.FolderID.Equal(folderID) && stored.IcalUID == icalUID {
+				msgKey = string(k)
+				cp := stored
+				rec = &cp
+				found = true
+				return nil
+			}
+		}
+		return nil
+	})
+	return msgKey, rec, found, err
+}
+
+// DeleteContactByUID removes a contact located by folder + vCard UID. It is a
+// no-op (nil error) when no matching contact exists.
+func (s *BoltCollaborationStore) DeleteContactByUID(folderID FolderId, icalUID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketContact))
+		c := bkt.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var stored StoredContactIdentity
+			if uerr := json.Unmarshal(v, &stored); uerr != nil {
+				continue
+			}
+			if stored.FolderID.Equal(folderID) && stored.IcalUID == icalUID {
+				return bkt.Delete(k)
+			}
+		}
+		return nil
 	})
 }
 

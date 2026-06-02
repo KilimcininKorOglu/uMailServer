@@ -19,9 +19,20 @@ type Server struct {
 	logger          *slog.Logger
 	authFunc        func(username, password string) (bool, error)
 	dataDir         string
-	storage         *Storage
+	storage         Store
 	tracingProvider *tracing.Provider
 	collabStore     any // *semcore.BoltCollaborationStore; set via SetCollaborationStore
+}
+
+// UseCanonicalStore switches calendar persistence to the semcore collaboration
+// store, so CalDAV reads and writes the same calendar data as EWS and webmail
+// (one source of truth). Without this, the server uses the legacy filesystem
+// store wired in NewServer.
+func (s *Server) UseCanonicalStore(collab *semcore.BoltCollaborationStore, identity *semcore.BoltIdentityStore) {
+	if collab == nil || identity == nil {
+		return
+	}
+	s.storage = NewCollabStore(collab, identity)
 }
 
 // SetTracingProvider attaches an OpenTelemetry tracing provider so each

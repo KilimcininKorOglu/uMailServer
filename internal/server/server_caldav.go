@@ -26,9 +26,13 @@ func (s *Server) startCalDAV() {
 	})
 	caldavServer.SetTracingProvider(s.tracingProvider)
 
-	// Wire semcore collaboration store for ChangeKey-based ETags.
+	// Route calendar persistence through the canonical collaboration store so
+	// CalDAV shares one source of truth with EWS and webmail (an event created
+	// via any surface is visible from all). SetCollaborationStore is also kept
+	// for ChangeKey-based ETag derivation in response building.
 	if s.semcoreStore != nil {
 		caldavServer.SetCollaborationStore(s.semcoreStore.Collaboration())
+		caldavServer.UseCanonicalStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())
 	}
 
 	s.caldavServer = caldavServer

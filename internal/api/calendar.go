@@ -26,11 +26,31 @@ type CalendarHandler struct {
 	// whether it auto-accepts, enabling resource auto-booking. When nil, room
 	// attendees are treated as ordinary invitees.
 	roomLookup func(email string) (autoAccept bool, ok bool)
+	// store, when set, is the canonical semcore-backed calendar store so webmail
+	// reads/writes the same calendar data as EWS and CalDAV. When nil, the
+	// legacy filesystem store rooted at dataDir is used.
+	store caldav.Store
 }
 
 // NewCalendarHandler creates a calendar REST handler rooted at dataDir.
 func NewCalendarHandler(dataDir string) *CalendarHandler {
 	return &CalendarHandler{dataDir: dataDir}
+}
+
+// SetStore wires the canonical calendar store (semcore-backed), unifying the
+// webmail calendar with the EWS/CalDAV source of truth.
+func (h *CalendarHandler) SetStore(store caldav.Store) {
+	h.store = store
+}
+
+// wireCollabCalendarStore points the calendar handler at the canonical
+// semcore-backed calendar store when both the handler and the semcore store are
+// present, so webmail shares one source of truth with EWS and CalDAV.
+func (s *Server) wireCollabCalendarStore() {
+	if s.semStore == nil || s.calendarHandler == nil {
+		return
+	}
+	s.calendarHandler.SetStore(caldav.NewCollabStore(s.semStore.Collaboration(), s.semStore.Identity()))
 }
 
 // SetDeliveryFunc wires the outbound delivery path used to email meeting invites.
@@ -77,9 +97,15 @@ func (h *CalendarHandler) bookRooms(dto CalendarEventDTO) []string {
 	return conflicts
 }
 
-// getStorage returns the CalDAV storage. caldav.NewStorage appends the "caldav"
-// subdirectory, so the path matches the CalDAV server (DataDir/caldav/caldav).
-func (h *CalendarHandler) getStorage() *caldav.Storage {
+// getStorage returns the calendar store. When the canonical semcore-backed
+// store is wired (production), it is returned so webmail shares one source of
+// truth with EWS and CalDAV. Otherwise it falls back to the filesystem store
+// (caldav.NewStorage appends the "caldav" subdirectory, matching the CalDAV
+// protocol server at DataDir/caldav/caldav).
+func (h *CalendarHandler) getStorage() caldav.Store {
+	if h.store != nil {
+		return h.store
+	}
 	return caldav.NewStorage(filepath.Join(h.dataDir, "caldav"))
 }
 

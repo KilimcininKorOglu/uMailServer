@@ -877,6 +877,10 @@ func (s *Server) SetSemcoreStore(store *semcore.Store) {
 			s.jobStore = js
 		}
 	}
+	// Point the webmail calendar and contacts at the canonical collaboration
+	// store so they share one source of truth with EWS and CalDAV/CardDAV.
+	s.wireCollabCalendarStore()
+	s.wireCollabContactsStore()
 }
 
 // SetSieveManager injects the runtime Sieve manager so the webmail filter
@@ -1366,6 +1370,7 @@ func (s *Server) initMailHandler() {
 // SetContactsDataDir initializes the contacts handler with the data directory
 func (s *Server) SetContactsDataDir(dataDir string) {
 	s.contactsHandler = NewContactsHandler(dataDir)
+	s.wireCollabContactsStore()
 }
 
 // SetCalendarDataDir initializes the calendar handler with the data directory.
@@ -1376,6 +1381,7 @@ func (s *Server) SetCalendarDataDir(dataDir string) {
 		s.calendarHandler.SetDeliveryFunc(fn)
 	}
 	s.calendarHandler.SetRoomLookup(s.roomLookup)
+	s.wireCollabCalendarStore()
 }
 
 // SetCalendarDeliveryFunc wires the outbound delivery path the calendar uses to
