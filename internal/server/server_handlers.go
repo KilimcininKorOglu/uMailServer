@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/metrics"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/smtp"
@@ -602,6 +603,12 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 			if err := s.storageDB.StoreMessageMetadata(email, folder, uid, meta); err != nil {
 				s.logger.Error("Failed to store message metadata", "email", email, "uid", uid, "folder", folder, "error", err)
 			}
+
+			// Publish a new-message notification so real-time consumers react
+			// immediately: IMAP IDLE clients get an untagged EXISTS, and the SSE
+			// stream pushes a "new_mail" event to the webmail UI (push-to-pull —
+			// the UI then fetches the message over HTTP). Best-effort signal.
+			imap.GetNotificationHub().NotifyNewMessage(email, folder, uid, uid)
 
 			if s.searchSvc != nil {
 				// Extract canonical identity from mutation result when available.
