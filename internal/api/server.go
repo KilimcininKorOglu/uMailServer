@@ -695,6 +695,8 @@ func (s *Server) initRouter() {
 	// Profile photos: read any colleague's avatar (GAL scope), manage your own.
 	api.HandleFunc("/api/v1/avatar", s.handleAvatarGet)
 	api.HandleFunc("/api/v1/profile/avatar", s.handleProfileAvatar)
+	// Self-service directory profile (display name, title, department, phone).
+	api.HandleFunc("/api/v1/profile", s.handleProfile)
 	// Bookable rooms for the calendar room picker.
 	api.HandleFunc("/api/v1/rooms", s.handleRooms)
 	if s.contactsHandler != nil {

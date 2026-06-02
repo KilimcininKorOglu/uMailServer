@@ -130,11 +130,15 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	isAdmin, _ := r.Context().Value("isAdmin").(bool)
 
 	var req struct {
-		Email      string `json:"email"`
-		Password   string `json:"password"`
-		IsAdmin    bool   `json:"is_admin"`
-		QuotaLimit *int64 `json:"quota_limit"`
-		Avatar     string `json:"avatar"` // optional data URL profile photo
+		Email       string `json:"email"`
+		Password    string `json:"password"`
+		IsAdmin     bool   `json:"is_admin"`
+		QuotaLimit  *int64 `json:"quota_limit"`
+		Avatar      string `json:"avatar"` // optional data URL profile photo
+		DisplayName string `json:"display_name"`
+		Title       string `json:"title"`
+		Department  string `json:"department"`
+		Phone       string `json:"phone"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -211,6 +215,10 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:    time.Now(),
 		Avatar:       avatarBytes,
 		AvatarType:   avatarType,
+		DisplayName:  req.DisplayName,
+		Title:        req.Title,
+		Department:   req.Department,
+		Phone:        req.Phone,
 	}
 	if req.QuotaLimit != nil {
 		account.QuotaLimit = *req.QuotaLimit
@@ -296,6 +304,10 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		QuotaLimit           *int64  `json:"quota_limit"`
 		VacationSettings     *string `json:"vacation_settings"`
 		CurrentAdminPassword string  `json:"current_admin_password"`
+		DisplayName          *string `json:"display_name"`
+		Title                *string `json:"title"`
+		Department           *string `json:"department"`
+		Phone                *string `json:"phone"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -415,6 +427,18 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 	}
 	if req.VacationSettings != nil {
 		account.VacationSettings = *req.VacationSettings
+	}
+	if req.DisplayName != nil {
+		account.DisplayName = *req.DisplayName
+	}
+	if req.Title != nil {
+		account.Title = *req.Title
+	}
+	if req.Department != nil {
+		account.Department = *req.Department
+	}
+	if req.Phone != nil {
+		account.Phone = *req.Phone
 	}
 	account.UpdatedAt = time.Now()
 

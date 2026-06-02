@@ -66,6 +66,10 @@ type AccountData struct {
 	LastLoginAt        time.Time `json:"last_login_at,omitempty"`
 	Avatar             []byte    `json:"avatar,omitempty"`      // raw profile photo bytes (capped, small)
 	AvatarType         string    `json:"avatar_type,omitempty"` // avatar MIME type, e.g. "image/png"
+	DisplayName        string    `json:"display_name,omitempty"` // GAL/Outlook display name
+	Title              string    `json:"title,omitempty"`        // job title
+	Department         string    `json:"department,omitempty"`   // department / team
+	Phone              string    `json:"phone,omitempty"`        // business phone number
 }
 
 // ClientSession holds HTTP/API client session information for the account portal.
