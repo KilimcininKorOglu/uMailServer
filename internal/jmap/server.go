@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
 )
@@ -37,6 +38,27 @@ type Server struct {
 	// EWS/SMTP submission (Sieve, OOF, conversation-id, relay). Nil means JMAP
 	// sending is unavailable and EmailSubmission/set reports notSupported.
 	submitMessage func(from string, to []string, data []byte) error
+	// policyStore is the canonical out-of-office policy store, shared with EWS
+	// and webmail. When set, VacationResponse/get and /set read and write it so a
+	// vacation reply configured over JMAP is the same one EWS/webmail show.
+	policyStore *semcore.BoltPolicyStore
+	// recompileSieve rebuilds and installs a mailbox's active Sieve script from
+	// its canonical policy (inbox rules + OOF) so a VacationResponse change takes
+	// effect at delivery. Mirrors the EWS/webmail recompile path.
+	recompileSieve func(email string) error
+}
+
+// SetVacationStores wires the canonical OOF policy store and the Sieve recompile
+// callback so JMAP VacationResponse shares one source of truth with EWS and
+// webmail. Both must be non-nil for VacationResponse to be advertised.
+func (s *Server) SetVacationStores(policy *semcore.BoltPolicyStore, recompile func(email string) error) {
+	s.policyStore = policy
+	s.recompileSieve = recompile
+}
+
+// vacationEnabled reports whether the VacationResponse capability is wired.
+func (s *Server) vacationEnabled() bool {
+	return s.policyStore != nil && s.recompileSieve != nil
 }
 
 // SetTracingProvider attaches an OpenTelemetry tracing provider so each
@@ -225,6 +247,17 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		UploadURL:      "/jmap/upload/{accountId}",
 		EventSourceURL: "/jmap/events/{types}?ping={interval}&closeafter={closeafter}",
 		State:          session.ID,
+	}
+
+	// Advertise VacationResponse (RFC 8621 §8) only when the canonical OOF store
+	// is wired, so JMAP shares one out-of-office source of truth with EWS/webmail.
+	if s.vacationEnabled() {
+		response.Capabilities["urn:ietf:params:jmap:vacationresponse"] = struct{}{}
+		if acct, ok := response.Accounts[user]; ok {
+			acct.AccountCapabilities["urn:ietf:params:jmap:vacationresponse"] = struct{}{}
+			response.Accounts[user] = acct
+		}
+		response.PrimaryAccounts["urn:ietf:params:jmap:vacationresponse"] = user
 	}
 
 	s.sendJSON(w, http.StatusOK, response)
@@ -490,6 +523,12 @@ func (s *Server) dispatchMethodCall(user string, call MethodCall, createdIDs map
 		return s.handleEmailSubmissionQuery(user, call)
 	case "EmailSubmission/changes":
 		return s.handleEmailSubmissionChanges(user, call)
+
+	// VacationResponse methods (RFC 8621 §8) — backed by the canonical OOF policy.
+	case "VacationResponse/get":
+		return s.handleVacationResponseGet(user, call)
+	case "VacationResponse/set":
+		return s.handleVacationResponseSet(user, call)
 
 	// Identity methods
 	case "Identity/get":

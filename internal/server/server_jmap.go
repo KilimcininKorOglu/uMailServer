@@ -3,10 +3,49 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/jmap"
+	"github.com/umailserver/umailserver/internal/semcore"
 )
+
+// recompileSieveForEmail rebuilds and installs a mailbox's active Sieve script
+// from its canonical policy (inbox rules + OOF), mirroring the EWS and webmail
+// recompile paths. It lets the JMAP VacationResponse handler make an OOF change
+// take effect at delivery. No-op when the Sieve manager or canonical store is
+// absent.
+func (s *Server) recompileSieveForEmail(email string) error {
+	if s.sieveManager == nil || s.semcoreStore == nil {
+		return nil
+	}
+	mbid, err := semcore.NewMailboxId(email)
+	if err != nil {
+		return err
+	}
+	rules, err := s.semcoreStore.Policy().ListRules(mbid)
+	if err != nil {
+		return err
+	}
+	var oof *semcore.OOFPolicy
+	if oofID, oerr := semcore.NewOOFId(mbid.String()); oerr == nil {
+		oof, _ = s.semcoreStore.Policy().GetOOF(oofID) //nolint:errcheck // absent OOF is fine
+	}
+	script := semcore.CompilePolicyToSieve(rules, oof)
+	ids := []string{email}
+	if lp, _, ok := strings.Cut(email, "@"); ok && lp != "" && lp != email {
+		ids = append(ids, lp)
+	}
+	for _, id := range ids {
+		if serr := s.sieveManager.StoreScript(id, "active", script); serr != nil {
+			return serr
+		}
+		if serr := s.sieveManager.SetActiveScriptByName(id, "active"); serr != nil {
+			return serr
+		}
+	}
+	return nil
+}
 
 // startJMAP creates and starts the JMAP server
 func (s *Server) startJMAP() {
@@ -41,6 +80,12 @@ func (s *Server) startJMAP() {
 	// Route JMAP EmailSubmission/set through the same Sieve+delivery path as EWS
 	// so subaddressing/Sieve/OOF/conversation-id apply uniformly across protocols.
 	jmapServer.SetSubmitMessageFunc(s.submitMessageWithSieve)
+	// Back JMAP VacationResponse with the canonical OOF policy store (shared with
+	// EWS and webmail) and the Sieve recompiler, so a vacation reply set over
+	// JMAP is the same one every surface shows and fires at delivery.
+	if s.semcoreStore != nil {
+		jmapServer.SetVacationStores(s.semcoreStore.Policy(), s.recompileSieveForEmail)
+	}
 
 	s.jmapServer = jmapServer
 
