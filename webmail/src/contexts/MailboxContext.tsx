@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import api, { SharedMailbox, Mail } from '../utils/api'
+import { useMailEvents } from '../utils/mailEvents'
 
 interface MailboxContextType {
   // Current active mailbox context
@@ -79,42 +80,27 @@ export function MailboxProvider({ children, personalEmail }: { children: React.R
     refreshInbox()
   }, [refreshInbox])
 
-  // Real-time inbox updates (push-to-pull): the server pushes a lightweight
-  // signal over SSE when something changes, and the UI fetches the message over
-  // HTTP in response — so the inbox updates instantly without aggressive
-  // polling, and the traffic stays controlled.
+  // Real-time inbox updates (push-to-pull): the shared SSE stream signals when
+  // something changes and the UI fetches over HTTP in response, so the inbox
+  // (and its sidebar unread badge) update instantly without aggressive polling.
+  // Runs even while another folder is on screen, keeping the badge live.
+  useMailEvents(() => {
+    fetchInbox().catch(() => undefined)
+  })
+
+  // Fallback safety net for when the SSE stream is unavailable: a slow poll plus
+  // a refresh when the tab regains focus. Kept long (push drives immediacy) so
+  // background traffic stays minimal.
   useEffect(() => {
     const refresh = () => {
       fetchInbox().catch(() => undefined)
     }
-
-    // Primary path: Server-Sent Events. The /api/v1/events stream authenticates
-    // via the HttpOnly jwt cookie on same-origin requests, so EventSource is the
-    // correct client. The browser auto-reconnects on transient drops.
-    let es: EventSource | null = null
-    try {
-      es = new EventSource('/api/v1/events', { withCredentials: true })
-      // "new_mail" is the delivery signal; expunge/flags/folder changes can come
-      // from another client or IMAP, so refresh on those too to stay in sync.
-      es.addEventListener('new_mail', refresh)
-      es.addEventListener('expunge', refresh)
-      es.addEventListener('flags_changed', refresh)
-      es.addEventListener('folder_update', refresh)
-    } catch {
-      es = null
-    }
-
-    // Fallback safety net for when the SSE stream is unavailable: a slow poll
-    // plus a refresh when the tab regains focus. Kept long (push drives
-    // immediacy) so background traffic stays minimal.
     const interval = setInterval(refresh, 300000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') refresh()
     }
     document.addEventListener('visibilitychange', onVisible)
-
     return () => {
-      es?.close()
       clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisible)
     }

@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
@@ -45,8 +46,8 @@ export function SpamPage() {
   const [emails, setEmails] = useState<SpamEmail[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  const loadSpam = useCallback(async () => {
-    setLoading(true)
+  const loadSpam = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const result = await api.getMail("spam")
       const mails = result.emails ?? []
@@ -65,13 +66,18 @@ export function SpamPage() {
     } catch {
       setEmails([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     loadSpam()
   }, [loadSpam])
+
+  // Realtime: silently refetch when the server pushes a mailbox change.
+  useMailEvents(() => {
+    loadSpam(true).catch(() => undefined)
+  })
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selected)

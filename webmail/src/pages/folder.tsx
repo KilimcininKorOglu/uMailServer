@@ -7,6 +7,7 @@ import {
   Star,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
@@ -54,9 +55,9 @@ export function FolderPage() {
   const pageTitle = type ? type.charAt(0).toUpperCase() + type.slice(1) : "Folder"
   const pageColor = "text-muted-foreground"
 
-  const loadFolder = useCallback(async () => {
+  const loadFolder = useCallback(async (silent = false) => {
     if (!type) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     setUnavailable(false)
     try {
       const result = await api.getMail(type)
@@ -78,13 +79,18 @@ export function FolderPage() {
       setEmails([])
       setUnavailable(true)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [type])
 
   useEffect(() => {
     loadFolder()
   }, [loadFolder])
+
+  // Realtime: silently refetch this folder when the server pushes a change.
+  useMailEvents(() => {
+    loadFolder(true).catch(() => undefined)
+  })
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selected)

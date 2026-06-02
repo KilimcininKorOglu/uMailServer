@@ -9,6 +9,7 @@ import {
   Edit,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -31,8 +32,8 @@ export function DraftsPage() {
   const [selectedDrafts, setSelectedDrafts] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
-  const loadDrafts = useCallback(async () => {
-    setLoading(true)
+  const loadDrafts = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const result = await api.getMail("drafts")
       const mails = result.emails ?? []
@@ -46,13 +47,18 @@ export function DraftsPage() {
     } catch {
       setDrafts([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     loadDrafts()
   }, [loadDrafts])
+
+  // Realtime: silently refetch when the server pushes a mailbox change.
+  useMailEvents(() => {
+    loadDrafts(true).catch(() => undefined)
+  })
 
   const toggleSelectAll = () => {
     if (selectedDrafts.size === drafts.length) {

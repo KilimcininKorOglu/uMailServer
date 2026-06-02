@@ -8,6 +8,7 @@ import {
   RotateCcw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -30,8 +31,8 @@ export function TrashPage() {
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
-  const loadTrash = async () => {
-    setLoading(true)
+  const loadTrash = async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const data = await api.get<{ emails?: unknown[] }>("/mail/trash")
       if (data && data.emails) {
@@ -50,13 +51,18 @@ export function TrashPage() {
       console.error("Failed to load trash:", err)
       setEmails([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
   useEffect(() => {
     loadTrash()
   }, [])
+
+  // Realtime: silently refetch when the server pushes a mailbox change.
+  useMailEvents(() => {
+    loadTrash(true).catch(() => undefined)
+  })
 
   const toggleSelectAll = () => {
     if (selectedEmails.size === emails.length) {

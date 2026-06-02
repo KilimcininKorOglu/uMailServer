@@ -8,6 +8,7 @@ import {
   Paperclip,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -41,8 +42,8 @@ export function SentPage() {
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
-  const loadSent = useCallback(async () => {
-    setLoading(true)
+  const loadSent = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const result = await api.getMail("sent")
       const mails = result.emails ?? []
@@ -63,13 +64,18 @@ export function SentPage() {
     } catch {
       setEmails([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     loadSent()
   }, [loadSent])
+
+  // Realtime: silently refetch when the server pushes a mailbox change.
+  useMailEvents(() => {
+    loadSent(true).catch(() => undefined)
+  })
 
   const toggleSelectAll = () => {
     if (selectedEmails.size === emails.length) {
