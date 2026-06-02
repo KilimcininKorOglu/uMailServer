@@ -141,6 +141,7 @@ type CreateItemCalendarItemType struct {
 	// "Attendees" would refuse to unmarshal into a differently-named element.
 	RequiredAttendees *CreateAttendeesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequiredAttendees,omitempty"`
 	OptionalAttendees *CreateAttendeesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types OptionalAttendees,omitempty"`
+	Categories        *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
 // CreateAttendeesType is an attendee list with no fixed XMLName, so it can back
@@ -160,6 +161,7 @@ type CreateItemContactType struct {
 	Surname        string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
 	EmailAddresses *EmailAddressesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
 	Body           *BodyType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	Categories     *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
 // CreateItemTaskType is a minimal task for CreateItem requests.
@@ -167,10 +169,11 @@ type CreateItemContactType struct {
 // when embedded in the same Items container.
 type CreateItemTaskType struct {
 	XMLName xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
-	Subject string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Body    *BodyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
-	DueDate string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
-	Status  string    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
+	Subject    string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body       *BodyType              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	DueDate    string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
+	Status     string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
+	Categories *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
 // ReplyCreateItemType is shared by the ReplyToItem and ReplyAllToItem create
@@ -773,6 +776,7 @@ func createItemCalendarToCollabType(src *CreateItemCalendarItemType) *CalendarIt
 		End:        src.End,
 		Location:   src.Location,
 		Recurrence: src.Recurrence,
+		Categories: src.Categories,
 	}
 }
 
@@ -790,6 +794,7 @@ func createItemContactToCollabType(src *CreateItemContactType) *ContactTypeNew {
 		GivenName:      src.GivenName,
 		Surname:        src.Surname,
 		EmailAddresses: src.EmailAddresses,
+		Categories:     src.Categories,
 	}
 }
 
@@ -797,10 +802,11 @@ func createItemContactToCollabType(src *CreateItemContactType) *ContactTypeNew {
 // to the full TaskTypeNew expected by createTaskInFolder.
 func createItemTaskToCollabType(src *CreateItemTaskType) *TaskTypeNew {
 	return &TaskTypeNew{
-		Subject: src.Subject,
-		Body:    src.Body,
-		DueDate: src.DueDate,
-		Status:  src.Status,
+		Subject:    src.Subject,
+		Body:       src.Body,
+		DueDate:    src.DueDate,
+		Status:     src.Status,
+		Categories: src.Categories,
 	}
 }
 

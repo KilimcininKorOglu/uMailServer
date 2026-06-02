@@ -65,12 +65,13 @@ type CalendarItemTypeNew struct {
 	Location  string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Location,omitempty"`
 	Organizer *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Organizer,omitempty"`
 	//nolint:staticcheck // EWS uses RequiredAttendees as the element name for attendee list.
-	Attendees    *AttendeesType  `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequiredAttendees,omitempty"`
-	Recurrence   *RecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
-	ReminderSet  *bool           `xml:"http://schemas.microsoft.com/exchange/services/2006/typesReminderSet,attr,omitempty"`
-	Reminder     *ReminderType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder,omitempty"`
-	CalendarType *int            `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarType,attr,omitempty"`
-	TimeZone     string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
+	Attendees    *AttendeesType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequiredAttendees,omitempty"`
+	Recurrence   *RecurrenceType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
+	ReminderSet  *bool                  `xml:"http://schemas.microsoft.com/exchange/services/2006/typesReminderSet,attr,omitempty"`
+	Reminder     *ReminderType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder,omitempty"`
+	CalendarType *int                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarType,attr,omitempty"`
+	TimeZone     string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types TimeZone,omitempty"`
+	Categories   *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
 // RecurrenceType represents iCal recurrence data in EWS.
@@ -329,12 +330,13 @@ type ContactTypeNew struct {
 	//nolint:staticcheck // EWS uses HomeAddress/WorkAddress as element names; type is PhysicalAddressType.
 	HomeAddress *PhysicalAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types HomeAddress,omitempty"`
 	//nolint:staticcheck // EWS uses WorkAddress as element name; type is PhysicalAddressType.
-	WorkAddress  *PhysicalAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkAddress,omitempty"`
-	Organization string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompanyName,omitempty"`
-	Title        string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Title,omitempty"`
-	JobTitle     string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types JobTitle,omitempty"`
-	Department   string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Department,omitempty"`
-	Notes        string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	WorkAddress  *PhysicalAddressType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types WorkAddress,omitempty"`
+	Organization string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompanyName,omitempty"`
+	Title        string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Title,omitempty"`
+	JobTitle     string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types JobTitle,omitempty"`
+	Department   string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Department,omitempty"`
+	Notes        string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	Categories   *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
 // EmailAddressesType holds email address entries.
@@ -526,16 +528,17 @@ type CreateTaskRequest struct {
 
 // TaskTypeNew is a task item in CreateTask requests.
 type TaskTypeNew struct {
-	XMLName         xml.Name        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
-	Subject         string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
-	Body            *BodyType       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
-	StartDate       string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartDate,omitempty"`
-	DueDate         string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
-	Status          string          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
-	PercentComplete *float64        `xml:"http://schemas.microsoft.com/exchange/services/2006/types PercentComplete,attr,omitempty"`
-	Recurrence      *RecurrenceType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
-	ReminderSet     *bool           `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReminderSet,attr,omitempty"`
-	Reminder        *ReminderType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder,omitempty"`
+	XMLName         xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
+	Subject         string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Body            *BodyType              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	StartDate       string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartDate,omitempty"`
+	DueDate         string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
+	Status          string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Status,omitempty"`
+	PercentComplete *float64               `xml:"http://schemas.microsoft.com/exchange/services/2006/types PercentComplete,attr,omitempty"`
+	Recurrence      *RecurrenceType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Recurrence,omitempty"`
+	ReminderSet     *bool                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReminderSet,attr,omitempty"`
+	Reminder        *ReminderType          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Reminder,omitempty"`
+	Categories      *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
 // CreateTaskResponse is the EWS CreateTask operation response.
@@ -1713,9 +1716,21 @@ func buildICalFromCalendarItem(uid string, item *CalendarItemTypeNew, start, end
 	if item.Recurrence != nil {
 		buf.WriteString(buildRRULE(item.Recurrence))
 	}
+	buf.WriteString(icalCategoriesLine(item.Categories))
 	buf.WriteString("END:VEVENT\r\n")
 	buf.WriteString("END:VCALENDAR\r\n")
 	return buf.String()
+}
+
+// icalCategoriesLine renders a CATEGORIES property line (RFC 5545 / RFC 6350)
+// from EWS categories, or "" when there are none. Categories live in the
+// canonical RawData so every surface (EWS, CalDAV/CardDAV, JMAP) reads and
+// filters on one source of truth.
+func icalCategoriesLine(c *MessageCategoriesType) string {
+	if c == nil || len(c.Strings) == 0 {
+		return ""
+	}
+	return "CATEGORIES:" + strings.Join(c.Strings, ",") + "\r\n"
 }
 
 // buildRRULE constructs an RRULE string from EWS RecurrenceType.
@@ -1820,6 +1835,7 @@ func buildVCardFromContact(uid string, contact *ContactTypeNew) string {
 	if contact.HomeAddress != nil {
 		buf.WriteString("ADR;TYPE=HOME:;" + contact.HomeAddress.Street + ";" + contact.HomeAddress.City + ";" + contact.HomeAddress.State + ";" + contact.HomeAddress.PostalCode + ";" + contact.HomeAddress.Country + "\r\n")
 	}
+	buf.WriteString(icalCategoriesLine(contact.Categories))
 	buf.WriteString("REV:" + now + "\r\n")
 	buf.WriteString("END:VCARD\r\n")
 	return buf.String()
@@ -1867,6 +1883,7 @@ func buildTaskICalFromTask(uid string, task *TaskTypeNew) string {
 	if task.Recurrence != nil {
 		buf.WriteString(buildRRULE(task.Recurrence))
 	}
+	buf.WriteString(icalCategoriesLine(task.Categories))
 	buf.WriteString("END:VTODO\r\n")
 	buf.WriteString("END:VCALENDAR\r\n")
 	return buf.String()

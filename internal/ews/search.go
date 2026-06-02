@@ -70,9 +70,9 @@ type RestrictionContainer struct {
 // SearchFilter is a disjunction (OR) or conjunction (AND) of search conditions.
 // Only one of the fields is populated at a time based on the XML element name.
 type SearchFilter struct {
-	And       *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types And"`
-	Or        *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Or"`
-	Not       *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Not"`
+	And          *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types And"`
+	Or           *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Or"`
+	Not          *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Not"`
 	IsEqualTo    *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEqualTo"`
 	IsNotEqualTo *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsNotEqualTo"`
 	Contains     *ContainsFilter   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contains"`
@@ -315,7 +315,7 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 		if restriction == nil {
 			return true
 		}
-		return collabRestrictionMatch(restriction.SearchFilter, item.Subject)
+		return collabRestrictionMatch(restriction.SearchFilter, item)
 	}
 
 	if isCollabFolder {
@@ -592,30 +592,81 @@ func evalContains(c ContainsFilter, fields filterFields, subject string, hasCont
 // any other field are treated as matching (lenient), so a Subject filter
 // narrows the result set while a Categories filter does not wrongly exclude
 // items whose categories are not surfaced here.
-func collabRestrictionMatch(f SearchFilter, subject string) bool {
+func collabRestrictionMatch(f SearchFilter, item *MessageTypeResponse) bool {
 	if f.And != nil {
-		return collabRestrictionMatch(*f.And, subject)
+		return collabRestrictionMatch(*f.And, item)
 	}
 	if f.Or != nil {
-		return collabRestrictionMatch(*f.Or, subject)
+		return collabRestrictionMatch(*f.Or, item)
 	}
 	if f.Not != nil {
-		return !collabRestrictionMatch(*f.Not, subject)
+		return !collabRestrictionMatch(*f.Not, item)
+	}
+	subject := ""
+	var categories []string
+	if item != nil {
+		subject = item.Subject
+		if item.Categories != nil {
+			categories = item.Categories.Strings
+		}
 	}
 	if f.IsEqualTo != nil {
-		if collabFieldIsSubject(f.IsEqualTo.FieldURI) && f.IsEqualTo.FieldURIOrConstant != nil && f.IsEqualTo.FieldURIOrConstant.Constant != nil {
-			return strings.EqualFold(subject, f.IsEqualTo.FieldURIOrConstant.Constant.Value)
+		if f.IsEqualTo.FieldURIOrConstant == nil || f.IsEqualTo.FieldURIOrConstant.Constant == nil {
+			return true
 		}
-		return true // non-subject predicate: not evaluable here, treat as match
+		want := f.IsEqualTo.FieldURIOrConstant.Constant.Value
+		switch {
+		case collabFieldIsSubject(f.IsEqualTo.FieldURI):
+			return strings.EqualFold(subject, want)
+		case collabFieldIsCategories(f.IsEqualTo.FieldURI):
+			return anyCategoryEqual(categories, want)
+		}
+		return true // predicate over a field not materialized here: treat as match
 	}
 	if f.Contains != nil {
-		if collabFieldIsSubject(f.Contains.FieldURI) {
-			return strings.Contains(strings.ToLower(subject), strings.ToLower(f.Contains.Constant.Value))
+		want := f.Contains.Constant.Value
+		switch {
+		case collabFieldIsSubject(f.Contains.FieldURI):
+			return strings.Contains(strings.ToLower(subject), strings.ToLower(want))
+		case collabFieldIsCategories(f.Contains.FieldURI):
+			return anyCategoryContains(categories, want)
 		}
 		return true
 	}
 	// AndList / OrList style containers and any other predicate: lenient match.
 	return true
+}
+
+// collabFieldIsCategories reports whether a FindItem FieldURI targets the
+// item:Categories property.
+func collabFieldIsCategories(fu *FieldURI) bool {
+	if fu == nil || fu.URI == "" {
+		return false
+	}
+	uri := fu.URI
+	if idx := strings.IndexByte(uri, ':'); idx >= 0 {
+		uri = uri[idx+1:]
+	}
+	return uri == "Categories"
+}
+
+func anyCategoryEqual(categories []string, want string) bool {
+	for _, c := range categories {
+		if strings.EqualFold(c, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyCategoryContains(categories []string, want string) bool {
+	w := strings.ToLower(want)
+	for _, c := range categories {
+		if strings.Contains(strings.ToLower(c), w) {
+			return true
+		}
+	}
+	return false
 }
 
 // collabFieldIsSubject reports whether a field URI addresses the Subject field
@@ -703,6 +754,7 @@ func (s *Server) collabCalendarItemToResponse(rec semcore.StoredCalendarItemIden
 		},
 		ParentFolderID: FolderIdComponents{ID: folderID.String()},
 		Subject:        subject,
+		Categories:     categoriesResponse(parseICalCategories(rec.RawData)),
 	}
 }
 
@@ -716,20 +768,43 @@ func (s *Server) collabContactItemToResponse(rec semcore.StoredContactIdentity, 
 		},
 		ParentFolderID: FolderIdComponents{ID: folderID.String()},
 		Subject:        rec.IcalUID, // UID as subject placeholder
+		Categories:     categoriesResponse(parseICalCategories(rec.RawData)),
 	}
 }
 
 // collabTaskItemToResponse converts a StoredTaskIdentity to a MessageTypeResponse.
 // Returns nil if conversion fails.
 func (s *Server) collabTaskItemToResponse(rec semcore.StoredTaskIdentity, folderID semcore.FolderId) *MessageTypeResponse {
+	subject := extractDirProp(rec.RawData, "SUMMARY")
+	if subject == "" {
+		subject = rec.IcalUID
+	}
 	return &MessageTypeResponse{
 		ItemID: ItemIdType{
 			ID: rec.ID.String(),
 			CK: rec.ChangeKey.String(),
 		},
 		ParentFolderID: FolderIdComponents{ID: folderID.String()},
-		Subject:        rec.IcalUID, // UID as subject placeholder
+		Subject:        subject,
+		Categories:     categoriesResponse(parseICalCategories(rec.RawData)),
 	}
+}
+
+// parseICalCategories extracts the CATEGORIES property (RFC 5545 / RFC 6350)
+// from canonical RawData into a category list, so EWS FindItem restrictions can
+// filter collaboration items on the same categories every surface stores.
+func parseICalCategories(raw string) []string {
+	val := extractDirProp(raw, "CATEGORIES")
+	if val == "" {
+		return nil
+	}
+	var out []string
+	for _, c := range strings.Split(val, ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // truncateBody returns a truncated body preview.
