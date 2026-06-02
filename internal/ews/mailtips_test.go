@@ -90,3 +90,25 @@ func TestGetServiceConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// TestGetAppManifests verifies GetAppManifests returns an empty manifest list.
+func TestGetAppManifests(t *testing.T) {
+	identity, sync, tomb, msgStore, policyStore, collabStore, cleanup := tmpDirectoryStores(t)
+	t.Cleanup(cleanup)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, nil, nil, nil, collabStore, policyStore, nil, nil, nil)
+
+	body := `<?xml version="1.0" encoding="utf-8"?>` +
+		`<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" ` +
+		`xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" ` +
+		`xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">` +
+		`<soap:Body><m:GetAppManifests/></soap:Body></soap:Envelope>`
+	req := httptest.NewRequest(http.MethodPost, "/EWS/Exchange.asmx", strings.NewReader(body))
+	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
+	rec := httptest.NewRecorder()
+	srv.HandleHTTP(rec, req)
+
+	got := rec.Body.String()
+	if !strings.Contains(got, `ResponseClass="Success"`) || !strings.Contains(got, "<m:Manifests") {
+		t.Errorf("GetAppManifests: expected Success with Manifests, got:\n%s", got)
+	}
+}

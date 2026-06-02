@@ -153,6 +153,8 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleGetMailTips(ctx, soapBody)
 	case "GetServiceConfiguration":
 		response = s.handleGetServiceConfiguration(ctx, soapBody)
+	case "GetAppManifests":
+		response = s.handleGetAppManifests(ctx, soapBody)
 	case "SyncFolderHierarchy":
 		response = s.handleSyncFolderHierarchy(ctx, soapBody)
 	case "SyncFolderItems":
@@ -379,6 +381,8 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"GetMailTips", "Recipients",
 		// GetServiceConfiguration
 		"GetServiceConfiguration",
+		// GetAppManifests
+		"GetAppManifests",
 		// GetUserAvailability variants
 		"GetUserAvailability", "GetUserAvailabilityRequest",
 		// GetRoomLists variants

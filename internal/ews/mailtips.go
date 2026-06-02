@@ -106,6 +106,33 @@ func (s *Server) handleGetServiceConfiguration(_ context.Context, body []byte) [
 	return []byte(b.String())
 }
 
+// GetAppManifestsRequest is the EWS GetAppManifests request.
+type GetAppManifestsRequest struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetAppManifests"`
+}
+
+// handleGetAppManifests returns the installed Outlook/OWA add-in manifests. No
+// add-in framework is wired, so the manifest list is empty (a valid response
+// that lets the add-in framework initialize without error).
+func (s *Server) handleGetAppManifests(_ context.Context, body []byte) []byte {
+	var req GetAppManifestsRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("GetAppManifests", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:GetAppManifestsResponse ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Manifests/></m:GetAppManifestsResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return []byte(b.String())
+}
+
 // recipientOOF reads a recipient's stored out-of-office settings, or nil when no
 // policy exists / stores are unavailable.
 func (s *Server) recipientOOF(email string) *UserOofSettings {
