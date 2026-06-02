@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/caldav"
+	"github.com/umailserver/umailserver/internal/carddav"
 	"github.com/umailserver/umailserver/internal/jmap"
 	"github.com/umailserver/umailserver/internal/semcore"
 )
@@ -85,6 +87,13 @@ func (s *Server) startJMAP() {
 	// JMAP is the same one every surface shows and fires at delivery.
 	if s.semcoreStore != nil {
 		jmapServer.SetVacationStores(s.semcoreStore.Policy(), s.recompileSieveForEmail)
+		// Back JMAP Calendar and Contacts with the same canonical collaboration
+		// store EWS, CalDAV/CardDAV, and webmail use, so an event or contact is
+		// identical across every surface.
+		jmapServer.SetCollabStores(
+			caldav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity()),
+			carddav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity()),
+		)
 	}
 
 	s.jmapServer = jmapServer

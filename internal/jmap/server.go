@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/umailserver/umailserver/internal/caldav"
+	"github.com/umailserver/umailserver/internal/carddav"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
@@ -46,6 +48,20 @@ type Server struct {
 	// its canonical policy (inbox rules + OOF) so a VacationResponse change takes
 	// effect at delivery. Mirrors the EWS/webmail recompile path.
 	recompileSieve func(email string) error
+	// calStore and cardStore are the canonical calendar and contact stores,
+	// shared with EWS, CalDAV/CardDAV, and webmail. When set, JMAP Calendar and
+	// Contacts read and write the same semcore collaboration folders, so an
+	// event or contact is identical across every surface.
+	calStore  caldav.Store
+	cardStore carddav.Store
+}
+
+// SetCollabStores wires the canonical calendar and contact stores so JMAP
+// Calendar and Contacts share one source of truth with EWS, CalDAV/CardDAV, and
+// webmail. A store being non-nil advertises its capability.
+func (s *Server) SetCollabStores(cal caldav.Store, card carddav.Store) {
+	s.calStore = cal
+	s.cardStore = card
 }
 
 // SetVacationStores wires the canonical OOF policy store and the Sieve recompile
@@ -258,6 +274,26 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			response.Accounts[user] = acct
 		}
 		response.PrimaryAccounts["urn:ietf:params:jmap:vacationresponse"] = user
+	}
+
+	// Advertise Calendars and Contacts only when the canonical collaboration
+	// stores are wired, so JMAP shares one calendar/contact source of truth with
+	// EWS, CalDAV/CardDAV, and webmail.
+	if s.calendarsEnabled() {
+		response.Capabilities["urn:ietf:params:jmap:calendars"] = struct{}{}
+		if acct, ok := response.Accounts[user]; ok {
+			acct.AccountCapabilities["urn:ietf:params:jmap:calendars"] = struct{}{}
+			response.Accounts[user] = acct
+		}
+		response.PrimaryAccounts["urn:ietf:params:jmap:calendars"] = user
+	}
+	if s.contactsEnabled() {
+		response.Capabilities["urn:ietf:params:jmap:contacts"] = struct{}{}
+		if acct, ok := response.Accounts[user]; ok {
+			acct.AccountCapabilities["urn:ietf:params:jmap:contacts"] = struct{}{}
+			response.Accounts[user] = acct
+		}
+		response.PrimaryAccounts["urn:ietf:params:jmap:contacts"] = user
 	}
 
 	s.sendJSON(w, http.StatusOK, response)
@@ -529,6 +565,32 @@ func (s *Server) dispatchMethodCall(user string, call MethodCall, createdIDs map
 		return s.handleVacationResponseGet(user, call)
 	case "VacationResponse/set":
 		return s.handleVacationResponseSet(user, call)
+
+	// Calendar methods (JSCalendar, RFC 8984) — backed by the canonical
+	// collaboration store shared with EWS, CalDAV, and webmail.
+	case "Calendar/get":
+		return s.handleCalendarGet(user, call)
+	case "CalendarEvent/get":
+		return s.handleCalendarEventGet(user, call)
+	case "CalendarEvent/query":
+		return s.handleCalendarEventQuery(user, call)
+	case "CalendarEvent/changes":
+		return s.handleCalendarEventChanges(user, call)
+	case "CalendarEvent/set":
+		return s.handleCalendarEventSet(user, call, createdIDs)
+
+	// Contact methods (JSContact, RFC 9553) — backed by the canonical
+	// collaboration store shared with EWS, CardDAV, and webmail.
+	case "AddressBook/get":
+		return s.handleAddressBookGet(user, call)
+	case "ContactCard/get":
+		return s.handleContactCardGet(user, call)
+	case "ContactCard/query":
+		return s.handleContactCardQuery(user, call)
+	case "ContactCard/changes":
+		return s.handleContactCardChanges(user, call)
+	case "ContactCard/set":
+		return s.handleContactCardSet(user, call, createdIDs)
 
 	// Identity methods
 	case "Identity/get":
