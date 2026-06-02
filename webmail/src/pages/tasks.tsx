@@ -153,7 +153,7 @@ export function TasksPage() {
           }}
           placeholder="Add a task and press Enter"
         />
-        <Button onClick={handleQuickAdd} disabled={busy || !quickAdd.trim()}>
+        <Button onClick={handleQuickAdd} disabled={busy}>
           <Plus className="mr-2 h-4 w-4" />
           Add
         </Button>
