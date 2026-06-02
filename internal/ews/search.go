@@ -73,9 +73,10 @@ type SearchFilter struct {
 	And       *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types And"`
 	Or        *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Or"`
 	Not       *SearchFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Not"`
-	IsEqualTo *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEqualTo"`
-	Contains  *ContainsFilter   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contains"`
-	Exists    *ExistsFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exists"`
+	IsEqualTo    *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsEqualTo"`
+	IsNotEqualTo *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsNotEqualTo"`
+	Contains     *ContainsFilter   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contains"`
+	Exists       *ExistsFilter     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Exists"`
 	// Relational comparisons.
 	IsGreaterThan          *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsGreaterThan"`
 	IsLessThan             *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsLessThan"`
@@ -468,6 +469,9 @@ func evalFilter(f SearchFilter, fields filterFields, subject, dateStr string, ha
 	if f.IsEqualTo != nil {
 		return evalComparison(*f.IsEqualTo, fields, subject, dateStr, hasContent, "equal")
 	}
+	if f.IsNotEqualTo != nil {
+		return evalComparison(*f.IsNotEqualTo, fields, subject, dateStr, hasContent, "neq")
+	}
 	if f.IsGreaterThan != nil {
 		return evalComparison(*f.IsGreaterThan, fields, subject, dateStr, hasContent, "gt")
 	}
@@ -528,6 +532,8 @@ func evalComparison(c ComparisonFilter, fields filterFields, subject, dateStr st
 	switch op {
 	case "equal":
 		return strings.EqualFold(fieldValue, constVal)
+	case "neq":
+		return !strings.EqualFold(fieldValue, constVal)
 	case "gt":
 		return fieldValue > constVal
 	case "lt":
@@ -543,6 +549,8 @@ func evalComparison(c ComparisonFilter, fields filterFields, subject, dateStr st
 // compareInt compares two int64 values.
 func compareInt(a, b int64, op string) bool {
 	switch op {
+	case "neq":
+		return a != b
 	case "gt":
 		return a > b
 	case "lt":
