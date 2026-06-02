@@ -155,6 +155,14 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleGetServiceConfiguration(ctx, soapBody)
 	case "GetAppManifests":
 		response = s.handleGetAppManifests(ctx, soapBody)
+	case "CreateUserConfiguration":
+		response = s.handleCreateUserConfiguration(ctx, soapBody)
+	case "GetUserConfiguration":
+		response = s.handleGetUserConfiguration(ctx, soapBody)
+	case "UpdateUserConfiguration":
+		response = s.handleUpdateUserConfiguration(ctx, soapBody)
+	case "DeleteUserConfiguration":
+		response = s.handleDeleteUserConfiguration(ctx, soapBody)
 	case "SyncFolderHierarchy":
 		response = s.handleSyncFolderHierarchy(ctx, soapBody)
 	case "SyncFolderItems":
@@ -383,6 +391,9 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"GetServiceConfiguration",
 		// GetAppManifests
 		"GetAppManifests",
+		// UserConfiguration family
+		"CreateUserConfiguration", "GetUserConfiguration", "UpdateUserConfiguration", "DeleteUserConfiguration",
+		"UserConfiguration", "UserConfigurationName",
 		// GetUserAvailability variants
 		"GetUserAvailability", "GetUserAvailabilityRequest",
 		// GetRoomLists variants
