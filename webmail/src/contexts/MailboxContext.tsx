@@ -57,21 +57,44 @@ export function MailboxProvider({ children, personalEmail }: { children: React.R
   const [inboxEmails, setInboxEmails] = useState<Mail[]>([])
   const [inboxLoading, setInboxLoading] = useState(true)
 
+  // fetchInbox pulls the inbox without toggling the loading flag, so background
+  // polling does not flash the skeleton.
+  const fetchInbox = useCallback(async () => {
+    const res = await api.getMail('inbox')
+    setInboxEmails(res.emails ?? [])
+  }, [])
+
   const refreshInbox = useCallback(async () => {
     setInboxLoading(true)
     try {
-      const res = await api.getMail('inbox')
-      setInboxEmails(res.emails ?? [])
+      await fetchInbox()
     } catch {
       setInboxEmails([])
     } finally {
       setInboxLoading(false)
     }
-  }, [])
+  }, [fetchInbox])
 
   useEffect(() => {
     refreshInbox()
   }, [refreshInbox])
+
+  // Auto-refresh so newly delivered mail shows without a manual reload: poll
+  // periodically and refresh when the tab regains focus. Silent (no skeleton).
+  useEffect(() => {
+    const tick = () => {
+      fetchInbox().catch(() => undefined)
+    }
+    const interval = setInterval(tick, 45000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [fetchInbox])
 
   const patchInbox = useCallback((ids: string[], changes: Partial<Mail>) => {
     const idset = new Set(ids)
