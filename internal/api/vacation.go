@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
 
@@ -189,6 +190,19 @@ func (s *Server) getVacationConfig(user string) (*vacation.Config, error) {
 	if s.vacationGetError != nil {
 		return nil, s.vacationGetError
 	}
+	// Canonical OOF path: when the semcore policy store is wired (production),
+	// the out-of-office policy is the single source of truth. It is compiled to
+	// the user's active Sieve script so vacation auto-replies actually fire at
+	// delivery. The legacy stores below are only consulted when no OOF exists.
+	if s.semStore != nil {
+		if mbid, err := semcore.NewMailboxId(user); err == nil {
+			if oofID, err := semcore.NewOOFId(mbid.String()); err == nil {
+				if policy, err := s.semStore.Policy().GetOOF(oofID); err == nil && policy != nil && !policy.IsZero() {
+					return oofToVacationConfig(policy), nil
+				}
+			}
+		}
+	}
 	// Use interface if set
 	if s.vacationMgr != nil {
 		return s.vacationMgr.GetConfig(user)
@@ -219,6 +233,23 @@ func (s *Server) setVacationConfig(user string, config *vacation.Config) error {
 	if s.vacationSetError != nil {
 		return s.vacationSetError
 	}
+	// Canonical OOF path: persist to the semcore policy store and recompile the
+	// user's active Sieve script so the vacation auto-reply takes effect at
+	// delivery (the legacy db.BucketVacation store is never read at delivery).
+	if s.semStore != nil {
+		mbid, err := semcore.NewMailboxId(user)
+		if err != nil {
+			return err
+		}
+		policy, err := vacationConfigToOOF(mbid, config)
+		if err != nil {
+			return err
+		}
+		if err := s.semStore.Policy().PutOOF(policy); err != nil {
+			return err
+		}
+		return s.recompileSieveForMailbox(mbid)
+	}
 	// Use interface if set
 	if s.vacationMgr != nil {
 		return s.vacationMgr.SetConfig(user, config)
@@ -234,6 +265,26 @@ func (s *Server) deleteVacationConfig(user string) error {
 	// Check for mock error injection (used in tests)
 	if s.vacationDeleteError != nil {
 		return s.vacationDeleteError
+	}
+	// Canonical OOF path: disable the policy and recompile so the vacation
+	// action is dropped from the active Sieve script.
+	if s.semStore != nil {
+		mbid, err := semcore.NewMailboxId(user)
+		if err != nil {
+			return err
+		}
+		oofID, err := semcore.NewOOFId(mbid.String())
+		if err != nil {
+			return err
+		}
+		if policy, err := s.semStore.Policy().GetOOF(oofID); err == nil && policy != nil && !policy.IsZero() {
+			policy.Enabled = false
+			policy.State = "Disabled"
+			if err := s.semStore.Policy().PutOOF(policy); err != nil {
+				return err
+			}
+		}
+		return s.recompileSieveForMailbox(mbid)
 	}
 	// Use interface if set
 	if s.vacationMgr != nil {
@@ -257,4 +308,66 @@ func (s *Server) listActiveVacations() []string {
 	}
 	// Placeholder - in real implementation, get from vacation manager
 	return []string{}
+}
+
+// vacationConfigToOOF maps the webmail VacationConfig (vacation.Config) onto the
+// canonical semcore OOF policy. State and the schedule window mirror the EWS
+// mapping in internal/ews/rules.go (oofPolicyFromEWS) so webmail and Outlook
+// write the same policy shape, and the policy compiles to a Sieve vacation
+// action that fires at delivery.
+func vacationConfigToOOF(mbid semcore.MailboxId, config *vacation.Config) (*semcore.OOFPolicy, error) {
+	oofID, err := semcore.NewOOFId(mbid.String())
+	if err != nil {
+		return nil, err
+	}
+	policy := &semcore.OOFPolicy{
+		ID:               oofID,
+		MailboxID:        mbid,
+		Enabled:          config.Enabled,
+		Subject:          config.Subject,
+		TextBody:         config.Message,
+		InternalReply:    config.Message,
+		HTMLBody:         config.HTMLMessage,
+		ExcludeAddresses: config.ExcludeAddresses,
+		IgnoreLists:      config.IgnoreLists,
+		IgnoreBulk:       config.IgnoreBulk,
+		Timezone:         "UTC",
+	}
+	switch {
+	case !config.Enabled:
+		policy.State = "Disabled"
+	case !config.StartDate.IsZero() || !config.EndDate.IsZero():
+		policy.State = "Scheduled"
+		policy.StartTime = config.StartDate
+		policy.EndTime = config.EndDate
+	default:
+		policy.State = "Enabled"
+	}
+	if config.SendInterval > 0 {
+		policy.SendIntervalSeconds = int64(config.SendInterval / time.Second)
+	} else {
+		policy.SendIntervalSeconds = 7 * 24 * 3600
+	}
+	return policy, nil
+}
+
+// oofToVacationConfig maps a canonical OOF policy back to the webmail
+// VacationConfig shape for GET responses.
+func oofToVacationConfig(policy *semcore.OOFPolicy) *vacation.Config {
+	msg := policy.TextBody
+	if msg == "" {
+		msg = policy.InternalReply
+	}
+	return &vacation.Config{
+		Enabled:          policy.Enabled,
+		StartDate:        policy.StartTime,
+		EndDate:          policy.EndTime,
+		Subject:          policy.Subject,
+		Message:          msg,
+		HTMLMessage:      policy.HTMLBody,
+		SendInterval:     policy.SendInterval(),
+		ExcludeAddresses: policy.ExcludeAddresses,
+		IgnoreLists:      policy.IgnoreLists,
+		IgnoreBulk:       policy.IgnoreBulk,
+	}
 }

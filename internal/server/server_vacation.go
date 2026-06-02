@@ -17,6 +17,26 @@ func sanitizeHeaderValue(s string) string {
 	return s
 }
 
+// hasActiveOOFPolicy reports whether the recipient has an out-of-office policy
+// that is currently active. When true, the Sieve vacation action compiled from
+// that policy (handleSieveVacation) already sends the auto-reply at delivery, so
+// the legacy account.VacationSettings path must be skipped to avoid sending two
+// auto-replies for the same message.
+func (s *Server) hasActiveOOFPolicy(email string) bool {
+	if s.semcoreStore == nil {
+		return false
+	}
+	oofID, err := semcore.NewOOFId(email)
+	if err != nil {
+		return false
+	}
+	policy, err := s.semcoreStore.Policy().GetOOF(oofID)
+	if err != nil || policy == nil {
+		return false
+	}
+	return policy.IsActiveNow()
+}
+
 // handleSieveVacation handles Sieve vacation action by sending a vacation auto-reply
 func (s *Server) handleSieveVacation(sender, recipient string, vacation sieve.VacationAction) {
 	if s.queue == nil {

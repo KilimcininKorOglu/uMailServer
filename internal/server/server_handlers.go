@@ -665,8 +665,11 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 	// Track delivery metric
 	metrics.Get().DeliverySuccess()
 
-	// Send vacation auto-reply if configured
-	if account.VacationSettings != "" && s.queue != nil {
+	// Send vacation auto-reply if configured. Skip the legacy
+	// account.VacationSettings path when an out-of-office policy is active: that
+	// policy is compiled to a Sieve vacation action which already auto-replies at
+	// delivery, so running both would send two replies for the same message.
+	if account.VacationSettings != "" && s.queue != nil && !s.hasActiveOOFPolicy(email) {
 		select {
 		case s.bgSem <- struct{}{}:
 			go func() {

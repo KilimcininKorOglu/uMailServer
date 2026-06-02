@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/sieve"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
 
@@ -370,6 +372,73 @@ func TestListActiveVacations(t *testing.T) {
 
 	if len(vacations) != 0 {
 		t.Errorf("Expected 0 vacations, got %d", len(vacations))
+	}
+}
+
+// TestVacationConfig_PersistsToCanonicalOOF verifies that when the semcore
+// policy store is wired (production), the webmail vacation endpoints write to
+// the canonical OOF policy and recompile the Sieve script — rather than the
+// legacy db.BucketVacation store, which is never read at delivery. This is the
+// behavior that makes a webmail-configured vacation auto-reply actually fire.
+func TestVacationConfig_PersistsToCanonicalOOF(t *testing.T) {
+	tmpDir := t.TempDir()
+	server := newFilterTestServer(t, tmpDir) // wires a real semcore store
+	server.SetSieveManager(sieve.NewManager())
+
+	user := "vac@example.com"
+	cfg := &vacation.Config{
+		Enabled:      true,
+		Subject:      "Tatildeyim",
+		Message:      "Döndüğümde yanıt vereceğim.",
+		SendInterval: 24 * time.Hour,
+	}
+	if err := server.setVacationConfig(user, cfg); err != nil {
+		t.Fatalf("setVacationConfig: %v", err)
+	}
+
+	mbid, err := semcore.NewMailboxId(user)
+	if err != nil {
+		t.Fatalf("NewMailboxId: %v", err)
+	}
+	oofID, err := semcore.NewOOFId(mbid.String())
+	if err != nil {
+		t.Fatalf("NewOOFId: %v", err)
+	}
+
+	// Canonical OOF must hold the policy as the single source of truth.
+	policy, err := server.semStore.Policy().GetOOF(oofID)
+	if err != nil {
+		t.Fatalf("GetOOF: %v", err)
+	}
+	if !policy.Enabled || policy.State != "Enabled" {
+		t.Errorf("policy not enabled: enabled=%v state=%q", policy.Enabled, policy.State)
+	}
+	if policy.Subject != cfg.Subject || policy.TextBody != cfg.Message {
+		t.Errorf("policy content mismatch: subject=%q body=%q", policy.Subject, policy.TextBody)
+	}
+	if !policy.IsActiveNow() {
+		t.Error("an enabled (non-scheduled) policy must be active now")
+	}
+
+	// Reading back through getVacationConfig must reflect the OOF policy.
+	got, err := server.getVacationConfig(user)
+	if err != nil {
+		t.Fatalf("getVacationConfig: %v", err)
+	}
+	if !got.Enabled || got.Subject != cfg.Subject || got.Message != cfg.Message {
+		t.Errorf("round-trip mismatch: %+v", got)
+	}
+
+	// Delete must disable the policy so recompile drops the vacation action.
+	if err := server.deleteVacationConfig(user); err != nil {
+		t.Fatalf("deleteVacationConfig: %v", err)
+	}
+	policy, err = server.semStore.Policy().GetOOF(oofID)
+	if err != nil {
+		t.Fatalf("GetOOF after delete: %v", err)
+	}
+	if policy.Enabled {
+		t.Error("policy must be disabled after deleteVacationConfig")
 	}
 }
 
