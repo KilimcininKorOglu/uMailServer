@@ -63,6 +63,8 @@ type AccountData struct {
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	LastLoginAt        time.Time `json:"last_login_at,omitempty"`
+	Avatar             []byte    `json:"avatar,omitempty"`      // raw profile photo bytes (capped, small)
+	AvatarType         string    `json:"avatar_type,omitempty"` // avatar MIME type, e.g. "image/png"
 }
 
 // ClientSession holds HTTP/API client session information for the account portal.

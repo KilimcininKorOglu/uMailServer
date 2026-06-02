@@ -32,6 +32,7 @@ func accountToJSON(a *db.AccountData) map[string]interface{} {
 		"created_at":           a.CreatedAt,
 		"updated_at":           a.UpdatedAt,
 		"last_login":           a.LastLoginAt,
+		"has_avatar":           len(a.Avatar) > 0,
 	}
 	if a.VacationSettings != "" {
 		result["vacation_settings"] = a.VacationSettings

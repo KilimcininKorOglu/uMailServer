@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -11,6 +12,7 @@ import (
 type directoryEntry struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
+	Photo string `json:"photo,omitempty"` // avatar endpoint URL when the user has a photo
 }
 
 const maxDirectoryResults = 25
@@ -61,7 +63,11 @@ func (s *Server) handleDirectorySearch(w http.ResponseWriter, r *http.Request) {
 			!strings.Contains(strings.ToLower(a.LocalPart), query) {
 			continue
 		}
-		entries = append(entries, directoryEntry{Email: a.Email, Name: a.LocalPart})
+		entry := directoryEntry{Email: a.Email, Name: a.LocalPart}
+		if len(a.Avatar) > 0 {
+			entry.Photo = "/api/v1/avatar?email=" + url.QueryEscape(a.Email)
+		}
+		entries = append(entries, entry)
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Email < entries[j].Email })

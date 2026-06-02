@@ -692,6 +692,9 @@ func (s *Server) initRouter() {
 	}
 	// User-facing organization directory (GAL) lookup for recipient autocomplete.
 	api.HandleFunc("/api/v1/directory", s.handleDirectorySearch)
+	// Profile photos: read any colleague's avatar (GAL scope), manage your own.
+	api.HandleFunc("/api/v1/avatar", s.handleAvatarGet)
+	api.HandleFunc("/api/v1/profile/avatar", s.handleProfileAvatar)
 	// Bookable rooms for the calendar room picker.
 	api.HandleFunc("/api/v1/rooms", s.handleRooms)
 	if s.contactsHandler != nil {

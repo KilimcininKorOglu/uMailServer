@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
+import api from "@/utils/api"
 
 interface Notification {
   id: string
@@ -161,7 +162,7 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">
                 <Avatar className="h-9 w-9 ring-2 ring-primary/20">
-                  <AvatarImage src="" alt={email} />
+                  <AvatarImage src={email ? api.avatarUrl(email) : ""} alt={email} />
                   <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-semibold">
                     {initials}
                   </AvatarFallback>

@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from "react"
-import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
+import { useAuth } from "@/contexts/AuthContext"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
@@ -40,6 +42,56 @@ const emptyVacation: VacationAutoReply = {
 
 export function SettingsPage() {
   const { theme, setTheme, resolvedTheme } = useTheme()
+  const { user } = useAuth()
+
+  // Profile photo (self-service avatar). avatarVersion cache-busts the <img>
+  // after an upload/removal so the new photo shows immediately.
+  const email = user?.email ?? ""
+  const initials = (email ? email.slice(0, 2) : "?").toUpperCase()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [avatarVersion, setAvatarVersion] = useState(1)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+
+  const handlePickAvatar = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file")
+      return
+    }
+    if (file.size > 1024 * 1024) {
+      toast.error("Image must be 1 MB or smaller")
+      return
+    }
+    const dataURL = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+    setAvatarBusy(true)
+    try {
+      await api.updateAvatar(dataURL)
+      setAvatarVersion((v) => v + 1)
+      toast.success("Profile photo updated")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update photo")
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    setAvatarBusy(true)
+    try {
+      await api.removeAvatar()
+      setAvatarVersion((v) => v + 1)
+      toast.success("Profile photo removed")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove photo")
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
   // Password change dialog (Manage Account)
   const [pwOpen, setPwOpen] = useState(false)
   const [pwCurrent, setPwCurrent] = useState("")
@@ -413,6 +465,44 @@ export function SettingsPage() {
           Manage your email preferences and account settings.
         </p>
       </div>
+
+      {/* Profile photo */}
+      <SettingSection
+        icon={Camera}
+        title="Profile photo"
+        description="Set the photo shown across uMail and the directory"
+      >
+        <div className="flex items-center gap-4">
+          <Avatar className="h-16 w-16 ring-2 ring-primary/20">
+            <AvatarImage src={email ? api.avatarUrl(email, avatarVersion) : ""} alt={email} />
+            <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground text-lg font-semibold">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) void handlePickAvatar(file)
+                e.target.value = ""
+              }}
+            />
+            <Button variant="outline" disabled={avatarBusy} onClick={() => fileInputRef.current?.click()}>
+              <Camera className="mr-2 h-4 w-4" />
+              {avatarBusy ? "Saving…" : "Upload photo"}
+            </Button>
+            <Button variant="ghost" disabled={avatarBusy} onClick={handleRemoveAvatar}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Remove
+            </Button>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">PNG, JPG, GIF or WebP up to 1 MB.</p>
+      </SettingSection>
 
       {/* Appearance */}
       <SettingSection

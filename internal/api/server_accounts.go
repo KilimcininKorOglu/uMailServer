@@ -134,6 +134,7 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		Password   string `json:"password"`
 		IsAdmin    bool   `json:"is_admin"`
 		QuotaLimit *int64 `json:"quota_limit"`
+		Avatar     string `json:"avatar"` // optional data URL profile photo
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -144,6 +145,19 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Email == "" || req.Password == "" {
 		s.sendError(w, http.StatusBadRequest, "email and password are required")
 		return
+	}
+
+	// Validate the optional avatar up front so a bad image fails before the
+	// account is created.
+	var avatarBytes []byte
+	var avatarType string
+	if req.Avatar != "" {
+		mime, raw, perr := parseAvatarDataURL(req.Avatar)
+		if perr != nil {
+			s.sendError(w, http.StatusBadRequest, perr.Error())
+			return
+		}
+		avatarBytes, avatarType = raw, mime
 	}
 
 	if req.QuotaLimit != nil && *req.QuotaLimit < 0 {
@@ -195,6 +209,8 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		IsActive:     true,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
+		Avatar:       avatarBytes,
+		AvatarType:   avatarType,
 	}
 	if req.QuotaLimit != nil {
 		account.QuotaLimit = *req.QuotaLimit

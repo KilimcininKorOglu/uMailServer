@@ -381,6 +381,24 @@ class API {
     await this.post('/account/password', { currentPassword, newPassword })
   }
 
+  // avatarUrl returns the endpoint that serves a user's profile photo. Auth
+  // rides the same-origin session cookie, so it can be used directly as an
+  // <img> src. cacheBust forces a reload after the photo changes.
+  avatarUrl(email: string, cacheBust?: number): string {
+    const base = `${API_URL}/avatar?email=${encodeURIComponent(email)}`
+    return cacheBust ? `${base}&v=${cacheBust}` : base
+  }
+
+  // updateAvatar uploads the authenticated user's own profile photo as a data URL.
+  async updateAvatar(dataURL: string): Promise<void> {
+    await this.put('/profile/avatar', { avatar: dataURL })
+  }
+
+  // removeAvatar deletes the authenticated user's own profile photo.
+  async removeAvatar(): Promise<void> {
+    await this.delete('/profile/avatar')
+  }
+
   // Self-service delegation (the authenticated user is always the owner)
   async getDelegations(): Promise<{ delegations?: Delegation[] }> {
     return this.get<{ delegations?: Delegation[] }>('/delegations')

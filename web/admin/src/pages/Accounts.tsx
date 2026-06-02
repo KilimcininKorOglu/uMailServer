@@ -73,6 +73,7 @@ export function Accounts() {
   const [newAccountPassword, setNewAccountPassword] = useState("");
   const [newAccountIsAdmin, setNewAccountIsAdmin] = useState(false);
   const [newAccountQuotaMB, setNewAccountQuotaMB] = useState(0);
+  const [newAccountAvatar, setNewAccountAvatar] = useState("");
   const [requirePasswordChangeOnReset, setRequirePasswordChangeOnReset] = useState(true);
   const [originalIsAdmin, setOriginalIsAdmin] = useState(false);
   const [currentAdminPassword, setCurrentAdminPassword] = useState("");
@@ -101,16 +102,35 @@ export function Accounts() {
         newAccountEmail,
         newAccountPassword,
         newAccountIsAdmin,
-        newAccountQuotaMB * 1024 * 1024
+        newAccountQuotaMB * 1024 * 1024,
+        newAccountAvatar || undefined
       );
       setIsAddDialogOpen(false);
       setNewAccountEmail("");
       setNewAccountPassword("");
       setNewAccountIsAdmin(false);
       setNewAccountQuotaMB(0);
+      setNewAccountAvatar("");
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to create account");
     }
+  };
+
+  // handleAvatarFile reads a chosen image into a data URL for the create payload,
+  // enforcing the same type/size limits the server applies.
+  const handleAvatarFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setFormError("Profile photo must be an image");
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setFormError("Profile photo must be 1 MB or smaller");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setNewAccountAvatar(String(reader.result));
+    reader.onerror = () => setFormError("Failed to read the image");
+    reader.readAsDataURL(file);
   };
 
   const handleDeleteAccount = async () => {
@@ -240,6 +260,38 @@ export function Accounts() {
                   onChange={(e) => setNewAccountQuotaMB(Math.max(0, Number(e.target.value) || 0))}
                 />
                 <p className="text-sm text-muted-foreground">0 means unlimited storage.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="avatar">Profile Photo</Label>
+                <div className="flex items-center gap-3">
+                  {newAccountAvatar ? (
+                    <img
+                      src={newAccountAvatar}
+                      alt="Preview"
+                      className="h-12 w-12 rounded-full object-cover ring-2 ring-border"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                      <Users className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  )}
+                  <Input
+                    id="avatar"
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    className="flex-1"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAvatarFile(file);
+                    }}
+                  />
+                  {newAccountAvatar && (
+                    <Button variant="ghost" size="icon" onClick={() => setNewAccountAvatar("")}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">Optional. PNG, JPG, GIF or WebP up to 1 MB.</p>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <Label htmlFor="is-admin">Admin Account</Label>
