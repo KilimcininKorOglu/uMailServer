@@ -881,6 +881,7 @@ func (s *Server) handleEmptyFolder(ctx context.Context, body []byte) []byte {
 		}
 
 		s.emptyFolderItems(mboxID, mailboxKey, t.id, hardDelete)
+		s.notifyFolderChange(mailboxKey, t.id)
 
 		if req.DeleteSubFolders {
 			for _, sub := range s.descendantFolderIDs(mailboxKey, t.id) {
@@ -1091,6 +1092,7 @@ func (s *Server) handleMoveFolder(ctx context.Context, body []byte) []byte {
 			b.WriteString(`<m:MoveFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(ErrErrorInternalServer) + `</m:ResponseCode></m:MoveFolderResponseMessage>`)
 			continue
 		}
+		s.notifyFolderChange(mailboxKey, fid)
 		b.WriteString(`<m:MoveFolderResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode>`)
 		b.WriteString(`<m:Folders><t:Folder><t:FolderId Id="` + xmlEscape(fid.String()) + `"/></t:Folder></m:Folders>`)
 		b.WriteString(`</m:MoveFolderResponseMessage>`)

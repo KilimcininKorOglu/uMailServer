@@ -88,3 +88,59 @@ func TestEmptyFolder(t *testing.T) {
 		t.Errorf("EmptyFolder: expected 0 items after, got %d", len(after))
 	}
 }
+
+// TestEmptyFolderNotifiesFolderChange verifies that a successful EmptyFolder
+// invokes the folder-change notifier with the caller's address and the
+// canonical IMAP folder name, so IMAP IDLE and the webmail SSE stream refresh
+// after the mutation.
+func TestEmptyFolderNotifiesFolderChange(t *testing.T) {
+	identity, sync, tomb, msgStore, policyStore, collabStore, cleanup := tmpDirectoryStores(t)
+	t.Cleanup(cleanup)
+
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, nil, nil, nil, collabStore, policyStore, nil, nil, nil)
+
+	email := "alice@ex.test"
+	if _, err := identity.EnsureMailboxId(email); err != nil {
+		t.Fatalf("EnsureMailboxId: %v", err)
+	}
+	// "deleteditems" maps to the "trash" role -> canonical IMAP name "Trash".
+	if _, err := identity.EnsureFolderId(email, "deleteditems", "trash"); err != nil {
+		t.Fatalf("EnsureFolderId: %v", err)
+	}
+
+	var calls int
+	var gotEmail, gotFolder string
+	srv.SetFolderChangeNotifier(func(e, f string) {
+		calls++
+		gotEmail = e
+		gotFolder = f
+	})
+
+	body := `<?xml version="1.0" encoding="utf-8"?>` +
+		`<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" ` +
+		`xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" ` +
+		`xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">` +
+		`<soap:Body><m:EmptyFolder DeleteType="HardDelete" DeleteSubFolders="false">` +
+		`<m:FolderIds><t:DistinguishedFolderId Id="deleteditems"/></m:FolderIds>` +
+		`</m:EmptyFolder></soap:Body></soap:Envelope>`
+
+	req := httptest.NewRequest(http.MethodPost, "/EWS/Exchange.asmx", strings.NewReader(body))
+	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
+	//nolint:staticcheck // EWS resolveMailboxFromBody reads the plain string context key "X-Email".
+	req = req.WithContext(context.WithValue(req.Context(), "X-Email", email))
+	out := httptest.NewRecorder()
+	srv.HandleHTTP(out, req)
+
+	if !strings.Contains(out.Body.String(), `ResponseClass="Success"`) {
+		t.Fatalf("EmptyFolder: expected Success, got:\n%s", out.Body.String())
+	}
+	if calls == 0 {
+		t.Fatal("expected a folder-change notification after EmptyFolder")
+	}
+	if gotEmail != email {
+		t.Errorf("notifier email = %q, want %q", gotEmail, email)
+	}
+	if gotFolder != "Trash" {
+		t.Errorf("notifier folder = %q, want Trash", gotFolder)
+	}
+}

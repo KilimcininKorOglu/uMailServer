@@ -9,6 +9,7 @@ import (
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/backup"
 	"github.com/umailserver/umailserver/internal/ews"
+	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mapi"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
@@ -139,6 +140,13 @@ func (s *Server) startAPI() {
 				out = append(out, ews.FreeBusyInterval{Start: p[0], End: p[1], BusyType: "Busy"})
 			}
 			return out
+		})
+
+		// Refresh IMAP IDLE sessions and the webmail SSE stream after an EWS
+		// folder mutation (EmptyFolder, MoveFolder), which otherwise leaves
+		// connected clients showing a stale folder.
+		ewsServer.SetFolderChangeNotifier(func(email, folder string) {
+			imap.GetNotificationHub().NotifyMailboxUpdate(email, folder)
 		})
 
 		s.apiServer.SetEWSHandler(ewsServer)

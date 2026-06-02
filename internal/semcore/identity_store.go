@@ -457,6 +457,14 @@ func folderKey(mboxKey, folderName string) string {
 	return mboxKey + "\x00" + folderName
 }
 
+// CanonicalFolderNameForRole returns the canonical IMAP folder name for a
+// distinguished role (e.g. "inbox" -> "INBOX", "trash" -> "Trash"), or "" for a
+// user-created folder with no role. Exported so cross-package callers (EWS) can
+// map a folder's role to the mailbox name used in client change notifications.
+func CanonicalFolderNameForRole(role string) string {
+	return canonicalFolderNameForRole(role)
+}
+
 func canonicalFolderNameForRole(role string) string {
 	switch role {
 	case "inbox":

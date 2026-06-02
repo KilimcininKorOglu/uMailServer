@@ -46,6 +46,11 @@ type Server struct {
 	// calendar items. Injected via SetFreeBusyProvider so this package does not
 	// depend on the CalDAV store directly.
 	freeBusyProvider func(email string, from, to time.Time) []FreeBusyInterval
+	// folderChangeNotifier, when set, is invoked after a folder mutation
+	// (EmptyFolder, MoveFolder) so IMAP IDLE sessions and the webmail SSE stream
+	// refresh. Injected via SetFolderChangeNotifier so this package does not
+	// depend on the IMAP notification hub directly.
+	folderChangeNotifier func(email, folder string)
 }
 
 // FreeBusyInterval is one busy time range contributed by an external free/busy
@@ -97,6 +102,30 @@ func (s *Server) SetLogger(logger *slog.Logger) {
 // what webmail and CalDAV clients see.
 func (s *Server) SetFreeBusyProvider(fn func(email string, from, to time.Time) []FreeBusyInterval) {
 	s.freeBusyProvider = fn
+}
+
+// SetFolderChangeNotifier wires a callback invoked after a folder mutation so
+// IMAP IDLE sessions and the webmail SSE stream pick up the change.
+func (s *Server) SetFolderChangeNotifier(fn func(email, folder string)) {
+	s.folderChangeNotifier = fn
+}
+
+// notifyFolderChange signals that a mailbox folder changed, resolving a
+// best-effort folder name: the canonical IMAP name for a distinguished role,
+// else the folder id. The webmail SSE ignores the name (any change triggers a
+// refetch); IMAP IDLE routes by it for distinguished folders, which is the
+// common EmptyFolder/MoveFolder case.
+func (s *Server) notifyFolderChange(email string, fid semcore.FolderId) {
+	if s.folderChangeNotifier == nil {
+		return
+	}
+	folder := fid.String()
+	if rec, err := s.identity.GetFolderByID(fid); err == nil && rec != nil {
+		if name := semcore.CanonicalFolderNameForRole(rec.Role); name != "" {
+			folder = name
+		}
+	}
+	s.folderChangeNotifier(email, folder)
 }
 
 // SetSubmitMessageFunc wires the outbound submission path used by SendItem.
