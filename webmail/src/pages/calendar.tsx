@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users, Repeat } from "lucide-react"
+import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users, Repeat, List, LayoutGrid, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -87,6 +87,37 @@ function timeLabel(ev: CalendarEvent): string {
   return isNaN(end.getTime()) ? s : `${s} – ${end.toLocaleTimeString(undefined, opts)}`
 }
 
+// dateKey returns a local YYYY-MM-DD key for a Date, used to bucket events
+// into the calendar grid's day cells.
+function dateKey(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+// eventDayKey returns the local day key an event belongs to. All-day events
+// carry a date-only start ("YYYY-MM-DD"); timed events carry an RFC3339 instant.
+function eventDayKey(ev: CalendarEvent): string {
+  const raw = ev.allDay && ev.start.length === 10 ? `${ev.start}T00:00:00` : ev.start
+  const d = new Date(raw)
+  return isNaN(d.getTime()) ? "" : dateKey(d)
+}
+
+// monthMatrix returns the 42 days (6 weeks, Monday-first) that fill the grid for
+// the month containing cursor, including trailing days from adjacent months.
+function monthMatrix(cursor: Date): Date[] {
+  const year = cursor.getFullYear()
+  const month = cursor.getMonth()
+  const first = new Date(year, month, 1)
+  const offset = (first.getDay() + 6) % 7 // Monday = 0
+  const days: Date[] = []
+  for (let i = 0; i < 42; i++) {
+    days.push(new Date(year, month, 1 - offset + i))
+  }
+  return days
+}
+
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
 export function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -96,6 +127,10 @@ export function CalendarPage() {
   const [busy, setBusy] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<CalendarEvent | null>(null)
   const [rooms, setRooms] = useState<Room[]>([])
+
+  // View toggle: agenda list vs. month grid. cursor is the displayed month.
+  const [view, setView] = useState<"list" | "month">("list")
+  const [cursor, setCursor] = useState(() => new Date())
 
   // Availability (free/busy) lookup.
   const [fbOpen, setFbOpen] = useState(false)
@@ -135,6 +170,15 @@ export function CalendarPage() {
   const openCreate = () => {
     setEditingUID(null)
     setForm(emptyForm)
+    setDialogOpen(true)
+  }
+
+  // openCreateOn opens the new-event dialog with the start prefilled to 09:00
+  // on the clicked grid day.
+  const openCreateOn = (day: Date) => {
+    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0)
+    setEditingUID(null)
+    setForm({ ...emptyForm, start: rfc3339ToLocalInput(start.toISOString()) })
     setDialogOpen(true)
   }
 
@@ -251,6 +295,20 @@ export function CalendarPage() {
     else groups.push({ day: key, items: [ev] })
   }
 
+  // Bucket events by local day key for the month grid.
+  const eventsByDay = new Map<string, CalendarEvent[]>()
+  for (const ev of events) {
+    const key = eventDayKey(ev)
+    if (!key) continue
+    const bucket = eventsByDay.get(key)
+    if (bucket) bucket.push(ev)
+    else eventsByDay.set(key, [ev])
+  }
+
+  const monthDays = monthMatrix(cursor)
+  const todayKey = dateKey(new Date())
+  const monthLabel = cursor.toLocaleDateString(undefined, { month: "long", year: "numeric" })
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -259,6 +317,26 @@ export function CalendarPage() {
           <h1 className="text-2xl font-bold">Calendar</h1>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex rounded-md border">
+            <Button
+              variant={view === "list" ? "secondary" : "ghost"}
+              size="sm"
+              className="rounded-r-none"
+              onClick={() => setView("list")}
+            >
+              <List className="mr-2 h-4 w-4" />
+              List
+            </Button>
+            <Button
+              variant={view === "month" ? "secondary" : "ghost"}
+              size="sm"
+              className="rounded-l-none"
+              onClick={() => setView("month")}
+            >
+              <LayoutGrid className="mr-2 h-4 w-4" />
+              Month
+            </Button>
+          </div>
           <Button variant="outline" onClick={() => { setFbResults(null); setFbOpen(true) }}>
             <Users className="mr-2 h-4 w-4" />
             Availability
@@ -272,6 +350,85 @@ export function CalendarPage() {
 
       {loading ? (
         <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+      ) : view === "month" ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">{monthLabel}</h2>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" onClick={() => setCursor(new Date())}>
+                Today
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Previous month"
+                onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Next month"
+                onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <div className="grid grid-cols-7 border-b bg-muted/30 text-center text-xs font-medium text-muted-foreground">
+              {WEEKDAY_LABELS.map((label) => (
+                <div key={label} className="py-2">{label}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {monthDays.map((day) => {
+                const key = dateKey(day)
+                const inMonth = day.getMonth() === cursor.getMonth()
+                const isToday = key === todayKey
+                const dayEvents = eventsByDay.get(key) ?? []
+                return (
+                  <div
+                    key={key}
+                    className={`min-h-24 cursor-pointer border-b border-r p-1 transition-colors last:border-r-0 hover:bg-accent/50 ${inMonth ? "" : "bg-muted/20 text-muted-foreground"}`}
+                    onClick={() => openCreateOn(day)}
+                  >
+                    <div className="flex justify-end">
+                      <span
+                        className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${isToday ? "bg-primary font-semibold text-primary-foreground" : ""}`}
+                      >
+                        {day.getDate()}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 space-y-0.5">
+                      {dayEvents.slice(0, 3).map((ev) => (
+                        <button
+                          key={ev.uid}
+                          className="block w-full truncate rounded bg-primary/10 px-1 py-0.5 text-left text-xs text-foreground hover:bg-primary/20"
+                          onClick={(e) => { e.stopPropagation(); openEdit(ev) }}
+                          title={ev.summary}
+                        >
+                          {!ev.allDay && (
+                            <span className="mr-1 text-muted-foreground">
+                              {new Date(ev.start).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          )}
+                          {ev.summary}
+                        </button>
+                      ))}
+                      {dayEvents.length > 3 && (
+                        <p className="px-1 text-xs text-muted-foreground">+{dayEvents.length - 3} more</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       ) : events.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="rounded-full bg-muted p-4">
