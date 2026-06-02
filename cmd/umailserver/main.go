@@ -1076,9 +1076,25 @@ func cmdMigrate(args []string) {
 
 	_ = fs.Parse(args)
 
+	// DAV unification migration: import legacy filesystem CalDAV/CardDAV data
+	// into the canonical semcore collaboration store. Run with the server
+	// stopped (the Bolt store is single-writer). Uses the config data dir.
+	if *sourceType == "dav" {
+		cfg, err := loadCLIConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+			os.Exit(1)
+		}
+		if err := migrateDAVToCollab(cfg.Server.DataDir, *dryRun); err != nil {
+			fmt.Fprintf(os.Stderr, "DAV migration failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if *sourceType == "" || *source == "" {
 		fmt.Println("Usage: umailserver migrate --type <type> --source <source>")
-		fmt.Println("Types: imap, dovecot, mbox")
+		fmt.Println("Types: imap, dovecot, mbox, dav")
 		fmt.Println("\nExamples:")
 		fmt.Println("  umailserver migrate --type imap --source imaps://oldserver.com --username user@old.com --target user@new.com")
 		fmt.Println("  umailserver migrate --type dovecot --source /var/mail --passwd-file /etc/dovecot/users")
