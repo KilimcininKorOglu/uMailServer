@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/sieve"
 )
 
 // contextKeyEmail is the string used by api.server.ewsBasicAuth to store
@@ -861,12 +862,13 @@ func (s *Server) recompileSieveForMailbox(ctx context.Context, mailboxID semcore
 	script := semcore.CompilePolicyToSieve(rules, oofPolicy)
 	s.logger.Info("recompileSieveForMailbox compiled script", "mailboxID", mailboxID, "scriptLen", len(script), "scriptPreview", script[:min(300, len(script))])
 	for _, userID := range sieveUserIDs(mailboxID.String()) {
-		if err := s.sieveMgr.StoreScript(userID, "active", script); err != nil {
+		if err := s.sieveMgr.StoreScript(userID, sieve.ManagedScriptName, script); err != nil {
 			return err
 		}
-		if err := s.sieveMgr.SetActiveScriptByName(userID, "active"); err != nil {
+		if err := s.sieveMgr.SetActiveScriptByName(userID, sieve.ManagedScriptName); err != nil {
 			return err
 		}
+		s.sieveMgr.CleanupLegacyManagedScript(userID)
 	}
 	return nil
 }

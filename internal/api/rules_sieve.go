@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/sieve"
 )
 
 // sieveUserIDs returns the script-storage keys for a mailbox: the full email
@@ -39,12 +40,13 @@ func (s *Server) recompileSieveForMailbox(mbid semcore.MailboxId) error {
 
 	script := semcore.CompilePolicyToSieve(rules, oofPolicy)
 	for _, userID := range sieveUserIDs(mbid.String()) {
-		if err := s.sieveManager.StoreScript(userID, "active", script); err != nil {
+		if err := s.sieveManager.StoreScript(userID, sieve.ManagedScriptName, script); err != nil {
 			return err
 		}
-		if err := s.sieveManager.SetActiveScriptByName(userID, "active"); err != nil {
+		if err := s.sieveManager.SetActiveScriptByName(userID, sieve.ManagedScriptName); err != nil {
 			return err
 		}
+		s.sieveManager.CleanupLegacyManagedScript(userID)
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/umailserver/umailserver/internal/carddav"
 	"github.com/umailserver/umailserver/internal/jmap"
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/sieve"
 )
 
 // recompileSieveForEmail rebuilds and installs a mailbox's active Sieve script
@@ -39,12 +40,13 @@ func (s *Server) recompileSieveForEmail(email string) error {
 		ids = append(ids, lp)
 	}
 	for _, id := range ids {
-		if serr := s.sieveManager.StoreScript(id, "active", script); serr != nil {
+		if serr := s.sieveManager.StoreScript(id, sieve.ManagedScriptName, script); serr != nil {
 			return serr
 		}
-		if serr := s.sieveManager.SetActiveScriptByName(id, "active"); serr != nil {
+		if serr := s.sieveManager.SetActiveScriptByName(id, sieve.ManagedScriptName); serr != nil {
 			return serr
 		}
+		s.sieveManager.CleanupLegacyManagedScript(id)
 	}
 	return nil
 }

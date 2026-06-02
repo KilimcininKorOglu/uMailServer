@@ -143,6 +143,27 @@ func (m *Manager) DeleteScript(userID string, scriptName string) {
 	}
 }
 
+// ManagedScriptName is the script name uMailServer assigns to the single Sieve
+// script it compiles from a mailbox's canonical policy (inbox rules + OOF). It
+// deliberately avoids the substring "active" so the script name never collides
+// with the RFC 5804 ACTIVE state marker that LISTSCRIPTS appends to the active
+// script.
+const ManagedScriptName = "umail-rules"
+
+// legacyManagedScriptName is the name earlier versions used for the managed
+// script; recompiles delete it once the current managed script is active so it
+// does not linger as an inactive, confusingly named script.
+const legacyManagedScriptName = "active"
+
+// CleanupLegacyManagedScript removes the obsolete managed script left by older
+// versions, but only once a current ManagedScriptName script is active, so it
+// can never delete the script in force. No-op when no legacy script exists.
+func (m *Manager) CleanupLegacyManagedScript(userID string) {
+	if m.GetActiveScriptName(userID) == ManagedScriptName {
+		m.DeleteScript(userID, legacyManagedScriptName)
+	}
+}
+
 // ListScripts returns all script names for a user
 func (m *Manager) ListScripts(userID string) []string {
 	m.scriptsMu.RLock()
