@@ -110,6 +110,7 @@ export interface DelegationInput {
 export interface DirectoryEntry {
   email: string
   name: string
+  photo?: string // avatar endpoint URL when the user has a profile photo
 }
 
 export interface Category {

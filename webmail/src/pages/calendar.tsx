@@ -27,7 +27,17 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "sonner"
+import { AttendeePicker } from "@/components/attendee-picker"
 import api, { type CalendarEvent, type UserFreeBusy, type Room } from "@/utils/api"
+
+// parseAttendees splits the stored comma/space-separated attendee string into a
+// clean list of addresses.
+function parseAttendees(s: string): string[] {
+  return s
+    .split(/[\s,;]+/)
+    .map((a) => a.trim())
+    .filter(Boolean)
+}
 
 // rfc3339ToLocalInput converts an RFC3339 instant to the value a
 // datetime-local input expects ("YYYY-MM-DDTHH:mm" in local time).
@@ -579,15 +589,23 @@ export function CalendarPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ev-attendees">Attendees</Label>
-              <Input
-                id="ev-attendees"
-                value={form.attendees}
-                onChange={(e) => setForm({ ...form, attendees: e.target.value })}
-                placeholder="email1@example.com, email2@example.com"
+              <Label>Attendees</Label>
+              <AttendeePicker
+                value={parseAttendees(form.attendees)}
+                onChange={(emails) => setForm({ ...form, attendees: emails.join(", ") })}
+                window={
+                  form.start && !form.allDay
+                    ? {
+                        start: localInputToRFC3339(form.start),
+                        end: form.end
+                          ? localInputToRFC3339(form.end)
+                          : new Date(new Date(form.start).getTime() + 60 * 60 * 1000).toISOString(),
+                      }
+                    : undefined
+                }
               />
               <p className="text-xs text-muted-foreground">
-                Attendees receive an email invitation they can accept or decline.
+                Search by name or email. Attendees receive an invitation they can accept or decline.
               </p>
             </div>
             {rooms.length > 0 && (
@@ -648,13 +666,11 @@ export function CalendarPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="fb-emails">People</Label>
-              <Textarea
-                id="fb-emails"
-                value={fbEmails}
-                onChange={(e) => setFbEmails(e.target.value)}
-                rows={2}
-                placeholder="email1@example.com, email2@example.com"
+              <Label>People</Label>
+              <AttendeePicker
+                value={parseAttendees(fbEmails)}
+                onChange={(emails) => setFbEmails(emails.join(", "))}
+                placeholder="Search by name or email"
               />
             </div>
             <div className="space-y-2">
