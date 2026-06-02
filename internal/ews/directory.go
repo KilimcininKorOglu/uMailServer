@@ -101,7 +101,21 @@ type ResolutionType struct {
 	Mailbox directoryMailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox"`
 
 	// Contact: optional contact details when ReturnFullContactData is true.
-	Contact *ContactTypeNew `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact,omitempty"`
+	Contact *resolveContactType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact,omitempty"`
+}
+
+// resolveContactType is the contact detail attached to a ResolveNames
+// resolution when ReturnFullContactData is true. It is a minimal, marshal-safe
+// projection: ContactTypeNew (collab.go) cannot be marshaled because its
+// HomeAddress/WorkAddress field tags conflict with PhysicalAddressType.XMLName,
+// so this dedicated type carries only the GAL profile fields Outlook renders.
+type resolveContactType struct {
+	XMLName        xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+	FullName       string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
+	JobTitle       string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types JobTitle,omitempty"`
+	Department     string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Department,omitempty"`
+	EmailAddresses *EmailAddressesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
+	PhoneNumbers   *PhoneNumbersType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types PhoneNumbers,omitempty"`
 }
 
 // DirectoryAddressType represents a mailbox in EWS directory responses.
@@ -160,12 +174,27 @@ func (s *Server) handleResolveNames(ctx context.Context, body []byte) []byte {
 	// Build response.
 	resolutions := make([]ResolutionType, 0, len(candidates))
 	for _, c := range candidates {
-		resolutions = append(resolutions, ResolutionType{
+		res := ResolutionType{
 			Mailbox: directoryMailboxType{
 				Name:    c.DisplayName,
 				Address: c.Email,
 			},
-		})
+		}
+		// When the client asks for full contact data, attach the profile fields
+		// (job title, department, phone) so Outlook can render a rich card.
+		if req.ReturnFullContactData {
+			contact := &resolveContactType{
+				FullName:       c.DisplayName,
+				JobTitle:       c.Title,
+				Department:     c.Department,
+				EmailAddresses: &EmailAddressesType{Entry: []EmailAddressEntry{{Key: "EmailAddress1", Value: c.Email}}},
+			}
+			if c.Phone != "" {
+				contact.PhoneNumbers = &PhoneNumbersType{Entry: []PhoneNumberEntry{{Key: "BusinessPhone", Value: c.Phone}}}
+			}
+			res.Contact = contact
+		}
+		resolutions = append(resolutions, res)
 	}
 
 	resp := ResolveNamesResponseType{}
@@ -187,6 +216,9 @@ type directoryCandidate struct {
 	Email       string
 	DisplayName string
 	ObjectClass string // "User", "Room", "Equipment", "DistributionList", "Contact"
+	Title       string // job title (full contact data)
+	Department  string // department / team
+	Phone       string // business phone
 }
 
 // resolveNamesCandidates searches the account database for matches to the
@@ -266,12 +298,15 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 				email = acc.LocalPart + "@" + acc.Domain
 			}
 
-			displayName := email
-			// Try to get a display name from the account. Since AccountData
-			// doesn't store a display name field, we use the local part as
-			// the display name for directory purposes.
-			if acc.LocalPart != "" {
-				displayName = acc.LocalPart
+			// Prefer the account's configured display name; fall back to the
+			// local part for directory purposes.
+			displayName := acc.DisplayName
+			if displayName == "" {
+				if acc.LocalPart != "" {
+					displayName = acc.LocalPart
+				} else {
+					displayName = email
+				}
 			}
 
 			// Determine object class.
@@ -304,6 +339,9 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 				Email:       email,
 				DisplayName: displayName,
 				ObjectClass: objClass,
+				Title:       acc.Title,
+				Department:  acc.Department,
+				Phone:       acc.Phone,
 				// We use Email as a sort key; position in the slice gives the ranking.
 			})
 		}

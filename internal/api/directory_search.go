@@ -10,9 +10,12 @@ import (
 // directoryEntry is one address-book entry for the composer's recipient
 // autocomplete (the organization Global Address List).
 type directoryEntry struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Photo string `json:"photo,omitempty"` // avatar endpoint URL when the user has a photo
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	Photo      string `json:"photo,omitempty"`      // avatar endpoint URL when the user has a photo
+	Title      string `json:"title,omitempty"`      // job title
+	Department string `json:"department,omitempty"` // department / team
+	Phone      string `json:"phone,omitempty"`      // business phone
 }
 
 const maxDirectoryResults = 25
@@ -60,10 +63,21 @@ func (s *Server) handleDirectorySearch(w http.ResponseWriter, r *http.Request) {
 		}
 		if query != "" &&
 			!strings.Contains(strings.ToLower(a.Email), query) &&
-			!strings.Contains(strings.ToLower(a.LocalPart), query) {
+			!strings.Contains(strings.ToLower(a.LocalPart), query) &&
+			!strings.Contains(strings.ToLower(a.DisplayName), query) {
 			continue
 		}
-		entry := directoryEntry{Email: a.Email, Name: a.LocalPart}
+		name := a.DisplayName
+		if name == "" {
+			name = a.LocalPart
+		}
+		entry := directoryEntry{
+			Email:      a.Email,
+			Name:       name,
+			Title:      a.Title,
+			Department: a.Department,
+			Phone:      a.Phone,
+		}
 		if len(a.Avatar) > 0 {
 			entry.Photo = "/api/v1/avatar?email=" + url.QueryEscape(a.Email)
 		}
