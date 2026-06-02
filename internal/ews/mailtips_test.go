@@ -63,3 +63,30 @@ func TestGetMailTips(t *testing.T) {
 		t.Errorf("expected both recipient addresses in response")
 	}
 }
+
+// TestGetServiceConfiguration verifies the MailTips service configuration is
+// returned so clients can discover mail-tip limits.
+func TestGetServiceConfiguration(t *testing.T) {
+	identity, sync, tomb, msgStore, policyStore, collabStore, cleanup := tmpDirectoryStores(t)
+	t.Cleanup(cleanup)
+	srv := NewServer(identity, sync, tomb, msgStore, nil, nil, nil, nil, nil, collabStore, policyStore, nil, nil, nil)
+
+	body := `<?xml version="1.0" encoding="utf-8"?>` +
+		`<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" ` +
+		`xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" ` +
+		`xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">` +
+		`<soap:Body><m:GetServiceConfiguration>` +
+		`<m:RequestedConfiguration><t:ConfigurationName>MailTips</t:ConfigurationName></m:RequestedConfiguration>` +
+		`</m:GetServiceConfiguration></soap:Body></soap:Envelope>`
+	req := httptest.NewRequest(http.MethodPost, "/EWS/Exchange.asmx", strings.NewReader(body))
+	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
+	rec := httptest.NewRecorder()
+	srv.HandleHTTP(rec, req)
+
+	got := rec.Body.String()
+	for _, want := range []string{`ResponseClass="Success"`, "<m:MailTipsConfiguration>", "<t:MailTipsEnabled>true</t:MailTipsEnabled>", "MaxRecipientsPerGetMailTipsRequest"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("GetServiceConfiguration: expected %q in response:\n%s", want, got)
+		}
+	}
+}

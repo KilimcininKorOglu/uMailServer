@@ -67,6 +67,45 @@ func (s *Server) handleGetMailTips(_ context.Context, body []byte) []byte {
 	return []byte(b.String())
 }
 
+// GetServiceConfigurationRequest is the EWS GetServiceConfiguration request.
+type GetServiceConfigurationRequest struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetServiceConfiguration"`
+}
+
+// handleGetServiceConfiguration returns the MailTips service configuration so
+// clients can discover mail-tip limits before calling GetMailTips.
+func (s *Server) handleGetServiceConfiguration(_ context.Context, body []byte) []byte {
+	var req GetServiceConfigurationRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("GetServiceConfiguration", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:GetServiceConfigurationResponse><m:ResponseCode>NoError</m:ResponseCode><m:ResponseMessages>`)
+	b.WriteString(`<m:GetServiceConfigurationResponseMessageType ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode>`)
+	b.WriteString(`<m:MailTipsConfiguration>`)
+	b.WriteString(`<t:MailTipsEnabled>true</t:MailTipsEnabled>`)
+	b.WriteString(`<t:MaxRecipientsPerGetMailTipsRequest>100</t:MaxRecipientsPerGetMailTipsRequest>`)
+	b.WriteString(`<t:MaxMessageSize>0</t:MaxMessageSize>`)
+	b.WriteString(`<t:LargeAudienceThreshold>25</t:LargeAudienceThreshold>`)
+	b.WriteString(`<t:ShowExternalRecipientCount>false</t:ShowExternalRecipientCount>`)
+	b.WriteString(`<t:InternalDomains/>`)
+	b.WriteString(`<t:PolicyTipsEnabled>false</t:PolicyTipsEnabled>`)
+	b.WriteString(`<t:LargeAudienceCap>1000</t:LargeAudienceCap>`)
+	b.WriteString(`</m:MailTipsConfiguration>`)
+	b.WriteString(`</m:GetServiceConfigurationResponseMessageType>`)
+	b.WriteString(`</m:ResponseMessages></m:GetServiceConfigurationResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return []byte(b.String())
+}
+
 // recipientOOF reads a recipient's stored out-of-office settings, or nil when no
 // policy exists / stores are unavailable.
 func (s *Server) recipientOOF(email string) *UserOofSettings {
