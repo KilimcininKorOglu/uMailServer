@@ -139,8 +139,8 @@ type CreateItemCalendarItemType struct {
 	// RequiredAttendees/OptionalAttendees use a type WITHOUT a pinned XMLName so
 	// the decoder accepts both element names; a type whose XMLName is fixed to
 	// "Attendees" would refuse to unmarshal into a differently-named element.
-	RequiredAttendees *CreateAttendeesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequiredAttendees,omitempty"`
-	OptionalAttendees *CreateAttendeesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types OptionalAttendees,omitempty"`
+	RequiredAttendees *CreateAttendeesType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RequiredAttendees,omitempty"`
+	OptionalAttendees *CreateAttendeesType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types OptionalAttendees,omitempty"`
 	Categories        *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
@@ -154,13 +154,13 @@ type CreateAttendeesType struct {
 // Cannot reuse ContactTypeNew from collab.go due to XMLName conflicts with
 // PhysicalAddressType when embedded in the same Items container.
 type CreateItemContactType struct {
-	XMLName        xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
-	DisplayName    string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
-	FullName       string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
-	GivenName      string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
-	Surname        string              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
-	EmailAddresses *EmailAddressesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
-	Body           *BodyType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
+	XMLName        xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+	DisplayName    string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
+	FullName       string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
+	GivenName      string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
+	Surname        string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
+	EmailAddresses *EmailAddressesType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
+	Body           *BodyType              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
 	Categories     *MessageCategoriesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
 }
 
@@ -168,7 +168,7 @@ type CreateItemContactType struct {
 // Cannot reuse TaskTypeNew from collab.go due to potential XMLName conflicts
 // when embedded in the same Items container.
 type CreateItemTaskType struct {
-	XMLName xml.Name  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
+	XMLName    xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
 	Subject    string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
 	Body       *BodyType              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
 	DueDate    string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types DueDate,omitempty"`
