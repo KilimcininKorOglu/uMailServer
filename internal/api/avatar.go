@@ -93,6 +93,44 @@ func (s *Server) handleAvatarGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleEWSUserPhoto serves a user's photo as raw image bytes for the
+// Exchange/Outlook REST endpoint GET /EWS/Exchange.asmx/s/GetUserPhoto?email=&size=.
+// This is the form Outlook desktop and OWA actually use. Auth is the EWS Basic
+// Auth wrapper, which injects the caller's email as ContextKeyEmail; the target
+// is the ?email= query (defaulting to the caller). SizeRequested is ignored.
+func (s *Server) handleEWSUserPhoto(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	email := strings.TrimSpace(r.URL.Query().Get("email"))
+	if email == "" {
+		if caller, ok := r.Context().Value(ContextKeyEmail).(string); ok {
+			email = caller
+		}
+	}
+	user, domain := parseEmail(email)
+	if user == "" || domain == "" {
+		s.sendError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	account, err := s.db.GetAccount(domain, user)
+	if err != nil || account == nil || len(account.Avatar) == 0 {
+		http.Error(w, "no photo", http.StatusNotFound)
+		return
+	}
+	contentType := account.AvatarType
+	if contentType == "" {
+		contentType = "image/png"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(account.Avatar); err != nil {
+		s.logger.Warn("failed to write EWS user photo response", "email", email, "error", err)
+	}
+}
+
 // handleProfileAvatar lets a signed-in user manage their own profile photo.
 // PUT  /api/v1/profile/avatar  body {"avatar": "data:image/png;base64,..."}
 // DELETE /api/v1/profile/avatar removes it.

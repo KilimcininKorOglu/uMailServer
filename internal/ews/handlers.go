@@ -233,6 +233,8 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleFindPeople(ctx, soapBody)
 	case "GetPersona":
 		response = s.handleGetPersona(ctx, soapBody)
+	case "GetUserPhoto", "GetUserPhotoRequest":
+		response = s.handleGetUserPhoto(ctx, soapBody)
 	case "RequestServerVersion":
 		response = s.handleRequestServerVersion(ctx, soapBody)
 	default:

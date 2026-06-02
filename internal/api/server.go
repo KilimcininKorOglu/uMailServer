@@ -517,6 +517,21 @@ func (s *Server) initRouter() {
 			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
 			s.ewsHandler.ServeHTTP(w, r)
 		})
+		// REST photo endpoint Outlook desktop/OWA use:
+		// GET /EWS/Exchange.asmx/s/GetUserPhoto?email=&size= → raw image bytes.
+		// The exact "/EWS/Exchange.asmx" pattern above does not match this
+		// sub-path, so it is registered separately behind the same Basic Auth.
+		mux.HandleFunc("/EWS/Exchange.asmx/s/GetUserPhoto", func(w http.ResponseWriter, r *http.Request) {
+			email := s.ewsBasicAuth(w, r)
+			if email == "" {
+				w.Header().Set("WWW-Authenticate", `Basic realm="Exchange"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			//nolint:staticcheck // intentional: string key for cross-package context access
+			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
+			s.handleEWSUserPhoto(w, r)
+		})
 	}
 
 	// MAPI/HTTP surface for modern Windows Outlook.
