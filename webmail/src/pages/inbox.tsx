@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
+import { useMailbox } from "@/contexts/MailboxContext"
 import {
   Star,
   Archive,
@@ -58,10 +59,12 @@ interface InboxPageProps {
 
 export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   const navigate = useNavigate()
-  const [emails, setEmails] = useState<Email[]>([])
+  // Inbox data comes from the shared MailboxContext so the sidebar unread
+  // badge and header notifications stay in sync with actions taken here.
+  const { inboxEmails, inboxLoading, refreshInbox, patchInbox, removeFromInbox } = useMailbox()
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set())
   const [activeFilter, setActiveFilter] = useState("all")
-  const [loading, setLoading] = useState(true)
+  const loading = inboxLoading
   const [viewMode, setViewMode] = useState<ViewMode>("list")
   const [sortBy, setSortBy] = useState<SortOption>("date")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
@@ -74,57 +77,29 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   }, [folder, activeFilter])
   const [showWelcome, setShowWelcome] = useState(true)
 
-  // Load emails from API (reused by the initial load and the Refresh button)
-  const loadEmails = useCallback(async () => {
-    setLoading(true)
-    try {
-      // Map folder to API folder name
-      const apiFolder = folder === "starred" ? "inbox" : folder
-      const result = await api.get<{ emails?: Mail[] }>(`/mail/${apiFolder}`)
-
-      if (result && result.emails) {
-        // Convert API Mail to Email format
-        const loadedEmails: Email[] = result.emails.map((mail: Mail) => {
-          // Parse from field to extract name and email
-          const fromParts = mail.from.split('<')
-          const fromEmail = fromParts.length > 1 ? fromParts[1].replace('>', '') : mail.from
-          const fromName = fromParts.length > 1 ? fromParts[0].trim() : mail.from
-
-          return {
-            id: mail.id,
-            from: fromName,
-            fromEmail: fromEmail,
-            subject: mail.subject,
-            preview: mail.preview,
-            date: mail.date,
-            read: mail.read,
-            starred: mail.starred,
-            hasAttachments: mail.hasAttachments,
-            folder: mail.folder.toLowerCase(),
-            labels: mail.labels ?? [],
-          }
-        })
-
-        // Filter for starred if needed
-        const filteredEmails = folder === "starred"
-          ? loadedEmails.filter(e => e.starred)
-          : loadedEmails
-
-        setEmails(filteredEmails)
-      } else {
-        setEmails([])
+  // Derive the displayed list from the shared inbox state. The starred view is
+  // the same inbox dataset filtered to flagged messages.
+  const emails: Email[] = useMemo(() => {
+    const mapped = inboxEmails.map((mail: Mail) => {
+      const fromParts = mail.from.split('<')
+      const fromEmail = fromParts.length > 1 ? fromParts[1].replace('>', '') : mail.from
+      const fromName = fromParts.length > 1 ? fromParts[0].trim() : mail.from
+      return {
+        id: mail.id,
+        from: fromName,
+        fromEmail: fromEmail,
+        subject: mail.subject,
+        preview: mail.preview,
+        date: mail.date,
+        read: mail.read,
+        starred: mail.starred,
+        hasAttachments: mail.hasAttachments,
+        folder: mail.folder.toLowerCase(),
+        labels: mail.labels ?? [],
       }
-    } catch (err) {
-      console.error('Failed to load emails:', err)
-      setEmails([])
-    } finally {
-      setLoading(false)
-    }
-  }, [folder])
-
-  useEffect(() => {
-    loadEmails()
-  }, [loadEmails])
+    })
+    return folder === "starred" ? mapped.filter((e) => e.starred) : mapped
+  }, [inboxEmails, folder])
 
   const toggleSelectAll = () => {
     if (selectedEmails.size === emails.length) {
@@ -151,9 +126,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     const next = !email.starred
     try {
       await api.setFlag(id, "\\Flagged", next)
-      setEmails((prev) => prev.map((em) =>
-        em.id === id ? { ...em, starred: next } : em
-      ))
+      patchInbox([id], { starred: next })
     } catch (err) {
       console.error("Failed to update star:", err)
       toast.error("Failed to update star")
@@ -164,9 +137,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     e.stopPropagation()
     try {
       await api.setFlag(id, "\\Seen", true)
-      setEmails((prev) => prev.map((email) =>
-        email.id === id ? { ...email, read: true } : email
-      ))
+      patchInbox([id], { read: true })
     } catch (err) {
       console.error("Failed to mark message as read:", err)
       toast.error("Failed to mark as read")
@@ -174,7 +145,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   }
 
   const handleRefresh = async () => {
-    await loadEmails()
+    await refreshInbox()
     toast.success("Inbox refreshed")
   }
 
@@ -182,7 +153,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     if (ids.length === 0) return
     try {
       await Promise.all(ids.map((id) => api.moveMail(id, "archive")))
-      setEmails((prev) => prev.filter((e) => !ids.includes(e.id)))
+      removeFromInbox(ids)
       setSelectedEmails(new Set())
       toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} archived`)
     } catch (err) {
@@ -197,7 +168,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     if (ids.length === 0) return
     try {
       await Promise.all(ids.map((id) => api.deleteMail(id)))
-      setEmails((prev) => prev.filter((e) => !ids.includes(e.id)))
+      removeFromInbox(ids)
       setSelectedEmails(new Set())
       toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} moved to trash`)
     } catch (err) {
@@ -213,9 +184,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     if (ids.length === 0) return
     try {
       await Promise.all(ids.map((id) => api.setFlag(id, "\\Seen", true)))
-      setEmails((prev) => prev.map((e) =>
-        ids.includes(e.id) ? { ...e, read: true } : e
-      ))
+      patchInbox(ids, { read: true })
       setSelectedEmails(new Set())
       toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} marked as read`)
     } catch (err) {

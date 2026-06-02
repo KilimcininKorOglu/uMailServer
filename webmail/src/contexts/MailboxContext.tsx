@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useCallback } from 'react'
-import api, { SharedMailbox } from '../utils/api'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import api, { SharedMailbox, Mail } from '../utils/api'
 
 interface MailboxContextType {
   // Current active mailbox context
@@ -26,6 +26,19 @@ interface MailboxContextType {
   
   // Check if currently in a shared mailbox
   isInSharedMailbox: () => boolean
+
+  // Shared inbox state: fetched once here and consumed by the inbox page, the
+  // sidebar unread badge, and the header notifications, so they stay in sync
+  // (a read/delete in one place updates the others) and the inbox is not
+  // fetched three times on load.
+  inboxEmails: Mail[]
+  inboxUnread: number
+  inboxLoading: boolean
+  refreshInbox: () => Promise<void>
+  // Optimistically apply changes (e.g. read/starred) to inbox messages.
+  patchInbox: (ids: string[], changes: Partial<Mail>) => void
+  // Optimistically drop messages from the inbox (archive/delete).
+  removeFromInbox: (ids: string[]) => void
 }
 
 const MailboxContext = createContext<MailboxContextType | null>(null)
@@ -41,6 +54,36 @@ export function MailboxProvider({ children, personalEmail }: { children: React.R
   })
   const [sharedMailboxes, setSharedMailboxes] = useState<SharedMailbox[]>([])
   const [loading, setLoading] = useState(false)
+  const [inboxEmails, setInboxEmails] = useState<Mail[]>([])
+  const [inboxLoading, setInboxLoading] = useState(true)
+
+  const refreshInbox = useCallback(async () => {
+    setInboxLoading(true)
+    try {
+      const res = await api.getMail('inbox')
+      setInboxEmails(res.emails ?? [])
+    } catch {
+      setInboxEmails([])
+    } finally {
+      setInboxLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshInbox()
+  }, [refreshInbox])
+
+  const patchInbox = useCallback((ids: string[], changes: Partial<Mail>) => {
+    const idset = new Set(ids)
+    setInboxEmails((prev) => prev.map((m) => (idset.has(m.id) ? { ...m, ...changes } : m)))
+  }, [])
+
+  const removeFromInbox = useCallback((ids: string[]) => {
+    const idset = new Set(ids)
+    setInboxEmails((prev) => prev.filter((m) => !idset.has(m.id)))
+  }, [])
+
+  const inboxUnread = inboxEmails.filter((m) => !m.read).length
 
   const loadSharedMailboxes = useCallback(async () => {
     setLoading(true)
@@ -91,7 +134,13 @@ export function MailboxProvider({ children, personalEmail }: { children: React.R
     switchMailbox,
     switchToPersonal,
     loadSharedMailboxes,
-    isInSharedMailbox
+    isInSharedMailbox,
+    inboxEmails,
+    inboxUnread,
+    inboxLoading,
+    refreshInbox,
+    patchInbox,
+    removeFromInbox
   }
 
   return (

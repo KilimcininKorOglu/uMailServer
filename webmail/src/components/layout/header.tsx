@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Search, Bell, Sun, Moon, Menu, User, LogOut, ChevronDown, Keyboard } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
@@ -16,7 +16,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
-import api from "@/utils/api"
+import { useMailbox } from "@/contexts/MailboxContext"
 
 interface Notification {
   id: string
@@ -35,27 +35,14 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
   const { logout, user } = useAuth()
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
-  const [notifications, setNotifications] = useState<Notification[]>([])
+  const { inboxEmails } = useMailbox()
 
-  // Surface unread inbox messages as notifications (no fake data).
-  useEffect(() => {
-    let cancelled = false
-    api.getMail("inbox")
-      .then((res) => {
-        if (cancelled) return
-        const unread = (res.emails ?? [])
-          .filter((m) => !m.read)
-          .slice(0, 5)
-          .map((m) => ({ id: m.id, from: m.from, subject: m.subject, date: m.date }))
-        setNotifications(unread)
-      })
-      .catch(() => {
-        if (!cancelled) setNotifications([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  // Surface unread inbox messages as notifications from the shared inbox state
+  // (no separate fetch; stays in sync as messages are read/deleted).
+  const notifications: Notification[] = inboxEmails
+    .filter((m) => !m.read)
+    .slice(0, 5)
+    .map((m) => ({ id: m.id, from: m.from, subject: m.subject, date: m.date }))
 
   const email = user?.email ?? ""
   const displayName = email ? email.split("@")[0] : "Account"

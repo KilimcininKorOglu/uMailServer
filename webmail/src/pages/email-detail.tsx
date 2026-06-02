@@ -34,6 +34,7 @@ import { sanitizeHTML } from "@/utils/sanitize"
 import api from "@/utils/api"
 import type { MeetingInvite, AttachmentInfo } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
+import { useMailbox } from "@/contexts/MailboxContext"
 
 // formatFileSize renders a byte count as a human-readable size.
 function formatFileSize(bytes: number): string {
@@ -59,6 +60,9 @@ export function EmailDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  // Keep the shared inbox state (sidebar badge, header notifications) in sync
+  // with read/flag/label/delete actions taken in the reading view.
+  const { patchInbox, removeFromInbox } = useMailbox()
   const [email, setEmail] = useState<EmailDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [newLabel, setNewLabel] = useState("")
@@ -114,6 +118,7 @@ export function EmailDetailPage() {
           // Fire-and-forget: a failure must not block reading the message.
           if (!result.read) {
             api.setFlag(result.id, "\\Seen", true).catch(() => undefined)
+            patchInbox([result.id], { read: true })
           }
           // Detect a meeting invite so we can offer RSVP actions. A failure
           // here must not block reading the message.
@@ -136,12 +141,13 @@ export function EmailDetailPage() {
       }
     }
     loadEmail()
-  }, [id, navigate])
+  }, [id, navigate, patchInbox])
 
   const handleDelete = async () => {
     if (!email) return
     try {
       await api.deleteMail(email.id)
+      removeFromInbox([email.id])
       toast.success("Email moved to trash")
       navigate("/inbox")
     } catch {
@@ -195,6 +201,7 @@ export function EmailDetailPage() {
     if (!email) return
     try {
       await api.setFlag(email.id, "\\Seen", false)
+      patchInbox([email.id], { read: false })
       toast.success("Marked as unread")
       navigate("/inbox")
     } catch {
@@ -211,6 +218,7 @@ export function EmailDetailPage() {
     setEmail({ ...email, flagged: next })
     try {
       await api.setFlag(email.id, "\\Flagged", next)
+      patchInbox([email.id], { starred: next })
       toast.success(next ? "Flagged for follow-up" : "Follow-up flag cleared")
     } catch {
       setEmail({ ...email, flagged: !next })
@@ -225,6 +233,7 @@ export function EmailDetailPage() {
     setEmail({ ...email, labels: next })
     try {
       await api.setMailLabels(email.id, next)
+      patchInbox([email.id], { labels: next })
     } catch {
       setEmail({ ...email, labels: prev })
       toast.error("Failed to update labels")

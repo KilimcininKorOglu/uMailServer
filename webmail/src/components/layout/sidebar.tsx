@@ -227,13 +227,12 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
   const location = useLocation()
   const [hovered, setHovered] = useState(false)
   const { user } = useAuth()
-  const { currentMailbox, switchMailbox, loadSharedMailboxes, sharedMailboxes } = useMailbox()
+  const { currentMailbox, switchMailbox, loadSharedMailboxes, sharedMailboxes, inboxUnread } = useMailbox()
 
   // Track expanded state for shared mailboxes section
   const [sharedExpanded, setSharedExpanded] = useState(true)
 
-  // Real folder counts (no fake numbers): inbox unread + spam total.
-  const [inboxUnread, setInboxUnread] = useState(0)
+  // Spam total (inbox unread comes from the shared MailboxContext).
   const [spamCount, setSpamCount] = useState(0)
   // Real custom mailboxes (beyond the standard ones shown in the main nav).
   const [customFolders, setCustomFolders] = useState<string[]>([])
@@ -265,18 +264,11 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
     }
   }, [])
 
-  // Load real inbox/spam counts on mount
+  // Load the spam count and custom folders on mount (inbox unread is provided
+  // by the shared MailboxContext).
   useEffect(() => {
     let cancelled = false
     const loadCounts = async () => {
-      try {
-        const inbox = await api.getMail("inbox")
-        if (!cancelled) {
-          setInboxUnread((inbox.emails ?? []).filter((m) => !m.read).length)
-        }
-      } catch {
-        if (!cancelled) setInboxUnread(0)
-      }
       try {
         const spam = await api.getMail("spam")
         if (!cancelled) setSpamCount((spam.emails ?? []).length)
