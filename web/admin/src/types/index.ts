@@ -60,6 +60,18 @@ export interface Account {
   last_login?: string;
   vacation_settings?: string;
   totp_enabled?: boolean;
+  display_name?: string;
+  title?: string;
+  department?: string;
+  phone?: string;
+}
+
+// AccountProfile is the optional directory profile passed on create/update.
+export interface AccountProfile {
+  display_name?: string;
+  title?: string;
+  department?: string;
+  phone?: string;
 }
 
 export interface QueueEntry {

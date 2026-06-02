@@ -113,6 +113,15 @@ export interface DirectoryEntry {
   photo?: string // avatar endpoint URL when the user has a profile photo
 }
 
+// UserProfile is the caller's own editable directory profile.
+export interface UserProfile {
+  email?: string
+  display_name?: string
+  title?: string
+  department?: string
+  phone?: string
+}
+
 export interface Category {
   name: string
   color: string
@@ -398,6 +407,16 @@ class API {
   // removeAvatar deletes the authenticated user's own profile photo.
   async removeAvatar(): Promise<void> {
     await this.delete('/profile/avatar')
+  }
+
+  // getProfile returns the authenticated user's own directory profile fields.
+  async getProfile(): Promise<UserProfile> {
+    return this.get<UserProfile>('/profile')
+  }
+
+  // updateProfile updates the authenticated user's own directory profile fields.
+  async updateProfile(profile: UserProfile): Promise<UserProfile> {
+    return this.put<UserProfile>('/profile', profile)
   }
 
   // Self-service delegation (the authenticated user is always the owner)

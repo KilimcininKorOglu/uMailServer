@@ -74,6 +74,7 @@ export function Accounts() {
   const [newAccountIsAdmin, setNewAccountIsAdmin] = useState(false);
   const [newAccountQuotaMB, setNewAccountQuotaMB] = useState(0);
   const [newAccountAvatar, setNewAccountAvatar] = useState("");
+  const [newAccountProfile, setNewAccountProfile] = useState({ display_name: "", title: "", department: "", phone: "" });
   const [requirePasswordChangeOnReset, setRequirePasswordChangeOnReset] = useState(true);
   const [originalIsAdmin, setOriginalIsAdmin] = useState(false);
   const [currentAdminPassword, setCurrentAdminPassword] = useState("");
@@ -103,7 +104,8 @@ export function Accounts() {
         newAccountPassword,
         newAccountIsAdmin,
         newAccountQuotaMB * 1024 * 1024,
-        newAccountAvatar || undefined
+        newAccountAvatar || undefined,
+        newAccountProfile
       );
       setIsAddDialogOpen(false);
       setNewAccountEmail("");
@@ -111,6 +113,7 @@ export function Accounts() {
       setNewAccountIsAdmin(false);
       setNewAccountQuotaMB(0);
       setNewAccountAvatar("");
+      setNewAccountProfile({ display_name: "", title: "", department: "", phone: "" });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to create account");
     }
@@ -168,6 +171,10 @@ export function Accounts() {
         is_admin: selectedAccount.is_admin,
         is_active: selectedAccount.is_active,
         quota_limit: selectedAccount.quota_limit,
+        display_name: selectedAccount.display_name ?? "",
+        title: selectedAccount.title ?? "",
+        department: selectedAccount.department ?? "",
+        phone: selectedAccount.phone ?? "",
       };
       if (newAccountPassword) {
         updates.password = newAccountPassword;
@@ -292,6 +299,44 @@ export function Accounts() {
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">Optional. PNG, JPG, GIF or WebP up to 1 MB.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="display-name">Display Name</Label>
+                  <Input
+                    id="display-name"
+                    placeholder="Jane Doe"
+                    value={newAccountProfile.display_name}
+                    onChange={(e) => setNewAccountProfile({ ...newAccountProfile, display_name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="title">Title</Label>
+                  <Input
+                    id="title"
+                    placeholder="Engineer"
+                    value={newAccountProfile.title}
+                    onChange={(e) => setNewAccountProfile({ ...newAccountProfile, title: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="department">Department</Label>
+                  <Input
+                    id="department"
+                    placeholder="Sales"
+                    value={newAccountProfile.department}
+                    onChange={(e) => setNewAccountProfile({ ...newAccountProfile, department: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    placeholder="+1 555 0100"
+                    value={newAccountProfile.phone}
+                    onChange={(e) => setNewAccountProfile({ ...newAccountProfile, phone: e.target.value })}
+                  />
+                </div>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <Label htmlFor="is-admin">Admin Account</Label>
@@ -457,6 +502,40 @@ export function Accounts() {
                   }
                 />
                 <p className="text-sm text-muted-foreground">0 means unlimited storage.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-display-name">Display Name</Label>
+                  <Input
+                    id="edit-display-name"
+                    value={selectedAccount.display_name ?? ""}
+                    onChange={(e) => setSelectedAccount({ ...selectedAccount, display_name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-title">Title</Label>
+                  <Input
+                    id="edit-title"
+                    value={selectedAccount.title ?? ""}
+                    onChange={(e) => setSelectedAccount({ ...selectedAccount, title: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-department">Department</Label>
+                  <Input
+                    id="edit-department"
+                    value={selectedAccount.department ?? ""}
+                    onChange={(e) => setSelectedAccount({ ...selectedAccount, department: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-phone">Phone</Label>
+                  <Input
+                    id="edit-phone"
+                    value={selectedAccount.phone ?? ""}
+                    onChange={(e) => setSelectedAccount({ ...selectedAccount, phone: e.target.value })}
+                  />
+                </div>
               </div>
               <div className="space-y-2 pt-4 border-t">
                 <Label htmlFor="new-password">New Password (optional)</Label>

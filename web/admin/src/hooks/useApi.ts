@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import type {
   Account,
+  AccountProfile,
   Alias,
   MailGroup,
   MailGroupInput,
@@ -260,10 +261,10 @@ export function useAccounts() {
   }, []);
 
   const createAccount = useCallback(
-    async (email: string, password: string, isAdmin = false, quotaLimit?: number, avatar?: string) => {
+    async (email: string, password: string, isAdmin = false, quotaLimit?: number, avatar?: string, profile?: AccountProfile) => {
       const result = await apiRequest<Account>("/accounts", {
         method: "POST",
-        body: JSON.stringify({ email, password, is_admin: isAdmin, quota_limit: quotaLimit, avatar }),
+        body: JSON.stringify({ email, password, is_admin: isAdmin, quota_limit: quotaLimit, avatar, ...profile }),
       });
       await fetchAccounts();
       return result;

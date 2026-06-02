@@ -92,6 +92,36 @@ export function SettingsPage() {
     }
   }
 
+  // Directory profile (display name, title, department, phone) — shown in the
+  // GAL and on Outlook contact cards. Self-service via /api/v1/profile.
+  const [profile, setProfile] = useState({ display_name: "", title: "", department: "", phone: "" })
+  const [profileBusy, setProfileBusy] = useState(false)
+
+  useEffect(() => {
+    api.getProfile()
+      .then((p) =>
+        setProfile({
+          display_name: p.display_name ?? "",
+          title: p.title ?? "",
+          department: p.department ?? "",
+          phone: p.phone ?? "",
+        })
+      )
+      .catch(() => undefined)
+  }, [])
+
+  const handleSaveProfile = async () => {
+    setProfileBusy(true)
+    try {
+      await api.updateProfile(profile)
+      toast.success("Profile updated")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update profile")
+    } finally {
+      setProfileBusy(false)
+    }
+  }
+
   // Password change dialog (Manage Account)
   const [pwOpen, setPwOpen] = useState(false)
   const [pwCurrent, setPwCurrent] = useState("")
@@ -502,6 +532,57 @@ export function SettingsPage() {
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">PNG, JPG, GIF or WebP up to 1 MB.</p>
+      </SettingSection>
+
+      {/* Directory profile */}
+      <SettingSection
+        icon={UserCog}
+        title="Profile"
+        description="Your name and contact details shown in the directory and to Outlook"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="profile-display-name">Display name</Label>
+              <Input
+                id="profile-display-name"
+                value={profile.display_name}
+                onChange={(e) => setProfile({ ...profile, display_name: e.target.value })}
+                placeholder="Jane Doe"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="profile-title">Title</Label>
+              <Input
+                id="profile-title"
+                value={profile.title}
+                onChange={(e) => setProfile({ ...profile, title: e.target.value })}
+                placeholder="Engineer"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="profile-department">Department</Label>
+              <Input
+                id="profile-department"
+                value={profile.department}
+                onChange={(e) => setProfile({ ...profile, department: e.target.value })}
+                placeholder="Sales"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="profile-phone">Phone</Label>
+              <Input
+                id="profile-phone"
+                value={profile.phone}
+                onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                placeholder="+1 555 0100"
+              />
+            </div>
+          </div>
+          <Button onClick={handleSaveProfile} disabled={profileBusy}>
+            {profileBusy ? "Saving…" : "Save profile"}
+          </Button>
+        </div>
       </SettingSection>
 
       {/* Appearance */}
