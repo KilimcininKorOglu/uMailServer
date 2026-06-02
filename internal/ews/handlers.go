@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/db"
@@ -39,6 +40,22 @@ type Server struct {
 	sieveMgr      *sieve.Manager
 	submitMessage func(from string, to []string, data []byte) error
 	logger        *slog.Logger
+	// freeBusyProvider, when set, contributes additional busy intervals (e.g.
+	// from the CalDAV/webmail calendar store) that are merged into the
+	// GetUserAvailability free/busy view alongside the collaboration store's
+	// calendar items. Injected via SetFreeBusyProvider so this package does not
+	// depend on the CalDAV store directly.
+	freeBusyProvider func(email string, from, to time.Time) []FreeBusyInterval
+}
+
+// FreeBusyInterval is one busy time range contributed by an external free/busy
+// provider. Only the time range and busy type are carried — never the event's
+// subject or location — so querying another user's availability never leaks
+// their calendar contents.
+type FreeBusyInterval struct {
+	Start    time.Time
+	End      time.Time
+	BusyType string // "Busy", "Tentative", "OOF", "Free"; empty is treated as "Busy"
 }
 
 // NewServer creates an EWS handler wired to the canonical semcore stores and storage.
@@ -72,6 +89,14 @@ func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncS
 // SetLogger sets the logger for the EWS server.
 func (s *Server) SetLogger(logger *slog.Logger) {
 	s.logger = logger
+}
+
+// SetFreeBusyProvider wires an external source of busy intervals (typically the
+// CalDAV/webmail calendar store) whose events are merged into the
+// GetUserAvailability free/busy view, so availability computed over EWS matches
+// what webmail and CalDAV clients see.
+func (s *Server) SetFreeBusyProvider(fn func(email string, from, to time.Time) []FreeBusyInterval) {
+	s.freeBusyProvider = fn
 }
 
 // SetSubmitMessageFunc wires the outbound submission path used by SendItem.

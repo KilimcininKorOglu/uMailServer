@@ -112,6 +112,26 @@ func (h *CalendarHandler) busyForUser(user string, from, to time.Time) []busyInt
 	return mergeBusy(intervals)
 }
 
+// FreeBusyUTC returns the user's busy intervals within [from, to] as UTC time
+// pairs ({start, end}), reusing the same CalDAV-backed computation behind
+// GET /calendar/freebusy. It is exported so the EWS GetUserAvailability handler
+// can merge CalDAV/webmail events into its free/busy view without depending on
+// the api package's internal types. Only time ranges are exposed — never event
+// subjects or locations — matching the privacy contract of busyInterval.
+func (h *CalendarHandler) FreeBusyUTC(user string, from, to time.Time) [][2]time.Time {
+	ivs := h.busyForUser(user, from, to)
+	out := make([][2]time.Time, 0, len(ivs))
+	for _, iv := range ivs {
+		start, errS := time.Parse(time.RFC3339, iv.Start)
+		end, errE := time.Parse(time.RFC3339, iv.End)
+		if errS != nil || errE != nil {
+			continue
+		}
+		out = append(out, [2]time.Time{start.UTC(), end.UTC()})
+	}
+	return out
+}
+
 // eventBounds resolves a DTO's start/end as concrete UTC times. All-day events
 // span the whole day; a timed event without an end is treated as one hour.
 func eventBounds(dto CalendarEventDTO) (time.Time, time.Time, bool) {

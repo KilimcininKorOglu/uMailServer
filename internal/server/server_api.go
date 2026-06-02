@@ -126,6 +126,21 @@ func (s *Server) startAPI() {
 			s.submitMessageWithSieve,
 		)
 		ewsServer.SetLogger(s.logger)
+
+		// Bridge CalDAV/webmail calendar events into EWS free/busy, so
+		// GetUserAvailability reflects events created through webmail or CalDAV
+		// (which the collaboration store does not hold). The handler is stateless
+		// and reads the same CalDAV file store the webmail calendar endpoints use.
+		calHandler := api.NewCalendarHandler(s.config.Server.DataDir)
+		ewsServer.SetFreeBusyProvider(func(email string, from, to time.Time) []ews.FreeBusyInterval {
+			pairs := calHandler.FreeBusyUTC(email, from, to)
+			out := make([]ews.FreeBusyInterval, 0, len(pairs))
+			for _, p := range pairs {
+				out = append(out, ews.FreeBusyInterval{Start: p[0], End: p[1], BusyType: "Busy"})
+			}
+			return out
+		})
+
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 

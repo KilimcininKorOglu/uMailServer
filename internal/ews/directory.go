@@ -685,8 +685,8 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 		//nolint:errcheck
 		folderID, _ = s.identity.GetFolderID(mailboxKey, "calendars")
 	}
-	if folderID.IsZero() {
-		// No calendar folder: user has no free/busy data.
+	if folderID.IsZero() && s.freeBusyProvider == nil {
+		// No calendar folder and no external provider: no free/busy data.
 		return FreeBusyResponseType{
 			ResponseMessage: &SimpleResponseMessage{
 				ResponseClass: "Success",
@@ -699,10 +699,15 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 		}
 	}
 
-	// List calendar items in the time window from the collaboration store.
-	items, err := s.collabStore.ListCalendarItemsByFolder(folderID)
-	if err != nil {
-		items = nil // fall through with empty free/busy
+	// List calendar items in the time window from the collaboration store. With
+	// no EWS calendar folder this is empty, but the external free/busy provider
+	// (CalDAV/webmail) below can still contribute busy intervals.
+	var items []semcore.StoredCalendarItemIdentity
+	if !folderID.IsZero() {
+		stored, err := s.collabStore.ListCalendarItemsByFolder(folderID)
+		if err == nil {
+			items = stored
+		}
 	}
 
 	// Filter to the requested window and build busy blocks from the actual
@@ -737,6 +742,34 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 				IsMeeting: extractDirProp(item.RawData, "ORGANIZER") != "",
 			},
 		})
+	}
+
+	// Merge busy intervals from the external free/busy provider (CalDAV/webmail
+	// calendar store), so availability reflects events created outside EWS. Only
+	// time ranges are carried; provider blocks have no subject/location.
+	if s.freeBusyProvider != nil {
+		for _, iv := range s.freeBusyProvider(email, startTime, endTime) {
+			if iv.Start.IsZero() {
+				continue
+			}
+			evEnd := iv.End
+			if evEnd.IsZero() {
+				evEnd = iv.Start.Add(30 * time.Minute)
+			}
+			// Keep only events overlapping the requested [startTime, endTime] window.
+			if !evEnd.After(startTime) || !iv.Start.Before(endTime) {
+				continue
+			}
+			busyType := iv.BusyType
+			if busyType == "" {
+				busyType = "Busy"
+			}
+			busySlots = append(busySlots, CalendarEventType{
+				StartTime: FormatEWSDateTime(iv.Start.UTC()),
+				EndTime:   FormatEWSDateTime(evEnd.UTC()),
+				BusyType:  busyType,
+			})
+		}
 	}
 
 	// Build merged free/busy string as concatenated "StartUTC/EndUTC" busy blocks.
