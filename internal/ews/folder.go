@@ -765,6 +765,205 @@ func (s *Server) handleDeleteFolder(ctx context.Context, body []byte) []byte {
 }
 
 // ---------------------------------------------------------------------------
+// EmptyFolder
+// ---------------------------------------------------------------------------
+
+// emptyFolderRef is one folder reference (FolderId or DistinguishedFolderId)
+// in an EmptyFolder request.
+type emptyFolderRef struct {
+	ID string `xml:"Id,attr"`
+}
+
+// EmptyFolderRequest is the EWS EmptyFolder operation request. It deletes all
+// items (and optionally all subfolders) of the named folders.
+type EmptyFolderRequest struct {
+	XMLName          xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages EmptyFolder"`
+	DeleteType       string   `xml:"DeleteType,attr"`       // HardDelete | SoftDelete | MoveToDeletedItems
+	DeleteSubFolders bool     `xml:"DeleteSubFolders,attr"` // also remove descendant folders
+	FolderIDs        struct {
+		FolderID              []emptyFolderRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+		DistinguishedFolderID []emptyFolderRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
+}
+
+// EmptyFolderResponse is the EWS EmptyFolder operation response.
+type EmptyFolderResponse struct {
+	XMLName          xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages EmptyFolderResponse"`
+	ResponseMessages struct {
+		Messages []emptyFolderResponseMessage `xml:"http://schemas.microsoft.com/exchange/services/2006/messages EmptyFolderResponseMessage"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
+}
+
+type emptyFolderResponseMessage struct {
+	XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages EmptyFolderResponseMessage"`
+	ResponseClass string   `xml:"ResponseClass,attr"`
+	ResponseCode  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+}
+
+// handleEmptyFolder processes an EWS EmptyFolder request: it deletes every item
+// in each target folder and, when DeleteSubFolders is set, removes the folder's
+// descendant folders too. The folder itself is preserved.
+func (s *Server) handleEmptyFolder(ctx context.Context, body []byte) []byte {
+	var req EmptyFolderRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("EmptyFolder", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+
+	_, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	if errCode != "" {
+		return s.errorResponseXML("EmptyFolder", errCode, "could not resolve mailbox")
+	}
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+	mboxID, err := s.identity.GetMailboxIDByEmail(mailboxKey)
+	if err != nil {
+		return s.errorResponseXML("EmptyFolder", ErrErrorMailboxNotFound, err.Error())
+	}
+
+	hardDelete := req.DeleteType == "HardDelete"
+
+	// Resolve each folder reference to a concrete FolderId.
+	type target struct {
+		id  semcore.FolderId
+		err ErrorCode
+	}
+	var targets []target
+	for _, ref := range req.FolderIDs.DistinguishedFolderID {
+		role, ok := DistinguishedFolderIDs[ref.ID]
+		if !ok {
+			targets = append(targets, target{err: ErrErrorFolderNotFound})
+			continue
+		}
+		folder, ferr := s.identity.GetFolderByMailbox(mailboxKey, role)
+		if ferr != nil {
+			// Auto-create the distinguished folder for new accounts (matches
+			// resolveDistinguishedFolder); a freshly created folder is simply empty.
+			fid, cerr := s.identity.EnsureFolderId(mailboxKey, ref.ID, role)
+			if cerr != nil {
+				targets = append(targets, target{err: ErrErrorFolderNotFound})
+				continue
+			}
+			targets = append(targets, target{id: fid})
+			continue
+		}
+		targets = append(targets, target{id: folder.FolderID})
+	}
+	for _, ref := range req.FolderIDs.FolderID {
+		fid, ferr := semcore.NewFolderId(ref.ID)
+		if ferr != nil {
+			targets = append(targets, target{err: ErrErrorInvalidId})
+			continue
+		}
+		targets = append(targets, target{id: fid})
+	}
+
+	resp := EmptyFolderResponse{}
+	for _, t := range targets {
+		if t.err != "" {
+			resp.ResponseMessages.Messages = append(resp.ResponseMessages.Messages, emptyFolderResponseMessage{
+				ResponseClass: "Error", ResponseCode: string(t.err),
+			})
+			continue
+		}
+		// Ownership check.
+		rec, gerr := s.identity.GetFolderByID(t.id)
+		if gerr != nil {
+			resp.ResponseMessages.Messages = append(resp.ResponseMessages.Messages, emptyFolderResponseMessage{
+				ResponseClass: "Error", ResponseCode: string(ErrErrorFolderNotFound),
+			})
+			continue
+		}
+		owner := rec.MailboxID.String()
+		if !rec.MailboxID.IsZero() && owner != "" && owner != mailboxKey && owner != mboxKey && rec.MailboxID != mboxID {
+			resp.ResponseMessages.Messages = append(resp.ResponseMessages.Messages, emptyFolderResponseMessage{
+				ResponseClass: "Error", ResponseCode: string(ErrErrorAccessDenied),
+			})
+			continue
+		}
+
+		s.emptyFolderItems(mboxID, mailboxKey, t.id, hardDelete)
+
+		if req.DeleteSubFolders {
+			for _, sub := range s.descendantFolderIDs(mailboxKey, t.id) {
+				s.emptyFolderItems(mboxID, mailboxKey, sub, hardDelete)
+				if derr := s.sync.MarkFolderGone(sub); derr != nil {
+					s.logger.Warn("EmptyFolder: mark subfolder gone", "error", derr)
+				}
+				if derr := s.identity.DeleteFolder(sub); derr != nil && !errors.Is(derr, semcore.ErrFolderNotFound) {
+					s.logger.Warn("EmptyFolder: delete subfolder", "error", derr)
+				}
+			}
+		}
+
+		resp.ResponseMessages.Messages = append(resp.ResponseMessages.Messages, emptyFolderResponseMessage{
+			ResponseClass: "Success", ResponseCode: string(ErrNoError),
+		})
+	}
+	return buildResponseEnvelope(resp)
+}
+
+// emptyFolderItems deletes every item (mail + collaboration) in a single folder.
+func (s *Server) emptyFolderItems(mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, hardDelete bool) {
+	if s.mutationPipe != nil {
+		if items, err := s.identity.ListItemIdentitiesByFolder(folderID); err == nil {
+			for _, it := range items {
+				in := &semcore.DeleteInput{
+					ItemID:     it.ItemID,
+					MailboxID:  mboxID,
+					FolderID:   folderID,
+					Actor:      mailboxKey,
+					Source:     semcore.MutationSourceEWS,
+					HardDelete: hardDelete,
+				}
+				if derr := s.mutationPipe.MutateDelete(in, s.tombstones); derr == nil && !hardDelete {
+					if ierr := s.identity.DeleteItemIdentity(it.ItemID); ierr != nil {
+						s.logger.Warn("EmptyFolder: delete item identity", "error", ierr)
+					}
+				}
+			}
+		}
+	}
+	if s.collabStore != nil {
+		if cal, err := s.collabStore.ListCalendarItemsByFolder(folderID); err == nil {
+			for _, c := range cal {
+				s.deleteItemFromCollab(mailboxKey, c.ID.String())
+			}
+		}
+		if contacts, err := s.collabStore.ListContactsByFolder(folderID); err == nil {
+			for _, c := range contacts {
+				s.deleteItemFromCollab(mailboxKey, c.ID.String())
+			}
+		}
+		if tasks, err := s.collabStore.ListTasksByFolder(folderID); err == nil {
+			for _, tk := range tasks {
+				s.deleteItemFromCollab(mailboxKey, tk.ID.String())
+			}
+		}
+	}
+}
+
+// descendantFolderIDs returns all folder IDs that are descendants (children,
+// grandchildren, ...) of root within the given mailbox.
+func (s *Server) descendantFolderIDs(mailboxKey string, root semcore.FolderId) []semcore.FolderId {
+	all, err := s.identity.ListFolderIdentitiesForMailbox(mailboxKey)
+	if err != nil {
+		return nil
+	}
+	var out []semcore.FolderId
+	frontier := []semcore.FolderId{root}
+	for len(frontier) > 0 {
+		parent := frontier[len(frontier)-1]
+		frontier = frontier[:len(frontier)-1]
+		for _, f := range all {
+			if f.ParentID.Equal(parent) {
+				out = append(out, f.FolderID)
+				frontier = append(frontier, f.FolderID)
+			}
+		}
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
 // SyncFolderHierarchy
 // ---------------------------------------------------------------------------
 

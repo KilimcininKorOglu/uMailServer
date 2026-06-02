@@ -143,6 +143,8 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleUpdateFolder(ctx, soapBody)
 	case "DeleteFolder":
 		response = s.handleDeleteFolder(ctx, soapBody)
+	case "EmptyFolder":
+		response = s.handleEmptyFolder(ctx, soapBody)
 	case "SyncFolderHierarchy":
 		response = s.handleSyncFolderHierarchy(ctx, soapBody)
 	case "SyncFolderItems":
@@ -358,7 +360,7 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 	// EWS message element names that may need m: prefix (in EWSMessagesNS).
 	msgElements := []string{
 		// Top-level operations
-		"GetFolder", "FindFolder", "CreateFolder", "UpdateFolder", "DeleteFolder",
+		"GetFolder", "FindFolder", "CreateFolder", "UpdateFolder", "DeleteFolder", "EmptyFolder",
 		"SyncFolderHierarchy", "SyncFolderItems", "GetItem", "UpdateItem", "DeleteItem",
 		"CreateItem", "SendItem", "MoveItem", "CopyItem", "MarkAllItemsAsRead",
 		// ResolveNames variants
