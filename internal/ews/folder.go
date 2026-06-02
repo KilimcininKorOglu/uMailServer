@@ -964,6 +964,143 @@ func (s *Server) descendantFolderIDs(mailboxKey string, root semcore.FolderId) [
 }
 
 // ---------------------------------------------------------------------------
+// MoveFolder
+// ---------------------------------------------------------------------------
+
+// moveFolderTargetRef parses a FolderId/DistinguishedFolderId reference with an
+// Id attribute (the EWS shape used by MoveFolder source and destination).
+type moveFolderTargetRef struct {
+	ID string `xml:"Id,attr"`
+}
+
+// MoveFolderRequest is the EWS MoveFolder operation request. It re-parents the
+// listed folders under ToFolderId.
+type MoveFolderRequest struct {
+	XMLName  xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages MoveFolder"`
+	ToFolder struct {
+		FolderID              *moveFolderTargetRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+		DistinguishedFolderID *moveFolderTargetRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ToFolderId"`
+	FolderIDs struct {
+		FolderID              []moveFolderTargetRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+		DistinguishedFolderID []moveFolderTargetRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
+}
+
+// handleMoveFolder re-parents folders under a destination folder. The folder's
+// canonical ID is stable, so the response echoes the same FolderId.
+func (s *Server) handleMoveFolder(ctx context.Context, body []byte) []byte {
+	var req MoveFolderRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("MoveFolder", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+
+	_, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	if errCode != "" {
+		return s.errorResponseXML("MoveFolder", errCode, "could not resolve mailbox")
+	}
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+	mboxID, err := s.identity.GetMailboxIDByEmail(mailboxKey)
+	if err != nil {
+		return s.errorResponseXML("MoveFolder", ErrErrorMailboxNotFound, err.Error())
+	}
+
+	// Resolve the destination (to) folder.
+	var dest semcore.FolderId
+	switch {
+	case req.ToFolder.DistinguishedFolderID != nil:
+		role, ok := DistinguishedFolderIDs[req.ToFolder.DistinguishedFolderID.ID]
+		if !ok {
+			return s.errorResponseXML("MoveFolder", ErrErrorFolderNotFound, "unknown destination distinguished folder")
+		}
+		fld, ferr := s.identity.GetFolderByMailbox(mailboxKey, role)
+		if ferr != nil {
+			fid, cerr := s.identity.EnsureFolderId(mailboxKey, req.ToFolder.DistinguishedFolderID.ID, role)
+			if cerr != nil {
+				return s.errorResponseXML("MoveFolder", ErrErrorFolderNotFound, "destination folder not found")
+			}
+			dest = fid
+		} else {
+			dest = fld.FolderID
+		}
+	case req.ToFolder.FolderID != nil:
+		dest, err = semcore.NewFolderId(req.ToFolder.FolderID.ID)
+		if err != nil {
+			return s.errorResponseXML("MoveFolder", ErrErrorInvalidId, "invalid destination folder id")
+		}
+	}
+	if dest.IsZero() {
+		return s.errorResponseXML("MoveFolder", ErrErrorFolderNotFound, "destination folder required")
+	}
+
+	// Gather source folder IDs (explicit ids + distinguished names).
+	var sources []semcore.FolderId
+	var srcErr []ErrorCode
+	for _, ref := range req.FolderIDs.DistinguishedFolderID {
+		role, ok := DistinguishedFolderIDs[ref.ID]
+		if !ok {
+			sources = append(sources, semcore.FolderId{})
+			srcErr = append(srcErr, ErrErrorFolderNotFound)
+			continue
+		}
+		fld, ferr := s.identity.GetFolderByMailbox(mailboxKey, role)
+		if ferr != nil {
+			sources = append(sources, semcore.FolderId{})
+			srcErr = append(srcErr, ErrErrorFolderNotFound)
+			continue
+		}
+		sources = append(sources, fld.FolderID)
+		srcErr = append(srcErr, "")
+	}
+	for _, ref := range req.FolderIDs.FolderID {
+		fid, ferr := semcore.NewFolderId(ref.ID)
+		if ferr != nil {
+			sources = append(sources, semcore.FolderId{})
+			srcErr = append(srcErr, ErrErrorInvalidId)
+			continue
+		}
+		sources = append(sources, fid)
+		srcErr = append(srcErr, "")
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:MoveFolderResponse><m:ResponseMessages>`)
+	for i, fid := range sources {
+		if srcErr[i] != "" {
+			b.WriteString(`<m:MoveFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(srcErr[i]) + `</m:ResponseCode></m:MoveFolderResponseMessage>`)
+			continue
+		}
+		rec, gerr := s.identity.GetFolderByID(fid)
+		if gerr != nil {
+			b.WriteString(`<m:MoveFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(ErrErrorFolderNotFound) + `</m:ResponseCode></m:MoveFolderResponseMessage>`)
+			continue
+		}
+		owner := rec.MailboxID.String()
+		if !rec.MailboxID.IsZero() && owner != "" && owner != mailboxKey && owner != mboxKey && rec.MailboxID != mboxID {
+			b.WriteString(`<m:MoveFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(ErrErrorAccessDenied) + `</m:ResponseCode></m:MoveFolderResponseMessage>`)
+			continue
+		}
+		if serr := s.identity.SetFolderParent(fid, dest); serr != nil {
+			b.WriteString(`<m:MoveFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(ErrErrorInternalServer) + `</m:ResponseCode></m:MoveFolderResponseMessage>`)
+			continue
+		}
+		b.WriteString(`<m:MoveFolderResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode>`)
+		b.WriteString(`<m:Folders><t:Folder><t:FolderId Id="` + xmlEscape(fid.String()) + `"/></t:Folder></m:Folders>`)
+		b.WriteString(`</m:MoveFolderResponseMessage>`)
+	}
+	b.WriteString(`</m:ResponseMessages></m:MoveFolderResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return []byte(b.String())
+}
+
+// ---------------------------------------------------------------------------
 // SyncFolderHierarchy
 // ---------------------------------------------------------------------------
 
