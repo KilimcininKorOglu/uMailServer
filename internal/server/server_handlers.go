@@ -188,6 +188,66 @@ func isAlreadySigned(data []byte) bool {
 		strings.Contains(headers, "application/pkcs7-mime")
 }
 
+// isLocalSender reports whether the sender address belongs to a local, active
+// domain. Used to enforce a group's internal-only sender policy.
+func (s *Server) isLocalSender(from string) bool {
+	_, domain := parseEmail(from)
+	if domain == "" {
+		return false
+	}
+	d, err := s.database.GetDomain(domain)
+	return err == nil && d != nil && d.IsActive
+}
+
+// expandMailGroups replaces any local mail-group recipients with their member
+// addresses, enforcing each group's sender policy. Non-group recipients pass
+// through unchanged; nested groups are expanded with cycle and depth guards.
+func (s *Server) expandMailGroups(from string, to []string) []string {
+	result := make([]string, 0, len(to))
+	seen := make(map[string]bool)    // dedup of final recipients
+	visited := make(map[string]bool) // group cycle guard
+
+	var expand func(addr string, depth int)
+	expand = func(addr string, depth int) {
+		addr = strings.TrimSpace(addr)
+		if addr == "" || depth > 10 {
+			return
+		}
+		user, domain := parseEmail(addr)
+		if user != "" && domain != "" {
+			if group, err := s.database.GetMailGroup(domain, user); err == nil && group != nil && group.IsActive {
+				key := strings.ToLower(addr)
+				if visited[key] {
+					return
+				}
+				visited[key] = true
+				if group.SenderPolicy == "internal" && !s.isLocalSender(from) {
+					s.logger.Warn("rejected external sender to internal-only group", "from", from, "group", addr)
+					return
+				}
+				members, mErr := s.database.ExpandMailGroup(group)
+				if mErr != nil {
+					s.logger.Error("failed to expand mail group", "group", addr, "error", mErr)
+					return
+				}
+				for _, m := range members {
+					expand(m, depth+1)
+				}
+				return
+			}
+		}
+		if !seen[strings.ToLower(addr)] {
+			seen[strings.ToLower(addr)] = true
+			result = append(result, addr)
+		}
+	}
+
+	for _, addr := range to {
+		expand(addr, 0)
+	}
+	return result
+}
+
 func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, sieveActions []string) error {
 	// Create tracing span if tracing is enabled
 	var ctx context.Context = context.Background()
@@ -290,6 +350,10 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 			s.logger.Debug("Message queued for redirect", "from", from, "to", redirectAddr)
 		}
 	}
+
+	// Expand any mail-group recipients into their members before delivery, so a
+	// single group address fans out to every member (static or dynamic).
+	to = s.expandMailGroups(from, to)
 
 	var errs []error
 	for _, recipient := range to {

@@ -21,6 +21,31 @@ export interface Alias {
   created_at: string;
 }
 
+export interface MailGroup {
+  email: string; // group address: name@domain
+  description?: string;
+  is_active: boolean;
+  dynamic: boolean; // false = static member list, true = rule-based
+  sender_policy: "internal" | "anyone";
+  members: string[]; // static membership
+  dynamic_domain?: string; // domain scanned for dynamic membership
+  dynamic_admin_only?: boolean; // dynamic: filter by admin status
+  dynamic_local_pattern?: string; // dynamic: glob match on local-part
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface MailGroupInput {
+  email: string;
+  description?: string;
+  dynamic: boolean;
+  sender_policy: "internal" | "anyone";
+  members?: string[];
+  dynamic_domain?: string;
+  dynamic_admin_only?: boolean;
+  dynamic_local_pattern?: string;
+}
+
 export interface Account {
   email: string;
   is_admin: boolean;

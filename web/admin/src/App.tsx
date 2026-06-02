@@ -9,6 +9,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { Domains } from "@/pages/Domains";
 import { Accounts } from "@/pages/Accounts";
 import { Aliases } from "@/pages/Aliases";
+import { Groups } from "@/pages/Groups";
 import { Queue } from "@/pages/Queue";
 import { SettingsPage } from "@/pages/Settings";
 import { Policies } from "@/pages/Policies";
@@ -200,6 +201,7 @@ function App() {
             <Route path="/domains" element={<Domains />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/aliases" element={<Aliases />} />
+            <Route path="/groups" element={<Groups />} />
             <Route path="/queue" element={<Queue />} />
             <Route path="/policies" element={<Policies />} />
             <Route path="/delegation" element={<Delegation />} />

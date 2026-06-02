@@ -32,6 +32,7 @@ const (
 	BucketPreferences    = "preferences"
 	BucketRevokedTokens  = "revoked_tokens"
 	BucketClientSessions = "client_sessions"
+	BucketMailGroups     = "mailgroups"
 )
 
 // DB wraps bbolt database
@@ -227,6 +228,7 @@ func (d *DB) initBuckets() error {
 		BucketFilters,
 		BucketVacation,
 		BucketPreferences,
+		BucketMailGroups,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {

@@ -40,6 +40,7 @@ const menuItems = [
   { path: "/domains", icon: Globe, labelKey: "nav.domains" },
   { path: "/accounts", icon: Users, labelKey: "nav.accounts" },
   { path: "/aliases", icon: AtSign, labelKey: "nav.aliases" },
+  { path: "/groups", icon: UsersRound, labelKey: "nav.groups" },
   { path: "/queue", icon: Mail, labelKey: "nav.queue" },
   { path: "/policies", icon: Shield, labelKey: "nav.policies" },
   { path: "/delegation", icon: UsersRound, labelKey: "nav.delegation" },

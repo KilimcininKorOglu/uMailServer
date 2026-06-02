@@ -2,6 +2,8 @@ import { useState, useCallback } from "react";
 import type {
   Account,
   Alias,
+  MailGroup,
+  MailGroupInput,
   Domain,
   QueueEntry,
   DelegationEntry,
@@ -186,6 +188,54 @@ export function useAliases() {
   }, [fetchAliases]);
 
   return { aliases: data, loading, error, fetchAliases, createAlias, updateAlias, deleteAlias };
+}
+
+// Mail group (distribution list) API hooks
+export function useMailGroups() {
+  const [data, setData] = useState<MailGroup[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchGroups = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await apiRequest<MailGroup[]>("/groups");
+      setData(result ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load mail groups");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const createGroup = useCallback(async (input: MailGroupInput) => {
+    const result = await apiRequest<MailGroup>("/groups", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    await fetchGroups();
+    return result;
+  }, [fetchGroups]);
+
+  const updateGroup = useCallback(
+    async (email: string, updates: Partial<MailGroup> & { clear_admin_only?: boolean }) => {
+      const result = await apiRequest<MailGroup>(`/groups/${encodeURIComponent(email)}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      });
+      await fetchGroups();
+      return result;
+    },
+    [fetchGroups]
+  );
+
+  const deleteGroup = useCallback(async (email: string) => {
+    await apiRequest(`/groups/${encodeURIComponent(email)}`, { method: "DELETE" });
+    await fetchGroups();
+  }, [fetchGroups]);
+
+  return { groups: data, loading, error, fetchGroups, createGroup, updateGroup, deleteGroup };
 }
 
 // Account API hooks
