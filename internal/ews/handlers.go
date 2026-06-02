@@ -145,6 +145,8 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleDeleteFolder(ctx, soapBody)
 	case "EmptyFolder":
 		response = s.handleEmptyFolder(ctx, soapBody)
+	case "ExpandDL":
+		response = s.handleExpandDL(ctx, soapBody)
 	case "SyncFolderHierarchy":
 		response = s.handleSyncFolderHierarchy(ctx, soapBody)
 	case "SyncFolderItems":
@@ -365,6 +367,8 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"CreateItem", "SendItem", "MoveItem", "CopyItem", "MarkAllItemsAsRead",
 		// ResolveNames variants
 		"ResolveNames", "ResolveNamesRequest",
+		// ExpandDL
+		"ExpandDL",
 		// GetUserAvailability variants
 		"GetUserAvailability", "GetUserAvailabilityRequest",
 		// GetRoomLists variants

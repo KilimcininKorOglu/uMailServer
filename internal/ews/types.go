@@ -116,6 +116,8 @@ const (
 	ErrErrorDelegateValidationFailed     ErrorCode = "ErrorDelegateValidationFailed"
 	// Subscription and sync session error codes (VAL-CROSS-008)
 	ErrErrorSubscriptionDrained ErrorCode = "ErrorSubscriptionDrained"
+	// Directory resolution.
+	ErrErrorNameResolutionNoResults ErrorCode = "ErrorNameResolutionNoResults"
 )
 
 // ---------------------------------------------------------------------------

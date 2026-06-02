@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/xml"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -363,6 +364,66 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 	}
 
 	return allCandidates
+}
+
+// ---------------------------------------------------------------------------
+// Directory: ExpandDL (distribution list expansion)
+// ---------------------------------------------------------------------------
+
+// ExpandDLRequestType is the EWS ExpandDL request.
+type ExpandDLRequestType struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ExpandDL"`
+	Mailbox struct {
+		EmailAddress string `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Mailbox"`
+}
+
+// handleExpandDL expands a distribution list (mail group) to its member
+// mailboxes. It is backed by the same db.MailGroup expansion used for delivery
+// fan-out, so static and dynamic groups both resolve.
+func (s *Server) handleExpandDL(_ context.Context, body []byte) []byte {
+	var req ExpandDLRequestType
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("ExpandDL", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+	if s.db == nil {
+		return s.errorResponseXML("ExpandDL", ErrErrorInternalServer, "directory not available")
+	}
+
+	email := strings.TrimSpace(req.Mailbox.EmailAddress)
+	localPart, domain, ok := strings.Cut(email, "@")
+	if !ok || localPart == "" || domain == "" {
+		return s.errorResponseXML("ExpandDL", ErrErrorInvalidOperation, "ExpandDL requires a valid Mailbox/EmailAddress")
+	}
+
+	group, err := s.db.GetMailGroup(domain, localPart)
+	if err != nil || group == nil {
+		// Not a distribution list — EWS convention is no-results.
+		return s.errorResponseXML("ExpandDL", ErrErrorNameResolutionNoResults, "no distribution list for "+email)
+	}
+	members, err := s.db.ExpandMailGroup(group)
+	if err != nil {
+		return s.errorResponseXML("ExpandDL", ErrErrorInternalServer, "failed to expand group: "+err.Error())
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:ExpandDLResponse><m:ResponseMessages><m:ExpandDLResponseMessage ResponseClass="Success">`)
+	b.WriteString(`<m:ResponseCode>NoError</m:ResponseCode>`)
+	b.WriteString(`<m:DLExpansion TotalItemsInView="` + strconv.Itoa(len(members)) + `" IncludesLastItemInRange="true">`)
+	for _, m := range members {
+		b.WriteString(`<t:Mailbox><t:EmailAddress>` + xmlEscape(m) + `</t:EmailAddress>`)
+		b.WriteString(`<t:RoutingType>SMTP</t:RoutingType><t:MailboxType>Mailbox</t:MailboxType></t:Mailbox>`)
+	}
+	b.WriteString(`</m:DLExpansion></m:ExpandDLResponseMessage></m:ResponseMessages></m:ExpandDLResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return []byte(b.String())
 }
 
 // ---------------------------------------------------------------------------
