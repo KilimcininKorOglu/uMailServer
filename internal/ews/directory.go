@@ -370,8 +370,11 @@ func (s *Server) resolveNamesCandidates(entry string) []directoryCandidate {
 // ---------------------------------------------------------------------------
 
 // GetUserAvailabilityRequestType is the EWS GetUserAvailability request.
+// XMLName is left unconstrained because real clients (Outlook, exchangelib) send
+// the MS-OXWAVLS element name `GetUserAvailabilityRequest`, while some send the
+// bare `GetUserAvailability`; both must unmarshal (matches the OOF convention).
 type GetUserAvailabilityRequestType struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages GetUserAvailability"`
+	XMLName xml.Name
 
 	// TimeZone: the timezone context for availability queries.
 	// Uses SerializableTimeZoneType directly to avoid XML name conflicts.
@@ -408,9 +411,19 @@ type ArrayOfMailboxDataType struct {
 type MailboxDataType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types MailboxData"`
 
-	Email            EmailAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Email"`
-	AttendeeType     string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttendeeType,omitempty"` // "Required", "Optional", "Resource"
-	ExcludeConflicts bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExcludeConflicts,omitempty"`
+	Email            AvailabilityEmailType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Email"`
+	AttendeeType     string                `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttendeeType,omitempty"` // "Required", "Optional", "Resource"
+	ExcludeConflicts bool                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExcludeConflicts,omitempty"`
+}
+
+// AvailabilityEmailType is the MS-OXWAVLS `t:EmailAddress` used inside
+// GetUserAvailability MailboxData. Unlike the generic EmailAddressType (whose
+// address child is `<EmailAddress>`), the availability schema carries the SMTP
+// address in an `<Address>` child, so it needs its own mapping.
+type AvailabilityEmailType struct {
+	Name        string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
+	Address     string `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address"`
+	RoutingType string `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoutingType,omitempty"`
 }
 
 // FreeBusyViewOptionsType controls the free/busy view.
@@ -475,15 +488,15 @@ type ArrayOfCalendarEventType struct {
 	Events  []CalendarEventType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEvent"`
 }
 
-// CalendarEventType is one busy slot in free/busy view.
+// CalendarEventType is one busy slot in free/busy view. Element order matches
+// the EWS schema: StartTime, EndTime, BusyType, CalendarEventDetails.
 type CalendarEventType struct {
 	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEvent"`
 
+	StartTime            string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types StartTime"`
+	EndTime              string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types EndTime"`
+	BusyType             string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types BusyType,omitempty"`
 	CalendarEventDetails *CalendarEventDetailsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarEventDetails,omitempty"`
-	Start                string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Start"`
-	End                  string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types End"`
-	IsTransparent        bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsTransparent,omitempty"`
-	IsAllDayEvent        bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAllDayEvent,omitempty"`
 }
 
 // CalendarEventDetailsType holds details about a calendar event.
@@ -568,7 +581,7 @@ func (s *Server) handleGetUserAvailability(ctx context.Context, body []byte) []b
 
 	responses := make([]FreeBusyResponseType, 0, len(req.MailboxDataArray.MailboxData))
 	for _, mb := range req.MailboxDataArray.MailboxData {
-		fbResp := s.computeFreeBusy(ctx, mb.Email.Email, mb.Email.Name, startTime, endTime, requestedView)
+		fbResp := s.computeFreeBusy(ctx, mb.Email.Address, mb.Email.Name, startTime, endTime, requestedView)
 		responses = append(responses, fbResp)
 	}
 
@@ -631,35 +644,46 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 		items = nil // fall through with empty free/busy
 	}
 
-	// Filter to the time window and build busy blocks.
+	// Filter to the requested window and build busy blocks from the actual
+	// DTSTART/DTEND stored in each calendar item's iCalendar payload.
 	var busySlots []CalendarEventType
 	for _, item := range items {
 		if item.MailboxID != mailboxID {
 			continue
 		}
-		// We need the actual start/end times. The collaboration store only
-		// has the identity record; for free/busy we approximate from the item.
-		// The full DTSTART/DTEND is in the blob storage; for this initial
-		// implementation we use a placeholder event with the item ID as the
-		// time reference. A real implementation would read the blob to get
-		// the actual time range.
-		//
-		// Since this is the initial implementation, we produce a MergedFreeBusy
-		// string (colon-separated busy blocks) as the primary view.
-		// The format: "YYYYMMDDTHHMMSSZ/YYYYMMDDTHHMMSSZ:..."
-		// where each block is StartUTC/EndUTC.
-		_ = startTime
-		_ = endTime
-		_ = busySlots
+		startVal := extractDirProp(item.RawData, "DTSTART")
+		evStart, _ := parseICalDateTimeTZ(startVal)
+		if evStart.IsZero() {
+			continue
+		}
+		evEnd, _ := parseICalDateTimeTZ(extractDirProp(item.RawData, "DTEND"))
+		if evEnd.IsZero() {
+			// No DTEND: treat as a 30-minute block (EWS default visualization).
+			evEnd = evStart.Add(30 * time.Minute)
+		}
+		// Keep only events that overlap the requested [startTime, endTime] window.
+		if !evEnd.After(startTime) || !evStart.Before(endTime) {
+			continue
+		}
+		busyType := icalBusyToEWS(extractDirProp(item.RawData, "X-MICROSOFT-CDO-BUSYSTATUS"))
+		busySlots = append(busySlots, CalendarEventType{
+			StartTime: FormatEWSDateTime(evStart.UTC()),
+			EndTime:   FormatEWSDateTime(evEnd.UTC()),
+			BusyType:  busyType,
+			CalendarEventDetails: &CalendarEventDetailsType{
+				Subject:   extractDirProp(item.RawData, "SUMMARY"),
+				Location:  extractDirProp(item.RawData, "LOCATION"),
+				IsMeeting: extractDirProp(item.RawData, "ORGANIZER") != "",
+			},
+		})
 	}
 
-	// Build merged free/busy string.
-	// Format: each busy period is "StartUTC/EndUTC:" concatenated.
+	// Build merged free/busy string as concatenated "StartUTC/EndUTC" busy blocks.
 	merged := ""
 	if len(busySlots) > 0 {
 		var parts []string
 		for _, slot := range busySlots {
-			parts = append(parts, slot.Start+"/"+slot.End)
+			parts = append(parts, slot.StartTime+"/"+slot.EndTime)
 		}
 		merged = strings.Join(parts, ":")
 	}

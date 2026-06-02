@@ -1389,6 +1389,23 @@ func icalStatusToEWS(s string) string {
 	}
 }
 
+// icalBusyToEWS maps an iCalendar X-MICROSOFT-CDO-BUSYSTATUS value to the EWS
+// LegacyFreeBusyType used in free/busy responses. Unknown/empty defaults to Busy.
+func icalBusyToEWS(v string) string {
+	switch strings.ToUpper(strings.TrimSpace(v)) {
+	case "FREE":
+		return "Free"
+	case "TENTATIVE":
+		return "Tentative"
+	case "OOF":
+		return "OOF"
+	case "BUSY", "":
+		return "Busy"
+	default:
+		return "Busy"
+	}
+}
+
 // collabGetItemEnvelope wraps a typed collab item element in a full
 // GetItemResponse SOAP envelope. itemXML is the serialized <t:Contact>,
 // <t:CalendarItem>, or <t:Task> element.
