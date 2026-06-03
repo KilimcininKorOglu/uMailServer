@@ -1,6 +1,7 @@
 package ews
 
 import (
+	"strings"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
@@ -82,4 +83,144 @@ func (s *Server) mirrorCreateToMailstore(mailboxKey string, folderID semcore.Fol
 	if s.messageCreatedNotifier != nil {
 		s.messageCreatedNotifier(mailboxKey, name, uid)
 	}
+}
+
+// mailstoreLocate finds the IMAP mailstore entry for a blob within a mailbox,
+// returning its UID, 1-based sequence number, and metadata. EWS items are keyed
+// by blob key (which equals the metadata MessageID written on create), so a scan
+// by MessageID reconciles the EWS item to its mailstore UID.
+func (s *Server) mailstoreLocate(email, mailbox, blobKey string) (uid uint32, seqNum uint32, meta *storage.MessageMetadata, ok bool) {
+	uids, err := s.storageDB.GetMessageUIDs(email, mailbox)
+	if err != nil {
+		return 0, 0, nil, false
+	}
+	for i, u := range uids {
+		m, err := s.storageDB.GetMessageMetadata(email, mailbox, u)
+		if err != nil || m == nil {
+			continue
+		}
+		if m.MessageID == blobKey {
+			return u, uint32(i + 1), m, true
+		}
+	}
+	return 0, 0, nil, false
+}
+
+// mirrorDeleteFromMailstore removes an EWS-deleted item from the IMAP mailstore
+// index and signals an EXPUNGE, so the item disappears from IMAP/POP3/JMAP/webmail.
+func (s *Server) mirrorDeleteFromMailstore(mailboxKey string, folderID semcore.FolderId, blobKey string) {
+	if s.storageDB == nil {
+		return
+	}
+	name := s.mailboxNameForFolder(mailboxKey, folderID)
+	if name == "" {
+		return
+	}
+	uid, seqNum, _, ok := s.mailstoreLocate(mailboxKey, name, blobKey)
+	if !ok {
+		return
+	}
+	if err := s.storageDB.DeleteMessage(mailboxKey, name, uid); err != nil {
+		if s.logger != nil {
+			s.logger.Error("ews: mailstore sync DeleteMessage failed", "email", mailboxKey, "folder", name, "uid", uid, "error", err)
+		}
+		return
+	}
+	if s.messageExpungedNotifier != nil {
+		s.messageExpungedNotifier(mailboxKey, name, seqNum)
+	}
+}
+
+// mirrorReadFlagToMailstore syncs an EWS IsRead change onto the mailstore entry's
+// \Seen flag so the read state matches across IMAP/JMAP/webmail.
+func (s *Server) mirrorReadFlagToMailstore(mailboxKey string, folderID semcore.FolderId, blobKey string, isRead bool) {
+	if s.storageDB == nil {
+		return
+	}
+	name := s.mailboxNameForFolder(mailboxKey, folderID)
+	if name == "" {
+		return
+	}
+	uid, _, meta, ok := s.mailstoreLocate(mailboxKey, name, blobKey)
+	if !ok || meta == nil {
+		return
+	}
+	meta.Flags = setSeenFlag(meta.Flags, isRead)
+	if err := s.storageDB.StoreMessageMetadata(mailboxKey, name, uid, meta); err != nil {
+		if s.logger != nil {
+			s.logger.Error("ews: mailstore sync flag update failed", "email", mailboxKey, "folder", name, "uid", uid, "error", err)
+		}
+		return
+	}
+	// Coarse refresh: a folder-update notification makes IMAP IDLE re-sync and
+	// the webmail SSE refetch, surfacing the new read state.
+	if s.folderChangeNotifier != nil {
+		s.folderChangeNotifier(mailboxKey, name)
+	}
+}
+
+// mirrorMoveInMailstore moves an EWS item between mailstore folders: it removes
+// the source entry (EXPUNGE) and re-stores the same blob under a fresh UID in the
+// destination (EXISTS), keeping IMAP/JMAP/webmail consistent with the EWS move.
+func (s *Server) mirrorMoveInMailstore(mailboxKey string, sourceFolder, destFolder semcore.FolderId, blobKey string) {
+	if s.storageDB == nil {
+		return
+	}
+	srcName := s.mailboxNameForFolder(mailboxKey, sourceFolder)
+	dstName := s.mailboxNameForFolder(mailboxKey, destFolder)
+	if srcName == "" || dstName == "" || srcName == dstName {
+		return
+	}
+	uid, seqNum, meta, ok := s.mailstoreLocate(mailboxKey, srcName, blobKey)
+	if !ok {
+		return
+	}
+	if err := s.storageDB.DeleteMessage(mailboxKey, srcName, uid); err != nil {
+		if s.logger != nil {
+			s.logger.Error("ews: mailstore sync move DeleteMessage failed", "email", mailboxKey, "folder", srcName, "uid", uid, "error", err)
+		}
+		return
+	}
+	if s.messageExpungedNotifier != nil {
+		s.messageExpungedNotifier(mailboxKey, srcName, seqNum)
+	}
+	newUID, err := s.storageDB.GetNextUID(mailboxKey, dstName)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("ews: mailstore sync move GetNextUID failed", "email", mailboxKey, "folder", dstName, "error", err)
+		}
+		return
+	}
+	if meta == nil {
+		meta = &storage.MessageMetadata{MessageID: blobKey}
+	}
+	meta.UID = newUID
+	if err := s.storageDB.StoreMessageMetadata(mailboxKey, dstName, newUID, meta); err != nil {
+		if s.logger != nil {
+			s.logger.Error("ews: mailstore sync move StoreMessageMetadata failed", "email", mailboxKey, "folder", dstName, "uid", newUID, "error", err)
+		}
+		return
+	}
+	if s.messageCreatedNotifier != nil {
+		s.messageCreatedNotifier(mailboxKey, dstName, newUID)
+	}
+}
+
+// setSeenFlag returns flags with the \Seen IMAP flag added or removed.
+func setSeenFlag(flags []string, seen bool) []string {
+	out := make([]string, 0, len(flags)+1)
+	has := false
+	for _, f := range flags {
+		if strings.EqualFold(f, "\\Seen") {
+			has = true
+			if !seen {
+				continue
+			}
+		}
+		out = append(out, f)
+	}
+	if seen && !has {
+		out = append(out, "\\Seen")
+	}
+	return out
 }

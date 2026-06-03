@@ -2372,6 +2372,11 @@ func (s *Server) handleUpdateItem(ctx context.Context, body []byte) []byte {
 				continue
 			}
 		}
+		// Mirror a read-state change onto the IMAP mailstore \Seen flag so the
+		// read state matches across IMAP/JMAP/webmail.
+		if updatedIsRead != nil {
+			s.mirrorReadFlagToMailstore(rec.Email, rec.FolderID, rec.MsgKey, nextIsRead)
+		}
 
 		msgResp := MessageTypeResponse{
 			ItemID: ItemIdType{
@@ -2500,6 +2505,10 @@ func (s *Server) handleDeleteItem(ctx context.Context, body []byte) []byte {
 		if !hardDelete {
 			_ = s.identity.DeleteItemIdentity(itemID) //nolint:errcheck
 		}
+
+		// Remove the item from the IMAP mailstore index too, so it disappears
+		// from IMAP/POP3/JMAP/webmail (cross-protocol integrity).
+		s.mirrorDeleteFromMailstore(rec.Email, rec.FolderID, rec.MsgKey)
 
 		msgs = append(msgs, deleteErrMsg("Success", ResponseCodeType{Value: ErrNoError}))
 	}
@@ -2705,15 +2714,22 @@ func (s *Server) handleMoveItem(ctx context.Context, body []byte) []byte {
 	// Resolve destination folder.
 	var destFolder semcore.FolderId
 	if req.ToFolder.DistinguishedFolderID != nil {
-		role, ok := DistinguishedFolderIDs[req.ToFolder.DistinguishedFolderID.ID]
+		name := req.ToFolder.DistinguishedFolderID.ID
+		role, ok := DistinguishedFolderIDs[name]
 		if !ok {
 			return s.errorItemResponseXML("MoveItem", ErrErrorFolderNotFound, "unknown distinguished folder")
 		}
-		fld, err := s.identity.GetFolderByMailbox(mailboxKey, role)
-		if err != nil {
+		// Resolve by role, auto-provisioning the distinguished folder identity if
+		// it has not been materialized yet (matching resolveDistinguishedFolder /
+		// resolveCollabTargetFolder); otherwise a move to an untouched standard
+		// folder fails with FolderNotFound.
+		if fld, err := s.identity.GetFolderByMailbox(mailboxKey, role); err == nil {
+			destFolder = fld.FolderID
+		} else if fid, eerr := s.identity.EnsureFolderId(mailboxKey, name, role); eerr == nil {
+			destFolder = fid
+		} else {
 			return s.errorItemResponseXML("MoveItem", ErrErrorFolderNotFound, err.Error())
 		}
-		destFolder = fld.FolderID
 	} else if req.ToFolder.FolderID != nil {
 		destFolder, err = semcore.NewFolderId(*req.ToFolder.FolderID)
 		if err != nil {
@@ -3245,6 +3261,10 @@ func (s *Server) moveItemToFolder(ctx context.Context, mboxID semcore.MailboxId,
 	if err := s.identity.SetItemFolder(itemID, destFolder); err != nil {
 		return errorItemMsg("MoveItem", ErrErrorInternalServer, err.Error())
 	}
+
+	// Mirror the move into the IMAP mailstore index (remove from source, add to
+	// destination) so IMAP/JMAP/webmail reflect the move.
+	s.mirrorMoveInMailstore(rec.Email, sourceFolder, destFolder, rec.MsgKey)
 
 	return ItemResponseMessageType{
 		ResponseClass: "Success",
