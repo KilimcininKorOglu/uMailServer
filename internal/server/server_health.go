@@ -48,10 +48,10 @@ func (s *Server) setupHealthChecks() {
 	}
 
 	// TLS certificate health check
-	if s.tlsManager != nil && s.config.TLS.CertFile != "" {
+	if s.tlsManager != nil && s.cfg().TLS.CertFile != "" {
 		s.healthMonitor.Register("tls_certificate", health.TLSCertificateCheck(
-			s.config.TLS.CertFile,
-			s.config.TLS.KeyFile,
+			s.cfg().TLS.CertFile,
+			s.cfg().TLS.KeyFile,
 			30, // warning at 30 days
 			7,  // critical at 7 days
 		))
@@ -59,7 +59,7 @@ func (s *Server) setupHealthChecks() {
 
 	// Disk space health check
 	s.healthMonitor.Register("disk_space", health.DiskSpaceCheck(
-		s.config.Server.DataDir,
+		s.cfg().Server.DataDir,
 		80, // warning at 80%
 		95, // critical at 95%
 	))

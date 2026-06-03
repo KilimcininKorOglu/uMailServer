@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/alert"
@@ -42,7 +43,12 @@ import (
 
 // Server is the main uMailServer instance
 type Server struct {
-	config            *config.Config
+	// config holds the live configuration. It is read lock-free via s.cfg() and
+	// swapped atomically by ReloadConfig, so running goroutines always observe a
+	// consistent *config.Config. reloadMu serializes whole reload operations
+	// (admin-API PUT, SIGHUP, file-watch) so their service restarts never overlap.
+	config            atomic.Pointer[config.Config]
+	reloadMu          sync.Mutex
 	configPath        string
 	logger            *slog.Logger
 	database          *db.DB
@@ -147,7 +153,6 @@ func New(cfg *config.Config) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Server{
-		config:          cfg,
 		logger:          logger,
 		tracingProvider: tracingProvider,
 		ctx:             ctx,
@@ -157,6 +162,9 @@ func New(cfg *config.Config) (*Server, error) {
 		openpgpKeystore: smtp.NewOpenPGPKeystore(),
 		bgSem:           make(chan struct{}, 100),
 	}
+	// Publish the initial config so s.cfg() and every downstream reader observe
+	// it before any service starts.
+	s.config.Store(cfg)
 
 	// Persist Sieve scripts under the data dir so they survive restarts;
 	// fall back to in-memory storage if the directory cannot be prepared.
@@ -189,7 +197,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize message store (use same path as IMAP mailstore)
-	msgStorePath := s.config.Server.DataDir + "/mail/messages"
+	msgStorePath := s.cfg().Server.DataDir + "/mail/messages"
 	msgStore, err := storage.NewMessageStoreWithOptions(msgStorePath, cfg.Storage.Sync)
 	if err != nil {
 		_ = database.Close()
@@ -252,7 +260,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize push notification service (subject + optional VAPID keys
 	// come from `cfg.Push`; on-disk fallback handles the unconfigured case).
 	if cfg.Push.Enabled {
-		pushDataDir := filepath.Join(s.config.Server.DataDir, "push")
+		pushDataDir := filepath.Join(s.cfg().Server.DataDir, "push")
 		pushSvc, err := push.NewServiceWithConfig(pushDataDir, push.Config{
 			VAPIDPublicKey:  cfg.Push.VAPIDPublicKey,
 			VAPIDPrivateKey: cfg.Push.VAPIDPrivateKey,
@@ -299,7 +307,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize storage database for search
-	storageDBPath := s.config.Server.DataDir + "/mail/mail.db"
+	storageDBPath := s.cfg().Server.DataDir + "/mail/mail.db"
 	storageDB, err := storage.OpenDatabaseWithOptions(storageDBPath, cfg.Storage.Sync)
 	if err != nil {
 		_ = tlsManager.Close()
@@ -325,7 +333,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// The semcore store lives under dataDir/semcore/ and uses a separate bbolt DB.
 	// It is safe to create even if backfill hasn't run yet — the mutation
 	// pipeline will lazily register mailbox/folder identities as needed.
-	semcoreStore, err := semcore.NewStore(s.config.Server.DataDir)
+	semcoreStore, err := semcore.NewStore(s.cfg().Server.DataDir)
 	if err != nil {
 		// Best-effort cleanup of partially-initialized resources.
 		//nolint:errcheck // cleanup in error path; error is already returned
@@ -348,7 +356,26 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize rate limiter with config
-	rateLimiterConfig := &ratelimit.Config{
+	s.rateLimiter = ratelimit.New(storageDB.Bolt(), buildRateLimitConfig(cfg))
+
+	// Initialize health monitor
+	s.healthMonitor = health.NewMonitor("1.0.0")
+
+	return s, nil
+}
+
+// cfg returns the live configuration. It is safe to call concurrently with
+// ReloadConfig: the pointer is loaded atomically, and a published *config.Config
+// is never mutated in place, so callers can read its fields after the load.
+func (s *Server) cfg() *config.Config {
+	return s.config.Load()
+}
+
+// buildRateLimitConfig maps the YAML rate-limit section onto the ratelimit
+// package's runtime config. It is the single source of truth for that mapping,
+// shared by initial startup (New) and live retuning (ReloadConfig).
+func buildRateLimitConfig(cfg *config.Config) *ratelimit.Config {
+	return &ratelimit.Config{
 		IPPerMinute:       cfg.Security.RateLimit.IPPerMinute,
 		IPPerHour:         cfg.Security.RateLimit.IPPerHour,
 		IPPerDay:          cfg.Security.RateLimit.IPPerDay,
@@ -361,12 +388,6 @@ func New(cfg *config.Config) (*Server, error) {
 		GlobalPerHour:     cfg.Security.RateLimit.GlobalPerHour,
 		CleanupInterval:   5 * time.Minute,
 	}
-	s.rateLimiter = ratelimit.New(storageDB.Bolt(), rateLimiterConfig)
-
-	// Initialize health monitor
-	s.healthMonitor = health.NewMonitor("1.0.0")
-
-	return s, nil
 }
 
 // parseLogLevel parses log level string
@@ -555,13 +576,13 @@ func (s *Server) GetQueue() *queue.Manager {
 // unreadable, or unparseable pairs are logged and skipped (fail-open): signing
 // is best-effort and never blocks startup.
 func (s *Server) loadSMIMESigningKeys() {
-	if !s.config.Signing.Enabled || s.config.Signing.KeyDir == "" {
+	if !s.cfg().Signing.Enabled || s.cfg().Signing.KeyDir == "" {
 		return
 	}
-	entries, err := os.ReadDir(s.config.Signing.KeyDir)
+	entries, err := os.ReadDir(s.cfg().Signing.KeyDir)
 	if err != nil {
 		s.logger.Warn("S/MIME signing enabled but key directory is unreadable",
-			"dir", s.config.Signing.KeyDir, "error", err)
+			"dir", s.cfg().Signing.KeyDir, "error", err)
 		return
 	}
 	loaded := 0
@@ -571,8 +592,8 @@ func (s *Server) loadSMIMESigningKeys() {
 			continue
 		}
 		email := strings.ToLower(strings.TrimSuffix(name, ".crt"))
-		certPath := filepath.Join(s.config.Signing.KeyDir, name)
-		keyPath := filepath.Join(s.config.Signing.KeyDir, strings.TrimSuffix(name, ".crt")+".key")
+		certPath := filepath.Join(s.cfg().Signing.KeyDir, name)
+		keyPath := filepath.Join(s.cfg().Signing.KeyDir, strings.TrimSuffix(name, ".crt")+".key")
 
 		certPEM, err := os.ReadFile(filepath.Clean(certPath))
 		if err != nil {
@@ -595,5 +616,5 @@ func (s *Server) loadSMIMESigningKeys() {
 		s.smimeKeystore.SetKeys(email, &smtp.SMIMEUserKeys{SigningCert: certPEM, SigningKey: keyPEM})
 		loaded++
 	}
-	s.logger.Info("Loaded S/MIME signing keys", "count", loaded, "dir", s.config.Signing.KeyDir)
+	s.logger.Info("Loaded S/MIME signing keys", "count", loaded, "dir", s.cfg().Signing.KeyDir)
 }

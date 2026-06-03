@@ -137,7 +137,7 @@ func TestNew(t *testing.T) {
 		t.Fatal("Expected server instance, got nil")
 	}
 
-	if server.config != cfg {
+	if server.cfg() != cfg {
 		t.Error("Server config mismatch")
 	}
 
@@ -711,18 +711,18 @@ func TestServerConfigFields(t *testing.T) {
 	defer func() { _ = server.Stop() }()
 
 	// Verify config is set
-	if server.config != cfg {
+	if server.cfg() != cfg {
 		t.Error("Server config mismatch")
 	}
 
 	// Verify hostname
-	if server.config.Server.Hostname != "mail.example.com" {
-		t.Errorf("expected hostname 'mail.example.com', got %s", server.config.Server.Hostname)
+	if server.cfg().Server.Hostname != "mail.example.com" {
+		t.Errorf("expected hostname 'mail.example.com', got %s", server.cfg().Server.Hostname)
 	}
 
 	// Verify data dir
-	if server.config.Server.DataDir != tmpDir {
-		t.Errorf("expected data dir %s, got %s", tmpDir, server.config.Server.DataDir)
+	if server.cfg().Server.DataDir != tmpDir {
+		t.Errorf("expected data dir %s, got %s", tmpDir, server.cfg().Server.DataDir)
 	}
 }
 
@@ -1022,18 +1022,18 @@ func TestServerConfigAccess(t *testing.T) {
 	defer func() { _ = server.Stop() }()
 
 	// Verify config is set
-	if server.config != cfg {
+	if server.cfg() != cfg {
 		t.Error("Server config mismatch")
 	}
 
 	// Verify hostname
-	if server.config.Server.Hostname != "mail.example.com" {
-		t.Errorf("expected hostname 'mail.example.com', got %s", server.config.Server.Hostname)
+	if server.cfg().Server.Hostname != "mail.example.com" {
+		t.Errorf("expected hostname 'mail.example.com', got %s", server.cfg().Server.Hostname)
 	}
 
 	// Verify data dir
-	if server.config.Server.DataDir != tmpDir {
-		t.Errorf("expected data dir %s, got %s", tmpDir, server.config.Server.DataDir)
+	if server.cfg().Server.DataDir != tmpDir {
+		t.Errorf("expected data dir %s, got %s", tmpDir, server.cfg().Server.DataDir)
 	}
 }
 
@@ -2106,7 +2106,7 @@ func TestDeliverLocal_NoQuotaLimit(t *testing.T) {
 func TestRelayMessage_WithQueue(t *testing.T) {
 	srv := helperServer(t)
 
-	queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2134,7 +2134,7 @@ func TestRelayMessage_NilQueue(t *testing.T) {
 func TestRelayMessage_QueueEnqueueMultiple(t *testing.T) {
 	srv := helperServer(t)
 
-	queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2217,7 +2217,7 @@ func TestDeliverMessage_MixedLocalAndRemote(t *testing.T) {
 	helperCreateDomain(t, srv, "test.example.com", true)
 	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
 
-	queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2256,7 +2256,7 @@ func TestDeliverMessage_EmptyRecipientList(t *testing.T) {
 func TestDeliverMessage_RemoteDomainWithQueue(t *testing.T) {
 	srv := helperServer(t)
 
-	queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2558,7 +2558,7 @@ func TestRelayMessage_TableDriven(t *testing.T) {
 			srv := helperServer(t)
 
 			if tt.setupQueue {
-				queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+				queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 				srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -2612,7 +2612,7 @@ func TestDeliverLocal_StoreMessageError(t *testing.T) {
 	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
 
 	// Remove the message store directory to cause StoreMessage to fail
-	msgStorePath := srv.config.Server.DataDir + "/mail/messages"
+	msgStorePath := srv.cfg().Server.DataDir + "/mail/messages"
 	os.RemoveAll(msgStorePath)
 	// Also make the parent directory read-only so MkdirAll fails
 	// Instead, close the msgStore basePath and make it a file to prevent recreation
@@ -2701,7 +2701,7 @@ func TestDeliverMessage_ClosedDB_RelayError(t *testing.T) {
 	srv := helperServer(t)
 
 	// Create a queue manager with an invalid data dir to cause Enqueue to fail
-	badDir := filepath.Join(srv.config.Server.DataDir, "nonexistent_deep", "queue")
+	badDir := filepath.Join(srv.cfg().Server.DataDir, "nonexistent_deep", "queue")
 	srv.queue = queue.NewManager(srv.database, nil, badDir, nil)
 
 	// Close the database so GetDomain returns error, triggering relay path
@@ -2725,7 +2725,7 @@ func TestDeliverMessage_InactiveDomain_RelayFail(t *testing.T) {
 	srv.database.Close()
 
 	// Set up a queue so the relay path is exercised
-	queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 
 	msgData := []byte("Subject: Test\r\n\r\nBody")
@@ -2856,7 +2856,7 @@ func TestNew_TLSManagerError(t *testing.T) {
 func TestRelayMessage_QueueEnqueueError(t *testing.T) {
 	srv := helperServer(t)
 
-	queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 
 	// Close the database to cause Enqueue to fail
@@ -3020,7 +3020,7 @@ func TestDeliverLocal_NilAccount(t *testing.T) {
 func TestDeliverMessage_UnknownDomainWithQueue(t *testing.T) {
 	srv := helperServer(t)
 
-	queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -3153,7 +3153,7 @@ func TestDeliverMessage_InactiveDomain_RelayError(t *testing.T) {
 	helperCreateDomain(t, srv, "down.example.com", false)
 
 	// Set up a queue that will fail on Enqueue because maxQueueSize is 0 (queue is full)
-	queueDir := filepath.Join(srv.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
 	srv.queue.SetMaxQueueSize(0)
 
@@ -3404,7 +3404,7 @@ func TestBuildSubmissionSMTPConfigRequireTLS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv.config.SMTP.Submission.RequireTLS = tt.requireTLS
+			srv.cfg().SMTP.Submission.RequireTLS = tt.requireTLS
 
 			cfg := srv.buildSubmissionSMTPConfig()
 			if cfg.RequireTLS != tt.requireTLS {
@@ -3422,10 +3422,10 @@ func TestBuildSubmissionSMTPConfigRequireTLS(t *testing.T) {
 
 func TestBuildInboundSMTPPipelineSpamDisabledOmitsSpamStages(t *testing.T) {
 	srv := helperServer(t)
-	srv.config.Spam.Enabled = false
-	srv.config.Spam.Greylisting.Enabled = true
-	srv.config.Spam.RBLServers = []string{"zen.spamhaus.org"}
-	srv.config.Spam.Bayesian.Enabled = true
+	srv.cfg().Spam.Enabled = false
+	srv.cfg().Spam.Greylisting.Enabled = true
+	srv.cfg().Spam.RBLServers = []string{"zen.spamhaus.org"}
+	srv.cfg().Spam.Bayesian.Enabled = true
 
 	names := srv.buildInboundSMTPPipeline().StageNames()
 	for _, stageName := range []string{"Greylist", "RBL", "Heuristic", "Bayesian", "Score"} {
@@ -3437,10 +3437,10 @@ func TestBuildInboundSMTPPipelineSpamDisabledOmitsSpamStages(t *testing.T) {
 
 func TestBuildInboundSMTPPipelineSpamEnabledIncludesConfiguredStages(t *testing.T) {
 	srv := helperServer(t)
-	srv.config.Spam.Enabled = true
-	srv.config.Spam.Greylisting.Enabled = true
-	srv.config.Spam.RBLServers = []string{"zen.spamhaus.org"}
-	srv.config.Spam.Bayesian.Enabled = true
+	srv.cfg().Spam.Enabled = true
+	srv.cfg().Spam.Greylisting.Enabled = true
+	srv.cfg().Spam.RBLServers = []string{"zen.spamhaus.org"}
+	srv.cfg().Spam.Bayesian.Enabled = true
 
 	names := srv.buildInboundSMTPPipeline().StageNames()
 	for _, stageName := range []string{"Greylist", "RBL", "Heuristic", "Bayesian", "Score"} {

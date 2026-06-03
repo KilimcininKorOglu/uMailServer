@@ -9,30 +9,30 @@ import (
 
 // startIMAP creates and starts the IMAP server.
 func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
-	if !s.config.IMAP.Enabled {
+	if !s.cfg().IMAP.Enabled {
 		s.logger.Info("IMAP server disabled")
 		return nil
 	}
 
-	imapAddr := fmt.Sprintf("%s:%d", s.config.IMAP.Bind, s.config.IMAP.Port)
+	imapAddr := fmt.Sprintf("%s:%d", s.cfg().IMAP.Bind, s.cfg().IMAP.Port)
 	imapCfg := &imap.Config{
 		Addr:                 imapAddr,
 		TLSConfig:            s.tlsManager.GetTLSConfig(),
 		Logger:               s.logger,
-		SharedFoldersEnabled: s.config.Storage.SharedFolders,
+		SharedFoldersEnabled: s.cfg().Storage.SharedFolders,
 	}
 
 	imapServer := imap.NewServer(imapCfg, mailstore)
 	imapServer.SetAuthFunc(s.authenticate)
-	imapServer.SetAuthLimits(s.config.Security.MaxLoginAttempts, time.Duration(s.config.Security.LockoutDuration))
+	imapServer.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
 	imapServer.SetReadTimeout(10 * time.Minute)
 	imapServer.SetWriteTimeout(10 * time.Minute)
-	imapServer.SetIdleTimeout(time.Duration(s.config.IMAP.IdleTimeout))
-	imapServer.SetMaxConnections(s.config.IMAP.MaxConnections)
-	imapServer.SetMaxConnectionsPerIP(s.config.Security.RateLimit.IMAPConnections)
+	imapServer.SetIdleTimeout(time.Duration(s.cfg().IMAP.IdleTimeout))
+	imapServer.SetMaxConnections(s.cfg().IMAP.MaxConnections)
+	imapServer.SetMaxConnectionsPerIP(s.cfg().Security.RateLimit.IMAPConnections)
 	imapServer.SetTracingProvider(s.tracingProvider)
 	imapServer.SetLoginResultHandler(s.protoLoginHandler("imap"))
-	if s.config.IMAP.STARTTLSPort <= 0 {
+	if s.cfg().IMAP.STARTTLSPort <= 0 {
 		imapServer.SetAllowPlainAuth(true)
 	}
 	if s.searchSvc != nil {

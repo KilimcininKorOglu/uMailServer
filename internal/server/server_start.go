@@ -11,21 +11,21 @@ import (
 // Start starts all server components
 func (s *Server) Start() error {
 	s.logger.Info("Starting uMailServer",
-		"hostname", s.config.Server.Hostname,
-		"data_dir", s.config.Server.DataDir,
+		"hostname", s.cfg().Server.Hostname,
+		"data_dir", s.cfg().Server.DataDir,
 	)
 
 	// Create PID file
-	pidFile := NewPIDFile(s.config.Server.DataDir)
+	pidFile := NewPIDFile(s.cfg().Server.DataDir)
 	if err := pidFile.Create(); err != nil {
 		return fmt.Errorf("failed to create PID file: %w", err)
 	}
 	s.logger.Debug("PID file created")
 
 	// Initialize queue manager
-	queueDir := filepath.Join(s.config.Server.DataDir, "queue")
+	queueDir := filepath.Join(s.cfg().Server.DataDir, "queue")
 	s.queue = queue.NewManager(s.database, nil, queueDir, s.logger)
-	s.queue.SetDiskSync(s.config.Storage.Sync)
+	s.queue.SetDiskSync(s.cfg().Storage.Sync)
 	s.queue.SetTracingProvider(s.tracingProvider)
 	s.queue.Start(s.ctx)
 	s.logger.Info("Queue manager started")

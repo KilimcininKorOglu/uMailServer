@@ -20,7 +20,7 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 	resolver := smtp.NewNetDNSResolver()
 
 	spfChecker := auth.NewSPFChecker(resolver)
-	if ttl := s.config.Security.SPFCacheTTL.ToDuration(); ttl > 0 {
+	if ttl := s.cfg().Security.SPFCacheTTL.ToDuration(); ttl > 0 {
 		spfChecker.SetCacheTTL(ttl)
 	}
 	dkimVerifier := auth.NewDKIMVerifier(resolver)
@@ -30,25 +30,25 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 	dmarcStage := smtp.NewAuthDMARCStage(dmarcEvaluator, s.logger)
 
 	dmarcInterval := 24 * time.Hour
-	if s.config.DMARC.Interval != "" {
-		parsedDMARCInterval, err := time.ParseDuration(s.config.DMARC.Interval)
+	if s.cfg().DMARC.Interval != "" {
+		parsedDMARCInterval, err := time.ParseDuration(s.cfg().DMARC.Interval)
 		if err != nil {
-			s.logger.Warn("Invalid DMARC interval, using default", "interval", s.config.DMARC.Interval, "error", err)
+			s.logger.Warn("Invalid DMARC interval, using default", "interval", s.cfg().DMARC.Interval, "error", err)
 		} else {
 			dmarcInterval = parsedDMARCInterval
 		}
 	}
 
-	if s.config.DMARC.Enabled && s.config.DMARC.ReportEmail != "" {
+	if s.cfg().DMARC.Enabled && s.cfg().DMARC.ReportEmail != "" {
 		dmarcReporterConfig := auth.DMARCReporterConfig{
-			OrgName:     s.config.DMARC.OrgName,
-			FromEmail:   s.config.DMARC.FromEmail,
-			ReportEmail: s.config.DMARC.ReportEmail,
+			OrgName:     s.cfg().DMARC.OrgName,
+			FromEmail:   s.cfg().DMARC.FromEmail,
+			ReportEmail: s.cfg().DMARC.ReportEmail,
 			Interval:    dmarcInterval,
 		}
 		dmarcReporter := auth.NewDMARCReporter(resolver, s.logger, dmarcReporterConfig)
 		dmarcStage.SetReporter(dmarcReporter)
-		s.logger.Info("DMARC reporting enabled", "org", s.config.DMARC.OrgName)
+		s.logger.Info("DMARC reporting enabled", "org", s.cfg().DMARC.OrgName)
 	}
 
 	pipeline.AddStage(smtp.NewAuthSPFStage(spfChecker, s.logger))
@@ -60,17 +60,17 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 		pipeline.AddStage(smtp.NewRateLimitStage(s.rateLimiter))
 	}
 
-	if s.config.Spam.Enabled {
-		if s.config.Spam.Greylisting.Enabled {
-			pipeline.AddStage(smtp.NewGreylistStageWithDelay(s.config.Spam.Greylisting.Delay.ToDuration()))
+	if s.cfg().Spam.Enabled {
+		if s.cfg().Spam.Greylisting.Enabled {
+			pipeline.AddStage(smtp.NewGreylistStageWithDelay(s.cfg().Spam.Greylisting.Delay.ToDuration()))
 		}
-		if len(s.config.Spam.RBLServers) > 0 {
-			pipeline.AddStage(smtp.NewRBLStage(s.config.Spam.RBLServers, smtp.NewRealRBLDNSResolver()))
+		if len(s.cfg().Spam.RBLServers) > 0 {
+			pipeline.AddStage(smtp.NewRBLStage(s.cfg().Spam.RBLServers, smtp.NewRealRBLDNSResolver()))
 		}
 		pipeline.AddStage(smtp.NewHeuristicStage())
 
 		var classifier *spam.Classifier
-		if s.config.Spam.Bayesian.Enabled && s.storageDB != nil {
+		if s.cfg().Spam.Bayesian.Enabled && s.storageDB != nil {
 			candidate := spam.NewClassifier(s.storageDB.Bolt())
 			if err := candidate.Initialize(); err != nil {
 				s.logger.Error("failed to initialize Bayesian classifier", "error", err)
@@ -80,11 +80,11 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 			}
 		}
 
-		autoTrain := s.config.Spam.Bayesian.AutoTrain && classifier != nil
+		autoTrain := s.cfg().Spam.Bayesian.AutoTrain && classifier != nil
 		pipeline.AddStage(smtp.NewScoreStageWithOptions(
-			s.config.Spam.RejectThreshold,
-			s.config.Spam.QuarantineThreshold,
-			s.config.Spam.JunkThreshold,
+			s.cfg().Spam.RejectThreshold,
+			s.cfg().Spam.QuarantineThreshold,
+			s.cfg().Spam.JunkThreshold,
 			classifier,
 			autoTrain,
 		))
@@ -99,47 +99,47 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 	pipeline.AddStage(smtp.NewSMIMEStage(s.smimeKeystore))
 	pipeline.AddStage(smtp.NewOpenPGPStage(s.openpgpKeystore))
 
-	if s.config.AV.Enabled {
+	if s.cfg().AV.Enabled {
 		avScanner := av.NewScanner(av.Config{
-			Enabled: s.config.AV.Enabled,
-			Addr:    s.config.AV.Addr,
-			Timeout: s.config.AV.Timeout.ToDuration(),
-			Action:  s.config.AV.Action,
+			Enabled: s.cfg().AV.Enabled,
+			Addr:    s.cfg().AV.Addr,
+			Timeout: s.cfg().AV.Timeout.ToDuration(),
+			Action:  s.cfg().AV.Action,
 		})
-		pipeline.AddStage(smtp.NewAVStage(&avScannerAdapter{inner: avScanner}, s.config.AV.Action))
+		pipeline.AddStage(smtp.NewAVStage(&avScannerAdapter{inner: avScanner}, s.cfg().AV.Action))
 	}
 
 	return pipeline
 }
 
 func (s *Server) buildSubmissionSMTPConfig() *smtp.Config {
-	allowInsecure := !s.config.SMTP.Submission.RequireTLS
+	allowInsecure := !s.cfg().SMTP.Submission.RequireTLS
 
 	return &smtp.Config{
-		Hostname:       s.config.Server.Hostname,
-		MaxMessageSize: int64(s.config.SMTP.Inbound.MaxMessageSize),
-		MaxRecipients:  s.config.SMTP.Inbound.MaxRecipients,
-		MaxConnections: s.config.SMTP.Submission.MaxConnections,
-		ReadTimeout:    s.config.SMTP.Inbound.ReadTimeout.ToDuration(),
-		WriteTimeout:   s.config.SMTP.Inbound.WriteTimeout.ToDuration(),
+		Hostname:       s.cfg().Server.Hostname,
+		MaxMessageSize: int64(s.cfg().SMTP.Inbound.MaxMessageSize),
+		MaxRecipients:  s.cfg().SMTP.Inbound.MaxRecipients,
+		MaxConnections: s.cfg().SMTP.Submission.MaxConnections,
+		ReadTimeout:    s.cfg().SMTP.Inbound.ReadTimeout.ToDuration(),
+		WriteTimeout:   s.cfg().SMTP.Inbound.WriteTimeout.ToDuration(),
 		AllowInsecure:  allowInsecure,
 		TLSConfig:      s.tlsManager.GetTLSConfig(),
-		RequireAuth:    s.config.SMTP.Submission.RequireAuth,
-		RequireTLS:     s.config.SMTP.Submission.RequireTLS,
+		RequireAuth:    s.cfg().SMTP.Submission.RequireAuth,
+		RequireTLS:     s.cfg().SMTP.Submission.RequireTLS,
 		IsSubmission:   true,
 	}
 }
 
 func (s *Server) startSMTP() {
-	if s.config.SMTP.Inbound.Enabled {
-		smtpAddr := fmt.Sprintf("%s:%d", s.config.SMTP.Inbound.Bind, s.config.SMTP.Inbound.Port)
+	if s.cfg().SMTP.Inbound.Enabled {
+		smtpAddr := fmt.Sprintf("%s:%d", s.cfg().SMTP.Inbound.Bind, s.cfg().SMTP.Inbound.Port)
 		smtpCfg := &smtp.Config{
-			Hostname:       s.config.Server.Hostname,
-			MaxMessageSize: int64(s.config.SMTP.Inbound.MaxMessageSize),
-			MaxRecipients:  s.config.SMTP.Inbound.MaxRecipients,
-			MaxConnections: s.config.SMTP.Inbound.MaxConnections,
-			ReadTimeout:    s.config.SMTP.Inbound.ReadTimeout.ToDuration(),
-			WriteTimeout:   s.config.SMTP.Inbound.WriteTimeout.ToDuration(),
+			Hostname:       s.cfg().Server.Hostname,
+			MaxMessageSize: int64(s.cfg().SMTP.Inbound.MaxMessageSize),
+			MaxRecipients:  s.cfg().SMTP.Inbound.MaxRecipients,
+			MaxConnections: s.cfg().SMTP.Inbound.MaxConnections,
+			ReadTimeout:    s.cfg().SMTP.Inbound.ReadTimeout.ToDuration(),
+			WriteTimeout:   s.cfg().SMTP.Inbound.WriteTimeout.ToDuration(),
 			TLSConfig:      s.tlsManager.GetTLSConfig(),
 		}
 
@@ -150,8 +150,8 @@ func (s *Server) startSMTP() {
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken (CVE-2022-37454, etc.)
 		// smtpServer.SetUserSecretHandler(s.getUserSecret)
 		smtpServer.SetLoginResultHandler(s.protoLoginHandler("smtp"))
-		smtpServer.SetAuthLimits(s.config.Security.MaxLoginAttempts, time.Duration(s.config.Security.LockoutDuration))
-		smtpServer.SetLegacyRateLimits(s.config.Security.RateLimit.SMTPPerMinute, s.config.Security.RateLimit.SMTPPerHour)
+		smtpServer.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
+		smtpServer.SetLegacyRateLimits(s.cfg().Security.RateLimit.SMTPPerMinute, s.cfg().Security.RateLimit.SMTPPerHour)
 		smtpServer.SetTracingProvider(s.tracingProvider)
 
 		smtpServer.SetPipeline(s.buildInboundSMTPPipeline())
@@ -168,8 +168,8 @@ func (s *Server) startSMTP() {
 	}
 
 	// Submission SMTP server (port 587, STARTTLS)
-	if s.config.SMTP.Submission.Enabled {
-		submissionAddr := fmt.Sprintf("%s:%d", s.config.SMTP.Submission.Bind, s.config.SMTP.Submission.Port)
+	if s.cfg().SMTP.Submission.Enabled {
+		submissionAddr := fmt.Sprintf("%s:%d", s.cfg().SMTP.Submission.Bind, s.cfg().SMTP.Submission.Port)
 		submissionCfg := s.buildSubmissionSMTPConfig()
 
 		submissionServer := smtp.NewServer(submissionCfg, s.logger)
@@ -178,8 +178,8 @@ func (s *Server) startSMTP() {
 		submissionServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionServer.SetUserSecretHandler(s.getUserSecret)
-		submissionServer.SetAuthLimits(s.config.Security.MaxLoginAttempts, time.Duration(s.config.Security.LockoutDuration))
-		submissionServer.SetLegacyRateLimits(s.config.Security.RateLimit.SMTPPerMinute, s.config.Security.RateLimit.SMTPPerHour)
+		submissionServer.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
+		submissionServer.SetLegacyRateLimits(s.cfg().Security.RateLimit.SMTPPerMinute, s.cfg().Security.RateLimit.SMTPPerHour)
 		submissionServer.SetTracingProvider(s.tracingProvider)
 
 		go func() {
@@ -192,17 +192,17 @@ func (s *Server) startSMTP() {
 	}
 
 	// Submission TLS SMTP server (port 465, implicit TLS)
-	if s.config.SMTP.SubmissionTLS.Enabled {
-		submissionTLSAddr := fmt.Sprintf("%s:%d", s.config.SMTP.SubmissionTLS.Bind, s.config.SMTP.SubmissionTLS.Port)
+	if s.cfg().SMTP.SubmissionTLS.Enabled {
+		submissionTLSAddr := fmt.Sprintf("%s:%d", s.cfg().SMTP.SubmissionTLS.Bind, s.cfg().SMTP.SubmissionTLS.Port)
 		submissionTLSCfg := &smtp.Config{
-			Hostname:       s.config.Server.Hostname,
-			MaxMessageSize: int64(s.config.SMTP.Inbound.MaxMessageSize),
-			MaxRecipients:  s.config.SMTP.Inbound.MaxRecipients,
-			MaxConnections: s.config.SMTP.SubmissionTLS.MaxConnections,
-			ReadTimeout:    s.config.SMTP.Inbound.ReadTimeout.ToDuration(),
-			WriteTimeout:   s.config.SMTP.Inbound.WriteTimeout.ToDuration(),
+			Hostname:       s.cfg().Server.Hostname,
+			MaxMessageSize: int64(s.cfg().SMTP.Inbound.MaxMessageSize),
+			MaxRecipients:  s.cfg().SMTP.Inbound.MaxRecipients,
+			MaxConnections: s.cfg().SMTP.SubmissionTLS.MaxConnections,
+			ReadTimeout:    s.cfg().SMTP.Inbound.ReadTimeout.ToDuration(),
+			WriteTimeout:   s.cfg().SMTP.Inbound.WriteTimeout.ToDuration(),
 			TLSConfig:      s.tlsManager.GetTLSConfig(),
-			RequireAuth:    s.config.SMTP.SubmissionTLS.RequireAuth,
+			RequireAuth:    s.cfg().SMTP.SubmissionTLS.RequireAuth,
 			RequireTLS:     false, // Already on TLS
 			IsSubmission:   true,
 		}
@@ -213,8 +213,8 @@ func (s *Server) startSMTP() {
 		submissionTLSServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionTLSServer.SetUserSecretHandler(s.getUserSecret)
-		submissionTLSServer.SetAuthLimits(s.config.Security.MaxLoginAttempts, time.Duration(s.config.Security.LockoutDuration))
-		submissionTLSServer.SetLegacyRateLimits(s.config.Security.RateLimit.SMTPPerMinute, s.config.Security.RateLimit.SMTPPerHour)
+		submissionTLSServer.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
+		submissionTLSServer.SetLegacyRateLimits(s.cfg().Security.RateLimit.SMTPPerMinute, s.cfg().Security.RateLimit.SMTPPerHour)
 		submissionTLSServer.SetTracingProvider(s.tracingProvider)
 
 		tlsConfig := s.tlsManager.GetTLSConfig()

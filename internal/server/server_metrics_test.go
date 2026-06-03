@@ -28,10 +28,8 @@ func pickFreePort(t *testing.T) int {
 }
 
 func TestStartMetrics_DisabledNoServer(t *testing.T) {
-	srv := &Server{
-		logger: slog.Default(),
-		config: &config.Config{Metrics: config.MetricsConfig{Enabled: false}},
-	}
+	srv := &Server{logger: slog.Default()}
+	srv.config.Store(&config.Config{Metrics: config.MetricsConfig{Enabled: false}})
 	srv.startMetrics()
 	if srv.metricsHTTPServer != nil {
 		t.Error("expected no metrics server when disabled")
@@ -40,12 +38,10 @@ func TestStartMetrics_DisabledNoServer(t *testing.T) {
 
 func TestStartMetrics_ServesPrometheusBody(t *testing.T) {
 	port := pickFreePort(t)
-	srv := &Server{
-		logger: slog.Default(),
-		config: &config.Config{Metrics: config.MetricsConfig{
-			Enabled: true, Bind: "127.0.0.1", Port: port, Path: "/metrics",
-		}},
-	}
+	srv := &Server{logger: slog.Default()}
+	srv.config.Store(&config.Config{Metrics: config.MetricsConfig{
+		Enabled: true, Bind: "127.0.0.1", Port: port, Path: "/metrics",
+	}})
 	srv.startMetrics()
 	defer srv.stopMetrics(context.Background())
 
@@ -62,12 +58,10 @@ func TestStartMetrics_ServesPrometheusBody(t *testing.T) {
 
 func TestStartMetrics_HealthzOK(t *testing.T) {
 	port := pickFreePort(t)
-	srv := &Server{
-		logger: slog.Default(),
-		config: &config.Config{Metrics: config.MetricsConfig{
-			Enabled: true, Bind: "127.0.0.1", Port: port, Path: "/metrics",
-		}},
-	}
+	srv := &Server{logger: slog.Default()}
+	srv.config.Store(&config.Config{Metrics: config.MetricsConfig{
+		Enabled: true, Bind: "127.0.0.1", Port: port, Path: "/metrics",
+	}})
 	srv.startMetrics()
 	defer srv.stopMetrics(context.Background())
 
@@ -80,12 +74,10 @@ func TestStartMetrics_HealthzOK(t *testing.T) {
 
 func TestStartMetrics_DefaultPathFallback(t *testing.T) {
 	port := pickFreePort(t)
-	srv := &Server{
-		logger: slog.Default(),
-		config: &config.Config{Metrics: config.MetricsConfig{
-			Enabled: true, Bind: "127.0.0.1", Port: port, // no Path => default /metrics
-		}},
-	}
+	srv := &Server{logger: slog.Default()}
+	srv.config.Store(&config.Config{Metrics: config.MetricsConfig{
+		Enabled: true, Bind: "127.0.0.1", Port: port, // no Path => default /metrics
+	}})
 	srv.startMetrics()
 	defer srv.stopMetrics(context.Background())
 

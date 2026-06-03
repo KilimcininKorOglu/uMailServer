@@ -11,27 +11,27 @@ import (
 
 // startMCP creates and starts the MCP server (if enabled).
 func (s *Server) startMCP() {
-	if !s.config.MCP.Enabled {
+	if !s.cfg().MCP.Enabled {
 		return
 	}
 
-	mcpAddr := fmt.Sprintf("%s:%d", s.config.MCP.Bind, s.config.MCP.Port)
+	mcpAddr := fmt.Sprintf("%s:%d", s.cfg().MCP.Bind, s.cfg().MCP.Port)
 	mcpSrv := mcp.NewServer(s.database)
-	if s.config.MCP.AuthToken == "" {
+	if s.cfg().MCP.AuthToken == "" {
 		token := generateSecureToken()
-		s.config.MCP.AuthToken = token
+		s.cfg().MCP.AuthToken = token
 		s.logger.Warn("MCP: no auth token configured; generated a random token - check server logs for token on first start")
 		s.logger.Info("MCP auth token generated", "token_length", len(token))
 	}
-	mcpSrv.SetAuthToken(s.config.MCP.AuthToken)
-	if s.config.MCP.AdminAuthToken != "" {
-		mcpSrv.SetAdminAuthToken(s.config.MCP.AdminAuthToken)
+	mcpSrv.SetAuthToken(s.cfg().MCP.AuthToken)
+	if s.cfg().MCP.AdminAuthToken != "" {
+		mcpSrv.SetAdminAuthToken(s.cfg().MCP.AdminAuthToken)
 	}
-	if len(s.config.HTTP.CorsOrigins) > 0 {
-		mcpSrv.SetCorsOrigin(strings.Join(s.config.HTTP.CorsOrigins, ","))
+	if len(s.cfg().HTTP.CorsOrigins) > 0 {
+		mcpSrv.SetCorsOrigin(strings.Join(s.cfg().HTTP.CorsOrigins, ","))
 	}
 	// Configure MCP rate limiting (use same limit as HTTP API)
-	mcpSrv.SetRateLimit(s.config.Security.RateLimit.HTTPRequestsPerMinute)
+	mcpSrv.SetRateLimit(s.cfg().Security.RateLimit.HTTPRequestsPerMinute)
 	mcpSrv.SetTracingProvider(s.tracingProvider)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", mcpSrv.HandleHTTP)

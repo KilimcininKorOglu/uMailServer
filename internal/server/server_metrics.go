@@ -19,13 +19,13 @@ import (
 // The admin JSON `/metrics` endpoint on the API server stays in place for
 // dashboards that want richer structure than the text format provides.
 func (s *Server) startMetrics() {
-	if !s.config.Metrics.Enabled {
+	if !s.cfg().Metrics.Enabled {
 		s.logger.Debug("Metrics server disabled in config")
 		return
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.config.Metrics.Bind, s.config.Metrics.Port)
-	path := s.config.Metrics.Path
+	addr := fmt.Sprintf("%s:%d", s.cfg().Metrics.Bind, s.cfg().Metrics.Port)
+	path := s.cfg().Metrics.Path
 	if path == "" {
 		path = "/metrics"
 	}

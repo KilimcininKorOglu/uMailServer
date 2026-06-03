@@ -306,7 +306,7 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 	// message is not already signed, sign it before relay/delivery. The
 	// has-key gate naturally excludes inbound external mail (no key). Fail-open:
 	// on any error the original message is delivered unsigned (never dropped).
-	if s.config.Signing.Enabled && s.smimeKeystore != nil && !isAlreadySigned(data) {
+	if s.cfg().Signing.Enabled && s.smimeKeystore != nil && !isAlreadySigned(data) {
 		sender := strings.ToLower(strings.TrimSpace(from))
 		if s.smimeKeystore.GetKeys(sender) != nil {
 			signTo := ""

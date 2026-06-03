@@ -11,12 +11,12 @@ import (
 
 // startCalDAV creates and starts the CalDAV server
 func (s *Server) startCalDAV() {
-	if !s.config.CalDAV.Enabled {
+	if !s.cfg().CalDAV.Enabled {
 		return
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.config.CalDAV.Bind, s.config.CalDAV.Port)
-	caldavDataDir := filepath.Join(s.config.Server.DataDir, "caldav")
+	addr := fmt.Sprintf("%s:%d", s.cfg().CalDAV.Bind, s.cfg().CalDAV.Port)
+	caldavDataDir := filepath.Join(s.cfg().Server.DataDir, "caldav")
 
 	caldavServer := caldav.NewServer(caldavDataDir, s.logger)
 	// Set auth handler - use same auth as submission SMTP

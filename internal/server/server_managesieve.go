@@ -8,11 +8,11 @@ import (
 
 // startManageSieve creates and starts the ManageSieve server on port 4190
 func (s *Server) startManageSieve() {
-	if !s.config.ManageSieve.Enabled {
+	if !s.cfg().ManageSieve.Enabled {
 		return
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.config.ManageSieve.Bind, s.config.ManageSieve.Port)
+	addr := fmt.Sprintf("%s:%d", s.cfg().ManageSieve.Bind, s.cfg().ManageSieve.Port)
 	tlsCfg := s.tlsManager.GetTLSConfig()
 
 	sieveServer := sieve.NewManageSieveServer(s.sieveManager, tlsCfg)

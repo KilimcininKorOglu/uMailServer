@@ -14,7 +14,7 @@ func (s *Server) Stop() error {
 	s.logger.Info("Stopping uMailServer...")
 
 	// Remove PID file
-	pidFile := NewPIDFile(s.config.Server.DataDir)
+	pidFile := NewPIDFile(s.cfg().Server.DataDir)
 	if err := pidFile.Remove(); err != nil {
 		s.logger.Debug("Failed to remove PID file", "error", err)
 	}
@@ -165,8 +165,8 @@ func (s *Server) Stop() error {
 }
 
 func (s *Server) forceCloseAfter() time.Duration {
-	if s.config.Server.ForceCloseAfter > 0 {
-		return time.Duration(s.config.Server.ForceCloseAfter) * time.Second
+	if s.cfg().Server.ForceCloseAfter > 0 {
+		return time.Duration(s.cfg().Server.ForceCloseAfter) * time.Second
 	}
 	return 60 * time.Second
 }

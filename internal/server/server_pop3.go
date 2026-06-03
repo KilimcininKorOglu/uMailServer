@@ -10,21 +10,21 @@ import (
 
 // startPOP3 creates and starts the POP3 server (if enabled).
 func (s *Server) startPOP3(mailstore *imap.BboltMailstore) error {
-	if !s.config.POP3.Enabled {
+	if !s.cfg().POP3.Enabled {
 		return nil
 	}
 
-	pop3Addr := fmt.Sprintf("%s:%d", s.config.POP3.Bind, s.config.POP3.Port)
+	pop3Addr := fmt.Sprintf("%s:%d", s.cfg().POP3.Bind, s.cfg().POP3.Port)
 	pop3Adapter := &pop3MailstoreAdapter{
 		mailstore: mailstore,
 		msgStore:  s.msgStore,
 	}
 	pop3Server := pop3.NewServer(pop3Addr, pop3Adapter, s.logger)
 	pop3Server.SetAuthFunc(s.authenticate)
-	pop3Server.SetAuthLimits(s.config.Security.MaxLoginAttempts, time.Duration(s.config.Security.LockoutDuration))
+	pop3Server.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
 	pop3Server.SetReadTimeout(10 * time.Minute)
 	pop3Server.SetWriteTimeout(10 * time.Minute)
-	pop3Server.SetMaxConnections(s.config.POP3.MaxConnections)
+	pop3Server.SetMaxConnections(s.cfg().POP3.MaxConnections)
 	pop3Server.SetLoginResultHandler(s.protoLoginHandler("pop3"))
 	pop3Server.SetTracingProvider(s.tracingProvider)
 
@@ -35,8 +35,8 @@ func (s *Server) startPOP3(mailstore *imap.BboltMailstore) error {
 	if s.tlsManager.IsEnabled() {
 		pop3Server.SetRequireTLS(true)
 		pop3Server.SetTLSConfig(&pop3.TLSConfig{
-			CertFile: s.config.TLS.CertFile,
-			KeyFile:  s.config.TLS.KeyFile,
+			CertFile: s.cfg().TLS.CertFile,
+			KeyFile:  s.cfg().TLS.KeyFile,
 		})
 	}
 

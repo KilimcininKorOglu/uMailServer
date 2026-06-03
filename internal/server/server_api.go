@@ -24,36 +24,36 @@ func (s *Server) SetConfigPath(path string) {
 
 // startAPI creates and starts the HTTP API server (webmail + admin).
 func (s *Server) startAPI() {
-	if !s.config.HTTP.Enabled {
+	if !s.cfg().HTTP.Enabled {
 		s.logger.Info("API server disabled")
 		return
 	}
 
-	apiAddr := fmt.Sprintf("%s:%d", s.config.HTTP.Bind, s.config.HTTP.Port)
+	apiAddr := fmt.Sprintf("%s:%d", s.cfg().HTTP.Bind, s.cfg().HTTP.Port)
 	plainHTTPAddr := ""
-	if s.config.HTTP.HTTPPort > 0 && s.config.HTTP.HTTPPort != s.config.HTTP.Port {
-		plainHTTPAddr = fmt.Sprintf("%s:%d", s.config.HTTP.Bind, s.config.HTTP.HTTPPort)
+	if s.cfg().HTTP.HTTPPort > 0 && s.cfg().HTTP.HTTPPort != s.cfg().HTTP.Port {
+		plainHTTPAddr = fmt.Sprintf("%s:%d", s.cfg().HTTP.Bind, s.cfg().HTTP.HTTPPort)
 	}
 
 	apiCfg := api.Config{
 		Addr:             apiAddr,
 		PlainAddr:        plainHTTPAddr,
-		JWTSecret:        s.config.Security.JWTSecret,
-		DisableLegacyJWT: s.config.Security.DisableLegacyJWT,
-		TOTPKey:          s.config.Security.TOTPKey,
-		CorsOrigins:      s.config.HTTP.CorsOrigins,
-		TrustedProxies:   s.config.HTTP.TrustedProxies,
-		DrainTimeout:     time.Duration(s.config.Server.GracefulTimeout) * time.Second,
-		ShutdownTimeout:  time.Duration(s.config.Server.ForceCloseAfter) * time.Second,
+		JWTSecret:        s.cfg().Security.JWTSecret,
+		DisableLegacyJWT: s.cfg().Security.DisableLegacyJWT,
+		TOTPKey:          s.cfg().Security.TOTPKey,
+		CorsOrigins:      s.cfg().HTTP.CorsOrigins,
+		TrustedProxies:   s.cfg().HTTP.TrustedProxies,
+		DrainTimeout:     time.Duration(s.cfg().Server.GracefulTimeout) * time.Second,
+		ShutdownTimeout:  time.Duration(s.cfg().Server.ForceCloseAfter) * time.Second,
 		PasswordHasher:   "bcrypt", // or "argon2id" (OWASP recommended)
 		AuditLog: api.AuditLogConfig{
-			Path:       s.config.Security.AuditLog.Path,
-			MaxSizeMB:  s.config.Security.AuditLog.MaxSizeMB,
-			MaxBackups: s.config.Security.AuditLog.MaxBackups,
-			MaxAgeDays: s.config.Security.AuditLog.MaxAgeDays,
+			Path:       s.cfg().Security.AuditLog.Path,
+			MaxSizeMB:  s.cfg().Security.AuditLog.MaxSizeMB,
+			MaxBackups: s.cfg().Security.AuditLog.MaxBackups,
+			MaxAgeDays: s.cfg().Security.AuditLog.MaxAgeDays,
 		},
-		DataDir:               s.config.Server.DataDir,
-		SeparateAdminListener: s.config.Admin.Enabled,
+		DataDir:               s.cfg().Server.DataDir,
+		SeparateAdminListener: s.cfg().Admin.Enabled,
 	}
 	s.apiServer = api.NewServer(s.database, s.logger, apiCfg)
 	if s.tlsManager != nil {
@@ -81,22 +81,22 @@ func (s *Server) startAPI() {
 	// Sent.
 	s.apiServer.SetMailDeliveryFunc(s.submitMessageWithSieve)
 	// Set contacts handler data directory for CardDAV-backed contacts API
-	s.apiServer.SetContactsDataDir(s.config.Server.DataDir)
+	s.apiServer.SetContactsDataDir(s.cfg().Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API
-	s.apiServer.SetCalendarDataDir(s.config.Server.DataDir)
+	s.apiServer.SetCalendarDataDir(s.cfg().Server.DataDir)
 	// Let the calendar email meeting invitations through the shared delivery path.
 	s.apiServer.SetCalendarDeliveryFunc(s.submitMessageWithSieve)
 	// Set task handler data directory for CalDAV-backed (VTODO) tasks API
-	s.apiServer.SetTaskDataDir(s.config.Server.DataDir)
+	s.apiServer.SetTaskDataDir(s.cfg().Server.DataDir)
 	// Set backup manager for backup/restore operations
 	if s.storageDB != nil {
-		backupMgr := backup.NewManager(s.config.Server.DataDir, s.storageDB, s.msgStore)
+		backupMgr := backup.NewManager(s.cfg().Server.DataDir, s.storageDB, s.msgStore)
 		s.apiServer.SetBackupManager(backupMgr)
 	}
 	// Configure API rate limiting
-	s.apiServer.SetAPIRateLimit(s.config.Security.RateLimit.HTTPRequestsPerMinute)
+	s.apiServer.SetAPIRateLimit(s.cfg().Security.RateLimit.HTTPRequestsPerMinute)
 	// Expose the loaded config + its file path to the admin Settings API.
-	s.apiServer.SetConfigManager(s.config, s.configPath)
+	s.apiServer.SetConfigManager(s.cfg(), s.configPath)
 
 	// Wire EWS SOAP handler into the API server.
 	// This requires semcoreStore to be initialized (done in server.go startup).
@@ -181,16 +181,16 @@ func (s *Server) startAPI() {
 	}
 
 	// Start admin server on separate port (localhost only)
-	if s.config.Admin.Enabled {
+	if s.cfg().Admin.Enabled {
 		adminCfg := api.AdminConfig{
-			Addr:             fmt.Sprintf("%s:%d", s.config.Admin.Bind, s.config.Admin.Port),
-			JWTSecret:        s.config.Security.JWTSecret,
-			DisableLegacyJWT: s.config.Security.DisableLegacyJWT,
+			Addr:             fmt.Sprintf("%s:%d", s.cfg().Admin.Bind, s.cfg().Admin.Port),
+			JWTSecret:        s.cfg().Security.JWTSecret,
+			DisableLegacyJWT: s.cfg().Security.DisableLegacyJWT,
 			AuditLog: api.AuditLogConfig{
-				Path:       s.config.Security.AuditLog.Path,
-				MaxSizeMB:  s.config.Security.AuditLog.MaxSizeMB,
-				MaxBackups: s.config.Security.AuditLog.MaxBackups,
-				MaxAgeDays: s.config.Security.AuditLog.MaxAgeDays,
+				Path:       s.cfg().Security.AuditLog.Path,
+				MaxSizeMB:  s.cfg().Security.AuditLog.MaxSizeMB,
+				MaxBackups: s.cfg().Security.AuditLog.MaxBackups,
+				MaxAgeDays: s.cfg().Security.AuditLog.MaxAgeDays,
 			},
 		}
 		s.adminServer = api.NewAdminServer(s.apiServer, adminCfg)

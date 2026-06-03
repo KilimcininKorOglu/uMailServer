@@ -11,12 +11,12 @@ import (
 
 // startCardDAV creates and starts the CardDAV server
 func (s *Server) startCardDAV() {
-	if !s.config.CardDAV.Enabled {
+	if !s.cfg().CardDAV.Enabled {
 		return
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.config.CardDAV.Bind, s.config.CardDAV.Port)
-	carddavDataDir := filepath.Join(s.config.Server.DataDir, "carddav")
+	addr := fmt.Sprintf("%s:%d", s.cfg().CardDAV.Bind, s.cfg().CardDAV.Port)
+	carddavDataDir := filepath.Join(s.cfg().Server.DataDir, "carddav")
 
 	carddavServer := carddav.NewServer(carddavDataDir, s.logger)
 	// Set auth handler - use same auth as submission SMTP

@@ -53,16 +53,16 @@ func (s *Server) recompileSieveForEmail(email string) error {
 
 // startJMAP creates and starts the JMAP server
 func (s *Server) startJMAP() {
-	if !s.config.JMAP.Enabled {
+	if !s.cfg().JMAP.Enabled {
 		return
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.config.JMAP.Bind, s.config.JMAP.Port)
+	addr := fmt.Sprintf("%s:%d", s.cfg().JMAP.Bind, s.cfg().JMAP.Port)
 
 	jmapConfig := jmap.Config{
-		JWTSecret:   s.config.Security.JWTSecret,
+		JWTSecret:   s.cfg().Security.JWTSecret,
 		TokenExpiry: 24 * time.Hour,
-		CorsOrigins: s.config.JMAP.CorsOrigins,
+		CorsOrigins: s.cfg().JMAP.CorsOrigins,
 		AuthorizeUser: func(email string) error {
 			user, domain := parseEmail(email)
 			account, err := s.database.GetAccount(domain, user)
