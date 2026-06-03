@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
   CalendarDays,
   ListTodo,
+  StickyNote,
   Users,
   Search,
   Mail,
@@ -78,6 +79,7 @@ const mainNavItems: NavItem[] = [
   { icon: Users, label: "Contacts", path: "/contacts" },
   { icon: CalendarDays, label: "Calendar", path: "/calendar" },
   { icon: ListTodo, label: "Tasks", path: "/tasks" },
+  { icon: StickyNote, label: "Notes", path: "/notes" },
   { icon: Filter, label: "Filters", path: "/filters" },
 ]
 

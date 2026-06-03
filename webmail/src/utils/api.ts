@@ -89,6 +89,16 @@ export interface Task {
 
 export type TaskInput = Omit<Task, "uid"> & { uid?: string }
 
+export interface Note {
+  id: string
+  title: string
+  body: string
+  created?: string
+  updated?: string
+}
+
+export type NoteInput = { title: string; body: string }
+
 export interface Delegation {
   id: string
   owner: string
@@ -748,6 +758,23 @@ class API {
 
   async deleteTask(uid: string): Promise<void> {
     await this.delete(`/tasks/${encodeURIComponent(uid)}`)
+  }
+
+  // Notes (Outlook IPM.StickyNote, shared with EWS/IMAP/JMAP via the Notes folder)
+  async getNotes(): Promise<{ notes?: Note[] }> {
+    return this.get<{ notes?: Note[] }>('/notes')
+  }
+
+  async createNote(note: NoteInput): Promise<Note> {
+    return this.post<Note>('/notes', note)
+  }
+
+  async updateNote(id: string, note: NoteInput): Promise<Note> {
+    return this.put<Note>(`/notes/${encodeURIComponent(id)}`, note)
+  }
+
+  async deleteNote(id: string): Promise<void> {
+    await this.delete(`/notes/${encodeURIComponent(id)}`)
   }
 
   // Generic methods
