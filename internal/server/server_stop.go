@@ -22,6 +22,10 @@ func (s *Server) Stop() error {
 	// Signal cancellation
 	s.cancel()
 
+	// Stop config hot-reload (file watcher + SIGHUP handler) so no reload races
+	// the shutdown.
+	s.stopConfigReload()
+
 	// Close search indexing work queue to drain workers (once only)
 	s.stopOnce.Do(func() { close(s.indexWork) })
 

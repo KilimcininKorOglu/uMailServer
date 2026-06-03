@@ -50,6 +50,8 @@ type Server struct {
 	config            atomic.Pointer[config.Config]
 	reloadMu          sync.Mutex
 	configPath        string
+	configWatcher     *config.Watcher
+	sighupCh          chan os.Signal
 	logger            *slog.Logger
 	database          *db.DB
 	queue             *queue.Manager

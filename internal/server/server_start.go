@@ -80,5 +80,9 @@ func (s *Server) Start() error {
 	s.startAPI()
 	s.startMetrics()
 
+	// Enable live config reload from disk (file watch + SIGHUP) now that every
+	// service and the admin API are up.
+	s.startConfigReload()
+
 	return nil
 }
