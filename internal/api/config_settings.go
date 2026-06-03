@@ -58,6 +58,16 @@ func (s *Server) SetConfigManager(cfg *config.Config, path string) {
 	s.configPath = path
 }
 
+// SetConfigReloader registers the callback that applies a persisted config
+// change to the running server. When set, a successful PUT applies the change
+// live through it and reports the reloader's section-level result, so the admin
+// sees what actually took effect rather than the DTO's static guess.
+func (s *Server) SetConfigReloader(fn func(newCfg *config.Config) (applied, restartRequired []string)) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	s.configReloader = fn
+}
+
 // handleConfig handles GET/PUT /api/v1/admin/config.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -124,9 +134,18 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hot-apply the rate limit (the only setting that can take effect live) and
-	// swap the live config to the clone so subsequent GETs reflect the change.
-	if slices.Contains(applied, "max_emails_per_hour") && s.rateLimitMgr != nil {
+	s.configMu.Lock()
+	reloader := s.configReloader
+	s.configMu.Unlock()
+
+	if reloader != nil {
+		// The running server applies the change live and is the source of truth
+		// for what took effect, so its section-level result supersedes the DTO's
+		// static field-level classification.
+		applied, restart = reloader(clone)
+	} else if slices.Contains(applied, "max_emails_per_hour") && s.rateLimitMgr != nil {
+		// Standalone fallback (no reloader wired, e.g. in tests): hot-apply the
+		// one setting the API can change on its own.
 		rl := s.rateLimitMgr.GetConfig()
 		if rl != nil {
 			newRL := *rl
@@ -134,6 +153,8 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 			s.rateLimitMgr.SetConfig(&newRL)
 		}
 	}
+
+	// Swap the live config to the clone so subsequent GETs reflect the change.
 	s.configMu.Lock()
 	s.liveConfig = clone
 	s.configMu.Unlock()

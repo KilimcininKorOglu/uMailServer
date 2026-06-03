@@ -97,6 +97,9 @@ func (s *Server) startAPI() {
 	s.apiServer.SetAPIRateLimit(s.cfg().Security.RateLimit.HTTPRequestsPerMinute)
 	// Expose the loaded config + its file path to the admin Settings API.
 	s.apiServer.SetConfigManager(s.cfg(), s.configPath)
+	// Let the admin Settings PUT apply changes to the running server live and
+	// report what took effect versus what needs a restart.
+	s.apiServer.SetConfigReloader(s.ReloadConfig)
 
 	// Wire EWS SOAP handler into the API server.
 	// This requires semcoreStore to be initialized (done in server.go startup).

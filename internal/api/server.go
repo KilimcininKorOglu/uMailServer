@@ -138,6 +138,11 @@ type Server struct {
 	configMu   sync.Mutex
 	liveConfig *config.Config
 	configPath string
+	// configReloader, when set, applies a persisted config change to the running
+	// server live and returns the sections that took effect versus those that
+	// need a restart. It makes the running server (not the DTO's static
+	// classification) the source of truth for the PUT response.
+	configReloader func(newCfg *config.Config) (applied, restartRequired []string)
 
 	// HTTP router (cached)
 	router http.Handler
