@@ -246,8 +246,8 @@ func (s *Server) Start() error {
 	s.listeners = append(s.listeners, listener)
 	s.running.Store(true)
 
-	s.logger.Info("IMAP server started", "addr", s.addr)
-
+	// The server orchestrator (internal/server) logs the uniform "IMAP server
+	// started" line for every protocol; logging it here too would duplicate it.
 	go s.acceptLoop(listener)
 
 	return nil

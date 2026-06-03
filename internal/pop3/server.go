@@ -287,8 +287,8 @@ func (s *Server) Start() error {
 	s.listener = listener
 	s.running.Store(true)
 
-	s.logger.Info("POP3 server started", "addr", s.addr)
-
+	// The server orchestrator (internal/server) logs the uniform "POP3 server
+	// started" line for every protocol; logging it here too would duplicate it.
 	go s.acceptLoop()
 
 	return nil
