@@ -1250,7 +1250,7 @@ func TestHandleSearch(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleSearch([]string{"ALL"}, "")
+	err := session.handleSearch([]string{"ALL"}, "", false)
 	if err != nil {
 		t.Errorf("handleSearch failed: %v", err)
 	}
@@ -1270,7 +1270,7 @@ func TestHandleSearchNoMailbox(t *testing.T) {
 	session.user = "test"
 	session.selected = nil
 
-	err := session.handleSearch([]string{"ALL"}, "")
+	err := session.handleSearch([]string{"ALL"}, "", false)
 	if err != nil {
 		t.Errorf("handleSearch failed: %v", err)
 	}
@@ -1290,7 +1290,7 @@ func TestHandleFetch(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleFetch([]string{"1:*", "FLAGS"}, "")
+	err := session.handleFetch([]string{"1:*", "FLAGS"}, "", false)
 	if err != nil {
 		t.Errorf("handleFetch failed: %v", err)
 	}
@@ -1310,7 +1310,7 @@ func TestHandleFetchMissingArgs(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleFetch([]string{"1"}, "")
+	err := session.handleFetch([]string{"1"}, "", false)
 	if err != nil {
 		t.Errorf("handleFetch failed: %v", err)
 	}
@@ -1330,7 +1330,7 @@ func TestHandleFetchNoMailbox(t *testing.T) {
 	session.user = "test"
 	session.selected = nil
 
-	err := session.handleFetch([]string{"1:*", "FLAGS"}, "")
+	err := session.handleFetch([]string{"1:*", "FLAGS"}, "", false)
 	if err != nil {
 		t.Errorf("handleFetch failed: %v", err)
 	}
@@ -1350,7 +1350,7 @@ func TestHandleStore(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleStore([]string{"1:*", "+FLAGS", "(\\Seen)"})
+	err := session.handleStore([]string{"1:*", "+FLAGS", "(\\Seen)"}, false)
 	if err != nil {
 		t.Errorf("handleStore failed: %v", err)
 	}
@@ -1370,7 +1370,7 @@ func TestHandleStoreMissingArgs(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleStore([]string{"1", "+FLAGS"})
+	err := session.handleStore([]string{"1", "+FLAGS"}, false)
 	if err != nil {
 		t.Errorf("handleStore failed: %v", err)
 	}
@@ -1390,7 +1390,7 @@ func TestHandleStoreNoMailbox(t *testing.T) {
 	session.user = "test"
 	session.selected = nil
 
-	err := session.handleStore([]string{"1:*", "+FLAGS", "(\\Seen)"})
+	err := session.handleStore([]string{"1:*", "+FLAGS", "(\\Seen)"}, false)
 	if err != nil {
 		t.Errorf("handleStore failed: %v", err)
 	}
@@ -1410,7 +1410,7 @@ func TestHandleStoreInvalidOperation(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleStore([]string{"1:*", "INVALID", "(\\Seen)"})
+	err := session.handleStore([]string{"1:*", "INVALID", "(\\Seen)"}, false)
 	if err != nil {
 		t.Errorf("handleStore failed: %v", err)
 	}
@@ -1430,7 +1430,7 @@ func TestHandleCopy(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleCopy([]string{"1:*", "Sent"})
+	err := session.handleCopy([]string{"1:*", "Sent"}, false)
 	if err != nil {
 		t.Errorf("handleCopy failed: %v", err)
 	}
@@ -1450,7 +1450,7 @@ func TestHandleCopyMissingArgs(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleCopy([]string{"1:*"})
+	err := session.handleCopy([]string{"1:*"}, false)
 	if err != nil {
 		t.Errorf("handleCopy failed: %v", err)
 	}
@@ -1470,7 +1470,7 @@ func TestHandleCopyNoMailbox(t *testing.T) {
 	session.user = "test"
 	session.selected = nil
 
-	err := session.handleCopy([]string{"1:*", "Sent"})
+	err := session.handleCopy([]string{"1:*", "Sent"}, false)
 	if err != nil {
 		t.Errorf("handleCopy failed: %v", err)
 	}
@@ -1490,7 +1490,7 @@ func TestHandleMove(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleMove([]string{"1:*", "Archive"})
+	err := session.handleMove([]string{"1:*", "Archive"}, false)
 	if err != nil {
 		t.Errorf("handleMove failed: %v", err)
 	}
@@ -1510,7 +1510,7 @@ func TestHandleMoveMissingArgs(t *testing.T) {
 	session.user = "test"
 	session.selected = &Mailbox{Name: "INBOX"}
 
-	err := session.handleMove([]string{"1:*"})
+	err := session.handleMove([]string{"1:*"}, false)
 	if err != nil {
 		t.Errorf("handleMove failed: %v", err)
 	}
@@ -1530,7 +1530,7 @@ func TestHandleMoveNoMailbox(t *testing.T) {
 	session.user = "test"
 	session.selected = nil
 
-	err := session.handleMove([]string{"1:*", "Archive"})
+	err := session.handleMove([]string{"1:*", "Archive"}, false)
 	if err != nil {
 		t.Errorf("handleMove failed: %v", err)
 	}
@@ -1539,6 +1539,128 @@ func TestHandleMoveNoMailbox(t *testing.T) {
 	if !strings.Contains(written, "NO") {
 		t.Errorf("expected NO response when no mailbox selected, got: %s", written)
 	}
+}
+
+// TestHandleUIDCommands_TargetByUID proves UID FETCH/SEARCH/STORE/COPY operate
+// on UIDs, not sequence numbers, once a deletion makes the two diverge. The
+// mailbox starts with UIDs 1..4; expunging UID 1 leaves UIDs {2,3,4} at
+// sequence numbers {1,2,3}. A seq-based implementation would target the wrong
+// message for every command below.
+func TestHandleUIDCommands_TargetByUID(t *testing.T) {
+	tmpDir := t.TempDir()
+	ms, err := NewBboltMailstore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewBboltMailstore: %v", err)
+	}
+	defer func() {
+		if cerr := ms.Close(); cerr != nil {
+			t.Errorf("ms.Close: %v", cerr)
+		}
+	}()
+
+	user := "testuser"
+	mbox := "INBOX"
+	if err := ms.CreateMailbox(user, mbox); err != nil {
+		t.Fatalf("CreateMailbox: %v", err)
+	}
+	if err := ms.CreateMailbox(user, "Archive"); err != nil {
+		t.Fatalf("CreateMailbox Archive: %v", err)
+	}
+
+	for _, subj := range []string{"m1", "m2", "m3", "m4"} {
+		body := []byte("From: a@b.com\r\nSubject: " + subj + "\r\n\r\nBody " + subj)
+		if err := ms.AppendMessage(user, mbox, nil, time.Now(), body); err != nil {
+			t.Fatalf("AppendMessage %s: %v", subj, err)
+		}
+	}
+
+	// Expunge UID 1 to open a gap: UIDs become {2,3,4} at sequence {1,2,3}.
+	if err := ms.StoreFlags(user, mbox, "1", []string{"\\Deleted"}, FlagAdd); err != nil {
+		t.Fatalf("StoreFlags delete UID 1: %v", err)
+	}
+	if err := ms.Expunge(user, mbox); err != nil {
+		t.Fatalf("Expunge: %v", err)
+	}
+
+	newSession := func() (*Session, *mockConn) {
+		mock := newMockConn("")
+		server := NewServer(&Config{Addr: ":1143"}, ms)
+		session := NewSession(mock, server)
+		session.tag = "A1"
+		session.state = StateSelected
+		session.user = user
+		session.selected = &Mailbox{Name: mbox}
+		return session, mock
+	}
+
+	// UID FETCH 2 must fetch the message whose UID is 2 (sequence 1), and the
+	// response must implicitly carry "UID 2". A seq-based handler would treat
+	// "2" as sequence 2 and return UID 3.
+	t.Run("fetch", func(t *testing.T) {
+		session, mock := newSession()
+		if err := session.handleUIDFetch([]string{"2", "FLAGS"}, ""); err != nil {
+			t.Fatalf("handleUIDFetch: %v", err)
+		}
+		written := mock.Written()
+		if !strings.Contains(written, "UID 2") {
+			t.Errorf("UID FETCH 2 must return UID 2, got: %s", written)
+		}
+		if strings.Contains(written, "UID 3") {
+			t.Errorf("UID FETCH 2 must not return UID 3 (seq-based bug), got: %s", written)
+		}
+		if !strings.Contains(written, "1 FETCH") {
+			t.Errorf("UID 2 is at sequence 1, expected '1 FETCH', got: %s", written)
+		}
+	})
+
+	// UID SEARCH ALL must report UIDs {2,3,4}, not sequence numbers {1,2,3}.
+	t.Run("search", func(t *testing.T) {
+		session, mock := newSession()
+		if err := session.handleUIDSearch([]string{"ALL"}, ""); err != nil {
+			t.Fatalf("handleUIDSearch: %v", err)
+		}
+		written := mock.Written()
+		if !strings.Contains(written, "SEARCH 2 3 4") {
+			t.Errorf("UID SEARCH ALL must return UIDs '2 3 4', got: %s", written)
+		}
+	})
+
+	// UID STORE 4 must flag the message whose UID is 4 (sequence 3), leaving
+	// UIDs 2 and 3 untouched.
+	t.Run("store", func(t *testing.T) {
+		session, _ := newSession()
+		if err := session.handleUIDStore([]string{"4", "+FLAGS", "(\\Flagged)"}); err != nil {
+			t.Fatalf("handleUIDStore: %v", err)
+		}
+		msgs, ferr := ms.FetchMessages(user, mbox, "1:*", []string{"FLAGS"})
+		if ferr != nil {
+			t.Fatalf("FetchMessages: %v", ferr)
+		}
+		for _, m := range msgs {
+			flagged := hasFlag(m.Flags, "\\Flagged")
+			if m.UID == 4 && !flagged {
+				t.Errorf("UID 4 should be \\Flagged, flags=%v", m.Flags)
+			}
+			if m.UID != 4 && flagged {
+				t.Errorf("UID %d should not be \\Flagged (only UID 4 was targeted), flags=%v", m.UID, m.Flags)
+			}
+		}
+	})
+
+	// UID COPY 3 must copy the message whose UID is 3 (subject m3) to Archive.
+	t.Run("copy", func(t *testing.T) {
+		session, _ := newSession()
+		if err := session.handleUIDCopy([]string{"3", "Archive"}); err != nil {
+			t.Fatalf("handleUIDCopy: %v", err)
+		}
+		msgs, ferr := ms.FetchMessages(user, "Archive", "1:*", nil)
+		if ferr != nil {
+			t.Fatalf("FetchMessages Archive: %v", ferr)
+		}
+		if len(msgs) != 1 || msgs[0].Subject != "m3" {
+			t.Errorf("UID COPY 3 should copy subject m3 to Archive, got: %+v", msgs)
+		}
+	})
 }
 
 func TestHandleUID(t *testing.T) {

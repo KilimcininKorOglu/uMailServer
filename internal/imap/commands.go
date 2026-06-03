@@ -163,19 +163,19 @@ func (s *Session) handleSelected(command string, args []string, line string) err
 	case "EXPUNGE":
 		return s.handleExpunge()
 	case "SEARCH":
-		return s.handleSearch(args, line)
+		return s.handleSearch(args, line, false)
 	case "SORT":
 		return s.handleSort(args, line)
 	case "THREAD":
 		return s.handleThread(args, line)
 	case "FETCH":
-		return s.handleFetch(args, line)
+		return s.handleFetch(args, line, false)
 	case "STORE":
-		return s.handleStore(args)
+		return s.handleStore(args, false)
 	case "COPY":
-		return s.handleCopy(args)
+		return s.handleCopy(args, false)
 	case "MOVE":
-		return s.handleMove(args)
+		return s.handleMove(args, false)
 	case "UID":
 		return s.handleUID(args, line)
 	case "IDLE":
@@ -1473,8 +1473,9 @@ func (s *Session) handleExpunge() error {
 	return nil
 }
 
-// SEARCH command
-func (s *Session) handleSearch(args []string, line string) error {
+// SEARCH command. When byUID is true (UID SEARCH), the returned identifiers are
+// UIDs rather than sequence numbers (RFC 3501 §6.4.8).
+func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 	ctx := context.Background()
 
 	// Create tracing span
@@ -1511,6 +1512,23 @@ func (s *Session) handleSearch(args []string, line string) error {
 			tracing.SetStatus(span, tracing.StatusError, "search failed")
 		}
 		return nil
+	}
+
+	// SearchMessages returns message sequence numbers. UID SEARCH must report
+	// UIDs instead (RFC 3501 §6.4.8), so map the sequence numbers to UIDs.
+	if byUID {
+		msgs, _, merr := s.loadUIDOrder(s.selected.Name)
+		if merr == nil {
+			seqToUID := make(map[uint32]uint32, len(msgs))
+			for _, m := range msgs {
+				seqToUID[m.SeqNum] = m.UID
+			}
+			for i, seq := range uids {
+				if u, ok := seqToUID[seq]; ok {
+					uids[i] = u
+				}
+			}
+		}
 	}
 
 	if span != nil {
@@ -1845,7 +1863,9 @@ func (s *Session) handleUIDThread(args []string, line string) error {
 }
 
 // FETCH command
-func (s *Session) handleFetch(args []string, line string) error {
+// FETCH command. When byUID is true (UID FETCH), args[0] is a UID set and the
+// response implicitly includes the UID data item (RFC 3501 §6.4.8).
+func (s *Session) handleFetch(args []string, line string, byUID bool) error {
 	ctx := context.Background()
 
 	// Create tracing span
@@ -1877,6 +1897,29 @@ func (s *Session) handleFetch(args []string, line string) error {
 
 	seqSet := args[0]
 	fetchItems := parseFetchItems(args[1:])
+
+	if byUID {
+		translated, terr := s.uidSetToSeqSet(s.selected.Name, seqSet)
+		if terr != nil {
+			s.WriteResponse(s.tag, fmt.Sprintf("NO %s", terr))
+			if span != nil {
+				tracing.SetStatus(span, tracing.StatusError, "uid set translation failed")
+			}
+			return nil
+		}
+		seqSet = translated
+		// RFC 3501 §6.4.8: a UID FETCH response MUST implicitly include UID.
+		hasUID := false
+		for _, it := range fetchItems {
+			if strings.EqualFold(it, "UID") {
+				hasUID = true
+				break
+			}
+		}
+		if !hasUID {
+			fetchItems = append(fetchItems, "UID")
+		}
+	}
 
 	if span != nil {
 		tracing.SetStringAttribute(span, "fetch.seqset", seqSet)
@@ -1910,8 +1953,9 @@ func (s *Session) handleFetch(args []string, line string) error {
 	return nil
 }
 
-// STORE command
-func (s *Session) handleStore(args []string) error {
+// STORE command. When byUID is true (UID STORE), args[0] is a UID set and the
+// FLAGS responses implicitly include the UID data item (RFC 3501 §6.4.8).
+func (s *Session) handleStore(args []string, byUID bool) error {
 	ctx := context.Background()
 
 	// Create tracing span
@@ -1944,6 +1988,18 @@ func (s *Session) handleStore(args []string) error {
 	seqSet := args[0]
 	operation := strings.ToUpper(args[1]) // FLAGS, +FLAGS, -FLAGS
 	flagsStr := strings.Join(args[2:], " ")
+
+	if byUID {
+		translated, terr := s.uidSetToSeqSet(s.selected.Name, seqSet)
+		if terr != nil {
+			s.WriteResponse(s.tag, fmt.Sprintf("NO %s", terr))
+			if span != nil {
+				tracing.SetStatus(span, tracing.StatusError, "uid set translation failed")
+			}
+			return nil
+		}
+		seqSet = translated
+	}
 
 	// Parse flags
 	flags := parseFlags(flagsStr)
@@ -1980,12 +2036,21 @@ func (s *Session) handleStore(args []string) error {
 		return nil
 	}
 
-	// If not silent, fetch updated messages and output FLAGS responses
+	// If not silent, fetch updated messages and output FLAGS responses. A UID
+	// STORE response implicitly includes the UID data item (RFC 3501 §6.4.8).
 	if !strings.HasSuffix(operation, ".SILENT") {
-		messages, fetchErr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, seqSet, []string{"FLAGS"})
+		fetchItems := []string{"FLAGS"}
+		if byUID {
+			fetchItems = append(fetchItems, "UID")
+		}
+		messages, fetchErr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, seqSet, fetchItems)
 		if fetchErr == nil {
 			for _, msg := range messages {
-				s.WriteData(fmt.Sprintf("%d FETCH (FLAGS (%s))", msg.SeqNum, strings.Join(msg.Flags, " ")))
+				if byUID {
+					s.WriteData(fmt.Sprintf("%d FETCH (UID %d FLAGS (%s))", msg.SeqNum, msg.UID, strings.Join(msg.Flags, " ")))
+				} else {
+					s.WriteData(fmt.Sprintf("%d FETCH (FLAGS (%s))", msg.SeqNum, strings.Join(msg.Flags, " ")))
+				}
 			}
 		}
 	}
@@ -1998,8 +2063,8 @@ func (s *Session) handleStore(args []string) error {
 	return nil
 }
 
-// COPY command
-func (s *Session) handleCopy(args []string) error {
+// COPY command. When byUID is true (UID COPY), args[0] is a UID set.
+func (s *Session) handleCopy(args []string, byUID bool) error {
 	if len(args) < 2 {
 		s.WriteResponse(s.tag, "BAD Missing sequence or destination")
 		return nil
@@ -2012,6 +2077,15 @@ func (s *Session) handleCopy(args []string) error {
 
 	seqSet := args[0]
 	destMailbox := strings.Trim(args[1], "\"'")
+
+	if byUID {
+		translated, terr := s.uidSetToSeqSet(s.selected.Name, seqSet)
+		if terr != nil {
+			s.WriteResponse(s.tag, fmt.Sprintf("NO %s", terr))
+			return nil
+		}
+		seqSet = translated
+	}
 
 	err := s.server.mailstore.CopyMessages(s.user, s.selected.Name, destMailbox, seqSet)
 	if err != nil {
@@ -2023,8 +2097,8 @@ func (s *Session) handleCopy(args []string) error {
 	return nil
 }
 
-// MOVE command
-func (s *Session) handleMove(args []string) error {
+// MOVE command. When byUID is true (UID MOVE), args[0] is a UID set.
+func (s *Session) handleMove(args []string, byUID bool) error {
 	if len(args) < 2 {
 		s.WriteResponse(s.tag, "BAD Missing sequence or destination")
 		return nil
@@ -2038,6 +2112,15 @@ func (s *Session) handleMove(args []string) error {
 	seqSet := args[0]
 	destMailbox := strings.Trim(args[1], "\"'")
 
+	if byUID {
+		translated, terr := s.uidSetToSeqSet(s.selected.Name, seqSet)
+		if terr != nil {
+			s.WriteResponse(s.tag, fmt.Sprintf("NO %s", terr))
+			return nil
+		}
+		seqSet = translated
+	}
+
 	err := s.server.mailstore.MoveMessages(s.user, s.selected.Name, destMailbox, seqSet)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
@@ -2046,6 +2129,50 @@ func (s *Session) handleMove(args []string) error {
 
 	s.WriteResponse(s.tag, "OK MOVE completed")
 	return nil
+}
+
+// loadUIDOrder returns the selected mailbox's messages in ascending UID order
+// (each carrying its 1-based sequence number) plus the highest UID, used to
+// translate between UID sets and sequence sets for UID-prefixed commands
+// (RFC 3501 §6.4.8).
+func (s *Session) loadUIDOrder(mailbox string) ([]*Message, uint32, error) {
+	msgs, err := s.server.mailstore.FetchMessages(s.user, mailbox, "1:*", []string{"UID"})
+	if err != nil {
+		return nil, 0, err
+	}
+	var maxUID uint32
+	for _, m := range msgs {
+		if m.UID > maxUID {
+			maxUID = m.UID
+		}
+	}
+	return msgs, maxUID, nil
+}
+
+// uidSetToSeqSet converts a UID set (e.g. "5:9,12") into the equivalent message
+// sequence set (e.g. "2,3,7") for the messages currently in the mailbox. A UID
+// in the set that no longer exists is simply skipped, and an empty result means
+// the UID command matches nothing — both of which are the correct behavior for
+// UID commands referencing absent UIDs.
+func (s *Session) uidSetToSeqSet(mailbox, uidSet string) (string, error) {
+	ranges, err := ParseSequenceSet(uidSet)
+	if err != nil {
+		return "", err
+	}
+	msgs, maxUID, err := s.loadUIDOrder(mailbox)
+	if err != nil {
+		return "", err
+	}
+	var seqs []string
+	for _, m := range msgs {
+		for _, r := range ranges {
+			if r.Contains(m.UID, maxUID) {
+				seqs = append(seqs, strconv.FormatUint(uint64(m.SeqNum), 10))
+				break
+			}
+		}
+	}
+	return strings.Join(seqs, ","), nil
 }
 
 // UID command (prefix for UID variants)
@@ -2082,28 +2209,28 @@ func (s *Session) handleUID(args []string, line string) error {
 }
 
 func (s *Session) handleUIDFetch(args []string, line string) error {
-	// Same as FETCH but with UIDs
-	return s.handleFetch(args, line)
+	// FETCH whose message set is interpreted as UIDs.
+	return s.handleFetch(args, line, true)
 }
 
 func (s *Session) handleUIDStore(args []string) error {
-	// Same as STORE but with UIDs
-	return s.handleStore(args)
+	// STORE whose message set is interpreted as UIDs.
+	return s.handleStore(args, true)
 }
 
 func (s *Session) handleUIDCopy(args []string) error {
-	// Same as COPY but with UIDs
-	return s.handleCopy(args)
+	// COPY whose message set is interpreted as UIDs.
+	return s.handleCopy(args, true)
 }
 
 func (s *Session) handleUIDMove(args []string) error {
-	// Same as MOVE but with UIDs
-	return s.handleMove(args)
+	// MOVE whose message set is interpreted as UIDs.
+	return s.handleMove(args, true)
 }
 
 func (s *Session) handleUIDSearch(args []string, line string) error {
-	// Same as SEARCH but output UIDs
-	return s.handleSearch(args, line)
+	// SEARCH whose results are reported as UIDs.
+	return s.handleSearch(args, line, true)
 }
 
 // handleUIDExpunge implements RFC 4315 UID EXPUNGE: permanently remove messages
