@@ -37,16 +37,15 @@ interface OOFSettings {
   internalOnly: boolean;
 }
 
-// Display labels for the flat rate-limit config fields. The backend exposes a
-// single global config (no per-policy enable flags), so these are read-only.
-// Read the rate-limiting values from the same /admin/config source that the
-// Settings page edits, so the two screens stay consistent. The live rate-limit
-// manager endpoint (/admin/ratelimits/config) returns 503 when the manager is
-// not enabled, which is what produced the "not available" empty state here.
-const RATE_LIMIT_FIELDS: { key: keyof ServerConfig; label: string; description: string }[] = [
-  { key: "max_emails_per_hour", label: "Max emails per user", description: "per hour" },
-  { key: "max_login_attempts", label: "Max auth attempts", description: "before lockout" },
-];
+// rateLimitFields reads the throttling values shown here from the same
+// /admin/config source the Settings page edits, so the two screens stay
+// consistent. Read-only here (edit them under Settings → Security).
+function rateLimitFields(cfg: ServerConfig): { label: string; description: string; value: number }[] {
+  return [
+    { label: "Max emails per user", description: "per hour", value: cfg.security.rate_limit.user_per_hour },
+    { label: "Max auth attempts", description: "before lockout", value: cfg.security.max_login_attempts },
+  ];
+}
 
 export function Policies() {
   const { rules, loading: rulesLoading, fetchRules, toggleRule, deleteRule } = useAdminRules();
@@ -78,10 +77,10 @@ export function Policies() {
     if (!rateLimitConfig) return;
     setOofSettings((prev) => ({
       ...prev,
-      enabled: rateLimitConfig.oof_default_enabled,
-      internalOnly: rateLimitConfig.oof_internal_only,
-      subject: rateLimitConfig.oof_default_subject,
-      message: rateLimitConfig.oof_default_message,
+      enabled: rateLimitConfig.oof.default_enabled,
+      internalOnly: rateLimitConfig.oof.internal_only,
+      subject: rateLimitConfig.oof.default_subject,
+      message: rateLimitConfig.oof.default_message,
     }));
   }, [rateLimitConfig]);
 
@@ -91,10 +90,13 @@ export function Policies() {
     try {
       await updateConfig({
         ...rateLimitConfig,
-        oof_default_enabled: oofSettings.enabled,
-        oof_internal_only: oofSettings.internalOnly,
-        oof_default_subject: oofSettings.subject,
-        oof_default_message: oofSettings.message,
+        oof: {
+          ...rateLimitConfig.oof,
+          default_enabled: oofSettings.enabled,
+          internal_only: oofSettings.internalOnly,
+          default_subject: oofSettings.subject,
+          default_message: oofSettings.message,
+        },
       });
       await fetchRateLimitConfig().catch(() => {});
       setFormError(null);
@@ -374,9 +376,9 @@ export function Policies() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {RATE_LIMIT_FIELDS.map((field) => (
+                  {rateLimitFields(rateLimitConfig).map((field) => (
                     <div
-                      key={field.key}
+                      key={field.label}
                       className="flex items-center justify-between p-4 rounded-lg border"
                     >
                       <div className="flex items-center gap-3">
@@ -388,7 +390,7 @@ export function Policies() {
                           <div className="text-sm text-muted-foreground">{field.description}</div>
                         </div>
                       </div>
-                      <Badge variant="secondary">{rateLimitConfig[field.key]}</Badge>
+                      <Badge variant="secondary">{field.value}</Badge>
                     </div>
                   ))}
                 </div>

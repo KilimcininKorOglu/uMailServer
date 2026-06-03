@@ -405,31 +405,51 @@ describe('Job type', () => {
 })
 
 describe('ServerConfig type', () => {
-  it('accepts a valid server config', () => {
+  it('accepts a valid typed per-section server config', () => {
     const cfg: ServerConfig = {
-      hostname: 'mail.example.com',
-      data_dir: '/var/lib/umailserver',
-      smtp_port: 25,
-      submission_port: 587,
-      imap_port: 993,
-      max_message_size_mb: 50,
-      max_recipients: 100,
-      max_emails_per_hour: 1000,
-      greylisting_enabled: true,
-      auto_tls: true,
-      require_tls_smtp: true,
-      dkim_signing: true,
-      max_login_attempts: 5,
-      oof_default_enabled: false,
-      oof_internal_only: false,
-      oof_default_subject: 'Out of Office',
-      oof_default_message: 'I am away.',
-      notify_queue_alerts: true,
-      notify_security_alerts: true,
-      notify_weekly_reports: false,
+      server: { hostname: 'mail.example.com', data_dir: '/var/lib/umailserver', graceful_timeout_secs: 30, force_close_after_secs: 60 },
+      tls: {
+        acme: { enabled: true, email: 'admin@example.com', provider: 'letsencrypt', challenge: 'http-01', dns_provider: '' },
+        cert_file: '', key_file: '', min_version: '1.2',
+        client_auth: { enabled: false, require_cert: false, ca_file: '', verify_mode: '' },
+      },
+      smtp: {
+        inbound: { enabled: true, port: 25, bind: '0.0.0.0', max_message_size_mb: 50, max_recipients: 100, max_connections: 100, read_timeout_secs: 600, write_timeout_secs: 600 },
+        submission: { enabled: true, port: 587, bind: '0.0.0.0', require_auth: true, require_tls: true, max_connections: 100 },
+        submission_tls: { enabled: false, port: 465, bind: '0.0.0.0', require_auth: true, max_connections: 100 },
+      },
+      imap: { enabled: true, port: 993, bind: '0.0.0.0', starttls_port: 143, idle_timeout_secs: 1800, max_connections: 100 },
+      pop3: { enabled: false, port: 995, bind: '0.0.0.0', max_connections: 50 },
+      http: { enabled: true, port: 8443, http_port: 8080, bind: '0.0.0.0', cors_origins: [], trusted_proxies: [] },
+      admin: { enabled: true, port: 8444, bind: '127.0.0.1' },
+      spam: { enabled: true, reject_threshold: 10, junk_threshold: 5, quarantine_threshold: 8, bayesian_enabled: true, bayesian_auto_train: true, greylisting_enabled: true, greylist_delay_secs: 60, rbl_servers: [] },
+      av: { enabled: false, addr: '127.0.0.1:3310', timeout_secs: 30, action: 'reject' },
+      security: {
+        max_login_attempts: 5, lockout_secs: 900, disable_legacy_jwt: false, spf_cache_ttl_secs: 300,
+        rate_limit: { ip_per_minute: 60, ip_per_hour: 1000, ip_per_day: 10000, ip_connections: 10, user_per_minute: 30, user_per_hour: 500, user_per_day: 5000, user_max_recipients: 100, global_per_minute: 600, global_per_hour: 10000, smtp_per_minute: 30, smtp_per_hour: 500, imap_connections: 20, http_requests_per_minute: 120 },
+        audit_log: { path: '', max_size_mb: 10, max_backups: 5, max_age_days: 30 },
+      },
+      ldap: { enabled: false, url: '', bind_dn: '', base_dn: '', user_filter: '', email_attribute: '', name_attribute: '', group_attribute: '', admin_groups: [], start_tls: false, skip_verify: false, root_ca: '', timeout_secs: 10 },
+      mcp: { enabled: false, port: 3000, bind: '0.0.0.0' },
+      managesieve: { enabled: true, port: 4190, bind: '0.0.0.0' },
+      logging: { level: 'info', format: 'json', output: 'stdout', max_size_mb: 10, max_backups: 5, max_age_days: 30 },
+      metrics: { enabled: true, port: 8081, bind: '0.0.0.0', path: '/metrics' },
+      tracing: { enabled: false, service_name: 'umailserver', exporter: 'noop', otlp_endpoint: '', environment: 'production', sample_rate: 1 },
+      database: { path: '' },
+      storage: { sync: true, shared_folders: false },
+      caldav: { enabled: true, port: 8090, bind: '0.0.0.0' },
+      carddav: { enabled: true, port: 8091, bind: '0.0.0.0' },
+      jmap: { enabled: false, port: 8092, bind: '0.0.0.0', cors_origins: [] },
+      dmarc: { enabled: false, org_name: '', from_email: '', report_email: '', interval: '24h' },
+      alert: { enabled: false, webhook_url: '', smtp_server: '', smtp_port: 587, smtp_username: '', from_address: '', to_addresses: [], use_tls: true, min_interval_secs: 300, max_alerts: 10, disk_threshold: 90, memory_threshold: 90, error_threshold: 5, tls_warning_days: 14, queue_threshold: 1000, allow_private_ip: false },
+      push: { enabled: false, subject: '', vapid_public_key: '' },
+      signing: { enabled: true, key_dir: '' },
+      oof: { default_enabled: false, internal_only: false, default_subject: 'Out of Office', default_message: 'I am away.' },
+      notifications: { queue_alerts: true, security_alerts: true, weekly_reports: false },
     }
-    expect(cfg.hostname).toBe('mail.example.com')
-    expect(cfg.smtp_port).toBe(25)
-    expect(cfg.dkim_signing).toBe(true)
+    expect(cfg.server.hostname).toBe('mail.example.com')
+    expect(cfg.smtp.inbound.port).toBe(25)
+    expect(cfg.signing.enabled).toBe(true)
+    expect(cfg.pop3.enabled).toBe(false)
   })
 })

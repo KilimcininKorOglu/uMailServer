@@ -230,25 +230,309 @@ export interface Job {
   error?: string;
 }
 
-export interface ServerConfig {
-  hostname: string;
-  data_dir: string;
-  smtp_port: number;
-  submission_port: number;
-  imap_port: number;
+// ServerConfig mirrors the backend serverConfigDTO (internal/api/config_settings.go):
+// a typed, per-section, secrets-free view of the server configuration. Secrets
+// (JWT/TOTP keys, LDAP bind password, MCP auth tokens, alert SMTP password and
+// webhook headers, VAPID private key) are intentionally absent. Durations are in
+// whole seconds and message sizes in whole megabytes.
+export interface AcmeConfig {
+  enabled: boolean;
+  email: string;
+  provider: string;
+  challenge: string;
+  dns_provider: string;
+}
+
+export interface ClientAuthConfig {
+  enabled: boolean;
+  require_cert: boolean;
+  ca_file: string;
+  verify_mode: string;
+}
+
+export interface TLSConfig {
+  acme: AcmeConfig;
+  cert_file: string;
+  key_file: string;
+  min_version: string;
+  client_auth: ClientAuthConfig;
+}
+
+export interface InboundSMTPConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
   max_message_size_mb: number;
   max_recipients: number;
-  max_emails_per_hour: number;
+  max_connections: number;
+  read_timeout_secs: number;
+  write_timeout_secs: number;
+}
+
+export interface SubmissionSMTPConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  require_auth: boolean;
+  require_tls: boolean;
+  max_connections: number;
+}
+
+export interface SubmissionTLSConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  require_auth: boolean;
+  max_connections: number;
+}
+
+export interface SMTPConfig {
+  inbound: InboundSMTPConfig;
+  submission: SubmissionSMTPConfig;
+  submission_tls: SubmissionTLSConfig;
+}
+
+export interface IMAPConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  starttls_port: number;
+  idle_timeout_secs: number;
+  max_connections: number;
+}
+
+export interface POP3Config {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  max_connections: number;
+}
+
+export interface HTTPConfig {
+  enabled: boolean;
+  port: number;
+  http_port: number;
+  bind: string;
+  cors_origins: string[];
+  trusted_proxies: string[];
+}
+
+export interface AdminConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+}
+
+// ServiceConfig is the shared enable/port/bind shape for ManageSieve, CalDAV,
+// and CardDAV.
+export interface ServiceConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+}
+
+export interface SpamConfig {
+  enabled: boolean;
+  reject_threshold: number;
+  junk_threshold: number;
+  quarantine_threshold: number;
+  bayesian_enabled: boolean;
+  bayesian_auto_train: boolean;
   greylisting_enabled: boolean;
-  auto_tls: boolean;
-  require_tls_smtp: boolean;
-  dkim_signing: boolean;
+  greylist_delay_secs: number;
+  rbl_servers: string[];
+}
+
+export interface AVConfig {
+  enabled: boolean;
+  addr: string;
+  timeout_secs: number;
+  action: string;
+}
+
+// RateLimitSettings is the settings-DTO view of the rate limit (mirrors the
+// backend rateLimitSectionDTO). It is distinct from RateLimitConfig above, which
+// backs the live rate-limit admin endpoint and carries only the core counters.
+export interface RateLimitSettings {
+  ip_per_minute: number;
+  ip_per_hour: number;
+  ip_per_day: number;
+  ip_connections: number;
+  user_per_minute: number;
+  user_per_hour: number;
+  user_per_day: number;
+  user_max_recipients: number;
+  global_per_minute: number;
+  global_per_hour: number;
+  smtp_per_minute: number;
+  smtp_per_hour: number;
+  imap_connections: number;
+  http_requests_per_minute: number;
+}
+
+export interface AuditLogConfig {
+  path: string;
+  max_size_mb: number;
+  max_backups: number;
+  max_age_days: number;
+}
+
+export interface SecurityConfig {
   max_login_attempts: number;
-  oof_default_enabled: boolean;
-  oof_internal_only: boolean;
-  oof_default_subject: string;
-  oof_default_message: string;
-  notify_queue_alerts: boolean;
-  notify_security_alerts: boolean;
-  notify_weekly_reports: boolean;
+  lockout_secs: number;
+  disable_legacy_jwt: boolean;
+  spf_cache_ttl_secs: number;
+  rate_limit: RateLimitSettings;
+  audit_log: AuditLogConfig;
+}
+
+export interface LDAPConfig {
+  enabled: boolean;
+  url: string;
+  bind_dn: string;
+  base_dn: string;
+  user_filter: string;
+  email_attribute: string;
+  name_attribute: string;
+  group_attribute: string;
+  admin_groups: string[];
+  start_tls: boolean;
+  skip_verify: boolean;
+  root_ca: string;
+  timeout_secs: number;
+}
+
+export interface MCPConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+}
+
+export interface LoggingConfig {
+  level: string;
+  format: string;
+  output: string;
+  max_size_mb: number;
+  max_backups: number;
+  max_age_days: number;
+}
+
+export interface MetricsConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  path: string;
+}
+
+export interface TracingConfig {
+  enabled: boolean;
+  service_name: string;
+  exporter: string;
+  otlp_endpoint: string;
+  environment: string;
+  sample_rate: number;
+}
+
+export interface DatabaseConfig {
+  path: string;
+}
+
+export interface StorageConfig {
+  sync: boolean;
+  shared_folders: boolean;
+}
+
+export interface JMAPConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  cors_origins: string[];
+}
+
+export interface DMARCConfig {
+  enabled: boolean;
+  org_name: string;
+  from_email: string;
+  report_email: string;
+  interval: string;
+}
+
+export interface AlertConfig {
+  enabled: boolean;
+  webhook_url: string;
+  smtp_server: string;
+  smtp_port: number;
+  smtp_username: string;
+  from_address: string;
+  to_addresses: string[];
+  use_tls: boolean;
+  min_interval_secs: number;
+  max_alerts: number;
+  disk_threshold: number;
+  memory_threshold: number;
+  error_threshold: number;
+  tls_warning_days: number;
+  queue_threshold: number;
+  allow_private_ip: boolean;
+}
+
+export interface PushConfig {
+  enabled: boolean;
+  subject: string;
+  vapid_public_key: string;
+}
+
+export interface SigningConfig {
+  enabled: boolean;
+  key_dir: string;
+}
+
+export interface OOFConfig {
+  default_enabled: boolean;
+  internal_only: boolean;
+  default_subject: string;
+  default_message: string;
+}
+
+export interface NotificationsConfig {
+  queue_alerts: boolean;
+  security_alerts: boolean;
+  weekly_reports: boolean;
+}
+
+export interface ServerSettings {
+  hostname: string;
+  data_dir: string;
+  graceful_timeout_secs: number;
+  force_close_after_secs: number;
+}
+
+export interface ServerConfig {
+  server: ServerSettings;
+  tls: TLSConfig;
+  smtp: SMTPConfig;
+  imap: IMAPConfig;
+  pop3: POP3Config;
+  http: HTTPConfig;
+  admin: AdminConfig;
+  spam: SpamConfig;
+  av: AVConfig;
+  security: SecurityConfig;
+  ldap: LDAPConfig;
+  mcp: MCPConfig;
+  managesieve: ServiceConfig;
+  logging: LoggingConfig;
+  metrics: MetricsConfig;
+  tracing: TracingConfig;
+  database: DatabaseConfig;
+  storage: StorageConfig;
+  caldav: ServiceConfig;
+  carddav: ServiceConfig;
+  jmap: JMAPConfig;
+  dmarc: DMARCConfig;
+  alert: AlertConfig;
+  push: PushConfig;
+  signing: SigningConfig;
+  oof: OOFConfig;
+  notifications: NotificationsConfig;
 }
