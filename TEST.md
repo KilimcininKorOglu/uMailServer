@@ -16,6 +16,7 @@
   - `helper-projects/proto_caldav.py` (CalDAV)
   - `helper-projects/proto_carddav.py` (CardDAV)
   - `helper-projects/proto_mapi.py` (MAPI/HTTP — NSPI + OAB)
+  - `helper-projects/proto_notes.py` (Outlook Notes — IPM.StickyNote)
   - `helper-projects/proto_jmap.py` (JMAP)
   - `helper-projects/proto_autodiscover.py` (Autodiscover + Autoconfig)
   - `helper-projects/proto_cross.py` (protokoller arası tutarlılık)
@@ -156,10 +157,19 @@
 
 ### Notlar
 
-- Not ekle
-- Not güncelle
-- Not sil
-  - `helper-projects/exchangelib` tarafında first-class StickyNote item modeli olmadığı için bu bölüm şu an probe + manuel doğrulama gerektirir
+Notlar Exchange modeline uygun şekilde `IPM.StickyNote` sınıflı mesajlar olarak,
+container sınıfı `IPF.StickyNote` olan Notes klasöründe tutulur; ayrı bir EWS Note
+elemanı yoktur, not jenerik bir `<t:Message>` içinde `ItemClass=IPM.StickyNote`
+ile taşınır. `helper-projects/proto_notes.py` raw EWS SOAP ile otomatik kapsar:
+
+- Not ekle — `CreateItem` (Message + `ItemClass=IPM.StickyNote`, Notes klasörüne)
+- Not listele — `FindItem` notu `IPM.StickyNote` sınıfıyla döner
+- Not oku — `GetItem` not konusu, gövdesi ve `ItemClass` değerini döndürür
+- Not sil — `DeleteItem`; ardından `FindItem` notu listelemez
+- `GetFolder(notes)` container sınıfını `IPF.StickyNote` olarak bildirir
+- Not: `helper-projects/exchangelib` tarafında first-class StickyNote item modeli
+  olmadığı için exchangelib uçtan-uca suite'i bu bölümü atlar; kapsam raw-SOAP
+  `proto_notes.py` ile sağlanır
 
 ### Görevler
 
@@ -386,6 +396,7 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 - `helper-projects/proto_caldav.py` — CalDAV: PROPFIND/REPORT, sync-collection/ETag, free/busy, VEVENT CRUD
 - `helper-projects/proto_carddav.py` — CardDAV: PROPFIND, addressbook-query/sync, vCard CRUD
 - `helper-projects/proto_mapi.py` — MAPI/HTTP: NSPI ResolveNames (prefix + tam adres) GAL araması, OAB indirme, Basic-auth gate
+- `helper-projects/proto_notes.py` — Outlook Notes (IPM.StickyNote): GetFolder(notes) IPF.StickyNote, CreateItem/FindItem/GetItem/DeleteItem not yaşam döngüsü
 - `helper-projects/proto_jmap.py` — JMAP: session/capability, Mailbox/get, Email/query+get+set
 - `helper-projects/proto_autodiscover.py` — Autodiscover (Outlook) + Autoconfig (Thunderbird)
 - `helper-projects/proto_cross.py` — protokoller arası tutarlılık (EWS/IMAP/POP3/JMAP aynı mesajı görür)
@@ -396,8 +407,9 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 
 - EWS son kullanıcı akışları + temel protokol kapsamı OTOMATİKTİR. `run_all.py`
   şu suite'leri çalıştırır: IMAP, SMTP, ManageSieve, JMAP, Autodiscover/Autoconfig,
-  POP3, CalDAV, CardDAV, MAPI/HTTP, protokoller arası tutarlılık, ve üç EWS
-  son kullanıcı suite'i (mail, kural/OOF, collaboration). Hepsi yeşil olmalı.
+  POP3, CalDAV, CardDAV, MAPI/HTTP, Notes (IPM.StickyNote), protokoller arası
+  tutarlılık, ve üç EWS son kullanıcı suite'i (mail, kural/OOF, collaboration).
+  Hepsi yeşil olmalı.
 - Henüz otomatik scriptlere BAĞLANMAMIŞ "Genişletilmiş test kapsamı" maddeleri
   (yeni istemci/yapılandırma gerektirir):
   - TLS varyantları: STARTTLS (587/143/110/4190) ve implicit TLS (465/993/995/8443),

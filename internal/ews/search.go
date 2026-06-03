@@ -377,6 +377,7 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 					CK: rec.ChangeKey.String(),
 				},
 				ParentFolderID:   FolderIdComponents{ID: folderID.String()},
+				ItemClass:        rawHeaderValue(rawMsg, "X-Message-Class"),
 				Subject:          subject,
 				DateTimeReceived: dateStr,
 				Size:             len(rawMsg),

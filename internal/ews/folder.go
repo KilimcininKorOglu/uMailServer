@@ -191,10 +191,20 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 		DisplayName:      displayName,
 		TotalCount:       0,
 		ChildFolderCount: 0,
-		FolderClass:      "IPF.Note",
+		FolderClass:      folderClassForRole(rec.Role),
 	}
 	msg.Folders = FolderResponseContainer{Folders: []FolderType{fxml}}
 	return msg
+}
+
+// folderClassForRole returns the MAPI container class for a distinguished
+// folder role. Notes folders carry IPF.StickyNote (so Outlook treats their
+// contents as IPM.StickyNote items); every other folder defaults to IPF.Note.
+func folderClassForRole(role string) string {
+	if role == "notes" {
+		return "IPF.StickyNote"
+	}
+	return "IPF.Note"
 }
 
 // errorMsg builds an error FolderResponseMessageType.
@@ -313,7 +323,7 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 			DisplayName:      displayName,
 			TotalCount:       0,
 			ChildFolderCount: 0,
-			FolderClass:      "IPF.Note",
+			FolderClass:      folderClassForRole(f.Role),
 		}
 		matching = append(matching, fxml)
 	}
@@ -608,7 +618,7 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 			FolderID:       FolderIdComponents{ID: folderID.String()},
 			ParentFolderID: FolderIdComponents{ID: rec.ParentID.String()},
 			DisplayName:    displayName,
-			FolderClass:    "IPF.Note",
+			FolderClass:    folderClassForRole(rec.Role),
 		}
 		msg := FolderResponseMessageType{}
 		msg.ResponseClass = "Success"
@@ -1215,7 +1225,7 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 			DisplayName:      displayName,
 			TotalCount:       0,
 			ChildFolderCount: 0,
-			FolderClass:      "IPF.Note",
+			FolderClass:      folderClassForRole(f.Role),
 		}
 		updates = append(updates, fxml)
 	}

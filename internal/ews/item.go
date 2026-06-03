@@ -66,6 +66,7 @@ type CreateItemRequest struct {
 // MessageTypeNew is a message item in a CreateItem request.
 type MessageTypeNew struct {
 	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	ItemClass     string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemClass,omitempty"`
 	Subject       string           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
 	Body          *BodyType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body,omitempty"`
 	ToRecipients  RawRecipients    `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
@@ -272,6 +273,7 @@ type MessageTypeResponse struct {
 	XMLName          xml.Name                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
 	ItemID           ItemIdType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	ParentFolderID   FolderIdComponents          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+	ItemClass        string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemClass,omitempty"`
 	Subject          string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
 	DateTimeReceived string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
 	Size             int                         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
@@ -632,9 +634,15 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 			}
 		}
 		var msg ItemResponseMessageType
-		if sendAndSaveCopy || sendOnly {
+		switch {
+		case sendAndSaveCopy || sendOnly:
 			msg = s.submitMessageItem(ctx, mboxID, ownerEmail, folderID, item, nil, delegateCtx, itemIsSendOnBehalf, sendAndSaveCopy)
-		} else {
+		case isStickyNoteClass(item.ItemClass):
+			// Outlook notes are IPM.StickyNote messages in the Notes folder
+			// (Exchange-faithful). Store them in the notes folder, not the
+			// CreateItem default (drafts), regardless of SavedItemFolderId.
+			msg = s.createNoteItem(ctx, mboxID, ownerEmail, req, item, delegateCtx)
+		default:
 			msg = s.createItemInFolder(ctx, mboxID, ownerEmail, folderID, item, delegateCtx, itemIsSendOnBehalf)
 		}
 		msgs = append(msgs, msg)
@@ -825,6 +833,35 @@ func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxI
 	return s.createRawItemInFolder(ctx, mboxID, mailboxKey, folderID, item.Subject, rawMsg, delegateCtx)
 }
 
+// isStickyNoteClass reports whether an EWS ItemClass identifies an Outlook note.
+// Matches "IPM.StickyNote" and any subclass ("IPM.StickyNote.*"), mirroring
+// Exchange's the item-class prefix match routing for notes.
+func isStickyNoteClass(itemClass string) bool {
+	c := strings.ToLower(strings.TrimSpace(itemClass))
+	return c == "ipm.stickynote" || strings.HasPrefix(c, "ipm.stickynote.")
+}
+
+// createNoteItem stores an Outlook note (IPM.StickyNote). Notes are ordinary
+// messages tagged with an X-Message-Class header, kept in the mailbox's Notes
+// folder — the same model Exchange uses (a note is a message in an IPF.StickyNote
+// folder, with no dedicated EWS element). The stored class round-trips back as
+// ItemClass on GetItem/FindItem.
+func (s *Server) createNoteItem(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, req CreateItemRequest, item *MessageTypeNew, delegateCtx *semcore.DelegateAuditContext) ItemResponseMessageType {
+	folderID := s.resolveCollabTargetFolder(mailboxKey, req, "notes")
+	if folderID.IsZero() {
+		return errorItemMsg("CreateItem", ErrErrorInternalServer, "failed to resolve notes folder")
+	}
+	rawMsg := buildMimeMessageWithHeaders(item, mailboxKey, false, map[string]string{"X-Message-Class": "IPM.StickyNote"})
+	if rawMsg == nil {
+		return errorItemMsg("CreateItem", ErrErrorInternalServer, "failed to build note")
+	}
+	resp := s.createRawItemInFolder(ctx, mboxID, mailboxKey, folderID, item.Subject, rawMsg, delegateCtx)
+	if resp.ResponseClass == "Success" && len(resp.Items.Items) > 0 {
+		resp.Items.Items[0].ItemClass = "IPM.StickyNote"
+	}
+	return resp
+}
+
 func (s *Server) createRawItemInFolder(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, subject string, rawMsg []byte, delegateCtx *semcore.DelegateAuditContext) ItemResponseMessageType {
 	if folderID.IsZero() {
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, "no target folder")
@@ -971,7 +1008,7 @@ func buildMimeMessageWithHeaders(item *MessageTypeNew, defaultFrom string, isSen
 	if item.Subject != "" {
 		buf.WriteString("Subject: " + item.Subject + "\r\n")
 	}
-	for _, name := range []string{"In-Reply-To", "References"} {
+	for _, name := range []string{"In-Reply-To", "References", "X-Message-Class"} {
 		if value := strings.TrimSpace(extraHeaders[name]); value != "" {
 			buf.WriteString(name + ": " + value + "\r\n")
 		}
@@ -1555,6 +1592,7 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 			CK: rec.ChangeKey.String(),
 		},
 		ParentFolderID:   FolderIdComponents{ID: rec.FolderID.String()},
+		ItemClass:        rawHeaderValue(rawMsg, "X-Message-Class"),
 		Subject:          subject,
 		DateTimeReceived: dateStr,
 		Size:             len(rawMsg),
