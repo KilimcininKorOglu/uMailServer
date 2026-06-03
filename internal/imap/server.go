@@ -91,6 +91,11 @@ type Mailstore interface {
 	FetchMessages(user, mailbox string, seqSet string, items []string) ([]*Message, error)
 	StoreFlags(user, mailbox string, seqSet string, flags []string, op FlagOperation) error
 	Expunge(user, mailbox string) error
+	// ExpungeUIDs removes messages that carry the \Deleted flag and whose UID is
+	// contained in the given UID ranges (RFC 4315 UID EXPUNGE). It returns the
+	// message sequence numbers (for untagged EXPUNGE responses) and the matching
+	// UIDs (for search-index cleanup) of the removed messages.
+	ExpungeUIDs(user, mailbox string, ranges []SeqRange) (seqs []uint32, uids []uint32, err error)
 	AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) error
 	SearchMessages(user, mailbox string, criteria SearchCriteria) ([]uint32, error)
 	CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) error

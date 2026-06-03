@@ -63,6 +63,10 @@ func (m *mockMailstore) Expunge(user, mailbox string) error {
 	return nil
 }
 
+func (m *mockMailstore) ExpungeUIDs(user, mailbox string, ranges []SeqRange) ([]uint32, []uint32, error) {
+	return nil, nil, nil
+}
+
 func (m *mockMailstore) AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) error {
 	return nil
 }

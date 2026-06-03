@@ -540,6 +540,70 @@ func (m *BboltMailstore) Expunge(user, mailbox string) error {
 	return nil
 }
 
+// ExpungeUIDs removes messages that carry the \Deleted flag AND whose UID is
+// contained in the given UID ranges (RFC 4315 UID EXPUNGE). It returns the
+// message sequence numbers (1-based position in the ascending UID order, for
+// untagged EXPUNGE responses) and the matching UIDs (for search-index cleanup)
+// of the removed messages.
+func (m *BboltMailstore) ExpungeUIDs(user, mailbox string, ranges []SeqRange) (seqs []uint32, uids []uint32, err error) {
+	// UIDs come back in ascending numeric order (big-endian keys), so the
+	// 1-based index is the message sequence number.
+	allUIDs, err := m.db.GetMessageUIDs(user, mailbox)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(allUIDs) == 0 {
+		return nil, nil, nil
+	}
+
+	// Resolve "*" in the UID set to the highest existing UID.
+	maxUID := uint32(0)
+	for _, uid := range allUIDs {
+		if uid > maxUID {
+			maxUID = uid
+		}
+	}
+
+	for idx, uid := range allUIDs {
+		inSet := false
+		for _, r := range ranges {
+			if r.Contains(uid, maxUID) {
+				inSet = true
+				break
+			}
+		}
+		if !inSet {
+			continue
+		}
+
+		meta, mErr := m.db.GetMessageMetadata(user, mailbox, uid)
+		if mErr != nil {
+			continue
+		}
+
+		if hasFlag(meta.Flags, "\\Deleted") {
+			// Removing the index entry is authoritative for what the mailbox
+			// reports, so only count a message as expunged when it succeeds.
+			if dErr := m.db.DeleteMessage(user, mailbox, uid); dErr != nil {
+				if err == nil {
+					err = dErr
+				}
+				continue
+			}
+			// Best-effort blob cleanup; a failure here only orphans the stored
+			// blob and does not affect mailbox correctness.
+			if dErr := m.msgStore.DeleteMessage(user, meta.MessageID); dErr != nil && err == nil {
+				err = dErr
+			}
+			// #nosec G115 -- sequence number is a small 1-based index
+			seqs = append(seqs, uint32(idx+1))
+			uids = append(uids, uid)
+		}
+	}
+
+	return seqs, uids, err
+}
+
 // parseMessageHeadersExtended extracts headers including threading info
 func parseMessageHeadersExtended(data []byte) (subject, from, to, date, msgID, inReplyTo string, references []string) {
 	// First get basic headers

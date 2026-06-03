@@ -1697,19 +1697,83 @@ func TestHandleUIDSearch(t *testing.T) {
 }
 
 func TestHandleUIDExpunge(t *testing.T) {
+	tmpDir := t.TempDir()
+	ms, err := NewBboltMailstore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewBboltMailstore: %v", err)
+	}
+	defer func() {
+		if cerr := ms.Close(); cerr != nil {
+			t.Errorf("ms.Close: %v", cerr)
+		}
+	}()
+
+	user := "testuser"
+	mbox := "INBOX"
+	if err := ms.CreateMailbox(user, mbox); err != nil {
+		t.Fatalf("CreateMailbox: %v", err)
+	}
+
+	// Append three messages -> sequence numbers / UIDs 1, 2, 3.
+	if err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: One\r\n\r\nBody")); err != nil {
+		t.Fatalf("AppendMessage 1: %v", err)
+	}
+	if err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: Two\r\n\r\nBody")); err != nil {
+		t.Fatalf("AppendMessage 2: %v", err)
+	}
+	if err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: Three\r\n\r\nBody")); err != nil {
+		t.Fatalf("AppendMessage 3: %v", err)
+	}
+
+	// UID 1: \Deleted and inside the expunge set -> must be removed.
+	// UID 2: not deleted -> must survive.
+	// UID 3: \Deleted but OUTSIDE the expunge set -> must survive (RFC 4315).
+	if err := ms.StoreFlags(user, mbox, "1", []string{"\\Deleted"}, FlagAdd); err != nil {
+		t.Fatalf("StoreFlags UID 1: %v", err)
+	}
+	if err := ms.StoreFlags(user, mbox, "3", []string{"\\Deleted"}, FlagAdd); err != nil {
+		t.Fatalf("StoreFlags UID 3: %v", err)
+	}
+
 	mock := newMockConn("")
-	server := NewServer(&Config{Addr: ":1143"}, &mockMailstore{})
+	server := NewServer(&Config{Addr: ":1143"}, ms)
 	session := NewSession(mock, server)
 	session.tag = "A1"
+	session.user = user
+	session.selected = &Mailbox{Name: mbox}
 
-	err := session.handleUIDExpunge([]string{"1:*"})
-	if err != nil {
-		t.Errorf("handleUIDExpunge failed: %v", err)
+	// UID EXPUNGE 1 -> only UID 1 is both \Deleted and in the set.
+	if err := session.handleUIDExpunge([]string{"1"}); err != nil {
+		t.Fatalf("handleUIDExpunge failed: %v", err)
 	}
 
 	written := mock.Written()
 	if !strings.Contains(written, "OK") {
 		t.Errorf("expected OK response, got: %s", written)
+	}
+	// The untagged EXPUNGE response must report the sequence number (1) of the
+	// removed message, not the UID set echoed back.
+	if !strings.Contains(written, "1 EXPUNGE") {
+		t.Errorf("expected untagged '1 EXPUNGE', got: %s", written)
+	}
+
+	// Verify the actual mailbox state: only UID 1 may be gone.
+	msgs, err := ms.FetchMessages(user, mbox, "1:*", nil)
+	if err != nil {
+		t.Fatalf("FetchMessages: %v", err)
+	}
+	surviving := map[uint32]bool{}
+	for _, m := range msgs {
+		surviving[m.UID] = true
+	}
+	if surviving[1] {
+		t.Errorf("UID 1 was \\Deleted and in the set; it must be expunged, surviving=%v", surviving)
+	}
+	if !surviving[2] {
+		t.Errorf("UID 2 was not deleted; it must survive, surviving=%v", surviving)
+	}
+	if !surviving[3] {
+		t.Errorf("UID 3 was \\Deleted but outside the UID set; it must survive, surviving=%v", surviving)
 	}
 }
 
@@ -2920,8 +2984,8 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			},
 		},
 		{
-			name: "Empty args",
-			args: []string{},
+			name:     "Empty args",
+			args:     []string{},
 			expected: SearchCriteria{},
 		},
 	}

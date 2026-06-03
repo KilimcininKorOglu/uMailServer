@@ -2106,8 +2106,47 @@ func (s *Session) handleUIDSearch(args []string, line string) error {
 	return s.handleSearch(args, line)
 }
 
+// handleUIDExpunge implements RFC 4315 UID EXPUNGE: permanently remove messages
+// that both have the \Deleted flag set and whose UID is in the given UID set.
 func (s *Session) handleUIDExpunge(args []string) error {
-	// UID EXPUNGE with sequence set
+	if s.server.mailstore == nil || s.selected == nil {
+		s.WriteResponse(s.tag, "NO No mailbox selected")
+		return nil
+	}
+
+	if len(args) < 1 {
+		s.WriteResponse(s.tag, "BAD UID EXPUNGE requires a UID set")
+		return nil
+	}
+
+	ranges, err := ParseSequenceSet(args[0])
+	if err != nil {
+		s.WriteResponse(s.tag, "BAD Invalid UID set")
+		return nil
+	}
+
+	expungedSeqs, expungedUIDs, err := s.server.mailstore.ExpungeUIDs(s.user, s.selected.Name, ranges)
+	if err != nil {
+		// ExpungeUIDs is best-effort: it removes every message it can and
+		// returns the first error it hit. Log it (fail loud) but still report
+		// the messages that were successfully expunged.
+		s.server.logger.Error("imap uid expunge encountered errors", "user", s.user, "mailbox", s.selected.Name, "error", err)
+	}
+
+	// Notify the search index about expunged messages. The index keys by
+	// folder+uid, so it must receive UIDs (not sequence numbers).
+	if s.server.onExpunge != nil {
+		for _, uid := range expungedUIDs {
+			s.server.onExpunge(s.user, s.selected.Name, uid)
+		}
+	}
+
+	// Send untagged EXPUNGE responses in reverse order (highest sequence number
+	// first) so that the remaining sequence numbers stay valid during output.
+	for i := len(expungedSeqs) - 1; i >= 0; i-- {
+		s.WriteData(fmt.Sprintf("%d EXPUNGE", expungedSeqs[i]))
+	}
+
 	s.WriteResponse(s.tag, "OK UID EXPUNGE completed")
 	return nil
 }
