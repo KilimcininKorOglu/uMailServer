@@ -752,6 +752,7 @@ func (s *Server) initRouter() {
 	if s.taskHandler == nil && s.config.DataDir != "" {
 		s.taskHandler = NewTaskHandler(s.config.DataDir)
 	}
+	s.wireCollabTaskStore()
 	if s.taskHandler != nil {
 		api.HandleFunc("/api/v1/tasks", s.taskHandler.handleTasks)
 		api.HandleFunc("/api/v1/tasks/", s.taskHandler.handleTaskDetail)
@@ -881,6 +882,7 @@ func (s *Server) SetSemcoreStore(store *semcore.Store) {
 	// store so they share one source of truth with EWS and CalDAV/CardDAV.
 	s.wireCollabCalendarStore()
 	s.wireCollabContactsStore()
+	s.wireCollabTaskStore()
 }
 
 // SetSieveManager injects the runtime Sieve manager so the webmail filter

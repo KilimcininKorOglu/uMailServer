@@ -617,3 +617,45 @@ func (s *BoltCollaborationStore) PutTaskIdentityUnsafe(msgKey string, rec *Store
 		return bkt.Put([]byte(msgKey), data)
 	})
 }
+
+// FindTaskByUID locates a stored task in a folder by its iCalendar UID, so a
+// surface that keys on UID (webmail tasks) upserts the same record EWS reads.
+func (s *BoltCollaborationStore) FindTaskByUID(folderID FolderId, icalUID string) (msgKey string, rec *StoredTaskIdentity, found bool, err error) {
+	err = s.db.View(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketTask))
+		c := bkt.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var stored StoredTaskIdentity
+			if uerr := json.Unmarshal(v, &stored); uerr != nil {
+				continue
+			}
+			if stored.FolderID.Equal(folderID) && stored.IcalUID == icalUID {
+				msgKey = string(k)
+				cp := stored
+				rec = &cp
+				found = true
+				return nil
+			}
+		}
+		return nil
+	})
+	return msgKey, rec, found, err
+}
+
+// DeleteTaskByUID removes a task from a folder by its iCalendar UID (idempotent).
+func (s *BoltCollaborationStore) DeleteTaskByUID(folderID FolderId, icalUID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketTask))
+		c := bkt.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var stored StoredTaskIdentity
+			if uerr := json.Unmarshal(v, &stored); uerr != nil {
+				continue
+			}
+			if stored.FolderID.Equal(folderID) && stored.IcalUID == icalUID {
+				return bkt.Delete(k)
+			}
+		}
+		return nil
+	})
+}

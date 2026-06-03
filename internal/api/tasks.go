@@ -17,6 +17,11 @@ import (
 // calendar events. It mirrors CalendarHandler.
 type TaskHandler struct {
 	dataDir string
+	// store is the canonical task store. When set (the semcore-backed
+	// CollabTaskStore), webmail tasks live in the same collaboration "tasks"
+	// folder EWS uses, so a task is identical across both surfaces. When nil it
+	// falls back to the legacy filesystem store (tests / no semcore).
+	store caldav.Store
 }
 
 // NewTaskHandler creates a task REST handler rooted at dataDir.
@@ -24,7 +29,25 @@ func NewTaskHandler(dataDir string) *TaskHandler {
 	return &TaskHandler{dataDir: dataDir}
 }
 
-func (h *TaskHandler) getStorage() *caldav.Storage {
+// SetStore wires the canonical task store (CollabTaskStore).
+func (h *TaskHandler) SetStore(store caldav.Store) {
+	h.store = store
+}
+
+// wireCollabTaskStore points the webmail task handler at the canonical
+// collaboration task store so webmail tasks share one source of truth with EWS
+// (both read/write the role-"tasks" folder). No-op until both are present.
+func (s *Server) wireCollabTaskStore() {
+	if s.semStore == nil || s.taskHandler == nil {
+		return
+	}
+	s.taskHandler.SetStore(caldav.NewCollabTaskStore(s.semStore.Collaboration(), s.semStore.Identity()))
+}
+
+func (h *TaskHandler) getStorage() caldav.Store {
+	if h.store != nil {
+		return h.store
+	}
 	return caldav.NewStorage(filepath.Join(h.dataDir, "caldav"))
 }
 
