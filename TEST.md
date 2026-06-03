@@ -2,12 +2,25 @@
 
 ## Kullanılacak yardımcı proje
 
-- Tüm EWS son kullanıcı test scriptleri `helper-projects/exchangelib` kaynak ağacını doğrudan kullanır.
-- Oluşturulan Python dosyaları:
-  - `helper-projects/exchangelib_end_user_common.py`
+- EWS son kullanıcı test scriptleri `helper-projects/exchangelib` kaynak ağacını doğrudan kullanır.
+- EWS son kullanıcı scriptleri:
+  - `helper-projects/exchangelib_end_user_common.py` (ortak yardımcılar; doğrudan çalıştırılmaz)
   - `helper-projects/exchangelib_end_user_mail.py`
   - `helper-projects/exchangelib_end_user_rules.py`
   - `helper-projects/exchangelib_end_user_collab.py`
+- Protokol probe scriptleri (saf protokol istemcileri, `urllib`/`imaplib`/`poplib`/`smtplib` ile):
+  - `helper-projects/proto_imap.py` (IMAP)
+  - `helper-projects/proto_pop3.py` (POP3)
+  - `helper-projects/proto_smtp.py` (SMTP submission + inbound)
+  - `helper-projects/proto_managesieve.py` (ManageSieve)
+  - `helper-projects/proto_caldav.py` (CalDAV)
+  - `helper-projects/proto_carddav.py` (CardDAV)
+  - `helper-projects/proto_mapi.py` (MAPI/HTTP — NSPI + OAB)
+  - `helper-projects/proto_jmap.py` (JMAP)
+  - `helper-projects/proto_autodiscover.py` (Autodiscover + Autoconfig)
+  - `helper-projects/proto_cross.py` (protokoller arası tutarlılık)
+- Ek probe'lar: `helper-projects/jmap_probe.py`, `helper-projects/jmap_send_probe.py`, `helper-projects/default_folders_probe.py`, `helper-projects/smime_probe.py`.
+- Orkestratör: `helper-projects/run_all.py` tüm protokol + EWS suite'lerini sırayla çalıştırır ve özet basar.
 
 ## Test hesapları
 
@@ -15,7 +28,7 @@
 - `qa.bob@local.test` / `BobPass123!` — karşı taraf kullanıcı
 - `qa.carol@local.test` / `CarolPass123!` — CC/BCC, yönlendirme ve kural doğrulama kullanıcısı
 - `qa.shared@local.test` / `SharedPass123!` — shared mailbox / contact / calendar sahibi
-- `admin@local.test` / `password` — mevcut bootstrap admin hesabı; paylaşımlı erişim grant açmadan önce şifre değişimi gerekebilir
+- `admin@local.test` / `Admin123!` — admin hesabı (paylaşımlı erişim grant'ları için admin paneli)
 
 ## Ön koşullar
 
@@ -31,18 +44,21 @@
 
 ## Script çalıştırma
 
-- Bootstrap:
-  - `python3 -m venv /tmp/umailserver-exchangelib`
-  - `/tmp/umailserver-exchangelib/bin/python -m pip install -e helper-projects/exchangelib`
+- Sanal ortam: tüm scriptler `helper-projects/.venv/bin/python` ile çalıştırılır. Bu venv `exchangelib` ve bağımlılığı `cached_property` ile hazırdır (sistem `python3`'ü PEP 668 nedeniyle `pip install` engelleyebilir).
+  - İlk kurulum gerekirse: `python3 -m venv helper-projects/.venv && helper-projects/.venv/bin/python -m pip install -e helper-projects/exchangelib cached_property`
+- Tüm takım (önerilen):
+  - `helper-projects/.venv/bin/python helper-projects/run_all.py`
 - Mail yaşam döngüsü:
-  - `/tmp/umailserver-exchangelib/bin/python helper-projects/exchangelib_end_user_mail.py`
+  - `helper-projects/.venv/bin/python helper-projects/exchangelib_end_user_mail.py`
 - Kural ve out-of-office:
-  - `/tmp/umailserver-exchangelib/bin/python helper-projects/exchangelib_end_user_rules.py`
+  - `helper-projects/.venv/bin/python helper-projects/exchangelib_end_user_rules.py`
 - Collaboration / contact / calendar / task:
-  - `/tmp/umailserver-exchangelib/bin/python helper-projects/exchangelib_end_user_collab.py`
+  - `helper-projects/.venv/bin/python helper-projects/exchangelib_end_user_collab.py`
+- Protokol probe'ları (tekil):
+  - `helper-projects/.venv/bin/python helper-projects/proto_imap.py` (aynısı pop3 / smtp / managesieve / caldav / carddav / mapi / jmap / autodiscover / cross için)
 - Tek senaryo çalıştırma örnekleri:
-  - `/tmp/umailserver-exchangelib/bin/python helper-projects/exchangelib_end_user_rules.py --scenario rule-live`
-  - `/tmp/umailserver-exchangelib/bin/python helper-projects/exchangelib_end_user_collab.py --scenario shared-mailbox`
+  - `helper-projects/.venv/bin/python helper-projects/exchangelib_end_user_rules.py --scenario rule-live`
+  - `helper-projects/.venv/bin/python helper-projects/exchangelib_end_user_collab.py --scenario shared-mailbox`
 
 ## Son kullanıcı test listesi
 
@@ -160,7 +176,7 @@ quota, queue, backup, audit, webhook, alert, cluster, tls, push). EWS dışında
 protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib`,
 `poplib`, `smtplib`; CalDAV/CardDAV için `requests`/`caldav`; JMAP için HTTP).
 
-### Protokol kapsamı (en büyük boşluk — şu an yalnızca EWS test ediliyor)
+### Protokol kapsamı (IMAP/POP3/SMTP/ManageSieve/CalDAV/CardDAV/MAPI/JMAP/Autodiscover artık `proto_*.py` ile otomatik)
 
 - IMAP (143 / 993)
   - LOGIN, LIST, SELECT/EXAMINE, STATUS
@@ -363,18 +379,40 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
   - Task CRUD
   - Shared mailbox / shared contact / shared calendar
   - Notes probe
+- `helper-projects/proto_imap.py` — IMAP: LOGIN/LIST/SELECT/STATUS, FETCH, STORE bayrak, EXPUNGE, APPEND, COPY/MOVE, UID kararlılığı, IDLE, SUBSCRIBE/LSUB
+- `helper-projects/proto_pop3.py` — POP3: USER/PASS, STAT/LIST/UIDL, RETR/TOP/DELE/RSET, leave-on-server, UIDL kararlılığı
+- `helper-projects/proto_smtp.py` — SMTP submission (AUTH, gönderim, SIZE) + inbound (yerel teslim, relay reddi, geçersiz alıcı)
+- `helper-projects/proto_managesieve.py` — ManageSieve: CAPABILITY/AUTHENTICATE, PUT/GET/LIST/CHECK/SETACTIVE/DELETE, hatalı script reddi
+- `helper-projects/proto_caldav.py` — CalDAV: PROPFIND/REPORT, sync-collection/ETag, free/busy, VEVENT CRUD
+- `helper-projects/proto_carddav.py` — CardDAV: PROPFIND, addressbook-query/sync, vCard CRUD
+- `helper-projects/proto_mapi.py` — MAPI/HTTP: NSPI ResolveNames (prefix + tam adres) GAL araması, OAB indirme, Basic-auth gate
+- `helper-projects/proto_jmap.py` — JMAP: session/capability, Mailbox/get, Email/query+get+set
+- `helper-projects/proto_autodiscover.py` — Autodiscover (Outlook) + Autoconfig (Thunderbird)
+- `helper-projects/proto_cross.py` — protokoller arası tutarlılık (EWS/IMAP/POP3/JMAP aynı mesajı görür)
+- `helper-projects/default_folders_probe.py` — standart klasörlerin tüm protokollerde görünürlüğü
+- `helper-projects/smime_probe.py` — giden S/MIME imzalama
 
 ### Otomasyon durumu
 
-- Yukarıdaki üç script yalnızca EWS son kullanıcı akışlarını kapsar.
-- "Genişletilmiş test kapsamı" başlığındaki maddeler henüz otomatik scriptlere
-  bağlanmamıştır; bunlar için yeni istemciler/scriptler gerekir:
-  - IMAP / POP3 / SMTP submission ve inbound için Python `imaplib`, `poplib`,
-    `smtplib` (TLS varyantlarıyla)
-  - ManageSieve için ham 4190 protokol istemcisi
-  - CalDAV / CardDAV için HTTP (`requests`) veya `caldav` kütüphanesi
-  - JMAP, MAPI/HTTP (NSPI + OAB) ve Autodiscover / Autoconfig için HTTP istemcisi
-  - SPF / DKIM / DMARC, anti-spam, anti-virus, kota ve TLS politikası için
-    sunucu yapılandırması + sentetik mesaj üretimi
-  - Yedekleme / geri yükleme, cluster, audit ve metrics için CLI ve admin API
-    tabanlı doğrulama
+- EWS son kullanıcı akışları + temel protokol kapsamı OTOMATİKTİR. `run_all.py`
+  şu suite'leri çalıştırır: IMAP, SMTP, ManageSieve, JMAP, Autodiscover/Autoconfig,
+  POP3, CalDAV, CardDAV, MAPI/HTTP, protokoller arası tutarlılık, ve üç EWS
+  son kullanıcı suite'i (mail, kural/OOF, collaboration). Hepsi yeşil olmalı.
+- Henüz otomatik scriptlere BAĞLANMAMIŞ "Genişletilmiş test kapsamı" maddeleri
+  (yeni istemci/yapılandırma gerektirir):
+  - TLS varyantları: STARTTLS (587/143/110/4190) ve implicit TLS (465/993/995/8443),
+    sertifika/zincir/SAN ve TLS sürüm/cipher politikası
+  - E-posta kimlik standartları: DKIM imzalama, gelen SPF/DKIM/DMARC değerlendirmesi
+    ve `Authentication-Results`, DMARC politikası/raporları, ARC zinciri
+  - Anti-spam / anti-virus: spam skorlama + junk yönlendirme, EICAR ile virüslü ek
+    reddi, tehlikeli ek türü engelleme, gönderen bazlı rate-limit
+  - Kota ve limitler: mailbox kota zorlaması (552), gönderim/saat limiti, klasör
+    öğe sınırı
+  - OpenPGP imzalı/şifreli mesaj akışı (S/MIME imzalama `smime_probe.py` ile var)
+  - SMTP teslim derinliği: retry/deferral/bounce, DSN/NDR, MDN, döngü/hop tespiti,
+    kuyruk inceleme (`queue` CLI)
+  - Sistem operasyonları: yedekleme/geri yükleme (`backup` CLI), `db`/`account`/
+    `domain` CLI ve admin API, cluster/failover, audit log, Prometheus metrics,
+    sağlık ucu, webhook/alert
+  - Kimlik doğrulama derinliği: LDAP, OAuth/modern auth, app password, oturum/token
+    süre dolması; webmail push (WebSocket/SSE) bildirimleri
