@@ -3024,88 +3024,88 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 
 // TestParseSearchCriteria_DateAndSize tests the date and size criteria parsing
 func TestParseSearchCriteria_DateAndSize(t *testing.T) {
+	// parseIMAPDate uses time.Parse("02-Jan-2006", ...), which yields midnight UTC.
+	jan1 := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+	jan15 := time.Date(2024, time.January, 15, 0, 0, 0, 0, time.UTC)
+
 	tests := []struct {
 		name     string
 		args     []string
 		expected SearchCriteria
 	}{
 		{
-			name: "BEFORE with valid date",
-			args: []string{"BEFORE", "01-Jan-2024"},
-			expected: SearchCriteria{
-				All: true,
-			},
+			name:     "BEFORE with valid date",
+			args:     []string{"BEFORE", "01-Jan-2024"},
+			expected: SearchCriteria{Before: jan1},
 		},
 		{
-			name: "ON with valid date",
-			args: []string{"ON", "15-Jan-2024"},
-			expected: SearchCriteria{
-				All: true,
-			},
+			name:     "ON with valid date",
+			args:     []string{"ON", "15-Jan-2024"},
+			expected: SearchCriteria{On: jan15},
 		},
 		{
-			name: "SINCE with valid date",
-			args: []string{"SINCE", "01-Jan-2024"},
-			expected: SearchCriteria{
-				All: true,
-			},
+			name:     "SINCE with valid date",
+			args:     []string{"SINCE", "01-Jan-2024"},
+			expected: SearchCriteria{Since: jan1},
 		},
 		{
-			name: "SENTBEFORE with valid date",
-			args: []string{"SENTBEFORE", "01-Jan-2024"},
-			expected: SearchCriteria{
-				All: true,
-			},
+			name:     "SENTBEFORE with valid date",
+			args:     []string{"SENTBEFORE", "01-Jan-2024"},
+			expected: SearchCriteria{SentBefore: jan1},
 		},
 		{
-			name: "SENTON with valid date",
-			args: []string{"SENTON", "15-Jan-2024"},
-			expected: SearchCriteria{
-				All: true,
-			},
+			name:     "SENTON with valid date",
+			args:     []string{"SENTON", "15-Jan-2024"},
+			expected: SearchCriteria{SentOn: jan15},
 		},
 		{
-			name: "SENTSINCE with valid date",
-			args: []string{"SENTSINCE", "01-Jan-2024"},
-			expected: SearchCriteria{
-				All: true,
-			},
+			name:     "SENTSINCE with valid date",
+			args:     []string{"SENTSINCE", "01-Jan-2024"},
+			expected: SearchCriteria{SentSince: jan1},
 		},
 		{
-			name: "LARGER with size",
-			args: []string{"LARGER", "1000"},
-			expected: SearchCriteria{
-				All:    true,
-				Larger: 1000,
-			},
+			name:     "LARGER with size",
+			args:     []string{"LARGER", "1000"},
+			expected: SearchCriteria{Larger: 1000},
 		},
 		{
-			name: "SMALLER with size",
-			args: []string{"SMALLER", "500"},
-			expected: SearchCriteria{
-				All:     true,
-				Smaller: 500,
-			},
+			name:     "SMALLER with size",
+			args:     []string{"SMALLER", "500"},
+			expected: SearchCriteria{Smaller: 500},
 		},
 		{
-			name: "LARGER with invalid size",
-			args: []string{"LARGER", "notanumber"},
-			expected: SearchCriteria{
-				All: true,
-			},
+			name:     "LARGER with invalid size",
+			args:     []string{"LARGER", "notanumber"},
+			expected: SearchCriteria{},
 		},
 		{
-			name: "SMALLER with invalid size",
-			args: []string{"SMALLER", "notanumber"},
-			expected: SearchCriteria{
-				All: true,
-			},
+			name:     "SMALLER with invalid size",
+			args:     []string{"SMALLER", "notanumber"},
+			expected: SearchCriteria{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := parseSearchCriteria(tt.args)
+			if !result.Before.Equal(tt.expected.Before) {
+				t.Errorf("Before = %v, want %v", result.Before, tt.expected.Before)
+			}
+			if !result.On.Equal(tt.expected.On) {
+				t.Errorf("On = %v, want %v", result.On, tt.expected.On)
+			}
+			if !result.Since.Equal(tt.expected.Since) {
+				t.Errorf("Since = %v, want %v", result.Since, tt.expected.Since)
+			}
+			if !result.SentBefore.Equal(tt.expected.SentBefore) {
+				t.Errorf("SentBefore = %v, want %v", result.SentBefore, tt.expected.SentBefore)
+			}
+			if !result.SentOn.Equal(tt.expected.SentOn) {
+				t.Errorf("SentOn = %v, want %v", result.SentOn, tt.expected.SentOn)
+			}
+			if !result.SentSince.Equal(tt.expected.SentSince) {
+				t.Errorf("SentSince = %v, want %v", result.SentSince, tt.expected.SentSince)
+			}
 			if result.Larger != tt.expected.Larger {
 				t.Errorf("Larger = %v, want %v", result.Larger, tt.expected.Larger)
 			}
