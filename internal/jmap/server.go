@@ -54,6 +54,25 @@ type Server struct {
 	// event or contact is identical across every surface.
 	calStore  caldav.Store
 	cardStore carddav.Store
+	// notesIdentity and notesPipe back the JMAP Note type. Notes are
+	// IPM.StickyNote messages in the Notes folder, shared with EWS/IMAP/webmail;
+	// the identity store + mutation pipeline let a JMAP-created note also reach
+	// the semcore surface EWS reads. Both must be non-nil to advertise Note.
+	notesIdentity *semcore.BoltIdentityStore
+	notesPipe     *semcore.MutationPipeline
+}
+
+// SetNotesStore wires the semcore identity store and mutation pipeline so the
+// JMAP Note type shares one source of truth (the Notes folder) with
+// EWS/IMAP/webmail. Both must be non-nil for Note to be advertised.
+func (s *Server) SetNotesStore(identity *semcore.BoltIdentityStore, pipe *semcore.MutationPipeline) {
+	s.notesIdentity = identity
+	s.notesPipe = pipe
+}
+
+// notesEnabled reports whether the Note capability is wired.
+func (s *Server) notesEnabled() bool {
+	return s.notesIdentity != nil && s.notesPipe != nil && s.db != nil && s.msgStore != nil
 }
 
 // SetCollabStores wires the canonical calendar and contact stores so JMAP
@@ -294,6 +313,17 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			response.Accounts[user] = acct
 		}
 		response.PrimaryAccounts["urn:ietf:params:jmap:contacts"] = user
+	}
+	// Notes have no JMAP RFC, so advertise a vendor-namespaced capability when the
+	// Notes store is wired. Notes are shared with EWS/IMAP/webmail via the Notes
+	// folder (IPM.StickyNote messages).
+	if s.notesEnabled() {
+		response.Capabilities[notesCapabilityURN] = struct{}{}
+		if acct, ok := response.Accounts[user]; ok {
+			acct.AccountCapabilities[notesCapabilityURN] = struct{}{}
+			response.Accounts[user] = acct
+		}
+		response.PrimaryAccounts[notesCapabilityURN] = user
 	}
 
 	s.sendJSON(w, http.StatusOK, response)
@@ -591,6 +621,17 @@ func (s *Server) dispatchMethodCall(user string, call MethodCall, createdIDs map
 		return s.handleContactCardChanges(user, call)
 	case "ContactCard/set":
 		return s.handleContactCardSet(user, call, createdIDs)
+
+	// Note methods (vendor extension) — backed by IPM.StickyNote messages in the
+	// Notes folder, shared with EWS, IMAP, and webmail.
+	case "Note/get":
+		return s.handleNoteGet(user, call)
+	case "Note/query":
+		return s.handleNoteQuery(user, call)
+	case "Note/set":
+		return s.handleNoteSet(user, call)
+	case "Note/changes":
+		return s.handleNoteChanges(user, call)
 
 	// Identity methods
 	case "Identity/get":

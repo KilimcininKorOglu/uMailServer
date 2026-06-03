@@ -96,6 +96,10 @@ func (s *Server) startJMAP() {
 			caldav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity()),
 			carddav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity()),
 		)
+		// Back the JMAP Note type with the semcore identity store + mutation
+		// pipeline so a JMAP-created note reaches the same Notes folder
+		// EWS/IMAP/webmail share.
+		jmapServer.SetNotesStore(s.semcoreStore.Identity(), s.mutationPipe)
 	}
 
 	s.jmapServer = jmapServer
