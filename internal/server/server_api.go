@@ -128,19 +128,11 @@ func (s *Server) startAPI() {
 		)
 		ewsServer.SetLogger(s.logger)
 
-		// Bridge CalDAV/webmail calendar events into EWS free/busy, so
-		// GetUserAvailability reflects events created through webmail or CalDAV
-		// (which the collaboration store does not hold). The handler is stateless
-		// and reads the same CalDAV file store the webmail calendar endpoints use.
-		calHandler := api.NewCalendarHandler(s.config.Server.DataDir)
-		ewsServer.SetFreeBusyProvider(func(email string, from, to time.Time) []ews.FreeBusyInterval {
-			pairs := calHandler.FreeBusyUTC(email, from, to)
-			out := make([]ews.FreeBusyInterval, 0, len(pairs))
-			for _, p := range pairs {
-				out = append(out, ews.FreeBusyInterval{Start: p[0], End: p[1], BusyType: "Busy"})
-			}
-			return out
-		})
+		// GetUserAvailability free/busy reads calendar items straight from the
+		// canonical collaboration store (which now holds every webmail/CalDAV/EWS
+		// event since calendar storage was unified), so no separate filesystem
+		// free/busy provider is wired — that would only re-report pre-migration
+		// leftovers and double-count events.
 
 		// Refresh IMAP IDLE sessions and the webmail SSE stream after an EWS
 		// folder mutation (EmptyFolder, MoveFolder), which otherwise leaves
