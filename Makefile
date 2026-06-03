@@ -27,7 +27,9 @@ LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DAT
 GOCMD=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
-GOTEST=$(GOCMD) test
+# -count=1 disables Go's test result cache so test targets never report stale
+# "(cached)" results. Do not remove it.
+GOTEST=$(GOCMD) test -count=1
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 GOFMT=gofmt
