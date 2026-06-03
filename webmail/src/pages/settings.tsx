@@ -1053,10 +1053,10 @@ export function SettingsPage() {
       </div>
 
       <Dialog open={pwOpen} onOpenChange={setPwOpen}>
-        <DialogContent aria-describedby="change-password-desc">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Change password</DialogTitle>
-            <DialogDescription id="change-password-desc">
+            <DialogDescription>
               Update the password for your mailbox account.
             </DialogDescription>
           </DialogHeader>
