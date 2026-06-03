@@ -395,21 +395,23 @@ func (e *expungeResultMailstore) Authenticate(username, password string) (bool, 
 // =======================================================================
 
 func TestCoverParseSearchCriteria_Draft(t *testing.T) {
-	// Note: parseSearchCriteria (commands.go) doesn't handle DRAFT/UNDRAFT.
-	// DRAFT falls through to the default case (ignored).
+	// DRAFT sets the Draft flag and must NOT set All (a keyed search filters).
 	result := parseSearchCriteria([]string{"DRAFT"})
-	// The default case in the switch means DRAFT is silently ignored
-	// All stays true by default
-	if !result.All {
-		t.Error("expected All to be true by default")
+	if !result.Draft {
+		t.Error("expected Draft to be true for SEARCH DRAFT")
+	}
+	if result.All {
+		t.Error("DRAFT must not set the All flag")
 	}
 }
 
 func TestCoverParseSearchCriteria_Undraft(t *testing.T) {
-	// UNDRAFT also falls through to default case
 	result := parseSearchCriteria([]string{"UNDRAFT"})
-	if !result.All {
-		t.Error("expected All to be true by default")
+	if !result.Undraft {
+		t.Error("expected Undraft to be true for SEARCH UNDRAFT")
+	}
+	if result.All {
+		t.Error("UNDRAFT must not set the All flag")
 	}
 }
 

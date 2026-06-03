@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/umailserver/umailserver/internal/storage"
 )
 
 // =======================================================================
@@ -483,9 +485,16 @@ func TestParseSearchCriteria_UIDNoValue(t *testing.T) {
 }
 
 func TestParseSearchCriteria_EmptyArgs(t *testing.T) {
+	// Empty args impose no filter. All must NOT be forced true (that flag is only
+	// for the explicit ALL key and short-circuits matchesCriteria); a zero
+	// criteria still matches every message by falling through matchesCriteria.
 	result := parseSearchCriteria([]string{})
-	if !result.All {
-		t.Error("expected All to be true by default")
+	if result.All {
+		t.Error("empty args must not force the All flag")
+	}
+	meta := &storage.MessageMetadata{Subject: "anything"}
+	if !matchesCriteria(meta, nil, &result) {
+		t.Error("empty criteria should match every message")
 	}
 }
 

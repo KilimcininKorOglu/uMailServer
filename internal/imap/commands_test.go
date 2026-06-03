@@ -2767,11 +2767,13 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 				All: true,
 			},
 		},
+		// A specific criterion must NOT set All: matchesCriteria short-circuits on
+		// `if All { return true }`, so a keyed SEARCH with All=true would wrongly
+		// match the whole mailbox. Only a bare ALL / no args matches everything.
 		{
 			name: "ANSWERED",
 			args: []string{"ANSWERED"},
 			expected: SearchCriteria{
-				All:      true,
 				Answered: true,
 			},
 		},
@@ -2779,7 +2781,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "DELETED",
 			args: []string{"DELETED"},
 			expected: SearchCriteria{
-				All:     true,
 				Deleted: true,
 			},
 		},
@@ -2787,7 +2788,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "FLAGGED",
 			args: []string{"FLAGGED"},
 			expected: SearchCriteria{
-				All:     true,
 				Flagged: true,
 			},
 		},
@@ -2795,7 +2795,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "NEW",
 			args: []string{"NEW"},
 			expected: SearchCriteria{
-				All: true,
 				New: true,
 			},
 		},
@@ -2803,7 +2802,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "OLD",
 			args: []string{"OLD"},
 			expected: SearchCriteria{
-				All: true,
 				Old: true,
 			},
 		},
@@ -2811,7 +2809,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "RECENT",
 			args: []string{"RECENT"},
 			expected: SearchCriteria{
-				All:    true,
 				Recent: true,
 			},
 		},
@@ -2819,7 +2816,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "SEEN",
 			args: []string{"SEEN"},
 			expected: SearchCriteria{
-				All:  true,
 				Seen: true,
 			},
 		},
@@ -2827,7 +2823,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "UNANSWERED",
 			args: []string{"UNANSWERED"},
 			expected: SearchCriteria{
-				All:        true,
 				Unanswered: true,
 			},
 		},
@@ -2835,7 +2830,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "UNDELETED",
 			args: []string{"UNDELETED"},
 			expected: SearchCriteria{
-				All:       true,
 				Undeleted: true,
 			},
 		},
@@ -2843,7 +2837,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "UNFLAGGED",
 			args: []string{"UNFLAGGED"},
 			expected: SearchCriteria{
-				All:       true,
 				Unflagged: true,
 			},
 		},
@@ -2851,7 +2844,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "UNSEEN",
 			args: []string{"UNSEEN"},
 			expected: SearchCriteria{
-				All:    true,
 				Unseen: true,
 			},
 		},
@@ -2859,7 +2851,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "DRAFT",
 			args: []string{"DRAFT"},
 			expected: SearchCriteria{
-				All:   true,
 				Draft: true,
 			},
 		},
@@ -2867,7 +2858,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "UNDRAFT",
 			args: []string{"UNDRAFT"},
 			expected: SearchCriteria{
-				All:     true,
 				Undraft: true,
 			},
 		},
@@ -2875,7 +2865,6 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "FROM",
 			args: []string{"FROM", "test@example.com"},
 			expected: SearchCriteria{
-				All:  true,
 				From: "test@example.com",
 			},
 		},
@@ -2883,23 +2872,20 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "TO",
 			args: []string{"TO", "recipient@example.com"},
 			expected: SearchCriteria{
-				All: true,
-				To:  "recipient@example.com",
+				To: "recipient@example.com",
 			},
 		},
 		{
 			name: "CC",
 			args: []string{"CC", "cc@example.com"},
 			expected: SearchCriteria{
-				All: true,
-				Cc:  "cc@example.com",
+				Cc: "cc@example.com",
 			},
 		},
 		{
 			name: "BCC",
 			args: []string{"BCC", "bcc@example.com"},
 			expected: SearchCriteria{
-				All: true,
 				Bcc: "bcc@example.com",
 			},
 		},
@@ -2907,26 +2893,36 @@ func TestParseSearchCriteriaAllVariations(t *testing.T) {
 			name: "SUBJECT",
 			args: []string{"SUBJECT", "test subject"},
 			expected: SearchCriteria{
-				All:     true,
 				Subject: "test subject",
+			},
+		},
+		{
+			name: "SUBJECT quoted value is unquoted",
+			args: []string{"SUBJECT", "\"hello\""},
+			expected: SearchCriteria{
+				Subject: "hello",
 			},
 		},
 		{
 			name: "Multiple criteria",
 			args: []string{"FROM", "test@example.com", "SUBJECT", "hello", "SEEN"},
 			expected: SearchCriteria{
-				All:     true,
 				From:    "test@example.com",
 				Subject: "hello",
 				Seen:    true,
 			},
 		},
 		{
-			name: "Empty args",
-			args: []string{},
+			name: "ALL keyword still matches everything",
+			args: []string{"ALL"},
 			expected: SearchCriteria{
 				All: true,
 			},
+		},
+		{
+			name: "Empty args",
+			args: []string{},
+			expected: SearchCriteria{},
 		},
 	}
 

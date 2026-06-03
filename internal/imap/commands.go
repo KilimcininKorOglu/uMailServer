@@ -2370,10 +2370,17 @@ func (s *Session) parseOwnerMailbox(mailbox string) (owner, name string, isShare
 // Helper functions
 
 func parseSearchCriteria(args []string) SearchCriteria {
-	// Simplified search criteria parsing
-	criteria := SearchCriteria{
-		All: true,
-	}
+	// Simplified search criteria parsing. NOTE: All must default to false — a
+	// criterion like SUBJECT/FROM must filter. If All defaulted true it would
+	// never be cleared and matchesCriteria short-circuits `if All { return true }`,
+	// making every keyed SEARCH return the whole mailbox. A bare SEARCH with no
+	// criteria still matches everything by falling through matchesCriteria.
+	criteria := SearchCriteria{}
+
+	// IMAP quoted-string values arrive with their surrounding quotes because the
+	// command line is tokenized with strings.Fields; strip them so the value
+	// compares against the header text (matches the Trim other handlers apply).
+	unq := func(s string) string { return strings.Trim(s, "\"'") }
 
 	for i := 0; i < len(args); i++ {
 		arg := strings.ToUpper(args[i])
@@ -2402,19 +2409,23 @@ func parseSearchCriteria(args []string) SearchCriteria {
 			criteria.Unflagged = true
 		case "UNSEEN":
 			criteria.Unseen = true
+		case "DRAFT":
+			criteria.Draft = true
+		case "UNDRAFT":
+			criteria.Undraft = true
 		case "FROM":
 			if i+1 < len(args) {
-				criteria.From = args[i+1]
+				criteria.From = unq(args[i+1])
 				i++
 			}
 		case "SUBJECT":
 			if i+1 < len(args) {
-				criteria.Subject = args[i+1]
+				criteria.Subject = unq(args[i+1])
 				i++
 			}
 		case "TO":
 			if i+1 < len(args) {
-				criteria.To = args[i+1]
+				criteria.To = unq(args[i+1])
 				i++
 			}
 		case "UID":
@@ -2424,22 +2435,22 @@ func parseSearchCriteria(args []string) SearchCriteria {
 			}
 		case "CC":
 			if i+1 < len(args) {
-				criteria.Cc = args[i+1]
+				criteria.Cc = unq(args[i+1])
 				i++
 			}
 		case "BCC":
 			if i+1 < len(args) {
-				criteria.Bcc = args[i+1]
+				criteria.Bcc = unq(args[i+1])
 				i++
 			}
 		case "BODY":
 			if i+1 < len(args) {
-				criteria.Body = args[i+1]
+				criteria.Body = unq(args[i+1])
 				i++
 			}
 		case "TEXT":
 			if i+1 < len(args) {
-				criteria.Text = args[i+1]
+				criteria.Text = unq(args[i+1])
 				i++
 			}
 		case "HEADER":
@@ -2447,7 +2458,7 @@ func parseSearchCriteria(args []string) SearchCriteria {
 				if criteria.Header == nil {
 					criteria.Header = make(map[string]string)
 				}
-				criteria.Header[args[i+1]] = args[i+2]
+				criteria.Header[unq(args[i+1])] = unq(args[i+2])
 				i += 2
 			}
 		case "BEFORE":
