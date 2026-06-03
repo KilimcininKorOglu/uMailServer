@@ -873,7 +873,6 @@ func (s *Server) createRawItemInFolder(ctx context.Context, mboxID semcore.Mailb
 	if err != nil {
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, "failed to store message: "+err.Error())
 	}
-	_ = blobKey // blob key already stored; semcore will use its own key
 
 	// Perform canonical mutation: assigns ItemId, ChangeKey, ConversationId.
 	// DelegateAuditContext threads the delegate actor through to lifecycle (VAL-DIR-014).
@@ -905,6 +904,12 @@ func (s *Server) createRawItemInFolder(ctx context.Context, mboxID semcore.Mailb
 		//nolint:errcheck
 		_ = s.lifecycle.AppendLifecycle(result.Lifecycle) // best-effort; event was already emitted
 	}
+
+	// Mirror the item into the IMAP mailstore index so IMAP/POP3/JMAP/webmail —
+	// which read from that index, not the semcore identity store — see this
+	// EWS-created item (cross-protocol integrity). Best-effort; the semcore
+	// write above is the canonical record.
+	s.mirrorCreateToMailstore(mailboxKey, folderID, rawMsg, blobKey)
 
 	msgResp := MessageTypeResponse{
 		ItemID: ItemIdType{

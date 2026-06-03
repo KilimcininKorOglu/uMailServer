@@ -612,6 +612,41 @@ func (s *BoltIdentityStore) GetFolderByID(id FolderId) (*storedFolderIdentity, e
 	return rec, err
 }
 
+// FolderNameByID returns the stored folder name for a folder id within the
+// given mailbox. The folder identity is keyed by "mboxKey\x00folderName", so
+// the name is recovered from the matching record's storage key. Exported so
+// cross-package callers (EWS) can map a canonical FolderId back to the IMAP
+// mailbox name used by the message-store index.
+func (s *BoltIdentityStore) FolderNameByID(mboxKey string, id FolderId) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	prefix := mboxKey + "\x00"
+	var name string
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketFolder))
+		return b.ForEach(func(k, v []byte) error {
+			if !bytes.HasPrefix(k, []byte(prefix)) {
+				return nil
+			}
+			var rec storedFolderIdentity
+			if err := json.Unmarshal(v, &rec); err != nil {
+				return nil
+			}
+			if rec.FolderID.Equal(id) {
+				name = folderNameFromStorageKey(mboxKey, k)
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return "", err
+	}
+	if name == "" {
+		return "", ErrFolderNotFound
+	}
+	return name, nil
+}
+
 // EnsureFolderId returns the FolderId for a mailbox+folder combination,
 // creating and registering a new canonical identity if one does not yet exist.
 // This is used by the canonical mutation pipeline to obtain a FolderId for a

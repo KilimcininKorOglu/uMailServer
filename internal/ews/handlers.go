@@ -51,6 +51,15 @@ type Server struct {
 	// refresh. Injected via SetFolderChangeNotifier so this package does not
 	// depend on the IMAP notification hub directly.
 	folderChangeNotifier func(email, folder string)
+	// messageCreatedNotifier, when set, is invoked after an EWS-created item is
+	// mirrored into the IMAP mailstore index so IMAP IDLE sessions get an
+	// untagged EXISTS and the webmail SSE stream pushes a new_mail event.
+	// Injected via SetMessageCreatedNotifier (same no-direct-import rationale as
+	// folderChangeNotifier).
+	messageCreatedNotifier func(email, folder string, uid uint32)
+	// messageExpungedNotifier, when set, is invoked after an EWS item is removed
+	// from the IMAP mailstore index (DeleteItem, MoveItem source side).
+	messageExpungedNotifier func(email, folder string, seqNum uint32)
 }
 
 // FreeBusyInterval is one busy time range contributed by an external free/busy
@@ -108,6 +117,18 @@ func (s *Server) SetFreeBusyProvider(fn func(email string, from, to time.Time) [
 // IMAP IDLE sessions and the webmail SSE stream pick up the change.
 func (s *Server) SetFolderChangeNotifier(fn func(email, folder string)) {
 	s.folderChangeNotifier = fn
+}
+
+// SetMessageCreatedNotifier wires a callback invoked after an EWS-created item
+// is mirrored into the IMAP mailstore index, so IMAP IDLE + webmail SSE refresh.
+func (s *Server) SetMessageCreatedNotifier(fn func(email, folder string, uid uint32)) {
+	s.messageCreatedNotifier = fn
+}
+
+// SetMessageExpungedNotifier wires a callback invoked after an EWS item is
+// removed from the IMAP mailstore index (delete / move source).
+func (s *Server) SetMessageExpungedNotifier(fn func(email, folder string, seqNum uint32)) {
+	s.messageExpungedNotifier = fn
 }
 
 // notifyFolderChange signals that a mailbox folder changed, resolving a

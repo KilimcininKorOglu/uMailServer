@@ -141,6 +141,16 @@ func (s *Server) startAPI() {
 			imap.GetNotificationHub().NotifyMailboxUpdate(email, folder)
 		})
 
+		// Push an untagged EXISTS / SSE new_mail when an EWS-created item is
+		// mirrored into the IMAP mailstore index, and an EXPUNGE when one is
+		// removed, so connected IMAP/webmail clients refresh in real time.
+		ewsServer.SetMessageCreatedNotifier(func(email, folder string, uid uint32) {
+			imap.GetNotificationHub().NotifyNewMessage(email, folder, uid, uid)
+		})
+		ewsServer.SetMessageExpungedNotifier(func(email, folder string, seqNum uint32) {
+			imap.GetNotificationHub().NotifyExpunge(email, folder, seqNum)
+		})
+
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 
