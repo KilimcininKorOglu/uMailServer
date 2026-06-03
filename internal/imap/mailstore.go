@@ -1330,6 +1330,8 @@ func distinguishedRole(folderName string) string {
 		return "junk"
 	case "ARCHIVE", "ARCHIVES":
 		return "archive"
+	case "NOTES":
+		return "notes"
 	case "OUTBOX":
 		return "outbox"
 	default:
