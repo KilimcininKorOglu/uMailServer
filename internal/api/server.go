@@ -92,6 +92,10 @@ type Server struct {
 	// Mail handler for user email operations
 	mailHandler *MailHandler
 
+	// Notes handler for Outlook-style sticky notes (IPM.StickyNote messages in
+	// the Notes folder, shared with EWS/IMAP/JMAP)
+	notesHandler *NotesHandler
+
 	// Contacts handler for contact operations via CardDAV
 	contactsHandler *ContactsHandler
 	calendarHandler *CalendarHandler
@@ -676,6 +680,19 @@ func (s *Server) initRouter() {
 	// Generic per-folder listing for any other mailbox (e.g. Archive or custom
 	// folders). Exact routes above take precedence in the mux.
 	api.HandleFunc("/api/v1/mail/", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
+
+	// Notes (Outlook sticky notes): backed by the Notes folder as IPM.StickyNote
+	// messages, shared with EWS/IMAP/JMAP. Requires the semcore store to be wired
+	// (so a webmail-created note is visible to EWS too).
+	if s.notesHandler == nil && s.semStore != nil && s.msgStore != nil && s.mailDB != nil {
+		s.notesHandler = NewNotesHandler()
+		s.notesHandler.SetStores(s.msgStore, s.mailDB, s.semStore.Identity(),
+			semcore.NewMutationPipeline(s.semStore.Identity(), s.semStore.Lifecycle()))
+	}
+	if s.notesHandler != nil {
+		api.HandleFunc("/api/v1/notes", http.HandlerFunc(s.notesHandler.handleNotes).ServeHTTP)
+		api.HandleFunc("/api/v1/notes/", http.HandlerFunc(s.notesHandler.handleNoteDetail).ServeHTTP)
+	}
 
 	// Backup management
 	api.HandleFunc("/api/v1/backups", s.handleBackupList)
