@@ -61,6 +61,51 @@
   - `helper-projects/.venv/bin/python helper-projects/exchangelib_end_user_rules.py --scenario rule-live`
   - `helper-projects/.venv/bin/python helper-projects/exchangelib_end_user_collab.py --scenario shared-mailbox`
 
+## Yapılandırma hot-reload (config hot-reload)
+
+YAML ayarları üç yoldan canlı (sunucu restartı olmadan) güncellenebilir; her üçü
+de aynı `Server.ReloadConfig` yolunu kullanır:
+
+1. **Admin paneli** — Settings sayfasındaki tipli per-section formlar
+   (`/api/v1/admin/config` PUT). Kayıttan sonra panel, hangi bölümlerin canlı
+   uygulandığını (`applied`) ve hangilerinin restart gerektirdiğini
+   (`restart_required`) banner ile gösterir.
+2. **SIGHUP** — `kill -HUP <pid>` çalışan sunucuya YAML'ı yeniden okutur.
+3. **Dosya-izleme** — `config.Watcher` dosyayı (mod-time + içerik hash'i) ile
+   yoklar; YAML diskte elle değiştirilince otomatik reload tetiklenir.
+
+Kategorizasyon: protokol dinleyicileri (SMTP/IMAP/POP3/ManageSieve/CalDAV/
+CardDAV/JMAP/MCP/Metrics) canlı stop+start ile yeniden başlatılır; rate-limit
+yöneticisi yerinde retune edilir; OOF/Notifications istek başına okunduğu için
+yalnızca pointer swap yeter; yapısal/güvensiz bölümler (`server` data_dir/
+hostname, `database`, `storage`, `tls` kimliği, `logging`, HTTP/Admin
+dinleyicileri) ve sırlar `restart_required` olarak dürüstçe raporlanır. Sırlar
+panelde HİÇ gösterilmez ve kayıtta korunur.
+
+### Otomatik kapsam (Go testleri)
+
+- `internal/api` — `TestConfigDTO_ExcludesSecrets` (DTO sır sızdırmaz),
+  `TestApplyConfigDTO_PreservesSecretsAndAppliesEdits` (PUT sırları korur,
+  düzenlemeyi uygular), `TestConfigDTO_RoundTrip` (düzenlemesiz GET→PUT hiçbir
+  bölümü değiştirmez), `TestChangedSections`.
+- `internal/server` — `TestReloadConfig_Classification` (oof/pop3 canlı,
+  hostname restart), `TestReloadConfig_NoChangeIsNoop` (aynı config no-op —
+  dosya-izlemenin kendi yazımına tepkisi zararsız).
+
+### Canlı doğrulama (bayrak senaryo: POP3'ü kapat)
+
+`make docker && make docker-stop && make docker-run` ile yığını yenile, sonra:
+
+1. POP3 başta açık: `nc -z localhost 2995` bağlanır (veya
+   `helper-projects/.venv/bin/python helper-projects/proto_pop3.py` yeşil).
+2. Admin panelden (Services sekmesi) POP3'ü kapat ve kaydet. Yanıt
+   `applied: [pop3]`, restart yok.
+3. `nc -z localhost 2995` artık reddedilir; IMAP (`2143`) ve SMTP (`2525`)
+   etkilenmez. Sunucu yeniden başlatılmadı.
+4. POP3'ü tekrar aç → dinleyici geri gelir.
+5. `kill -HUP` ve `docker-data` altındaki YAML'ı elle düzenleme de aynı reload'u
+   tetikler (loglarda "Configuration reloaded").
+
 ## Son kullanıcı test listesi
 
 ### Mail akışları
