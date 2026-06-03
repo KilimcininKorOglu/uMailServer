@@ -392,8 +392,8 @@ class API {
   }
 
   // me returns the authenticated user's identity for session rehydration.
-  async me(): Promise<{ email: string; isAdmin?: boolean }> {
-    return this.get<{ email: string; isAdmin?: boolean }>('/auth/me')
+  async me(): Promise<{ email: string; isAdmin?: boolean; has_avatar?: boolean }> {
+    return this.get<{ email: string; isAdmin?: boolean; has_avatar?: boolean }>('/auth/me')
   }
 
   // changePassword updates the authenticated user's own password.

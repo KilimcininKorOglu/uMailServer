@@ -51,6 +51,9 @@ export function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [avatarVersion, setAvatarVersion] = useState(1)
   const [avatarBusy, setAvatarBusy] = useState(false)
+  // Only request the avatar endpoint when the user actually has a photo,
+  // otherwise the <img> 404s and spams the console. Tracks upload/removal.
+  const [hasAvatar, setHasAvatar] = useState(!!user?.hasAvatar)
 
   const handlePickAvatar = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -70,6 +73,7 @@ export function SettingsPage() {
     setAvatarBusy(true)
     try {
       await api.updateAvatar(dataURL)
+      setHasAvatar(true)
       setAvatarVersion((v) => v + 1)
       toast.success("Profile photo updated")
     } catch (err) {
@@ -83,6 +87,7 @@ export function SettingsPage() {
     setAvatarBusy(true)
     try {
       await api.removeAvatar()
+      setHasAvatar(false)
       setAvatarVersion((v) => v + 1)
       toast.success("Profile photo removed")
     } catch (err) {
@@ -504,7 +509,7 @@ export function SettingsPage() {
       >
         <div className="flex items-center gap-4">
           <Avatar className="h-16 w-16 ring-2 ring-primary/20">
-            <AvatarImage src={email ? api.avatarUrl(email, avatarVersion) : ""} alt={email} />
+            <AvatarImage src={hasAvatar && email ? api.avatarUrl(email, avatarVersion) : ""} alt={email} />
             <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground text-lg font-semibold">
               {initials}
             </AvatarFallback>

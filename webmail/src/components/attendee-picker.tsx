@@ -106,7 +106,6 @@ export function AttendeePicker({ value, onChange, window: win, placeholder }: At
         {value.map((email) => (
           <span key={email} className="flex items-center gap-1.5 rounded-full bg-muted py-0.5 pl-0.5 pr-2 text-sm">
             <Avatar className="h-5 w-5">
-              <AvatarImage src={api.avatarUrl(email)} alt={email} />
               <AvatarFallback className="text-[10px]">{initialsOf(email)}</AvatarFallback>
             </Avatar>
             <span className="max-w-[180px] truncate">{email}</span>
@@ -140,7 +139,7 @@ export function AttendeePicker({ value, onChange, window: win, placeholder }: At
               >
                 <div className="relative">
                   <Avatar className="h-7 w-7">
-                    <AvatarImage src={api.avatarUrl(r.email)} alt={r.email} />
+                    <AvatarImage src={r.photo ? api.avatarUrl(r.email) : ""} alt={r.email} />
                     <AvatarFallback className="text-[10px]">{initialsOf(r.name || r.email)}</AvatarFallback>
                   </Avatar>
                   {win && win.start && (

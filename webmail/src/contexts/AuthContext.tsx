@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import api from '../utils/api'
 
 interface AuthContextType {
-  user: { email: string } | null
+  user: { email: string; hasAvatar?: boolean } | null
   isAuthenticated: boolean
   isLoading: boolean
   loading: boolean
@@ -20,7 +20,7 @@ const AuthContext = createContext<AuthContextType | null>(null)
 const sessionMarkerKey = 'umail-webmail-authed'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<{ email: string } | null>(null)
+  const [user, setUser] = useState<{ email: string; hasAvatar?: boolean } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api.me()
       .then((me) => {
         if (active && me?.email) {
-          setUser({ email: me.email })
+          setUser({ email: me.email, hasAvatar: me.has_avatar })
           setIsAuthenticated(true)
         }
       })

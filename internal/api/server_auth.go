@@ -727,8 +727,18 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		isAdmin = false
 	}
 
+	// Report whether the user has a profile photo so the client only requests
+	// the avatar endpoint when one exists (avoids a 404 on every page load for
+	// users without a photo).
+	hasAvatar := false
+	localPart, domain := parseEmail(user)
+	if account, err := s.db.GetAccount(domain, localPart); err == nil && account != nil {
+		hasAvatar = len(account.Avatar) > 0
+	}
+
 	s.sendJSON(w, http.StatusOK, map[string]interface{}{
-		"email":   user,
-		"isAdmin": isAdmin,
+		"email":      user,
+		"isAdmin":    isAdmin,
+		"has_avatar": hasAvatar,
 	})
 }

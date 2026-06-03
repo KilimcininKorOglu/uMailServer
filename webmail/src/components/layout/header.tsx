@@ -162,7 +162,7 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">
                 <Avatar className="h-9 w-9 ring-2 ring-primary/20">
-                  <AvatarImage src={email ? api.avatarUrl(email) : ""} alt={email} />
+                  <AvatarImage src={user?.hasAvatar && email ? api.avatarUrl(email) : ""} alt={email} />
                   <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-semibold">
                     {initials}
                   </AvatarFallback>
