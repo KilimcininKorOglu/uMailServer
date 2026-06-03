@@ -160,13 +160,22 @@
 Notlar Exchange modeline uygun şekilde `IPM.StickyNote` sınıflı mesajlar olarak,
 container sınıfı `IPF.StickyNote` olan Notes klasöründe tutulur; ayrı bir EWS Note
 elemanı yoktur, not jenerik bir `<t:Message>` içinde `ItemClass=IPM.StickyNote`
-ile taşınır. `helper-projects/proto_notes.py` raw EWS SOAP ile otomatik kapsar:
+ile taşınır. Notlar TEK kanonik kaynağı (Notes klasörü mesajları) paylaşır ve
+TÜM yüzeylerde görünür: bir yüzeyde oluşturulan/silinen not diğerlerine yansır.
+`helper-projects/proto_notes.py` raw EWS SOAP + IMAP + webmail + JMAP ile
+otomatik kapsar:
 
 - Not ekle — `CreateItem` (Message + `ItemClass=IPM.StickyNote`, Notes klasörüne)
 - Not listele — `FindItem` notu `IPM.StickyNote` sınıfıyla döner
 - Not oku — `GetItem` not konusu, gövdesi ve `ItemClass` değerini döndürür
 - Not sil — `DeleteItem`; ardından `FindItem` notu listelemez
 - `GetFolder(notes)` container sınıfını `IPF.StickyNote` olarak bildirir
+- Çapraz-protokol: EWS ile oluşturulan not IMAP `Notes` klasöründe FETCH ile,
+  webmail `GET /api/v1/notes`'ta ve JMAP `Note/get`'te görünür (Notes klasörü
+  tüm depolarda provisyonlanır; EWS yazımları imap mailstore indeksine yansır)
+- Yüzeyler: EWS (IPM.StickyNote), MAPI, IMAP (Notes klasörü), webmail (adanmış
+  Notlar bölümü, `/api/v1/notes`), JMAP (`urn:umailserver:params:jmap:notes`
+  capability + `Note/get|set|query|changes`). POP3 protokol gereği INBOX-only
 - Not: `helper-projects/exchangelib` tarafında first-class StickyNote item modeli
   olmadığı için exchangelib uçtan-uca suite'i bu bölümü atlar; kapsam raw-SOAP
   `proto_notes.py` ile sağlanır
