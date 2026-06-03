@@ -7,8 +7,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// maildirDeliverySeq is a process-wide monotonic counter that guarantees unique
+// Maildir filenames even when two deliveries land in the same microsecond
+// (timestamp+pid+micros can collide and otherwise overwrite a message).
+var maildirDeliverySeq atomic.Uint64
 
 // MaildirStore implements Maildir++ format storage
 type MaildirStore struct {
@@ -131,9 +137,12 @@ func (s *MaildirStore) generateUniqueName() string {
 	if hostname == "" {
 		hostname = "localhost"
 	}
-	// Add microseconds and random component for uniqueness
+	// Add microseconds plus a process-wide monotonic counter so two deliveries
+	// in the same microsecond cannot produce the same filename (which would
+	// overwrite a message and silently drop it).
 	micros := time.Now().UnixMicro() % 1000000
-	return fmt.Sprintf("%d.%d%d.%s", timestamp, pid, micros, hostname)
+	seq := maildirDeliverySeq.Add(1)
+	return fmt.Sprintf("%d.%d%d_%d.%s", timestamp, pid, micros, seq, hostname)
 }
 
 // Deliver stores a message in the specified folder

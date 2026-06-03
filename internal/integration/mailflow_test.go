@@ -435,14 +435,27 @@ func TestMessageSearchIndex(t *testing.T) {
 			t.Errorf("expected 3 messages, got %d", len(entries))
 		}
 
-		// Verify message contents
-		for i, entry := range entries {
+		// List order is not delivery order (os.ReadDir sorts by filename), so
+		// verify every delivered subject is present rather than matching by
+		// position.
+		fetched := make([]string, 0, len(entries))
+		for _, entry := range entries {
 			content, err := maildirStore.Fetch("example.com", "testuser", "INBOX", entry.Filename)
 			if err != nil {
-				t.Fatalf("failed to fetch message %d: %v", i, err)
+				t.Fatalf("failed to fetch message %s: %v", entry.Filename, err)
 			}
-			if !strings.Contains(string(content), messages[i].subject) {
-				t.Errorf("message %d doesn't contain expected subject", i)
+			fetched = append(fetched, string(content))
+		}
+		for _, msg := range messages {
+			found := false
+			for _, content := range fetched {
+				if strings.Contains(content, msg.subject) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("delivered subject %q not found in any listed message", msg.subject)
 			}
 		}
 	})
