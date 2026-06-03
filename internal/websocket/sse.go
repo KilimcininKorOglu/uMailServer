@@ -115,6 +115,17 @@ func (s *SSEServer) Handler() http.HandlerFunc {
 			return
 		}
 
+		// The HTTP server enforces a 30s WriteTimeout, which would force-close
+		// this long-lived stream mid-chunk and surface as
+		// ERR_INCOMPLETE_CHUNKED_ENCODING in the browser. Clear the per-request
+		// write deadline so the SSE connection lives past the global timeout;
+		// other endpoints keep their timeout.
+		if rc := http.NewResponseController(w); rc != nil {
+			if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+				s.logger.Debug("could not clear SSE write deadline", "error", err)
+			}
+		}
+
 		// Create client
 		client := &SSEClient{
 			user:      user,
