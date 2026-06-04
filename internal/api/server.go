@@ -666,6 +666,7 @@ func (s *Server) initRouter() {
 		s.mailHandler.SetDeliveryFunc(s.mailDeliver)
 	}
 	s.mailHandler.SetDisplayNameResolver(s.resolveDisplayName)
+	s.mailHandler.SetFromNameBuilder(s.buildOutboundFromName)
 
 	api.HandleFunc("/api/v1/mail/inbox", s.mailHandler.handleMailList)
 	api.HandleFunc("/api/v1/mail/sent", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)

@@ -95,9 +95,16 @@ type DomainData struct {
 	DKIMPrivateKey string            `json:"dkim_private_key,omitempty"`
 	Settings       map[string]string `json:"settings,omitempty"`
 	CatchAllTarget string            `json:"catch_all_target,omitempty"`
-	IsActive       bool              `json:"is_active"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
+	// CompanyName feeds the {company} placeholder; FromTemplateInternal/External
+	// are the From display-name templates applied to outbound mail for local-only
+	// vs. any-external recipients (placeholders: {name} {title} {department}
+	// {company} {email}). All empty by default → falls back to the DisplayName.
+	CompanyName          string    `json:"company_name,omitempty"`
+	FromTemplateInternal string    `json:"from_template_internal,omitempty"`
+	FromTemplateExternal string    `json:"from_template_external,omitempty"`
+	IsActive             bool      `json:"is_active"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // QueuePriority represents message priority levels

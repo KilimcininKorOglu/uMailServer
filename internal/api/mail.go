@@ -125,6 +125,10 @@ type MailHandler struct {
 	// name (from the directory), or "" when the address is non-local or has no
 	// display name set. Injected by the server; nil disables resolution.
 	displayName func(email string) string
+	// buildFromName builds the outbound From display name from the sender
+	// domain's From templates (internal vs external by recipient), or "" when no
+	// template applies. Injected by the server; nil falls back to displayName.
+	buildFromName func(sender string, recipients []string) string
 }
 
 // NewMailHandler creates a new mail handler
@@ -147,6 +151,26 @@ func (h *MailHandler) SetDeliveryFunc(fn func(from string, to []string, data []b
 // can show human names (sender + recipients) instead of bare addresses.
 func (h *MailHandler) SetDisplayNameResolver(fn func(email string) string) {
 	h.displayName = fn
+}
+
+// SetFromNameBuilder wires the per-domain From display-name template builder
+// used to stamp the sender's name on outbound mail (internal vs external by
+// recipient). When it returns "", the send path falls back to the plain account
+// display name (formatFromHeader).
+func (h *MailHandler) SetFromNameBuilder(fn func(sender string, recipients []string) string) {
+	h.buildFromName = fn
+}
+
+// outboundFromHeader builds the From header value for an outbound message: it
+// prefers the sender domain's template-built display name (internal/external by
+// recipient), then the plain account display name, then the bare address.
+func (h *MailHandler) outboundFromHeader(senderEmail string, recipients []string) string {
+	if h.buildFromName != nil {
+		if name := h.buildFromName(senderEmail, recipients); name != "" {
+			return (&mail.Address{Name: name, Address: senderEmail}).String()
+		}
+	}
+	return h.formatFromHeader(senderEmail)
 }
 
 // resolveFrom splits a raw RFC 5322 "From" header into a display name and a bare
@@ -617,10 +641,16 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	safeTo := sanitizeHeaderValues(req.To)
 	safeCC := sanitizeHeaderValues(req.CC)
 
-	// Build headers. Prefix the sender's display name when configured so the
-	// recipient sees "Ad Soyad <addr>", not a bare address.
+	// Build headers. Stamp the sender's display name (from the sender domain's
+	// internal/external From template, by recipient) so the recipient sees
+	// "Ad Soyad (...) <addr>", not a bare address. CC/BCC count toward the
+	// internal-vs-external decision since one From header covers the whole message.
+	fromRecipients := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
+	fromRecipients = append(fromRecipients, req.To...)
+	fromRecipients = append(fromRecipients, req.CC...)
+	fromRecipients = append(fromRecipients, req.BCC...)
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", h.formatFromHeader(senderEmail))
+	fmt.Fprintf(&sb, "From: %s\r\n", h.outboundFromHeader(senderEmail, fromRecipients))
 	sb.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(safeTo, ", ")))
 	if len(safeCC) > 0 {
 		sb.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(safeCC, ", ")))

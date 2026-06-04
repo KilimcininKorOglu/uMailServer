@@ -156,8 +156,11 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 	}
 
 	var req struct {
-		MaxAccounts int  `json:"max_accounts"`
-		IsActive    bool `json:"is_active"`
+		MaxAccounts          int    `json:"max_accounts"`
+		IsActive             bool   `json:"is_active"`
+		CompanyName          string `json:"company_name"`
+		FromTemplateInternal string `json:"from_template_internal"`
+		FromTemplateExternal string `json:"from_template_external"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -189,6 +192,9 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 
 	domain.MaxAccounts = req.MaxAccounts
 	domain.IsActive = req.IsActive
+	domain.CompanyName = req.CompanyName
+	domain.FromTemplateInternal = req.FromTemplateInternal
+	domain.FromTemplateExternal = req.FromTemplateExternal
 	domain.UpdatedAt = time.Now()
 
 	if err := s.db.UpdateDomain(domain); err != nil {

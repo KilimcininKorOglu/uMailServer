@@ -6,11 +6,14 @@ import (
 
 func domainToJSON(d *db.DomainData) map[string]interface{} {
 	result := map[string]interface{}{
-		"name":         d.Name,
-		"max_accounts": d.MaxAccounts,
-		"is_active":    d.IsActive,
-		"created_at":   d.CreatedAt,
-		"updated_at":   d.UpdatedAt,
+		"name":                   d.Name,
+		"max_accounts":           d.MaxAccounts,
+		"is_active":              d.IsActive,
+		"created_at":             d.CreatedAt,
+		"updated_at":             d.UpdatedAt,
+		"company_name":           d.CompanyName,
+		"from_template_internal": d.FromTemplateInternal,
+		"from_template_external": d.FromTemplateExternal,
 	}
 	if d.DKIMSelector != "" {
 		result["dkim_selector"] = d.DKIMSelector
