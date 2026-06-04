@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"net/mail"
 	"net/textproto"
 	"slices"
 	"strings"
@@ -21,6 +22,9 @@ type Mail struct {
 	From           string   `json:"from"`
 	FromName       string   `json:"fromName"`
 	To             []string `json:"to"`
+	// ToNames carries the display name for each entry in To (same index, empty
+	// string when unknown), so the client can show names without re-parsing.
+	ToNames        []string `json:"toNames,omitempty"`
 	Subject        string   `json:"subject"`
 	Body           string   `json:"body"`
 	Preview        string   `json:"preview"`
@@ -117,6 +121,10 @@ type MailHandler struct {
 	// identical to the SMTP submission / EWS / JMAP send path. When nil, send
 	// only files a copy in Sent and does not deliver.
 	deliver func(from string, to []string, data []byte) error
+	// displayName resolves an email address to a configured account display
+	// name (from the directory), or "" when the address is non-local or has no
+	// display name set. Injected by the server; nil disables resolution.
+	displayName func(email string) string
 }
 
 // NewMailHandler creates a new mail handler
@@ -133,6 +141,69 @@ func (h *MailHandler) SetStorage(msgStore *storage.MessageStore, mailDB *storage
 // SetDeliveryFunc wires the shared outbound delivery path used by webmail send.
 func (h *MailHandler) SetDeliveryFunc(fn func(from string, to []string, data []byte) error) {
 	h.deliver = fn
+}
+
+// SetDisplayNameResolver wires the address→display-name lookup so the mail API
+// can show human names (sender + recipients) instead of bare addresses.
+func (h *MailHandler) SetDisplayNameResolver(fn func(email string) string) {
+	h.displayName = fn
+}
+
+// resolveFrom splits a raw RFC 5322 "From" header into a display name and a bare
+// address. It prefers a name embedded in the header; when absent it falls back
+// to the configured account display name. A malformed header is returned as the
+// bare address with no name.
+func (h *MailHandler) resolveFrom(raw string) (name, email string) {
+	raw = strings.TrimSpace(raw)
+	if addr, err := mail.ParseAddress(raw); err == nil {
+		name, email = addr.Name, addr.Address
+	} else {
+		email = raw
+	}
+	if name == "" && email != "" && h.displayName != nil {
+		name = h.displayName(email)
+	}
+	return name, email
+}
+
+// resolveAddressList parses a recipient header into parallel bare-address and
+// display-name slices (empty name when unknown), resolving missing names via the
+// directory. It falls back to a naive comma split when the header cannot be
+// parsed as an address list.
+func (h *MailHandler) resolveAddressList(raw string) (emails, names []string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	if list, err := mail.ParseAddressList(raw); err == nil {
+		for _, addr := range list {
+			name := addr.Name
+			if name == "" && h.displayName != nil {
+				name = h.displayName(addr.Address)
+			}
+			emails = append(emails, addr.Address)
+			names = append(names, name)
+		}
+		return emails, names
+	}
+	for _, part := range strings.Split(raw, ",") {
+		name, email := h.resolveFrom(part)
+		emails = append(emails, email)
+		names = append(names, name)
+	}
+	return emails, names
+}
+
+// formatFromHeader builds an RFC 5322 "From" value, prefixing the sender's
+// display name (correctly quoted/encoded) when one is configured; otherwise it
+// returns the bare address. Used so outbound mail carries the sender's name.
+func (h *MailHandler) formatFromHeader(senderEmail string) string {
+	if h.displayName != nil {
+		if name := h.displayName(senderEmail); name != "" {
+			return (&mail.Address{Name: name, Address: senderEmail}).String()
+		}
+	}
+	return senderEmail
 }
 
 // sendError sends a JSON error response
@@ -273,19 +344,23 @@ func (h *MailHandler) getEmailsFromStorage(userEmail, mailbox string) ([]Mail, e
 			folderName = mailbox
 		}
 
+		fromName, fromEmail := h.resolveFrom(meta.From)
+		toEmails, toNames := h.resolveAddressList(meta.To)
 		email := Mail{
-			ID:      meta.MessageID,
-			From:    meta.From,
-			To:      strings.Split(meta.To, ","),
-			Subject: meta.Subject,
-			Body:    body,
-			Preview: preview,
-			Date:    meta.InternalDate.Format(time.RFC1123Z),
-			Read:    hasFlag(meta.Flags, "\\Seen"),
-			Starred: hasFlag(meta.Flags, "\\Flagged"),
-			Folder:  folderName,
-			Size:    meta.Size,
-			Labels:  meta.Labels,
+			ID:       meta.MessageID,
+			From:     fromEmail,
+			FromName: fromName,
+			To:       toEmails,
+			ToNames:  toNames,
+			Subject:  meta.Subject,
+			Body:     body,
+			Preview:  preview,
+			Date:     meta.InternalDate.Format(time.RFC1123Z),
+			Read:     hasFlag(meta.Flags, "\\Seen"),
+			Starred:  hasFlag(meta.Flags, "\\Flagged"),
+			Folder:   folderName,
+			Size:     meta.Size,
+			Labels:   meta.Labels,
 		}
 		emails = append(emails, email)
 	}
@@ -399,10 +474,14 @@ func (h *MailHandler) getEmailFromStorage(userEmail, mailbox, messageID string) 
 				folderName = mailbox
 			}
 
+			fromName, fromEmail := h.resolveFrom(meta.From)
+			toEmails, toNames := h.resolveAddressList(meta.To)
 			return &Mail{
 				ID:             meta.MessageID,
-				From:           meta.From,
-				To:             strings.Split(meta.To, ","),
+				From:           fromEmail,
+				FromName:       fromName,
+				To:             toEmails,
+				ToNames:        toNames,
 				Subject:        meta.Subject,
 				Body:           body,
 				Preview:        body,
@@ -538,9 +617,10 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	safeTo := sanitizeHeaderValues(req.To)
 	safeCC := sanitizeHeaderValues(req.CC)
 
-	// Build headers
+	// Build headers. Prefix the sender's display name when configured so the
+	// recipient sees "Ad Soyad <addr>", not a bare address.
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", senderEmail)
+	fmt.Fprintf(&sb, "From: %s\r\n", h.formatFromHeader(senderEmail))
 	sb.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(safeTo, ", ")))
 	if len(safeCC) > 0 {
 		sb.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(safeCC, ", ")))
@@ -1068,7 +1148,7 @@ func (h *MailHandler) handleMailDraft(w http.ResponseWriter, r *http.Request) {
 	safeCC := sanitizeHeaderValues(req.CC)
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", sanitizeHeaderValue(sender))
+	fmt.Fprintf(&sb, "From: %s\r\n", h.formatFromHeader(sanitizeHeaderValue(sender)))
 	fmt.Fprintf(&sb, "To: %s\r\n", strings.Join(safeTo, ", "))
 	if len(safeCC) > 0 {
 		fmt.Fprintf(&sb, "Cc: %s\r\n", strings.Join(safeCC, ", "))

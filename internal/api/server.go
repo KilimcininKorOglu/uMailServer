@@ -665,6 +665,7 @@ func (s *Server) initRouter() {
 	if s.mailDeliver != nil {
 		s.mailHandler.SetDeliveryFunc(s.mailDeliver)
 	}
+	s.mailHandler.SetDisplayNameResolver(s.resolveDisplayName)
 
 	api.HandleFunc("/api/v1/mail/inbox", s.mailHandler.handleMailList)
 	api.HandleFunc("/api/v1/mail/sent", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
@@ -1479,6 +1480,24 @@ func (s *Server) sendError(w http.ResponseWriter, status int, message string) {
 // The handler requires the server to have a non-nil *db.DB for Basic Auth validation.
 func (s *Server) SetEWSHandler(handler http.Handler) {
 	s.ewsHandler = handler
+}
+
+// resolveDisplayName returns the configured display name for a local account
+// address, or "" when the address is non-local, unknown, or has no display name
+// set. It backs the mail API's sender/recipient name resolution.
+func (s *Server) resolveDisplayName(email string) string {
+	if s.db == nil {
+		return ""
+	}
+	localPart, domain, ok := strings.Cut(strings.TrimSpace(email), "@")
+	if !ok || localPart == "" || domain == "" {
+		return ""
+	}
+	account, err := s.db.GetAccount(domain, localPart)
+	if err != nil || account == nil {
+		return ""
+	}
+	return account.DisplayName
 }
 
 // ewsBasicAuth performs HTTP Basic Auth validation against the database.
