@@ -69,6 +69,9 @@ export function Domains() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editMaxAccounts, setEditMaxAccounts] = useState(0);
+  const [editCompanyName, setEditCompanyName] = useState("");
+  const [editFromInternal, setEditFromInternal] = useState("");
+  const [editFromExternal, setEditFromExternal] = useState("");
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [newDomainName, setNewDomainName] = useState("");
   const [newDomainMaxAccounts, setNewDomainMaxAccounts] = useState(100);
@@ -141,6 +144,9 @@ export function Domains() {
       await updateDomain(selectedDomain.name, {
         max_accounts: editMaxAccounts,
         is_active: selectedDomain.is_active,
+        company_name: editCompanyName,
+        from_template_internal: editFromInternal,
+        from_template_external: editFromExternal,
       });
       setIsEditDialogOpen(false);
       setSelectedDomain(null);
@@ -291,6 +297,9 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
               onEdit={() => {
                 setSelectedDomain(domain);
                 setEditMaxAccounts(domain.max_accounts);
+                setEditCompanyName(domain.company_name ?? "");
+                setEditFromInternal(domain.from_template_internal ?? "");
+                setEditFromExternal(domain.from_template_external ?? "");
                 setFormError("");
                 setIsEditDialogOpen(true);
               }}
@@ -330,6 +339,42 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
                 value={editMaxAccounts}
                 onChange={(e) => setEditMaxAccounts(Math.max(0, Number(e.target.value) || 0))}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-company-name">Company name</Label>
+              <Input
+                id="edit-company-name"
+                value={editCompanyName}
+                placeholder="Acme A.Ş."
+                onChange={(e) => setEditCompanyName(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Used by the {"{company}"} placeholder in the From templates below.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-from-internal">Internal From template</Label>
+              <Input
+                id="edit-from-internal"
+                value={editFromInternal}
+                placeholder="{name} ({title})"
+                onChange={(e) => setEditFromInternal(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-from-external">External From template</Label>
+              <Input
+                id="edit-from-external"
+                value={editFromExternal}
+                placeholder="{name} ({company} - {title})"
+                onChange={(e) => setEditFromExternal(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                From display name for outgoing mail. Placeholders: {"{name}"} {"{title}"}{" "}
+                {"{department}"} {"{company}"} {"{email}"}. Internal applies when all
+                recipients are local; external when any recipient is outside. Leave empty
+                to use the sender&apos;s display name.
+              </p>
             </div>
           </div>
           <DialogFooter>

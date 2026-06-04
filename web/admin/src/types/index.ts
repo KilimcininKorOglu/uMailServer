@@ -11,6 +11,11 @@ export interface Domain {
   updated_at: string;
   dkim_selector?: string;
   dkim_public_key?: string;
+  // Outbound From display-name templates (placeholders: {name} {title}
+  // {department} {company} {email}). company_name feeds {company}.
+  company_name?: string;
+  from_template_internal?: string;
+  from_template_external?: string;
 }
 
 export interface Alias {
