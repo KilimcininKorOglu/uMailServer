@@ -48,6 +48,7 @@ interface EmailDetail {
   from: string
   fromEmail: string
   to: string[]
+  toNames: string[]
   subject: string
   date: string
   content: string
@@ -97,15 +98,17 @@ export function EmailDetailPage() {
         setLoading(true)
         const result = await api.getMessage(id)
         if (result && result.id) {
-          const fromParts = (result.from || "").split("<")
-          const fromEmail =
-            fromParts.length > 1 ? fromParts[1].replace(">", "").trim() : result.from
-          const fromName = fromParts.length > 1 ? fromParts[0].trim() : result.from
+          // The API returns a bare sender address (result.from) and a resolved
+          // display name (result.fromName, "" when unknown); recipients come as
+          // bare addresses (result.to) with names in result.toNames (same index).
+          const fromEmail = result.from
+          const fromName = result.fromName || result.from
           setEmail({
             id: result.id,
-            from: fromName || fromEmail,
+            from: fromName,
             fromEmail,
             to: result.to ?? [],
+            toNames: result.toNames ?? [],
             subject: result.subject,
             date: result.date,
             content: result.body,
@@ -391,7 +394,13 @@ export function EmailDetailPage() {
                   </div>
 
                   <div className="mt-1 text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">To:</span> {email.to.join(", ")}
+                    <span className="font-medium text-foreground">To:</span>{" "}
+                    {email.to
+                      .map((addr, i) => {
+                        const nm = email.toNames?.[i]
+                        return nm ? `${nm} <${addr}>` : addr
+                      })
+                      .join(", ")}
                   </div>
 
                   <div className="mt-1 text-sm text-muted-foreground">{email.date}</div>

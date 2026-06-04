@@ -81,9 +81,10 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   // the same inbox dataset filtered to flagged messages.
   const emails: Email[] = useMemo(() => {
     const mapped = inboxEmails.map((mail: Mail) => {
-      const fromParts = mail.from.split('<')
-      const fromEmail = fromParts.length > 1 ? fromParts[1].replace('>', '') : mail.from
-      const fromName = fromParts.length > 1 ? fromParts[0].trim() : mail.from
+      // The API returns a bare address (mail.from) plus a resolved display name
+      // (mail.fromName, "" when unknown); show the name and fall back to address.
+      const fromEmail = mail.from
+      const fromName = mail.fromName || mail.from
       return {
         id: mail.id,
         from: fromName,

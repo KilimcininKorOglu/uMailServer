@@ -6,9 +6,10 @@ const API_URL = window.location.origin + '/api/v1'
 
 export interface Mail {
   id: string
-  from: string
-  fromName: string
-  to: string[]
+  from: string // bare sender address
+  fromName: string // sender display name ("" when unknown)
+  to: string[] // bare recipient addresses
+  toNames?: string[] // display name per recipient (same index, "" when unknown)
   subject: string
   body: string
   preview: string
