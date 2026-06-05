@@ -193,6 +193,18 @@ func New(cfg *config.Config) (*Server, error) {
 		_ = database.Close()
 		return nil, fmt.Errorf("failed to sync configured domains: %w", err)
 	}
+	// Backfill tenant ownership: every domain must belong to a tenant. Legacy
+	// domains each get their own single-domain tenant (id == domain name).
+	backfilled, err := database.EnsureTenantsForDomains()
+	if err != nil {
+		if cerr := database.Close(); cerr != nil {
+			logger.Error("failed to close database after tenant backfill error", "error", cerr)
+		}
+		return nil, fmt.Errorf("failed to backfill tenants: %w", err)
+	}
+	if backfilled > 0 {
+		logger.Info("backfilled tenant ownership for domains", "count", backfilled)
+	}
 	if err := ensureBootstrapAdminAccounts(database, cfg.Domains, logger); err != nil {
 		_ = database.Close()
 		return nil, fmt.Errorf("failed to bootstrap admin accounts: %w", err)

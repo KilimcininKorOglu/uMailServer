@@ -33,6 +33,7 @@ const (
 	BucketRevokedTokens  = "revoked_tokens"
 	BucketClientSessions = "client_sessions"
 	BucketMailGroups     = "mailgroups"
+	BucketTenants        = "tenants"
 )
 
 // DB wraps bbolt database
@@ -87,7 +88,11 @@ type ClientSession struct {
 
 // DomainData holds domain information
 type DomainData struct {
-	Name           string            `json:"name"`
+	Name string `json:"name"`
+	// TenantID is the owning tenant. Every domain belongs to exactly one tenant
+	// (a tenant may own many domains). Backfilled at startup for legacy domains:
+	// each gets its own single-domain tenant whose id equals the domain name.
+	TenantID       string            `json:"tenant_id,omitempty"`
 	MaxAccounts    int               `json:"max_accounts"`
 	MaxMailboxSize int64             `json:"max_mailbox_size"`
 	DKIMSelector   string            `json:"dkim_selector"`
@@ -240,6 +245,7 @@ func (d *DB) initBuckets() error {
 		BucketVacation,
 		BucketPreferences,
 		BucketMailGroups,
+		BucketTenants,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {
@@ -527,6 +533,16 @@ func (d *DB) CreateDomain(domain *DomainData) error {
 		domain.CreatedAt = time.Now()
 	}
 	domain.UpdatedAt = time.Now()
+
+	// Every domain must belong to a tenant. When none is given, the domain gets
+	// its own single-domain tenant (id == name), keeping the invariant for
+	// domains created at runtime via the admin API.
+	if domain.TenantID == "" {
+		if err := d.ensureSelfTenant(domain.Name); err != nil {
+			return err
+		}
+		domain.TenantID = domain.Name
+	}
 
 	return d.Put(BucketDomains, domain.Name, domain)
 }
