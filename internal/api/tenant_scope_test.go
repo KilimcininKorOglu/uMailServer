@@ -91,6 +91,59 @@ func tenantTokenRequest(t *testing.T, secret, sub, tenant string, tenantAdmin, a
 	return req
 }
 
+// TestHandleStats_TenantScope verifies a tenant-admin's stats count only its
+// own tenant's domains/accounts, while a super-admin sees the whole instance.
+func TestHandleStats_TenantScope(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := database.Close(); cerr != nil {
+			t.Errorf("close db: %v", cerr)
+		}
+	})
+	server := NewServer(database, nil, Config{JWTSecret: "test-secret"})
+
+	for _, d := range []string{"a.test", "b.test"} {
+		if err := database.CreateDomain(&db.DomainData{Name: d, MaxAccounts: 10}); err != nil {
+			t.Fatalf("CreateDomain %s: %v", d, err)
+		}
+	}
+	mk := func(email, lp, dom string) {
+		if err := database.CreateAccount(&db.AccountData{Email: email, LocalPart: lp, Domain: dom, PasswordHash: "h", IsActive: true}); err != nil {
+			t.Fatalf("CreateAccount %s: %v", email, err)
+		}
+	}
+	mk("u@a.test", "u", "a.test")
+	mk("v@b.test", "v", "b.test")
+	mk("w@b.test", "w", "b.test")
+
+	decode := func(rec *httptest.ResponseRecorder) map[string]float64 {
+		var m map[string]float64
+		if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+			t.Fatalf("decode stats: %v", err)
+		}
+		return m
+	}
+
+	// Tenant-admin of a.test: 1 domain, 1 account.
+	rec := httptest.NewRecorder()
+	server.handleStats(rec, scopedRequest("a.test", false, true))
+	m := decode(rec)
+	if m["domains"] != 1 || m["accounts"] != 1 {
+		t.Errorf("tenant-admin stats: want domains=1 accounts=1, got %v", m)
+	}
+
+	// Super-admin: both domains, all three accounts.
+	rec = httptest.NewRecorder()
+	server.handleStats(rec, scopedRequest("", true, false))
+	m = decode(rec)
+	if m["domains"] != 2 || m["accounts"] != 3 {
+		t.Errorf("super-admin stats: want domains=2 accounts=3, got %v", m)
+	}
+}
+
 // TestHandleMe_SurfacesTenantScope verifies that the tenant + tenant_admin
 // claims flow through authenticateRequest into the /auth/me response, which is
 // how the SPA learns the caller's tenant scope for self-service admin.
