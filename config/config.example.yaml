@@ -165,6 +165,12 @@ security:
     global_per_minute: 10000
     global_per_hour: 100000
 
+    # Per-domain (tenant) send limits for authenticated submission. Keep one
+    # noisy domain from consuming the shared global allowance. 0 disables.
+    domain_per_minute: 0
+    domain_per_hour: 0
+    domain_per_day: 0
+
     # Legacy aliases are still used by some runtime paths.
     smtp_per_minute: 30
     smtp_per_hour: 500

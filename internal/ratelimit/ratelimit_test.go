@@ -39,6 +39,71 @@ func TestCheckIP_OverLimit(t *testing.T) {
 	}
 }
 
+func TestCheckDomain_OverLimit(t *testing.T) {
+	cfg := &Config{
+		DomainPerMinute: 3,
+		CleanupInterval: time.Hour,
+	}
+	rl := New(nil, cfg)
+
+	for i := 0; i < 3; i++ {
+		if !rl.CheckDomain("acme.test").Allowed {
+			t.Fatalf("send %d should be allowed under the per-domain limit", i)
+		}
+	}
+	result := rl.CheckDomain("acme.test")
+	if result.Allowed {
+		t.Error("4th send should be rejected once the per-domain limit is reached")
+	}
+	if !strings.Contains(result.Reason, "Domain rate limit") {
+		t.Errorf("unexpected reason: %q", result.Reason)
+	}
+}
+
+// TestCheckDomain_Isolation is the whole point of per-domain limiting: one
+// noisy domain exhausting its allowance must not block a different domain.
+func TestCheckDomain_Isolation(t *testing.T) {
+	cfg := &Config{
+		DomainPerMinute: 2,
+		CleanupInterval: time.Hour,
+	}
+	rl := New(nil, cfg)
+
+	// Exhaust acme.test.
+	rl.CheckDomain("acme.test")
+	rl.CheckDomain("acme.test")
+	if rl.CheckDomain("acme.test").Allowed {
+		t.Fatal("acme.test should be rate limited after 2 sends")
+	}
+
+	// other.test must still send freely — it has its own bucket.
+	if !rl.CheckDomain("other.test").Allowed {
+		t.Error("other.test must not be affected by acme.test exhausting its limit")
+	}
+}
+
+func TestCheckDomain_EmptyAllowed(t *testing.T) {
+	cfg := &Config{DomainPerMinute: 1, CleanupInterval: time.Hour}
+	rl := New(nil, cfg)
+	// An empty domain has no scope to enforce and is always allowed.
+	if !rl.CheckDomain("").Allowed {
+		t.Error("empty domain must be allowed (nothing to scope)")
+	}
+	if !rl.CheckDomain("").Allowed {
+		t.Error("empty domain must remain allowed regardless of count")
+	}
+}
+
+func TestCheckDomain_Disabled(t *testing.T) {
+	// Zero limits disable per-domain checks entirely.
+	rl := New(nil, &Config{CleanupInterval: time.Hour})
+	for i := 0; i < 100; i++ {
+		if !rl.CheckDomain("acme.test").Allowed {
+			t.Fatalf("with limits disabled, send %d must be allowed", i)
+		}
+	}
+}
+
 func TestCheckUser_UnderLimit(t *testing.T) {
 	rl := New(nil, nil)
 	user := "testuser"

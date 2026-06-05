@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/ratelimit"
 	"github.com/umailserver/umailserver/internal/spam"
 )
 
@@ -81,6 +82,58 @@ func TestRateLimitStage(t *testing.T) {
 			t.Errorf("Expected ResultReject after limit, got %d", result)
 		}
 	})
+}
+
+// TestRateLimitStage_PerDomain verifies the stage enforces per-domain send
+// fairness for authenticated senders and that one domain's exhaustion does not
+// block another — the tenant-fairness guarantee.
+func TestRateLimitStage_PerDomain(t *testing.T) {
+	// Only the per-domain window is active (everything else is 0 = disabled),
+	// so a rejection can only come from the per-domain limit.
+	limiter := ratelimit.New(nil, &ratelimit.Config{DomainPerMinute: 2, CleanupInterval: time.Hour})
+	stage := NewRateLimitStage(limiter)
+	ip := net.ParseIP("192.168.1.50")
+
+	send := func(user string) PipelineResult {
+		ctx := NewMessageContext(ip, user, []string{"to@ext.test"}, []byte("x"))
+		ctx.Authenticated = true
+		ctx.Username = user
+		return stage.Process(ctx)
+	}
+
+	if send("u@acme.test") != ResultAccept {
+		t.Fatal("acme.test send 1 should be accepted")
+	}
+	if send("u@acme.test") != ResultAccept {
+		t.Fatal("acme.test send 2 should be accepted")
+	}
+	if send("u@acme.test") != ResultReject {
+		t.Error("acme.test send 3 should be rejected on the per-domain limit")
+	}
+	if send("v@other.test") != ResultAccept {
+		t.Error("other.test must not be blocked by acme.test exhausting its limit")
+	}
+}
+
+func TestSenderDomain(t *testing.T) {
+	cases := []struct {
+		username string
+		from     string
+		want     string
+	}{
+		{"u@acme.test", "u@acme.test", "acme.test"},
+		{"u@ACME.test", "", "acme.test"},            // lowercased
+		{"", "v@other.test", "other.test"},          // falls back to envelope sender
+		{"plainuser", "v@other.test", "other.test"}, // username without domain → envelope
+		{"", "", ""},   // nothing to scope
+		{"u@", "", ""}, // trailing @ yields no domain
+	}
+	for _, c := range cases {
+		ctx := &MessageContext{Username: c.username, From: c.from}
+		if got := senderDomain(ctx); got != c.want {
+			t.Errorf("senderDomain(user=%q, from=%q) = %q, want %q", c.username, c.from, got, c.want)
+		}
+	}
 }
 
 func TestGreylistStage(t *testing.T) {

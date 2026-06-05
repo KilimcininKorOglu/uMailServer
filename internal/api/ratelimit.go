@@ -114,10 +114,15 @@ func (s *Server) handlePutRateLimitConfig(w http.ResponseWriter, r *http.Request
 		GlobalPerHour:     req.GlobalPerHour,
 	}
 
-	// Get current config to preserve CleanupInterval
+	// Get current config to preserve fields this legacy endpoint does not carry
+	// (CleanupInterval and the per-domain send limits), so updating IP/user/
+	// global limits here never silently disables per-domain tenant fairness.
 	currentCfg := s.rateLimitMgr.GetConfig()
 	if currentCfg != nil {
 		newCfg.CleanupInterval = currentCfg.CleanupInterval
+		newCfg.DomainPerMinute = currentCfg.DomainPerMinute
+		newCfg.DomainPerHour = currentCfg.DomainPerHour
+		newCfg.DomainPerDay = currentCfg.DomainPerDay
 	}
 
 	// Apply config update at runtime

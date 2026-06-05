@@ -12,19 +12,21 @@ import (
 
 // RateLimiter implements comprehensive rate limiting for email sending
 type RateLimiter struct {
-	bolt         *bbolt.DB
-	config       *Config
-	configMu     sync.RWMutex
-	ipCounters   map[string]*ipBucket
-	ipMu         sync.RWMutex
-	userCounters map[string]*userBucket
-	userMu       sync.RWMutex
-	connLimits   map[string]*connCounter
-	connMu       sync.RWMutex
-	globalBucket *globalBucket
-	globalMu     sync.RWMutex
-	stopCh       chan struct{}
-	stopOnce     sync.Once
+	bolt           *bbolt.DB
+	config         *Config
+	configMu       sync.RWMutex
+	ipCounters     map[string]*ipBucket
+	ipMu           sync.RWMutex
+	userCounters   map[string]*userBucket
+	userMu         sync.RWMutex
+	domainCounters map[string]*domainBucket
+	domainMu       sync.RWMutex
+	connLimits     map[string]*connCounter
+	connMu         sync.RWMutex
+	globalBucket   *globalBucket
+	globalMu       sync.RWMutex
+	stopCh         chan struct{}
+	stopOnce       sync.Once
 }
 
 // globalBucket tracks global rate limit state
@@ -53,6 +55,13 @@ type Config struct {
 	GlobalPerMinute int // global messages per minute
 	GlobalPerHour   int // global messages per hour
 
+	// Per-domain limits (authenticated outbound sending, keyed by the sender's
+	// domain). Enforces tenant fairness: one noisy domain cannot consume the
+	// shared global allowance. Zero disables the corresponding window.
+	DomainPerMinute int // messages per minute per sender domain
+	DomainPerHour   int // messages per hour per sender domain
+	DomainPerDay    int // messages per day per sender domain
+
 	// Cleanup interval
 	CleanupInterval time.Duration
 }
@@ -70,6 +79,9 @@ func DefaultConfig() *Config {
 		UserMaxRecipients: 100,
 		GlobalPerMinute:   10000,
 		GlobalPerHour:     100000,
+		DomainPerMinute:   600,
+		DomainPerHour:     10000,
+		DomainPerDay:      100000,
 		CleanupInterval:   5 * time.Minute,
 	}
 }
@@ -95,6 +107,17 @@ type userBucket struct {
 	sentToday   int64 // persisted to bbolt for daily quotas
 }
 
+// domainBucket tracks per-domain send rate state (in-memory; the daily window
+// is best-effort and resets on restart, which is acceptable for fairness).
+type domainBucket struct {
+	minuteCount int
+	minuteReset time.Time
+	hourCount   int
+	hourReset   time.Time
+	dayCount    int
+	dayReset    time.Time
+}
+
 // connCounter tracks concurrent connections per IP
 type connCounter struct {
 	count int
@@ -115,11 +138,12 @@ func New(bolt *bbolt.DB, cfg *Config) *RateLimiter {
 	}
 	now := time.Now()
 	rl := &RateLimiter{
-		bolt:         bolt,
-		config:       cfg,
-		ipCounters:   make(map[string]*ipBucket),
-		userCounters: make(map[string]*userBucket),
-		connLimits:   make(map[string]*connCounter),
+		bolt:           bolt,
+		config:         cfg,
+		ipCounters:     make(map[string]*ipBucket),
+		userCounters:   make(map[string]*userBucket),
+		domainCounters: make(map[string]*domainBucket),
+		connLimits:     make(map[string]*connCounter),
 		globalBucket: &globalBucket{
 			minuteReset: now.Add(time.Minute),
 			hourReset:   now.Add(time.Hour),
@@ -329,6 +353,90 @@ func (rl *RateLimiter) checkUserBucket(user string, bucket *userBucket) Result {
 	return Result{Allowed: true}
 }
 
+// CheckDomain checks per-domain send rate limits for an authenticated sender's
+// domain. An empty domain is allowed (no scope to enforce). This sits between
+// the per-user and global checks so one tenant domain cannot starve the rest.
+func (rl *RateLimiter) CheckDomain(domain string) Result {
+	if domain == "" {
+		return Result{Allowed: true}
+	}
+	rl.domainMu.Lock()
+	defer rl.domainMu.Unlock()
+
+	now := time.Now()
+	bucket, exists := rl.domainCounters[domain]
+	if !exists {
+		bucket = &domainBucket{
+			minuteReset: now.Add(time.Minute),
+			hourReset:   now.Add(time.Hour),
+			dayReset:    now.Add(24 * time.Hour),
+		}
+		rl.domainCounters[domain] = bucket
+		return rl.checkDomainBucket(bucket)
+	}
+
+	// Reset expired windows
+	if now.After(bucket.minuteReset) {
+		bucket.minuteCount = 0
+		bucket.minuteReset = now.Add(time.Minute)
+	}
+	if now.After(bucket.hourReset) {
+		bucket.hourCount = 0
+		bucket.hourReset = now.Add(time.Hour)
+	}
+	if now.After(bucket.dayReset) {
+		bucket.dayCount = 0
+		bucket.dayReset = now.Add(24 * time.Hour)
+	}
+
+	return rl.checkDomainBucket(bucket)
+}
+
+func (rl *RateLimiter) checkDomainBucket(bucket *domainBucket) Result {
+	if rl.config.DomainPerMinute > 0 && bucket.minuteCount >= rl.config.DomainPerMinute {
+		retrySecs := int(time.Until(bucket.minuteReset).Seconds())
+		if retrySecs < 1 {
+			retrySecs = 1
+		}
+		return Result{
+			Allowed:    false,
+			Reason:     fmt.Sprintf("Domain rate limit exceeded: %d/min", rl.config.DomainPerMinute),
+			RetryAfter: retrySecs,
+		}
+	}
+
+	if rl.config.DomainPerHour > 0 && bucket.hourCount >= rl.config.DomainPerHour {
+		retrySecs := int(time.Until(bucket.hourReset).Seconds())
+		if retrySecs < 1 {
+			retrySecs = 60
+		}
+		return Result{
+			Allowed:    false,
+			Reason:     fmt.Sprintf("Domain rate limit exceeded: %d/hour", rl.config.DomainPerHour),
+			RetryAfter: retrySecs,
+		}
+	}
+
+	if rl.config.DomainPerDay > 0 && bucket.dayCount >= rl.config.DomainPerDay {
+		retrySecs := int(time.Until(bucket.dayReset).Seconds())
+		if retrySecs < 1 {
+			retrySecs = 3600
+		}
+		return Result{
+			Allowed:    false,
+			Reason:     fmt.Sprintf("Domain rate limit exceeded: %d/day", rl.config.DomainPerDay),
+			RetryAfter: retrySecs,
+		}
+	}
+
+	// Increment counters
+	bucket.minuteCount++
+	bucket.hourCount++
+	bucket.dayCount++
+
+	return Result{Allowed: true}
+}
+
 // CheckGlobal checks global rate limits across all users/connections
 func (rl *RateLimiter) CheckGlobal() Result {
 	rl.globalMu.Lock()
@@ -524,6 +632,15 @@ func (rl *RateLimiter) cleanup() {
 		}
 	}
 	rl.ipMu.Unlock()
+
+	// Cleanup domain counters
+	rl.domainMu.Lock()
+	for domain, bucket := range rl.domainCounters {
+		if now.After(bucket.dayReset) && now.After(bucket.hourReset.Add(time.Hour)) {
+			delete(rl.domainCounters, domain)
+		}
+	}
+	rl.domainMu.Unlock()
 
 	// Cleanup connection counters
 	rl.connMu.Lock()

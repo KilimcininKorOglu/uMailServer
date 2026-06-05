@@ -15,29 +15,29 @@ import (
 
 // Config is the main configuration structure
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	TLS         TLSConfig         `yaml:"tls"`
-	SMTP        SMTPConfig        `yaml:"smtp"`
-	IMAP        IMAPConfig        `yaml:"imap"`
-	POP3        POP3Config        `yaml:"pop3"`
-	HTTP        HTTPConfig        `yaml:"http"`
-	Admin       AdminConfig       `yaml:"admin"`
-	Spam        SpamConfig        `yaml:"spam"`
-	AV          AVConfig          `yaml:"av"`
-	Security    SecurityConfig    `yaml:"security"`
-	LDAP        LDAPConfig        `yaml:"ldap"`
-	MCP         MCPConfig         `yaml:"mcp"`
-	ManageSieve ManageSieveConfig `yaml:"managesieve"`
-	Domains     []DomainConfig    `yaml:"domains"`
-	Logging     LoggingConfig     `yaml:"logging"`
-	Metrics     MetricsConfig     `yaml:"metrics"`
-	Tracing     TracingConfig     `yaml:"tracing"`
-	Database    DatabaseConfig    `yaml:"database"`
-	Storage     StorageConfig     `yaml:"storage"`
-	CalDAV      CalDAVConfig      `yaml:"caldav"`
-	CardDAV     CardDAVConfig     `yaml:"carddav"`
-	JMAP        JMAPConfig        `yaml:"jmap"`
-	DMARC       DMARCConfig       `yaml:"dmarc"`
+	Server        ServerConfig        `yaml:"server"`
+	TLS           TLSConfig           `yaml:"tls"`
+	SMTP          SMTPConfig          `yaml:"smtp"`
+	IMAP          IMAPConfig          `yaml:"imap"`
+	POP3          POP3Config          `yaml:"pop3"`
+	HTTP          HTTPConfig          `yaml:"http"`
+	Admin         AdminConfig         `yaml:"admin"`
+	Spam          SpamConfig          `yaml:"spam"`
+	AV            AVConfig            `yaml:"av"`
+	Security      SecurityConfig      `yaml:"security"`
+	LDAP          LDAPConfig          `yaml:"ldap"`
+	MCP           MCPConfig           `yaml:"mcp"`
+	ManageSieve   ManageSieveConfig   `yaml:"managesieve"`
+	Domains       []DomainConfig      `yaml:"domains"`
+	Logging       LoggingConfig       `yaml:"logging"`
+	Metrics       MetricsConfig       `yaml:"metrics"`
+	Tracing       TracingConfig       `yaml:"tracing"`
+	Database      DatabaseConfig      `yaml:"database"`
+	Storage       StorageConfig       `yaml:"storage"`
+	CalDAV        CalDAVConfig        `yaml:"caldav"`
+	CardDAV       CardDAVConfig       `yaml:"carddav"`
+	JMAP          JMAPConfig          `yaml:"jmap"`
+	DMARC         DMARCConfig         `yaml:"dmarc"`
 	Alert         AlertConfig         `yaml:"alert"`
 	Push          PushConfig          `yaml:"push"`
 	Signing       SigningConfig       `yaml:"signing"`
@@ -220,6 +220,13 @@ type RateLimitConfig struct {
 	// Global limits
 	GlobalPerMinute int `yaml:"global_per_minute"` // global messages per minute
 	GlobalPerHour   int `yaml:"global_per_hour"`   // global messages per hour
+
+	// Per-domain limits (authenticated outbound sending, keyed by sender domain).
+	// Tenant fairness: one noisy domain cannot consume the global allowance.
+	// Zero disables the corresponding window.
+	DomainPerMinute int `yaml:"domain_per_minute"` // messages per minute per sender domain
+	DomainPerHour   int `yaml:"domain_per_hour"`   // messages per hour per sender domain
+	DomainPerDay    int `yaml:"domain_per_day"`    // messages per day per sender domain
 
 	// Legacy aliases (for backwards compatibility)
 	SMTPPerMinute         int `yaml:"smtp_per_minute"`
@@ -712,6 +719,24 @@ func (c *Config) Validate() error {
 	}
 	if c.Security.RateLimit.GlobalPerHour > 10_000_000 {
 		return fmt.Errorf("security.rate_limit.global_per_hour must be <= 10000000")
+	}
+	if c.Security.RateLimit.DomainPerMinute < 0 {
+		return fmt.Errorf("security.rate_limit.domain_per_minute must be non-negative")
+	}
+	if c.Security.RateLimit.DomainPerMinute > 1_000_000 {
+		return fmt.Errorf("security.rate_limit.domain_per_minute must be <= 1000000")
+	}
+	if c.Security.RateLimit.DomainPerHour < 0 {
+		return fmt.Errorf("security.rate_limit.domain_per_hour must be non-negative")
+	}
+	if c.Security.RateLimit.DomainPerHour > 10_000_000 {
+		return fmt.Errorf("security.rate_limit.domain_per_hour must be <= 10000000")
+	}
+	if c.Security.RateLimit.DomainPerDay < 0 {
+		return fmt.Errorf("security.rate_limit.domain_per_day must be non-negative")
+	}
+	if c.Security.RateLimit.DomainPerDay > 100_000_000 {
+		return fmt.Errorf("security.rate_limit.domain_per_day must be <= 100000000")
 	}
 
 	// Validate timeouts

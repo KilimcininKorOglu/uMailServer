@@ -112,6 +112,22 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 	return pipeline
 }
 
+// buildSubmissionSMTPPipeline builds the message pipeline for the authenticated
+// submission listeners (587/465). Unlike the inbound pipeline it deliberately
+// omits the receive-side checks (SPF/DKIM/DMARC verification, greylisting, RBL,
+// spam scoring) — those are wrong for a tenant's own outbound mail. It carries
+// only the rate-limit stage so per-user and per-domain (tenant) send limits are
+// actually enforced on the canonical send path. The stage shares s.rateLimiter,
+// so live config reloads retune it without a rebuild.
+func (s *Server) buildSubmissionSMTPPipeline() *smtp.Pipeline {
+	pipeline := smtp.NewPipeline(smtp.NewPipelineLogger(s.logger))
+	pipeline.SetTracingProvider(s.tracingProvider)
+	if s.rateLimiter != nil {
+		pipeline.AddStage(smtp.NewRateLimitStage(s.rateLimiter))
+	}
+	return pipeline
+}
+
 func (s *Server) buildSubmissionSMTPConfig() *smtp.Config {
 	allowInsecure := !s.cfg().SMTP.Submission.RequireTLS
 
@@ -181,6 +197,7 @@ func (s *Server) startSMTP() {
 		submissionServer.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
 		submissionServer.SetLegacyRateLimits(s.cfg().Security.RateLimit.SMTPPerMinute, s.cfg().Security.RateLimit.SMTPPerHour)
 		submissionServer.SetTracingProvider(s.tracingProvider)
+		submissionServer.SetPipeline(s.buildSubmissionSMTPPipeline())
 
 		go func() {
 			if err := submissionServer.ListenAndServe(submissionAddr); err != nil {
@@ -216,6 +233,7 @@ func (s *Server) startSMTP() {
 		submissionTLSServer.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
 		submissionTLSServer.SetLegacyRateLimits(s.cfg().Security.RateLimit.SMTPPerMinute, s.cfg().Security.RateLimit.SMTPPerHour)
 		submissionTLSServer.SetTracingProvider(s.tracingProvider)
+		submissionTLSServer.SetPipeline(s.buildSubmissionSMTPPipeline())
 
 		tlsConfig := s.tlsManager.GetTLSConfig()
 		go func() {

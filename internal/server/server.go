@@ -400,6 +400,9 @@ func buildRateLimitConfig(cfg *config.Config) *ratelimit.Config {
 		UserMaxRecipients: cfg.Security.RateLimit.UserMaxRecipients,
 		GlobalPerMinute:   cfg.Security.RateLimit.GlobalPerMinute,
 		GlobalPerHour:     cfg.Security.RateLimit.GlobalPerHour,
+		DomainPerMinute:   cfg.Security.RateLimit.DomainPerMinute,
+		DomainPerHour:     cfg.Security.RateLimit.DomainPerHour,
+		DomainPerDay:      cfg.Security.RateLimit.DomainPerDay,
 		CleanupInterval:   5 * time.Minute,
 	}
 }

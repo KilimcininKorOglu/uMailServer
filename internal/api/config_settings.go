@@ -179,6 +179,9 @@ type rateLimitSectionDTO struct {
 	UserMaxRecipients     int `json:"user_max_recipients"`
 	GlobalPerMinute       int `json:"global_per_minute"`
 	GlobalPerHour         int `json:"global_per_hour"`
+	DomainPerMinute       int `json:"domain_per_minute"`
+	DomainPerHour         int `json:"domain_per_hour"`
+	DomainPerDay          int `json:"domain_per_day"`
 	SMTPPerMinute         int `json:"smtp_per_minute"`
 	SMTPPerHour           int `json:"smtp_per_hour"`
 	IMAPConnections       int `json:"imap_connections"`
@@ -699,6 +702,9 @@ func rateLimitToDTO(rl config.RateLimitConfig) rateLimitSectionDTO {
 		UserMaxRecipients:     rl.UserMaxRecipients,
 		GlobalPerMinute:       rl.GlobalPerMinute,
 		GlobalPerHour:         rl.GlobalPerHour,
+		DomainPerMinute:       rl.DomainPerMinute,
+		DomainPerHour:         rl.DomainPerHour,
+		DomainPerDay:          rl.DomainPerDay,
 		SMTPPerMinute:         rl.SMTPPerMinute,
 		SMTPPerHour:           rl.SMTPPerHour,
 		IMAPConnections:       rl.IMAPConnections,
@@ -907,6 +913,9 @@ func applyRateLimitDTO(rl *config.RateLimitConfig, req *rateLimitSectionDTO) {
 	rl.UserMaxRecipients = req.UserMaxRecipients
 	rl.GlobalPerMinute = req.GlobalPerMinute
 	rl.GlobalPerHour = req.GlobalPerHour
+	rl.DomainPerMinute = req.DomainPerMinute
+	rl.DomainPerHour = req.DomainPerHour
+	rl.DomainPerDay = req.DomainPerDay
 	rl.SMTPPerMinute = req.SMTPPerMinute
 	rl.SMTPPerHour = req.SMTPPerHour
 	rl.IMAPConnections = req.IMAPConnections

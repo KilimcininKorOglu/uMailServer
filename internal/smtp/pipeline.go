@@ -294,6 +294,19 @@ func NewRateLimitStageWithDefaults() *RateLimitStage {
 
 func (s *RateLimitStage) Name() string { return "RateLimit" }
 
+// senderDomain returns the domain used to key per-domain send rate limiting:
+// the authenticated username's domain when it carries one, otherwise the
+// envelope sender's domain. Empty when neither yields a domain.
+func senderDomain(ctx *MessageContext) string {
+	if at := strings.LastIndex(ctx.Username, "@"); at >= 0 && at < len(ctx.Username)-1 {
+		return strings.ToLower(ctx.Username[at+1:])
+	}
+	if at := strings.LastIndex(ctx.From, "@"); at >= 0 && at < len(ctx.From)-1 {
+		return strings.ToLower(ctx.From[at+1:])
+	}
+	return ""
+}
+
 func (s *RateLimitStage) Process(ctx *MessageContext) PipelineResult {
 	if s.limiter == nil {
 		return ResultAccept // No rate limiting configured
@@ -319,6 +332,21 @@ func (s *RateLimitStage) Process(ctx *MessageContext) PipelineResult {
 				ctx.Rejected = true
 				ctx.RejectionCode = 421
 				ctx.RejectionMessage = recipResult.Reason
+				return ResultReject
+			}
+		}
+
+		// Per-domain (tenant) send fairness: key on the authenticated sender's
+		// domain so one tenant domain cannot consume the shared global allowance.
+		if domain := senderDomain(ctx); domain != "" {
+			domainResult := s.limiter.CheckDomain(domain)
+			if !domainResult.Allowed {
+				ctx.Rejected = true
+				ctx.RejectionCode = 421
+				ctx.RejectionMessage = domainResult.Reason
+				if domainResult.RetryAfter > 0 {
+					ctx.RejectionMessage = fmt.Sprintf("%s (retry in %ds)", ctx.RejectionMessage, domainResult.RetryAfter)
+				}
 				return ResultReject
 			}
 		}
