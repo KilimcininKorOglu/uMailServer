@@ -17,6 +17,7 @@ import { Delegation } from "@/pages/Delegation";
 import { Diagnostics } from "@/pages/Diagnostics";
 import { Directory } from "@/pages/Directory";
 import { Jobs } from "@/pages/Jobs";
+import { Tenants } from "@/pages/Tenants";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { User, Activity } from "@/types";
 
@@ -208,6 +209,7 @@ function App() {
             <Route path="/diagnostics" element={<Diagnostics />} />
             <Route path="/directory" element={<Directory />} />
             <Route path="/jobs" element={<Jobs />} />
+            <Route path="/tenants" element={<Tenants />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

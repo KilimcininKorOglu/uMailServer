@@ -17,6 +17,8 @@ import type {
   ProtocolFailure,
   Job,
   ServerConfig,
+  Tenant,
+  TenantBranding,
 } from "@/types";
 
 interface ApiError {
@@ -754,4 +756,41 @@ export function useJWT() {
   }, []);
 
   return { fetchStatus, rotate };
+}
+
+// Tenant API hooks: list tenants and edit their per-tenant branding.
+export function useTenants() {
+  const [data, setData] = useState<Tenant[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchTenants = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<Tenant[]>("/tenants");
+      setData(result ?? []);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchBranding = useCallback(async (id: string) => {
+    return apiRequest<TenantBranding>(`/tenants/${encodeURIComponent(id)}/branding`);
+  }, []);
+
+  const updateBranding = useCallback(
+    async (id: string, branding: TenantBranding) => {
+      return apiRequest<TenantBranding>(`/tenants/${encodeURIComponent(id)}/branding`, {
+        method: "PUT",
+        body: JSON.stringify(branding),
+      });
+    },
+    []
+  );
+
+  return { tenants: data, loading, error, fetchTenants, fetchBranding, updateBranding };
 }

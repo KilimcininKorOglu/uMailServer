@@ -12,6 +12,7 @@ import {
   ActivitySquare,
   FolderSearch,
   Briefcase,
+  Building2,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -47,6 +48,7 @@ const menuItems = [
   { path: "/diagnostics", icon: ActivitySquare, labelKey: "nav.diagnostics" },
   { path: "/directory", icon: FolderSearch, labelKey: "nav.directory" },
   { path: "/jobs", icon: Briefcase, labelKey: "nav.jobs" },
+  { path: "/tenants", icon: Building2, labelKey: "nav.tenants" },
   { path: "/settings", icon: Settings, labelKey: "nav.settings" },
 ];
 

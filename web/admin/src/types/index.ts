@@ -3,6 +3,22 @@ export interface User {
   isAdmin: boolean;
 }
 
+export interface Tenant {
+  id: string;
+  name: string;
+  is_active: boolean;
+  settings?: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TenantBranding {
+  app_name: string;
+  logo_url: string;
+  primary_color: string;
+  features: Record<string, boolean>;
+}
+
 export interface Domain {
   name: string;
   max_accounts: number;
