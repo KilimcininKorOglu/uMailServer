@@ -76,14 +76,18 @@ func (s *Server) handleMailGroupDetail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) listMailGroups(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) listMailGroups(w http.ResponseWriter, r *http.Request) {
 	groups, err := s.db.ListMailGroups()
 	if err != nil {
 		s.sendError(w, http.StatusInternalServerError, "failed to list mail groups")
 		return
 	}
+	ts := s.callerTenantScope(r)
 	result := make([]map[string]any, 0, len(groups))
 	for _, g := range groups {
+		if !s.allowsDomain(ts, g.Domain) {
+			continue
+		}
 		result = append(result, mailGroupToJSON(g))
 	}
 	s.sendJSON(w, http.StatusOK, result)
@@ -109,6 +113,10 @@ func (s *Server) createMailGroup(w http.ResponseWriter, r *http.Request) {
 	user, domain := parseEmail(req.Email)
 	if user == "" || domain == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid group address format")
+		return
+	}
+	if !s.allowsDomain(s.callerTenantScope(r), domain) {
+		s.sendError(w, http.StatusForbidden, "domain outside your tenant")
 		return
 	}
 	if _, err := s.db.GetDomain(domain); err != nil {
@@ -148,10 +156,14 @@ func (s *Server) createMailGroup(w http.ResponseWriter, r *http.Request) {
 	s.sendJSON(w, http.StatusCreated, mailGroupToJSON(group))
 }
 
-func (s *Server) getMailGroup(w http.ResponseWriter, _ *http.Request, addr string) {
+func (s *Server) getMailGroup(w http.ResponseWriter, r *http.Request, addr string) {
 	user, domain := parseEmail(addr)
 	if user == "" || domain == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid group address")
+		return
+	}
+	if !s.allowsDomain(s.callerTenantScope(r), domain) {
+		s.sendError(w, http.StatusForbidden, "group outside your tenant")
 		return
 	}
 	group, err := s.db.GetMailGroup(domain, user)
@@ -166,6 +178,10 @@ func (s *Server) updateMailGroup(w http.ResponseWriter, r *http.Request, addr st
 	user, domain := parseEmail(addr)
 	if user == "" || domain == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid group address")
+		return
+	}
+	if !s.allowsDomain(s.callerTenantScope(r), domain) {
+		s.sendError(w, http.StatusForbidden, "group outside your tenant")
 		return
 	}
 	group, err := s.db.GetMailGroup(domain, user)
@@ -224,10 +240,14 @@ func (s *Server) updateMailGroup(w http.ResponseWriter, r *http.Request, addr st
 	s.sendJSON(w, http.StatusOK, mailGroupToJSON(group))
 }
 
-func (s *Server) deleteMailGroup(w http.ResponseWriter, _ *http.Request, addr string) {
+func (s *Server) deleteMailGroup(w http.ResponseWriter, r *http.Request, addr string) {
 	user, domain := parseEmail(addr)
 	if user == "" || domain == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid group address")
+		return
+	}
+	if !s.allowsDomain(s.callerTenantScope(r), domain) {
+		s.sendError(w, http.StatusForbidden, "group outside your tenant")
 		return
 	}
 	if err := s.db.DeleteMailGroup(domain, user); err != nil {

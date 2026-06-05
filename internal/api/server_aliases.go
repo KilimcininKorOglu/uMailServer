@@ -59,8 +59,12 @@ func (s *Server) listAliases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ts := s.callerTenantScope(r)
 	var result []map[string]interface{}
 	for _, a := range aliases {
+		if !s.allowsDomain(ts, a.Domain) {
+			continue
+		}
 		result = append(result, aliasToJSON(a))
 	}
 
@@ -87,6 +91,10 @@ func (s *Server) createAlias(w http.ResponseWriter, r *http.Request) {
 	aliasUser, aliasDomain := parseEmail(req.Alias)
 	if aliasUser == "" || aliasDomain == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid alias address format")
+		return
+	}
+	if !s.allowsDomain(s.callerTenantScope(r), aliasDomain) {
+		s.sendError(w, http.StatusForbidden, "domain outside your tenant")
 		return
 	}
 
@@ -135,6 +143,11 @@ func (s *Server) getAlias(w http.ResponseWriter, r *http.Request, alias string) 
 		return
 	}
 
+	if !s.allowsDomain(s.callerTenantScope(r), aliasDomain) {
+		s.sendError(w, http.StatusForbidden, "alias outside your tenant")
+		return
+	}
+
 	data, err := s.db.GetAlias(aliasDomain, aliasUser)
 	if err != nil {
 		s.sendError(w, http.StatusNotFound, "alias not found")
@@ -148,6 +161,11 @@ func (s *Server) updateAlias(w http.ResponseWriter, r *http.Request, alias strin
 	aliasUser, aliasDomain := parseEmail(alias)
 	if aliasUser == "" || aliasDomain == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid alias address")
+		return
+	}
+
+	if !s.allowsDomain(s.callerTenantScope(r), aliasDomain) {
+		s.sendError(w, http.StatusForbidden, "alias outside your tenant")
 		return
 	}
 
@@ -192,6 +210,11 @@ func (s *Server) deleteAlias(w http.ResponseWriter, r *http.Request, alias strin
 	aliasUser, aliasDomain := parseEmail(alias)
 	if aliasUser == "" || aliasDomain == "" {
 		s.sendError(w, http.StatusBadRequest, "invalid alias address")
+		return
+	}
+
+	if !s.allowsDomain(s.callerTenantScope(r), aliasDomain) {
+		s.sendError(w, http.StatusForbidden, "alias outside your tenant")
 		return
 	}
 
