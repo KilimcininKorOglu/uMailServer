@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,6 +191,82 @@ func TestListQueue_TenantScope(t *testing.T) {
 	}
 	if len(list) != 2 {
 		t.Errorf("super-admin queue: want 2 entries, got %d", len(list))
+	}
+}
+
+// TestExportTenant verifies the tenant export is scoped to the caller's tenant,
+// gathers the tenant's domains/accounts/aliases, and never leaks account
+// secrets (the password hash must not appear in the exported snapshot).
+func TestExportTenant(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := database.Close(); cerr != nil {
+			t.Errorf("close db: %v", cerr)
+		}
+	})
+	server := NewServer(database, nil, Config{JWTSecret: "test-secret"})
+
+	// Two single-domain tenants; CreateDomain assigns each its own tenant whose
+	// id equals the domain name.
+	for _, d := range []string{"a.test", "b.test"} {
+		if err := database.CreateDomain(&db.DomainData{Name: d, MaxAccounts: 10}); err != nil {
+			t.Fatalf("CreateDomain %s: %v", d, err)
+		}
+	}
+	if err := database.CreateAccount(&db.AccountData{Email: "u@a.test", LocalPart: "u", Domain: "a.test", PasswordHash: "secret-hash", IsActive: true}); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if err := database.CreateAlias(&db.AliasData{Alias: "info", Target: "u@a.test", Domain: "a.test", IsActive: true}); err != nil {
+		t.Fatalf("CreateAlias: %v", err)
+	}
+
+	// Tenant-admin of a.test exports its own tenant.
+	rec := httptest.NewRecorder()
+	server.exportTenant(rec, scopedRequest("a.test", false, true), "a.test")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("own-tenant export: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var export struct {
+		Domains  []map[string]any `json:"domains"`
+		Accounts []map[string]any `json:"accounts"`
+		Aliases  []map[string]any `json:"aliases"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &export); err != nil {
+		t.Fatalf("decode export: %v", err)
+	}
+	if len(export.Domains) != 1 || export.Domains[0]["name"] != "a.test" {
+		t.Errorf("export domains: want only a.test, got %v", export.Domains)
+	}
+	if len(export.Accounts) != 1 || export.Accounts[0]["email"] != "u@a.test" {
+		t.Errorf("export accounts: want only u@a.test, got %v", export.Accounts)
+	}
+	if len(export.Aliases) != 1 || export.Aliases[0]["alias"] != "info@a.test" {
+		t.Errorf("export aliases: want info@a.test, got %v", export.Aliases)
+	}
+	// The snapshot must never carry the password hash — exporting config is not
+	// a backdoor to credentials.
+	if _, leaked := export.Accounts[0]["password_hash"]; leaked {
+		t.Error("export leaked the account password hash")
+	}
+	if body := rec.Body.String(); strings.Contains(body, "secret-hash") {
+		t.Errorf("export body contains the raw password hash: %s", body)
+	}
+
+	// Tenant-admin of a.test cannot export another tenant.
+	rec = httptest.NewRecorder()
+	server.exportTenant(rec, scopedRequest("a.test", false, true), "b.test")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-tenant export: want 403, got %d", rec.Code)
+	}
+
+	// Super-admin can export any tenant.
+	rec = httptest.NewRecorder()
+	server.exportTenant(rec, scopedRequest("", true, false), "b.test")
+	if rec.Code != http.StatusOK {
+		t.Errorf("super-admin export: want 200, got %d", rec.Code)
 	}
 }
 

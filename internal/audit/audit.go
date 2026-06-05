@@ -26,6 +26,12 @@ const (
 	TOTPEnable     EventType = "totp_enable"
 	TOTPDisable    EventType = "totp_disable"
 	PasswordChange EventType = "password_change"
+	TenantCreate   EventType = "tenant_create"
+	TenantUpdate   EventType = "tenant_update"
+	TenantSuspend  EventType = "tenant_suspend"
+	TenantActivate EventType = "tenant_activate"
+	TenantDelete   EventType = "tenant_delete"
+	TenantExport   EventType = "tenant_export"
 )
 
 // Event represents a single audit log entry
@@ -36,7 +42,8 @@ type Event struct {
 	IP        string            `json:"ip,omitempty"`
 	Success   bool              `json:"success"`
 	Details   map[string]string `json:"details,omitempty"`
-	Service   string            `json:"service"` // "api", "smtp", "imap", "pop3"
+	Service   string            `json:"service"`          // "api", "smtp", "imap", "pop3"
+	Tenant    string            `json:"tenant,omitempty"` // affected tenant id, for per-tenant governance events
 }
 
 // Logger handles structured audit logging with rotation
@@ -379,6 +386,22 @@ func (l *Logger) LogTOTPDisable(user, target, ip string) {
 		IP:      ip,
 		Success: true,
 		Details: map[string]string{"target": target},
+		Service: "api",
+	})
+}
+
+// LogTenant records a tenant lifecycle governance event (create, update,
+// suspend, activate, delete, export). actor is the acting admin's address and
+// tenant is the affected tenant id; both are tagged so the trail can be
+// filtered per tenant.
+func (l *Logger) LogTenant(eventType EventType, actor, tenant, ip string) {
+	//nolint:errcheck // best-effort audit; a write failure must never block the request
+	_ = l.Log(Event{
+		Type:    eventType,
+		User:    actor,
+		Tenant:  tenant,
+		IP:      ip,
+		Success: true,
 		Service: "api",
 	})
 }

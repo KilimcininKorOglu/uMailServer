@@ -5,8 +5,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/audit"
 	"github.com/umailserver/umailserver/internal/db"
 )
+
+// tenantAuditActor returns the acting admin's address for a tenant governance
+// audit event, falling back to "system" when the request carries no user.
+func tenantAuditActor(r *http.Request) string {
+	if u, ok := r.Context().Value("user").(string); ok && u != "" {
+		return u
+	}
+	return "system"
+}
 
 func tenantToJSON(t *db.TenantData) map[string]interface{} {
 	return map[string]interface{}{
@@ -31,7 +41,15 @@ func (s *Server) handleTenants(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/v1/tenants/")
+	id, sub, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/api/v1/tenants/"), "/")
+	if sub == "export" {
+		if r.Method != http.MethodGet {
+			s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.exportTenant(w, r, id)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.getTenant(w, r, id)
@@ -94,6 +112,7 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request) {
 		s.sendError(w, http.StatusInternalServerError, "failed to create tenant")
 		return
 	}
+	s.auditLogger.LogTenant(audit.TenantCreate, tenantAuditActor(r), tenant.ID, audit.ExtractIP(r))
 	s.sendJSON(w, http.StatusCreated, tenantToJSON(tenant))
 }
 
@@ -129,6 +148,7 @@ func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, id string)
 		s.sendError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	wasActive := tenant.IsActive
 	if req.Name != nil {
 		tenant.Name = strings.TrimSpace(*req.Name)
 	}
@@ -139,6 +159,17 @@ func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request, id string)
 	if err := s.db.UpdateTenant(tenant); err != nil {
 		s.sendError(w, http.StatusInternalServerError, "failed to update tenant")
 		return
+	}
+	// Suspend/activate is recorded distinctly from a plain rename so the
+	// governance trail shows lifecycle transitions explicitly.
+	actor, ip := tenantAuditActor(r), audit.ExtractIP(r)
+	switch {
+	case wasActive && !tenant.IsActive:
+		s.auditLogger.LogTenant(audit.TenantSuspend, actor, tenant.ID, ip)
+	case !wasActive && tenant.IsActive:
+		s.auditLogger.LogTenant(audit.TenantActivate, actor, tenant.ID, ip)
+	default:
+		s.auditLogger.LogTenant(audit.TenantUpdate, actor, tenant.ID, ip)
 	}
 	s.sendJSON(w, http.StatusOK, tenantToJSON(tenant))
 }
@@ -162,5 +193,78 @@ func (s *Server) deleteTenant(w http.ResponseWriter, r *http.Request, id string)
 		s.sendError(w, http.StatusInternalServerError, "failed to delete tenant")
 		return
 	}
+	s.auditLogger.LogTenant(audit.TenantDelete, tenantAuditActor(r), id, audit.ExtractIP(r))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// exportTenant returns a portable snapshot of a tenant's configuration: the
+// tenant record, its domains, accounts, aliases, and mail groups. Secrets
+// (password hashes, DKIM private keys) are excluded — it reuses the same
+// secret-free converters the admin API serves. Available to a super-admin or
+// the tenant's own admin.
+func (s *Server) exportTenant(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.callerTenantScope(r).allowsTenant(id) {
+		s.sendError(w, http.StatusForbidden, "tenant outside your scope")
+		return
+	}
+	tenant, err := s.db.GetTenant(id)
+	if err != nil {
+		s.sendError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	domains, err := s.db.ListDomainsByTenant(id)
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, "failed to list tenant domains")
+		return
+	}
+
+	owned := make(map[string]bool, len(domains))
+	domainsJSON := make([]map[string]any, 0, len(domains))
+	accountsJSON := make([]map[string]any, 0)
+	for _, d := range domains {
+		owned[d.Name] = true
+		domainsJSON = append(domainsJSON, domainToJSON(d))
+		accounts, aerr := s.db.ListAccountsByDomain(d.Name)
+		if aerr != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to list tenant accounts")
+			return
+		}
+		for _, a := range accounts {
+			accountsJSON = append(accountsJSON, accountToJSON(a))
+		}
+	}
+
+	aliases, err := s.db.ListAliases()
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, "failed to list aliases")
+		return
+	}
+	aliasesJSON := make([]map[string]any, 0)
+	for _, a := range aliases {
+		if owned[a.Domain] {
+			aliasesJSON = append(aliasesJSON, aliasToJSON(a))
+		}
+	}
+
+	groups, err := s.db.ListMailGroups()
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, "failed to list mail groups")
+		return
+	}
+	groupsJSON := make([]map[string]any, 0)
+	for _, g := range groups {
+		if owned[g.Domain] {
+			groupsJSON = append(groupsJSON, mailGroupToJSON(g))
+		}
+	}
+
+	s.auditLogger.LogTenant(audit.TenantExport, tenantAuditActor(r), id, audit.ExtractIP(r))
+	s.sendJSON(w, http.StatusOK, map[string]any{
+		"tenant":      tenantToJSON(tenant),
+		"domains":     domainsJSON,
+		"accounts":    accountsJSON,
+		"aliases":     aliasesJSON,
+		"mail_groups": groupsJSON,
+		"exported_at": time.Now().UTC().Format(time.RFC3339),
+	})
 }

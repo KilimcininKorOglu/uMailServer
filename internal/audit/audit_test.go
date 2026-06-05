@@ -1,8 +1,10 @@
 package audit
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -153,6 +155,41 @@ func TestLogger_LogTOTPEnable(t *testing.T) {
 	defer logger.Close()
 
 	logger.LogTOTPEnable("user@example.com", "user@example.com", "10.0.0.1")
+}
+
+func TestLogger_LogTenant(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "audit.log")
+
+	logger, err := NewLogger(logPath, 1, 1, 1)
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+
+	logger.LogTenant(TenantSuspend, "operator@example.com", "acme", "10.0.0.1")
+	if err := logger.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	var evt Event
+	if err := json.Unmarshal(data, &evt); err != nil {
+		t.Fatalf("Unmarshal failed: %v (raw=%q)", err, data)
+	}
+	// The per-tenant trail is worthless if the affected tenant is not tagged,
+	// so assert the tenant id and the lifecycle event type round-trip.
+	if evt.Tenant != "acme" {
+		t.Errorf("Tenant = %q, want %q", evt.Tenant, "acme")
+	}
+	if evt.Type != TenantSuspend {
+		t.Errorf("Type = %q, want %q", evt.Type, TenantSuspend)
+	}
+	if evt.User != "operator@example.com" {
+		t.Errorf("User = %q, want %q", evt.User, "operator@example.com")
+	}
 }
 
 func TestLogger_Rotation(t *testing.T) {
