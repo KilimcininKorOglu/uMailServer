@@ -1610,6 +1610,10 @@ func (s *Server) ewsBasicAuth(w http.ResponseWriter, r *http.Request) string {
 	if account.MustChangePassword {
 		return ""
 	}
+	// A suspended tenant blocks its accounts at the EWS entry point too.
+	if s.tenantSuspendedForDomain(domain) {
+		return ""
+	}
 	matches, _ := s.verifyPassword(password, account.PasswordHash)
 	if !matches {
 		return ""
@@ -1665,6 +1669,11 @@ func (s *Server) mapiBasicAuth(w http.ResponseWriter, r *http.Request) string {
 	// VAL-OUTLOOK-008: Accounts flagged for required password change fail explicitly.
 	// This blocks Outlook reconnection or resumed sessions after admin password reset.
 	if account.MustChangePassword {
+		return ""
+	}
+
+	// A suspended tenant blocks its accounts at the MAPI/HTTP entry point too.
+	if s.tenantSuspendedForDomain(domain) {
 		return ""
 	}
 

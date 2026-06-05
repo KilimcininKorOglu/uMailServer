@@ -75,6 +75,12 @@ func (s *Server) startJMAP() {
 			if account.MustChangePassword {
 				return fmt.Errorf("password change required")
 			}
+			// A suspended tenant blocks its accounts on JMAP too.
+			if dom, derr := s.database.GetDomain(domain); derr == nil && dom.TenantID != "" {
+				if tenant, terr := s.database.GetTenant(dom.TenantID); terr == nil && !tenant.IsActive {
+					return fmt.Errorf("tenant is suspended")
+				}
+			}
 			return nil
 		},
 	}
