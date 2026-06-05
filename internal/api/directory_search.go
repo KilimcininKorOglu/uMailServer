@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/umailserver/umailserver/internal/db"
 )
 
 // directoryEntry is one address-book entry for the composer's recipient
@@ -21,9 +23,9 @@ type directoryEntry struct {
 const maxDirectoryResults = 25
 
 // handleDirectorySearch resolves names/addresses from the organization
-// directory (the caller's own domain), like the Exchange GAL. It returns only
-// active accounts and exposes only their address and local part — never
-// credentials or quota. GET /api/v1/directory?q=<query>
+// directory (every domain in the caller's tenant), like the Exchange GAL. It
+// returns only active accounts and exposes only their address and local part —
+// never credentials or quota. GET /api/v1/directory?q=<query>
 func (s *Server) handleDirectorySearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -44,13 +46,29 @@ func (s *Server) handleDirectorySearch(w http.ResponseWriter, r *http.Request) {
 		s.sendError(w, http.StatusBadRequest, "invalid user")
 		return
 	}
-	domain := strings.ToLower(user[at+1:])
+	ownDomain := strings.ToLower(user[at+1:])
 	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 
-	accounts, err := s.db.ListAccountsByDomain(domain)
-	if err != nil {
-		s.sendJSON(w, http.StatusOK, map[string]interface{}{"entries": []directoryEntry{}})
-		return
+	// The GAL is tenant-scoped: search across every domain in the caller's
+	// tenant. Fall back to the caller's own domain for legacy tokens that
+	// predate the tenant claim (and for single-domain tenants this is identical).
+	scopeDomains := []string{ownDomain}
+	if tid, ok := r.Context().Value(contextKeyTenantID).(string); ok && tid != "" {
+		if doms, derr := s.db.ListDomainsByTenant(tid); derr == nil && len(doms) > 0 {
+			scopeDomains = scopeDomains[:0]
+			for _, d := range doms {
+				scopeDomains = append(scopeDomains, d.Name)
+			}
+		}
+	}
+
+	var accounts []*db.AccountData
+	for _, dom := range scopeDomains {
+		da, derr := s.db.ListAccountsByDomain(dom)
+		if derr != nil {
+			continue
+		}
+		accounts = append(accounts, da...)
 	}
 
 	entries := make([]directoryEntry, 0, len(accounts))

@@ -791,10 +791,13 @@ func (s *Server) initRouter() {
 }
 
 func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
-	api.HandleFunc("/api/v1/domains", s.adminMiddleware(http.HandlerFunc(s.handleDomains)).ServeHTTP)
-	api.HandleFunc("/api/v1/domains/", s.adminMiddleware(http.HandlerFunc(s.handleDomainDetail)).ServeHTTP)
-	api.HandleFunc("/api/v1/accounts", s.adminMiddleware(http.HandlerFunc(s.handleAccounts)).ServeHTTP)
-	api.HandleFunc("/api/v1/accounts/", s.adminMiddleware(http.HandlerFunc(s.handleAccountDetail)).ServeHTTP)
+	// Tenant-scoped admin surfaces: reachable by a super-admin OR a self-service
+	// tenant-admin. Each handler enforces the caller's tenant scope internally
+	// (a tenant-admin only sees/touches resources in its own tenant's domains).
+	api.HandleFunc("/api/v1/domains", s.tenantAdminMiddleware(http.HandlerFunc(s.handleDomains)).ServeHTTP)
+	api.HandleFunc("/api/v1/domains/", s.tenantAdminMiddleware(http.HandlerFunc(s.handleDomainDetail)).ServeHTTP)
+	api.HandleFunc("/api/v1/accounts", s.tenantAdminMiddleware(http.HandlerFunc(s.handleAccounts)).ServeHTTP)
+	api.HandleFunc("/api/v1/accounts/", s.tenantAdminMiddleware(http.HandlerFunc(s.handleAccountDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/aliases", s.adminMiddleware(http.HandlerFunc(s.handleAliases)).ServeHTTP)
 	api.HandleFunc("/api/v1/aliases/", s.adminMiddleware(http.HandlerFunc(s.handleAliasDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/groups", s.adminMiddleware(http.HandlerFunc(s.handleMailGroups)).ServeHTTP)
@@ -1252,6 +1255,24 @@ func (s *Server) adminMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isAdmin, ok := r.Context().Value("isAdmin").(bool)
 		if !ok || !isAdmin {
+			s.sendJSON(w, http.StatusForbidden, map[string]string{
+				"error": "admin access required",
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// tenantAdminMiddleware allows a global super-admin OR a self-service
+// tenant-admin through. Handlers behind it MUST still scope every resource to
+// the caller's tenant (callerTenantScope/allowsDomain) — this gate only
+// establishes that the caller holds some admin authority, not which tenant's
+// data they may touch. Must run after authMiddleware.
+func (s *Server) tenantAdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ts := s.callerTenantScope(r)
+		if !ts.isSuperAdmin && !ts.isTenantAdmin {
 			s.sendJSON(w, http.StatusForbidden, map[string]string{
 				"error": "admin access required",
 			})

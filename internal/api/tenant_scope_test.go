@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,65 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/umailserver/umailserver/internal/db"
 )
+
+// scopedRequest builds a request whose context carries the tenant authority the
+// handlers read via callerTenantScope (mirrors what authMiddleware sets).
+func scopedRequest(tenantID string, superAdmin, tenantAdmin bool) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/x", nil)
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, "isAdmin", superAdmin) //nolint:staticcheck // shared string context key set by authMiddleware
+	ctx = context.WithValue(ctx, contextKeyTenantID, tenantID)
+	ctx = context.WithValue(ctx, contextKeyTenantAdmin, tenantAdmin)
+	return req.WithContext(ctx)
+}
+
+// TestGetAccount_TenantScope verifies that a tenant-admin can only read accounts
+// in its own tenant, while a super-admin reads any — the core isolation
+// guarantee once the admin gate is opened to tenant-admins.
+func TestGetAccount_TenantScope(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := database.Close(); cerr != nil {
+			t.Errorf("close db: %v", cerr)
+		}
+	})
+	server := NewServer(database, nil, Config{JWTSecret: "test-secret"})
+
+	// Two single-domain tenants (CreateDomain assigns each its own tenant).
+	for _, d := range []string{"a.test", "b.test"} {
+		if err := database.CreateDomain(&db.DomainData{Name: d, MaxAccounts: 10}); err != nil {
+			t.Fatalf("CreateDomain %s: %v", d, err)
+		}
+	}
+	if err := database.CreateAccount(&db.AccountData{Email: "u@a.test", LocalPart: "u", Domain: "a.test", PasswordHash: "h", IsActive: true}); err != nil {
+		t.Fatalf("CreateAccount u: %v", err)
+	}
+	if err := database.CreateAccount(&db.AccountData{Email: "v@b.test", LocalPart: "v", Domain: "b.test", PasswordHash: "h", IsActive: true}); err != nil {
+		t.Fatalf("CreateAccount v: %v", err)
+	}
+
+	// Tenant-admin of a.test: own account 200, other tenant 403.
+	rec := httptest.NewRecorder()
+	server.getAccount(rec, scopedRequest("a.test", false, true), "u@a.test")
+	if rec.Code != http.StatusOK {
+		t.Errorf("tenant-admin own account: want 200, got %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	server.getAccount(rec, scopedRequest("a.test", false, true), "v@b.test")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("tenant-admin cross-tenant account: want 403, got %d", rec.Code)
+	}
+
+	// Super-admin sees any tenant's account.
+	rec = httptest.NewRecorder()
+	server.getAccount(rec, scopedRequest("", true, false), "v@b.test")
+	if rec.Code != http.StatusOK {
+		t.Errorf("super-admin any account: want 200, got %d", rec.Code)
+	}
+}
 
 // tenantTokenRequest builds a GET /auth/me carrying a jwt cookie with tenant
 // scope claims, signed with the server secret.

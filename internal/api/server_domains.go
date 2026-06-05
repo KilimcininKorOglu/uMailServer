@@ -57,6 +57,7 @@ func (s *Server) handleDomainDetail(w http.ResponseWriter, r *http.Request) {
 // Domain handlers
 
 func (s *Server) listDomains(w http.ResponseWriter, r *http.Request) {
+	ts := s.callerTenantScope(r)
 	domains, err := s.db.ListDomains()
 	if err != nil {
 		s.sendError(w, http.StatusInternalServerError, "failed to list domains")
@@ -65,6 +66,10 @@ func (s *Server) listDomains(w http.ResponseWriter, r *http.Request) {
 
 	var result []map[string]interface{}
 	for _, d := range domains {
+		// A tenant-admin only sees domains owned by its tenant.
+		if !ts.allowsTenant(d.TenantID) {
+			continue
+		}
 		result = append(result, domainToJSON(d))
 	}
 
@@ -72,6 +77,13 @@ func (s *Server) listDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createDomain(w http.ResponseWriter, r *http.Request) {
+	// Provisioning a new domain is a super-admin operation; a tenant-admin
+	// cannot add domains to its tenant in this phase.
+	if ts := s.callerTenantScope(r); ts.isTenantAdmin && !ts.isSuperAdmin {
+		s.sendError(w, http.StatusForbidden, "only a super-admin can create domains")
+		return
+	}
+
 	var req struct {
 		Name        string `json:"name"`
 		MaxAccounts int    `json:"max_accounts"`
@@ -144,6 +156,10 @@ func (s *Server) getDomain(w http.ResponseWriter, r *http.Request, name string) 
 		s.sendError(w, http.StatusNotFound, "domain not found")
 		return
 	}
+	if !s.callerTenantScope(r).allowsTenant(domain.TenantID) {
+		s.sendError(w, http.StatusForbidden, "domain outside your tenant")
+		return
+	}
 
 	s.sendJSON(w, http.StatusOK, domainToJSON(domain))
 }
@@ -152,6 +168,10 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 	domain, err := s.db.GetDomain(name)
 	if err != nil {
 		s.sendError(w, http.StatusNotFound, "domain not found")
+		return
+	}
+	if !s.callerTenantScope(r).allowsTenant(domain.TenantID) {
+		s.sendError(w, http.StatusForbidden, "domain outside your tenant")
 		return
 	}
 
@@ -206,6 +226,13 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 }
 
 func (s *Server) deleteDomain(w http.ResponseWriter, r *http.Request, name string) {
+	// Deleting a domain is a super-admin (provisioning) operation; a tenant-admin
+	// cannot remove domains from its tenant.
+	if ts := s.callerTenantScope(r); ts.isTenantAdmin && !ts.isSuperAdmin {
+		s.sendError(w, http.StatusForbidden, "only a super-admin can delete domains")
+		return
+	}
+
 	if err := s.db.DeleteDomain(name); err != nil {
 		s.sendError(w, http.StatusInternalServerError, "failed to delete domain")
 		return

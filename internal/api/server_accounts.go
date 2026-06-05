@@ -74,11 +74,12 @@ func (s *Server) handleAccountDetail(w http.ResponseWriter, r *http.Request) {
 // Account handlers
 
 func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
+	ts := s.callerTenantScope(r)
 	authUser, _ := r.Context().Value("user").(string)
-	isAdmin, _ := r.Context().Value("isAdmin").(bool)
 
-	// Non-admins may only view their own account
-	if !isAdmin && authUser != "" {
+	// A genuine non-admin end-user (has an identity but no admin authority) may
+	// only view its own account.
+	if !ts.isSuperAdmin && !ts.isTenantAdmin && authUser != "" {
 		user, domain := parseEmail(authUser)
 		account, err := s.db.GetAccount(domain, user)
 		if err != nil || account == nil {
@@ -89,40 +90,54 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	domain := r.URL.Query().Get("domain")
-
-	var accounts []*db.AccountData
-	var err error
-
-	if domain != "" {
-		accounts, err = s.db.ListAccountsByDomain(domain)
-	} else {
-		// Get all accounts from all domains
-		domains, listErr := s.db.ListDomains()
-		if listErr != nil {
+	// A specific domain was requested: it must be within the caller's scope.
+	if requested := r.URL.Query().Get("domain"); requested != "" {
+		if !s.allowsDomain(ts, requested) {
+			s.sendError(w, http.StatusForbidden, "domain outside your tenant")
+			return
+		}
+		accounts, err := s.db.ListAccountsByDomain(requested)
+		if err != nil {
 			s.sendError(w, http.StatusInternalServerError, "failed to list accounts")
 			return
 		}
-		for _, d := range domains {
-			domainAccounts, accErr := s.db.ListAccountsByDomain(d.Name)
-			if accErr != nil {
-				s.sendError(w, http.StatusInternalServerError, "failed to list accounts for domain")
-				return
-			}
-			accounts = append(accounts, domainAccounts...)
-		}
+		s.sendAccounts(w, accounts)
+		return
 	}
 
+	// No domain filter: enumerate the domains in the caller's scope. Only a
+	// tenant-admin is restricted to its own tenant; a super-admin (or an
+	// already-gated caller) sees all domains.
+	var domains []*db.DomainData
+	var err error
+	if ts.isTenantAdmin && !ts.isSuperAdmin {
+		domains, err = s.db.ListDomainsByTenant(ts.tenantID)
+	} else {
+		domains, err = s.db.ListDomains()
+	}
 	if err != nil {
 		s.sendError(w, http.StatusInternalServerError, "failed to list accounts")
 		return
 	}
 
+	var accounts []*db.AccountData
+	for _, d := range domains {
+		domainAccounts, accErr := s.db.ListAccountsByDomain(d.Name)
+		if accErr != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to list accounts for domain")
+			return
+		}
+		accounts = append(accounts, domainAccounts...)
+	}
+	s.sendAccounts(w, accounts)
+}
+
+// sendAccounts marshals a list of accounts to JSON.
+func (s *Server) sendAccounts(w http.ResponseWriter, accounts []*db.AccountData) {
 	var result []map[string]interface{}
 	for _, a := range accounts {
 		result = append(result, accountToJSON(a))
 	}
-
 	s.sendJSON(w, http.StatusOK, result)
 }
 
@@ -190,6 +205,13 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	user, domain := parseEmail(req.Email)
 
+	// Tenant scope: a tenant-admin may only create accounts in its own tenant's
+	// domains; a super-admin may create in any.
+	if !s.allowsDomain(s.callerTenantScope(r), domain) {
+		s.sendError(w, http.StatusForbidden, "domain outside your tenant")
+		return
+	}
+
 	// Reject duplicates: re-creating an existing account must not silently
 	// overwrite it (which would reset the existing user's password).
 	if _, err := s.db.GetAccount(domain, user); err == nil {
@@ -254,12 +276,7 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getAccount(w http.ResponseWriter, r *http.Request, email string) {
 	user, domain := parseEmail(email)
 
-	// Authorization check: ensure user owns this account or is admin
-	authUser, _ := r.Context().Value("user").(string)
-	isAdmin, _ := r.Context().Value("isAdmin").(bool)
-
-	// If auth context exists, enforce ownership
-	if authUser != "" && !isAdmin && authUser != user+"@"+domain {
+	if !s.mayAccessAccount(r, email) {
 		s.sendError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -290,7 +307,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 	}
 	isAdmin, _ := r.Context().Value("isAdmin").(bool)
 
-	if !isAdmin && authUser != user+"@"+domain {
+	if !s.mayAccessAccount(r, email) {
 		s.sendError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -413,11 +430,12 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 			account.MustChangePassword = false
 		}
 	}
-	if req.IsAdmin != nil {
+	// Only a global super-admin may change global-admin status; a tenant-admin's
+	// req.IsAdmin is ignored (granting true is already rejected above).
+	if req.IsAdmin != nil && isAdmin {
 		account.IsAdmin = *req.IsAdmin
 	}
-	// Only a global super-admin may grant/revoke tenant-admin in this phase;
-	// scoped self-service management arrives with the Faz 2 tenant filtering.
+	// Likewise, only a super-admin may grant/revoke tenant-admin.
 	if req.IsTenantAdmin != nil && isAdmin {
 		account.IsTenantAdmin = *req.IsTenantAdmin
 	}
@@ -477,12 +495,9 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request, email string) {
 	user, domain := parseEmail(email)
 
-	// Authorization check: ensure user owns this account or is admin
 	authUser, _ := r.Context().Value("user").(string)
-	isAdmin, _ := r.Context().Value("isAdmin").(bool)
 
-	// If auth context exists, enforce ownership/non-admin restrictions
-	if authUser != "" && !isAdmin && authUser != user+"@"+domain {
+	if !s.mayAccessAccount(r, email) {
 		s.sendError(w, http.StatusForbidden, "access denied")
 		return
 	}
