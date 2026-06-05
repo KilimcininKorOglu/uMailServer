@@ -7,10 +7,26 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// newRedisClient builds a Redis client from either a redis:// / rediss:// URL
+// (with optional auth and db number) or a bare host:port address. The previous
+// code passed the whole URL into Options.Addr, which only accepts host:port and
+// failed with "too many colons in address" for real redis:// URLs.
+func newRedisClient(redisURL string) (*redis.Client, error) {
+	if strings.Contains(redisURL, "://") {
+		opt, err := redis.ParseURL(redisURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid redis url: %w", err)
+		}
+		return redis.NewClient(opt), nil
+	}
+	return redis.NewClient(&redis.Options{Addr: redisURL}), nil
+}
 
 // RedisSessionStore implements SessionStore using Redis
 type RedisSessionStore struct {
@@ -19,9 +35,10 @@ type RedisSessionStore struct {
 
 // NewRedisSessionStore creates a new Redis session store
 func NewRedisSessionStore(redisURL string) (*RedisSessionStore, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr: redisURL,
-	})
+	client, err := newRedisClient(redisURL)
+	if err != nil {
+		return nil, err
+	}
 
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -93,9 +110,10 @@ type RedisLeaderElection struct {
 
 // NewRedisLeaderElection creates a new Redis leader election
 func NewRedisLeaderElection(redisURL, instanceID string, leaseTTL time.Duration) (*RedisLeaderElection, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr: redisURL,
-	})
+	client, err := newRedisClient(redisURL)
+	if err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -191,9 +209,10 @@ type RedisDistributedLock struct {
 
 // NewRedisDistributedLock creates a new Redis distributed lock
 func NewRedisDistributedLock(redisURL string) (*RedisDistributedLock, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr: redisURL,
-	})
+	client, err := newRedisClient(redisURL)
+	if err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

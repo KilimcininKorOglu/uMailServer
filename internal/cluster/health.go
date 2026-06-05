@@ -18,9 +18,10 @@ type RedisHealthMonitor struct {
 
 // NewRedisHealthMonitor creates a new Redis health monitor
 func NewRedisHealthMonitor(redisURL, instanceID string) (*RedisHealthMonitor, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr: redisURL,
-	})
+	client, err := newRedisClient(redisURL)
+	if err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
