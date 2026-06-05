@@ -33,6 +33,14 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 		// Prevent MIME type sniffing
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 
+		// API responses are dynamic and authenticated (mail, contacts, calendar,
+		// admin, the /auth/me session check, etc.): never let a browser or shared
+		// cache store them. This middleware wraps the whole /api/v1 mux on both
+		// the main and admin listeners, so one no-store covers every JSON handler
+		// regardless of how it writes its body. A handler may still override this
+		// if a specific endpoint is ever made cacheable.
+		w.Header().Set("Cache-Control", "no-store")
+
 		// XSS Protection for legacy browsers
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 

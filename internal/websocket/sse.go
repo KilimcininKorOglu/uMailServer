@@ -93,7 +93,9 @@ func (s *SSEServer) Handler() http.HandlerFunc {
 
 		// Set up SSE headers
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
+		// no-store (not no-cache): an event stream must never be cached or
+		// buffered by any intermediary.
+		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Connection", "keep-alive")
 		// Only set CORS if explicitly configured; empty means no CORS headers (secure default)
 		if s.corsOrigin != "" {

@@ -381,6 +381,10 @@ func (s *Server) recordAccountLoginFailure(email string) {
 //	@Failure 429 {object} map[string]interface{} "Too many login attempts"
 //	@Router /api/v1/login [post]
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Auth responses (and the Set-Cookie they carry) must never be cached.
+	// Login/logout are on the outer mux, outside the securityHeadersMiddleware
+	// that no-stores the rest of the API, so set it here explicitly.
+	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodPost {
 		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -588,6 +592,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleLogout revokes the current token (adds it to blacklist) and clears the cookie
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Auth responses must never be cached (outer mux, outside the API
+	// no-store middleware).
+	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
