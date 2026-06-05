@@ -2569,18 +2569,20 @@ func TestNewEmbedFSSub_InvalidPath(t *testing.T) {
 	}
 }
 
-func TestHandleAdmin_StatError(t *testing.T) {
+func TestHandleAdmin_ReadError(t *testing.T) {
 	database, err := db.Open(t.TempDir() + "/test.db")
 	if err != nil {
 		t.Fatalf("failed to create database: %v", err)
 	}
 	defer database.Close()
 
+	// The static handler reads the whole file into memory to compute its cache
+	// ETag; a read failure must surface as a 500.
 	mockFS := &MockFS{
 		Files: map[string]string{
 			"index.html": "<!doctype html><html>Admin</html>",
 		},
-		StatError: fmt.Errorf("stat error"),
+		ReadError: fmt.Errorf("read error"),
 	}
 
 	server := NewServerWithInterfaces(database, nil, Config{}, nil, nil, nil, nil, mockFS)
@@ -2595,7 +2597,7 @@ func TestHandleAdmin_StatError(t *testing.T) {
 	}
 }
 
-func TestHandleWebmail_StatError(t *testing.T) {
+func TestHandleWebmail_ReadError(t *testing.T) {
 	database, err := db.Open(t.TempDir() + "/test.db")
 	if err != nil {
 		t.Fatalf("failed to create database: %v", err)
@@ -2606,7 +2608,7 @@ func TestHandleWebmail_StatError(t *testing.T) {
 		Files: map[string]string{
 			"index.html": "<!doctype html><html>Webmail</html>",
 		},
-		StatError: fmt.Errorf("stat error"),
+		ReadError: fmt.Errorf("read error"),
 	}
 
 	server := NewServerWithInterfaces(database, nil, Config{}, nil, nil, nil, mockFS, nil)

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -715,8 +716,11 @@ func TestAdminServer_handleAdmin_SPAFallbackContentType(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("%s: expected 200, got %d", path, w.Code)
 		}
-		if ct := w.Header().Get("Content-Type"); ct != "text/html" {
-			t.Errorf("%s: fallback Content-Type = %q, want text/html", path, ct)
+		// http.ServeContent labels .html as "text/html; charset=utf-8"; the
+		// regression we guard against is the extensionless path resolving to
+		// application/octet-stream (a download), so any text/html* is correct.
+		if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Errorf("%s: fallback Content-Type = %q, want text/html*", path, ct)
 		}
 	}
 }

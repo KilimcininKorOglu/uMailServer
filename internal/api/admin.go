@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -240,10 +239,9 @@ func (s *AdminServer) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	defer data.Close()
 
-	contentType := getContentType(filePath)
-	w.Header().Set("Content-Type", contentType)
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, data) //nolint:errcheck // write already started, error logged by caller if critical
+	// Serve with cache headers; ServeContent handles If-None-Match (304) and
+	// HEAD, and sets Content-Type from the filename.
+	serveStaticContent(w, r, filePath, data)
 }
 
 // handleAdminAssets serves JS, CSS, fonts, and image assets from the admin build
@@ -267,15 +265,11 @@ func (s *AdminServer) handleAdminAssets(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
+	defer file.Close() //nolint:errcheck // read-only embedded file
 
-	stat, err := file.Stat()
-	if err != nil {
-		_ = file.Close() //nolint:errcheck // closing after stat error, nothing more we can do
-		http.NotFound(w, r)
-		return
-	}
-
-	http.ServeContent(w, r, filePath, stat.ModTime(), file.(io.ReadSeeker)) //nolint:errcheck // ServeContent handles close internally
+	// Hashed bundle filenames → immutable; serveStaticContent sets the headers
+	// and ServeContent handles If-None-Match/Range/HEAD.
+	serveStaticContent(w, r, filePath, file)
 }
 
 // handleAdminRootFile serves root-level static files (favicon, icons) from the admin build
@@ -297,15 +291,9 @@ func (s *AdminServer) handleAdminRootFile(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
+	defer file.Close() //nolint:errcheck // read-only embedded file
 
-	stat, err := file.Stat()
-	if err != nil {
-		_ = file.Close() //nolint:errcheck // closing after stat error, nothing more we can do
-		http.NotFound(w, r)
-		return
-	}
-
-	http.ServeContent(w, r, filePath, stat.ModTime(), file.(io.ReadSeeker)) //nolint:errcheck // ServeContent handles close internally
+	serveStaticContent(w, r, filePath, file)
 }
 
 // getContentType returns MIME type for static files

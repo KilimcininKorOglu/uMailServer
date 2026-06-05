@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -1209,9 +1208,9 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// Add claims to context. These string keys are read by every downstream
 		// handler via r.Context().Value("user"/"isAdmin"/"mustChangePassword"),
 		// so the key type must stay a plain string for compatibility.
-		ctx := context.WithValue(r.Context(), "user", res.user)                              //nolint:staticcheck // shared string context key read across all handlers
-		ctx = context.WithValue(ctx, "isAdmin", res.isAdmin)                                 //nolint:staticcheck // shared string context key read across all handlers
-		ctx = context.WithValue(ctx, "mustChangePassword", res.mustChangePassword)           //nolint:staticcheck // shared string context key read across all handlers
+		ctx := context.WithValue(r.Context(), "user", res.user)                    //nolint:staticcheck // shared string context key read across all handlers
+		ctx = context.WithValue(ctx, "isAdmin", res.isAdmin)                       //nolint:staticcheck // shared string context key read across all handlers
+		ctx = context.WithValue(ctx, "mustChangePassword", res.mustChangePassword) //nolint:staticcheck // shared string context key read across all handlers
 		ctx = context.WithValue(ctx, contextKeyTokenHash, res.tokenHash)
 
 		if res.mustChangePassword && !isPasswordChangeOnlyRoute(r, res.user) {
@@ -1299,15 +1298,9 @@ func (s *Server) handleWebmail(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/svg+xml")
 	}
 
-	// Serve file content
-	stat, err := file.Stat()
-	if err != nil {
-		s.logger.Error("Failed to stat file", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	http.ServeContent(w, r, path, stat.ModTime(), file.(io.ReadSeeker))
+	// Serve file content with cache headers (ServeContent handles If-None-Match
+	// 304, Range, and HEAD).
+	serveStaticContent(w, r, path, file)
 }
 
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
@@ -1352,15 +1345,9 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/svg+xml")
 	}
 
-	// Serve file content
-	stat, err := file.Stat()
-	if err != nil {
-		s.logger.Error("Failed to stat file", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	http.ServeContent(w, r, path, stat.ModTime(), file.(io.ReadSeeker))
+	// Serve file content with cache headers (ServeContent handles If-None-Match
+	// 304, Range, and HEAD).
+	serveStaticContent(w, r, path, file)
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {

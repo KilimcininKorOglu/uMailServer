@@ -12,6 +12,7 @@ type MockFS struct {
 	Files     map[string]string
 	OpenError error
 	StatError error
+	ReadError error
 }
 
 // mockFile implements io.ReadSeeker for testing
@@ -20,6 +21,7 @@ type mockFile struct {
 	name      string
 	pos       int
 	statError error
+	readError error
 }
 
 func (f *mockFile) Stat() (fs.FileInfo, error) {
@@ -30,6 +32,9 @@ func (f *mockFile) Stat() (fs.FileInfo, error) {
 }
 
 func (f *mockFile) Read(p []byte) (int, error) {
+	if f.readError != nil {
+		return 0, f.readError
+	}
 	if f.pos >= len(f.content) {
 		return 0, io.EOF
 	}
@@ -76,12 +81,12 @@ func (m *MockFS) Open(name string) (fs.File, error) {
 		// Try with index.html fallback
 		if name == "index.html" || strings.HasSuffix(name, "/") {
 			if content, ok = m.Files["index.html"]; ok {
-				return &mockFile{content: content, name: "index.html", statError: m.StatError}, nil
+				return &mockFile{content: content, name: "index.html", statError: m.StatError, readError: m.ReadError}, nil
 			}
 		}
 		return nil, fs.ErrNotExist
 	}
-	return &mockFile{content: content, name: name, statError: m.StatError}, nil
+	return &mockFile{content: content, name: name, statError: m.StatError, readError: m.ReadError}, nil
 }
 
 func (m *MockFS) ReadFile(name string) ([]byte, error) {
