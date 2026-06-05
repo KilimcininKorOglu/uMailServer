@@ -36,12 +36,36 @@ services:
       - ALL
     networks:
       - mailnet
+    depends_on:
+      - redis
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # Redis coordinates the HA cluster (shared session/blacklist/rate-limit state,
+  # leader election, cross-node IDLE/SSE pub/sub). Only used when cluster.enabled
+  # is set; harmless otherwise. AOF persistence so a restart does not resurrect
+  # revoked tokens (the blacklist must survive).
+  redis:
+    image: redis:7-alpine
+    container_name: umail-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - /usr/share/zoneinfo/Europe/Istanbul:/etc/localtime:ro
+      - redis_data:/data
+    environment:
+      - TZ=:/etc/localtime
+    networks:
+      - mailnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   prometheus:
     image: prom/prometheus:latest
@@ -84,6 +108,7 @@ services:
 volumes:
   prometheus_data:
   grafana_data:
+  redis_data:
 
 networks:
   mailnet:

@@ -8,6 +8,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/backup"
+	"github.com/umailserver/umailserver/internal/cluster"
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mapi"
@@ -100,6 +101,30 @@ func (s *Server) startAPI() {
 	// Let the admin Settings PUT apply changes to the running server live and
 	// report what took effect versus what needs a restart.
 	s.apiServer.SetConfigReloader(s.ReloadConfig)
+
+	// Wire the HA cluster manager when clustering is enabled. Disabled by
+	// default → s.clusterManager stays nil and /api/v1/cluster/* report
+	// "disabled" (single-node behavior unchanged). A Redis connection failure is
+	// logged loudly and the node continues un-clustered rather than refusing to
+	// boot (fail-loud, not fail-shut).
+	if cc := s.cfg().Cluster; cc.Enabled {
+		instanceID := cc.InstanceID
+		if instanceID == "" {
+			instanceID = cluster.GenerateInstanceID()
+		}
+		mgr, err := cluster.NewClusterManager(cluster.NewConfig(cc.RedisURL, instanceID), cc.RedisURL)
+		if err != nil {
+			s.logger.Error("cluster: failed to initialize cluster manager; continuing un-clustered", "error", err)
+		} else {
+			s.clusterManager = mgr
+			s.apiServer.SetClusterManager(mgr, &api.ClusterConfig{
+				RedisURL:   cc.RedisURL,
+				InstanceID: instanceID,
+				Enabled:    true,
+			})
+			s.logger.Info("HA cluster manager initialized", "instance_id", instanceID)
+		}
+	}
 
 	// Wire EWS SOAP handler into the API server.
 	// This requires semcoreStore to be initialized (done in server.go startup).

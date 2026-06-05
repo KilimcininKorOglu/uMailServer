@@ -117,6 +117,13 @@ func (s *Server) Stop() error {
 		s.rateLimiter.Stop()
 	}
 
+	// Close the HA cluster manager (Redis connections) when present.
+	if s.clusterManager != nil {
+		if err := s.clusterManager.Close(); err != nil {
+			s.logger.Error("failed to close cluster manager", "error", err)
+		}
+	}
+
 	// Wait for search index workers to drain before closing databases
 	s.wg.Wait()
 

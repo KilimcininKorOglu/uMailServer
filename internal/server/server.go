@@ -20,6 +20,7 @@ import (
 	"github.com/umailserver/umailserver/internal/auth"
 	"github.com/umailserver/umailserver/internal/caldav"
 	"github.com/umailserver/umailserver/internal/carddav"
+	"github.com/umailserver/umailserver/internal/cluster"
 	"github.com/umailserver/umailserver/internal/config"
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/health"
@@ -72,6 +73,7 @@ type Server struct {
 	mcpHTTPServer     *http.Server
 	healthMonitor     *health.Monitor
 	rateLimiter       *ratelimit.RateLimiter
+	clusterManager    *cluster.ClusterManager
 	tracingProvider   *tracing.Provider
 	manageSieveServer *sieve.ManageSieveServer
 	caldavServer      *caldav.Server
