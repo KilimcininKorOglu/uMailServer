@@ -84,6 +84,17 @@ func (s *Server) checkAlerts() {
 		return
 	}
 
+	// In a cluster, only the leader emits alerts. The conditions checked here
+	// (TLS expiry, queue backlog) are cluster-wide once storage is shared
+	// (GlusterFS certs, shared queue), so every node would otherwise observe the
+	// same condition and send a duplicate notification. Leadership is re-checked
+	// each tick, so a node that takes over leadership starts alerting and one
+	// that loses it stops. No-op on an un-clustered single node, which is always
+	// its own leader.
+	if !s.IsClusterLeader() {
+		return
+	}
+
 	// Check queue backlog
 	if s.queue != nil {
 		stats, err := s.queue.GetStats()
