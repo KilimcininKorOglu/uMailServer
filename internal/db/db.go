@@ -64,8 +64,8 @@ type AccountData struct {
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	LastLoginAt        time.Time `json:"last_login_at,omitempty"`
-	Avatar             []byte    `json:"avatar,omitempty"`      // raw profile photo bytes (capped, small)
-	AvatarType         string    `json:"avatar_type,omitempty"` // avatar MIME type, e.g. "image/png"
+	Avatar             []byte    `json:"avatar,omitempty"`       // raw profile photo bytes (capped, small)
+	AvatarType         string    `json:"avatar_type,omitempty"`  // avatar MIME type, e.g. "image/png"
 	DisplayName        string    `json:"display_name,omitempty"` // GAL/Outlook display name
 	Title              string    `json:"title,omitempty"`        // job title
 	Department         string    `json:"department,omitempty"`   // department / team
@@ -385,7 +385,25 @@ func (d *DB) IncrementQuota(domain, localPart string, delta int64) error {
 		if err := json.Unmarshal(data, &account); err != nil {
 			return err
 		}
-		if account.QuotaLimit > 0 && account.QuotaUsed+delta > account.QuotaLimit {
+		// Effective quota is the tighter of the account's own limit and the
+		// domain's MaxMailboxSize ceiling (0 means unlimited on either side): a
+		// per-account quota can never exceed the per-domain cap. Only growth
+		// (delta > 0) can breach a limit, so the domain lookup is gated on it.
+		effectiveLimit := account.QuotaLimit
+		if delta > 0 {
+			if domB := tx.Bucket([]byte(BucketDomains)); domB != nil {
+				if domData := domB.Get([]byte(domain)); domData != nil {
+					var dom DomainData
+					if err := json.Unmarshal(domData, &dom); err != nil {
+						return err
+					}
+					if dom.MaxMailboxSize > 0 && (effectiveLimit == 0 || dom.MaxMailboxSize < effectiveLimit) {
+						effectiveLimit = dom.MaxMailboxSize
+					}
+				}
+			}
+		}
+		if effectiveLimit > 0 && account.QuotaUsed+delta > effectiveLimit {
 			return fmt.Errorf("quota exceeded for user: %s", key)
 		}
 		if delta > 0 && account.QuotaUsed > math.MaxInt64-delta {

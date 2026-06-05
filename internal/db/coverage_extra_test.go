@@ -291,6 +291,50 @@ func TestIncrementQuotaExtra(t *testing.T) {
 	}
 }
 
+// TestIncrementQuota_DomainCeiling verifies that the per-domain MaxMailboxSize
+// acts as an absolute ceiling: the effective quota is min(account QuotaLimit,
+// domain MaxMailboxSize), treating 0 as unlimited. This matters because an
+// operator sets a domain-wide cap expecting no account in that domain can grow
+// past it, regardless of the account's own (possibly higher or unset) limit.
+func TestIncrementQuota_DomainCeiling(t *testing.T) {
+	database, err := Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := database.Close(); cerr != nil {
+			t.Errorf("close db: %v", cerr)
+		}
+	})
+
+	// Domain cap 1000; account quota higher (5000) — the domain must still win.
+	if err := database.CreateDomain(&DomainData{Name: "cap.com", MaxAccounts: 10, MaxMailboxSize: 1000}); err != nil {
+		t.Fatalf("CreateDomain: %v", err)
+	}
+	if err := database.CreateAccount(&AccountData{Email: "u@cap.com", LocalPart: "u", Domain: "cap.com", PasswordHash: "h", QuotaLimit: 5000}); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if err := database.IncrementQuota("cap.com", "u", 800); err != nil {
+		t.Fatalf("under domain cap should succeed: %v", err)
+	}
+	// 800 + 300 = 1100 > domain cap 1000, even though account QuotaLimit (5000) allows it.
+	if err := database.IncrementQuota("cap.com", "u", 300); err == nil {
+		t.Error("expected quota exceeded: growth past domain MaxMailboxSize must be rejected even when the account limit is higher")
+	}
+
+	// Reverse: account limit tighter than the domain cap → account limit wins (min).
+	if err := database.CreateDomain(&DomainData{Name: "loose.com", MaxAccounts: 10, MaxMailboxSize: 1_000_000}); err != nil {
+		t.Fatalf("CreateDomain: %v", err)
+	}
+	if err := database.CreateAccount(&AccountData{Email: "v@loose.com", LocalPart: "v", Domain: "loose.com", PasswordHash: "h", QuotaLimit: 500}); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if err := database.IncrementQuota("loose.com", "v", 600); err == nil {
+		t.Error("expected quota exceeded: account QuotaLimit (500) is tighter than the domain cap and must bind")
+	}
+}
+
 // TestIncrementQuotaNonExistentAccount tests increment for non-existent account
 func TestIncrementQuotaNonExistentAccount(t *testing.T) {
 	database, err := Open(t.TempDir() + "/test.db")
