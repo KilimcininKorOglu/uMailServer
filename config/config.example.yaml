@@ -349,3 +349,17 @@ notifications:
   queue_alerts: false
   security_alerts: false
   weekly_reports: false
+
+# High-availability clustering (disabled by default; single-node deployments
+# need nothing here). When enabled, nodes coordinate through Redis (shared
+# session/blacklist/rate-limit state, leader election, cross-node IDLE/SSE
+# pub/sub) behind an HAProxy/Keepalived front. Requirements when enabled:
+#   - redis_url must be set (may carry credentials; kept out of the admin DTO).
+#   - security.jwt_secret must be set and SHARED across all nodes (otherwise
+#     each node mints a random secret and tokens won't verify across nodes).
+#   - give each node a distinct hostname (Maildir filenames embed it).
+# instance_id identifies this node; generated at startup if left empty.
+cluster:
+  enabled: false
+  redis_url: ""
+  instance_id: ""

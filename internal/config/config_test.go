@@ -34,6 +34,47 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+// TestValidate_ClusterRequirements verifies the HA invariants: a clustered node
+// must know where Redis is and must use a shared (not per-node random) JWT
+// secret, while a disabled cluster keeps single-node behavior unchanged.
+func TestValidate_ClusterRequirements(t *testing.T) {
+	const sharedSecret = "shared-cluster-jwt-secret-0123456789abcdef"
+
+	// Disabled cluster imposes no requirements.
+	cfg := validConfigForTest(t)
+	cfg.Cluster.Enabled = false
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("disabled cluster must validate: %v", err)
+	}
+
+	// Enabled without redis_url is rejected.
+	cfg = validConfigForTest(t)
+	cfg.Cluster.Enabled = true
+	cfg.Security.JWTSecret = sharedSecret
+	if err := cfg.Validate(); err == nil {
+		t.Error("cluster enabled without redis_url must fail")
+	}
+
+	// Enabled without a shared JWT secret is rejected (per-node random secret
+	// would break cross-node token verification).
+	cfg = validConfigForTest(t)
+	cfg.Cluster.Enabled = true
+	cfg.Cluster.RedisURL = "redis://redis:6379/0"
+	cfg.Security.JWTSecret = ""
+	if err := cfg.Validate(); err == nil {
+		t.Error("cluster enabled without a shared jwt_secret must fail")
+	}
+
+	// Enabled with both set validates.
+	cfg = validConfigForTest(t)
+	cfg.Cluster.Enabled = true
+	cfg.Cluster.RedisURL = "redis://redis:6379/0"
+	cfg.Security.JWTSecret = sharedSecret
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("cluster enabled with redis_url + jwt_secret must validate: %v", err)
+	}
+}
+
 func TestParseSize(t *testing.T) {
 	tests := []struct {
 		input    string

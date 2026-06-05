@@ -43,6 +43,7 @@ type Config struct {
 	Signing       SigningConfig       `yaml:"signing"`
 	OOF           OOFConfig           `yaml:"oof"`
 	Notifications NotificationsConfig `yaml:"notifications"`
+	Cluster       ClusterConfig       `yaml:"cluster"`
 }
 
 // ServerConfig holds general server settings
@@ -51,6 +52,18 @@ type ServerConfig struct {
 	DataDir         string `yaml:"data_dir"`          // /var/lib/umailserver
 	GracefulTimeout int    `yaml:"graceful_timeout"`  // Seconds to wait for connections to drain (default 30)
 	ForceCloseAfter int    `yaml:"force_close_after"` // Seconds after which to force close connections (default 60)
+}
+
+// ClusterConfig holds high-availability clustering settings. Disabled by
+// default — single-node deployments are unaffected. When Enabled, the node
+// joins a Redis-coordinated cluster (shared session/blacklist/rate-limit state,
+// leader election, cross-node IDLE/SSE pub/sub). InstanceID identifies this
+// node; if empty it is generated at startup. RedisURL may carry credentials so
+// it is treated as a secret (never exposed in the admin settings DTO).
+type ClusterConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	RedisURL   string `yaml:"redis_url"`   // e.g. redis://:password@redis:6379/0
+	InstanceID string `yaml:"instance_id"` // stable node id; generated if empty
 }
 
 // TLSConfig holds TLS and certificate settings
@@ -879,6 +892,17 @@ func (c *Config) Validate() error {
 		hasPriv := c.Push.VAPIDPrivateKey != ""
 		if hasPub != hasPriv {
 			return fmt.Errorf("push.vapid_public_key and push.vapid_private_key must be set together")
+		}
+	}
+
+	// A clustered node must know where Redis is, and must NOT mint a per-node
+	// random JWT secret (tokens would not verify across nodes).
+	if c.Cluster.Enabled {
+		if c.Cluster.RedisURL == "" {
+			return fmt.Errorf("cluster.redis_url is required when cluster.enabled is true")
+		}
+		if c.Security.JWTSecret == "" {
+			return fmt.Errorf("security.jwt_secret must be set (and shared across all nodes) when cluster.enabled is true")
 		}
 	}
 

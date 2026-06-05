@@ -133,6 +133,7 @@ func (s *Server) ReloadConfig(newCfg *config.Config) (applied, restartRequired [
 		{"push", old.Push, newCfg.Push},
 		{"signing", old.Signing, newCfg.Signing},
 		{"domains", old.Domains, newCfg.Domains},
+		{"cluster", old.Cluster, newCfg.Cluster},
 	} {
 		if changed(sec.oldV, sec.newV) {
 			restartRequired = append(restartRequired, sec.name)
