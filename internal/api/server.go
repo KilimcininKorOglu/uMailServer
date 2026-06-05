@@ -1087,96 +1087,134 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// authResult carries the validated identity extracted from a request's JWT.
+type authResult struct {
+	user               string
+	isAdmin            bool
+	mustChangePassword bool
+	tokenHash          string
+}
+
+// authenticateRequest extracts and validates the request's JWT (the HttpOnly
+// "jwt" cookie is preferred, then a Bearer Authorization header). On success it
+// returns the identity and ok=true; on any failure it returns ok=false with a
+// reason string suitable for a 401 body. It writes nothing to the response, so
+// callers decide how to react: authMiddleware rejects with the reason, while
+// handleMe answers a soft 200 so the login screen never logs a 401.
+func (s *Server) authenticateRequest(r *http.Request) (authResult, string, bool) {
+	// Get token from HttpOnly cookie first (preferred for web clients)
+	var tokenStr string
+	if cookie, err := r.Cookie("jwt"); err == nil && cookie.Value != "" {
+		tokenStr = cookie.Value
+	} else {
+		// Fall back to Authorization header (for API clients)
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			return authResult{}, "missing authorization", false
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			return authResult{}, "invalid authorization header format", false
+		}
+		tokenStr = parts[1]
+	}
+
+	if tokenStr == "" {
+		return authResult{}, "missing token", false
+	}
+
+	// Validate token
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		// Try kid-based secret lookup first
+		if kid, ok := token.Header["kid"].(string); ok && kid != "" {
+			if kidSecret, ok := s.jwtSecrets[kid]; ok {
+				return []byte(kidSecret), nil
+			}
+		}
+		// Fall back to current kid
+		if secret, ok := s.jwtSecrets[s.currentKid]; ok {
+			return []byte(secret), nil
+		}
+		// Last resort: try legacy JWTSecret only if not disabled
+		if !s.config.DisableLegacyJWT {
+			return []byte(s.config.JWTSecret), nil
+		}
+		return nil, fmt.Errorf("unknown signing key")
+	}, jwt.WithValidMethods([]string{"HS256"}))
+
+	if err != nil || !token.Valid {
+		return authResult{}, "invalid token", false
+	}
+
+	// Check if token is revoked (logout)
+	tokenHash := fmt.Sprintf("%x", sha256.Sum256([]byte(tokenStr)))
+	if s.IsTokenRevoked(tokenHash) {
+		return authResult{}, "token has been revoked", false
+	}
+
+	// Get claims
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return authResult{}, "invalid token claims", false
+	}
+
+	user, hasSub := claims["sub"].(string)
+	if !hasSub || user == "" {
+		return authResult{}, "invalid token claims", false
+	}
+	// admin and the password-change marker are optional claims: absent or of an
+	// unexpected type means false, so the assertion's ok result is handled here
+	// rather than discarded.
+	isAdmin := false
+	if v, ok := claims["admin"].(bool); ok {
+		isAdmin = v
+	}
+	mustChangePasswordClaim := false
+	if v, ok := claims[passwordChangeRequiredClaim].(bool); ok {
+		mustChangePasswordClaim = v
+	}
+	mustChangePassword, err := enforceAuthenticatedAccount(s.db, user, mustChangePasswordClaim)
+	if err != nil {
+		return authResult{}, "invalid token", false
+	}
+
+	return authResult{
+		user:               user,
+		isAdmin:            isAdmin,
+		mustChangePassword: mustChangePassword,
+		tokenHash:          tokenHash,
+	}, "", true
+}
+
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for health and login endpoints
-		if r.URL.Path == "/health" || r.URL.Path == "/api/v1/auth/login" {
+		// Skip auth for health, login, and the soft session-check endpoint.
+		// /auth/me validates the token itself and answers 200 either way, so it
+		// must not be rejected here (that would log a 401 on the login screen).
+		if r.URL.Path == "/health" || r.URL.Path == "/api/v1/auth/login" || r.URL.Path == "/api/v1/auth/me" {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Get token from HttpOnly cookie first (preferred for web clients)
-		var tokenStr string
-		if cookie, err := r.Cookie("jwt"); err == nil && cookie.Value != "" {
-			tokenStr = cookie.Value
-		} else {
-			// Fall back to Authorization header (for API clients)
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				s.sendError(w, http.StatusUnauthorized, "missing authorization")
-				return
-			}
-
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				s.sendError(w, http.StatusUnauthorized, "invalid authorization header format")
-				return
-			}
-			tokenStr = parts[1]
-		}
-
-		if tokenStr == "" {
-			s.sendError(w, http.StatusUnauthorized, "missing token")
-			return
-		}
-
-		// Validate token
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			// Try kid-based secret lookup first
-			if kid, ok := token.Header["kid"].(string); ok && kid != "" {
-				if kidSecret, ok := s.jwtSecrets[kid]; ok {
-					return []byte(kidSecret), nil
-				}
-			}
-			// Fall back to current kid
-			if secret, ok := s.jwtSecrets[s.currentKid]; ok {
-				return []byte(secret), nil
-			}
-			// Last resort: try legacy JWTSecret only if not disabled
-			if !s.config.DisableLegacyJWT {
-				return []byte(s.config.JWTSecret), nil
-			}
-			return nil, fmt.Errorf("unknown signing key")
-		}, jwt.WithValidMethods([]string{"HS256"}))
-
-		if err != nil || !token.Valid {
-			s.sendError(w, http.StatusUnauthorized, "invalid token")
-			return
-		}
-
-		// Check if token is revoked (logout)
-		tokenHash := fmt.Sprintf("%x", sha256.Sum256([]byte(tokenStr)))
-		if s.IsTokenRevoked(tokenHash) {
-			s.sendError(w, http.StatusUnauthorized, "token has been revoked")
-			return
-		}
-
-		// Get claims
-		claims, ok := token.Claims.(jwt.MapClaims)
+		res, reason, ok := s.authenticateRequest(r)
 		if !ok {
-			s.sendError(w, http.StatusUnauthorized, "invalid token claims")
+			s.sendError(w, http.StatusUnauthorized, reason)
 			return
 		}
 
-		user, _ := claims["sub"].(string)
-		isAdmin, _ := claims["admin"].(bool)
-		mustChangePasswordClaim, _ := claims[passwordChangeRequiredClaim].(bool)
-		mustChangePassword, err := enforceAuthenticatedAccount(s.db, user, mustChangePasswordClaim)
-		if err != nil {
-			s.sendError(w, http.StatusUnauthorized, "invalid token")
-			return
-		}
+		// Add claims to context. These string keys are read by every downstream
+		// handler via r.Context().Value("user"/"isAdmin"/"mustChangePassword"),
+		// so the key type must stay a plain string for compatibility.
+		ctx := context.WithValue(r.Context(), "user", res.user)                              //nolint:staticcheck // shared string context key read across all handlers
+		ctx = context.WithValue(ctx, "isAdmin", res.isAdmin)                                 //nolint:staticcheck // shared string context key read across all handlers
+		ctx = context.WithValue(ctx, "mustChangePassword", res.mustChangePassword)           //nolint:staticcheck // shared string context key read across all handlers
+		ctx = context.WithValue(ctx, contextKeyTokenHash, res.tokenHash)
 
-		// Add claims to context
-		ctx := context.WithValue(r.Context(), "user", user)
-		ctx = context.WithValue(ctx, "isAdmin", isAdmin)
-		ctx = context.WithValue(ctx, "mustChangePassword", mustChangePassword)
-		ctx = context.WithValue(ctx, contextKeyTokenHash, tokenHash)
-
-		if mustChangePassword && !isPasswordChangeOnlyRoute(r, user) {
+		if res.mustChangePassword && !isPasswordChangeOnlyRoute(r, res.user) {
 			s.sendJSON(w, http.StatusForbidden, map[string]interface{}{
 				"error":                "password_change_required",
 				"must_change_password": true,

@@ -710,35 +710,37 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 // its JWT in an HttpOnly cookie it cannot read, so after a page reload it
 // calls this endpoint to rehydrate its in-memory session instead of dropping
 // the user back to the login page.
+//
+// This is a soft session check: it answers 200 whether or not a valid session
+// exists ("authenticated": true|false), so a logged-out or expired client can
+// probe it without the browser logging a 401 on the login screen. Auth on the
+// data endpoints is still enforced by authMiddleware. Because /auth/me is in
+// authMiddleware's skip list, this handler validates the token itself.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	// The auth middleware already validated the token and populated the context.
-	user, ok := r.Context().Value("user").(string)
-	if !ok || user == "" {
-		s.sendError(w, http.StatusUnauthorized, "not authenticated")
+	res, _, ok := s.authenticateRequest(r)
+	if !ok {
+		s.sendJSON(w, http.StatusOK, map[string]interface{}{"authenticated": false})
 		return
-	}
-	isAdmin, hasAdmin := r.Context().Value("isAdmin").(bool)
-	if !hasAdmin {
-		isAdmin = false
 	}
 
 	// Report whether the user has a profile photo so the client only requests
 	// the avatar endpoint when one exists (avoids a 404 on every page load for
 	// users without a photo).
 	hasAvatar := false
-	localPart, domain := parseEmail(user)
+	localPart, domain := parseEmail(res.user)
 	if account, err := s.db.GetAccount(domain, localPart); err == nil && account != nil {
 		hasAvatar = len(account.Avatar) > 0
 	}
 
 	s.sendJSON(w, http.StatusOK, map[string]interface{}{
-		"email":      user,
-		"isAdmin":    isAdmin,
-		"has_avatar": hasAvatar,
+		"authenticated": true,
+		"email":         res.user,
+		"isAdmin":       res.isAdmin,
+		"has_avatar":    hasAvatar,
 	})
 }

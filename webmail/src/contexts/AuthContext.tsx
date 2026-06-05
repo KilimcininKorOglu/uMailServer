@@ -40,14 +40,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     api.me()
       .then((me) => {
-        if (active && me?.email) {
+        if (!active) return
+        if (me?.authenticated && me.email) {
           setUser({ email: me.email, hasAvatar: me.has_avatar })
           setIsAuthenticated(true)
+        } else {
+          // Soft 200 with authenticated:false — the stored session is no longer
+          // valid. Clear the marker so we stop probing on future loads.
+          localStorage.removeItem(sessionMarkerKey)
         }
       })
       .catch(() => {
-        // Stored session is no longer valid: clear the marker so we stop
-        // probing (and logging 401s) on future loads.
+        // Network/other failure: clear the marker so we stop probing on future
+        // loads (the soft check itself no longer returns 401).
         localStorage.removeItem(sessionMarkerKey)
       })
       .finally(() => {

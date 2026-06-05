@@ -392,9 +392,11 @@ class API {
     await this.post('/auth/logout')
   }
 
-  // me returns the authenticated user's identity for session rehydration.
-  async me(): Promise<{ email: string; isAdmin?: boolean; has_avatar?: boolean }> {
-    return this.get<{ email: string; isAdmin?: boolean; has_avatar?: boolean }>('/auth/me')
+  // me returns the caller's session status for rehydration. /auth/me is a soft
+  // check that answers 200 either way: authenticated=false when no valid session
+  // exists (so the login screen never logs a 401), otherwise the identity.
+  async me(): Promise<{ authenticated: boolean; email?: string; isAdmin?: boolean; has_avatar?: boolean }> {
+    return this.get<{ authenticated: boolean; email?: string; isAdmin?: boolean; has_avatar?: boolean }>('/auth/me')
   }
 
   // changePassword updates the authenticated user's own password.
