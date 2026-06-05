@@ -1506,12 +1506,30 @@ func (s *Server) SetAPIRateLimit(limit int) {
 // checkAPIRateLimit returns true if the IP is allowed to make API requests.
 // Uses sliding window based on HTTPRequestsPerMinute config.
 func (s *Server) checkAPIRateLimit(ip string) bool {
+	// Snapshot the configured limit under its mutex (SetAPIRateLimit writes it
+	// under the same lock); the cluster path must not read it unguarded.
 	s.apiRateMu.Lock()
-	defer s.apiRateMu.Unlock()
-
-	if s.apiRateLimit <= 0 {
+	limit := s.apiRateLimit
+	if limit <= 0 {
+		s.apiRateMu.Unlock()
 		return true // rate limiting disabled
 	}
+
+	if cs := s.clusterCounters(); cs != nil {
+		s.apiRateMu.Unlock()
+		ctx, cancel := rlCtx()
+		defer cancel()
+		// Fixed 1-minute window: the TTL is set only on the first request of
+		// the window, so the count resets when the window expires.
+		n, err := cs.IncrFixed(ctx, rlAPIKey(ip), time.Minute)
+		if err != nil {
+			s.logger.Warn("cluster rate-limit: api incr failed; allowing", "error", err)
+			return true
+		}
+		return n <= int64(limit)
+	}
+
+	defer s.apiRateMu.Unlock()
 
 	if s.apiRateAttempts == nil {
 		s.apiRateAttempts = make(map[string]*apiRateAttempt)

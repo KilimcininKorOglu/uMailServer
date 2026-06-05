@@ -149,11 +149,12 @@ func (h *RedisHealthMonitor) Close() error {
 
 // ClusterManager orchestrates all cluster features
 type ClusterManager struct {
-	config  *Config
-	session SessionStore
-	leader  LeaderElection
-	lock    DistributedLock
-	health  HealthMonitor
+	config   *Config
+	session  SessionStore
+	leader   LeaderElection
+	lock     DistributedLock
+	health   HealthMonitor
+	counters CounterStore
 }
 
 // NewClusterManager creates a new cluster manager
@@ -178,12 +179,18 @@ func NewClusterManager(config *Config, redisURL string) (*ClusterManager, error)
 		return nil, fmt.Errorf("failed to create health monitor: %w", err)
 	}
 
+	counters, err := NewRedisCounterStore(redisURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create counter store: %w", err)
+	}
+
 	return &ClusterManager{
-		config:  config,
-		session: session,
-		leader:  leader,
-		lock:    lock,
-		health:  health,
+		config:   config,
+		session:  session,
+		leader:   leader,
+		lock:     lock,
+		health:   health,
+		counters: counters,
 	}, nil
 }
 
@@ -207,6 +214,11 @@ func (c *ClusterManager) HealthMonitor() HealthMonitor {
 	return c.health
 }
 
+// Counters returns the shared rate-limit/lockout counter store.
+func (c *ClusterManager) Counters() CounterStore {
+	return c.counters
+}
+
 // Close closes all cluster resources
 func (c *ClusterManager) Close() error {
 	if c.session != nil {
@@ -221,5 +233,9 @@ func (c *ClusterManager) Close() error {
 	if c.health != nil {
 		c.health.Close()
 	}
-	return nil
+	var err error
+	if c.counters != nil {
+		err = c.counters.Close()
+	}
+	return err
 }

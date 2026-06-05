@@ -107,6 +107,19 @@ func isPasswordChangeOnlyRoute(r *http.Request, user string) bool {
 
 // isTOTPLockedOut returns true if the account has exceeded TOTP failure limits.
 func (s *Server) isTOTPLockedOut(email string) bool {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		// The counter's sliding TTL equals the lockout duration, so a present
+		// count >= threshold is exactly "locked within the window".
+		cnt, err := cs.Count(ctx, rlTOTPKey(email))
+		if err != nil {
+			s.logger.Warn("cluster rate-limit: totp count read failed; allowing", "error", err)
+			return false
+		}
+		return cnt >= maxTOTPFailures
+	}
+
 	s.totpMu.Lock()
 	defer s.totpMu.Unlock()
 
@@ -123,6 +136,15 @@ func (s *Server) isTOTPLockedOut(email string) bool {
 
 // recordTOTPFailure increments the failed TOTP attempt count for an account.
 func (s *Server) recordTOTPFailure(email string) {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		if _, err := cs.IncrSliding(ctx, rlTOTPKey(email), totpLockoutDuration); err != nil {
+			s.logger.Warn("cluster rate-limit: totp incr failed", "error", err)
+		}
+		return
+	}
+
 	s.totpMu.Lock()
 	defer s.totpMu.Unlock()
 
@@ -141,6 +163,15 @@ func (s *Server) recordTOTPFailure(email string) {
 
 // clearTOTPFailures resets the TOTP failure count for an account.
 func (s *Server) clearTOTPFailures(email string) {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		if err := cs.Del(ctx, rlTOTPKey(email)); err != nil {
+			s.logger.Warn("cluster rate-limit: totp clear failed", "error", err)
+		}
+		return
+	}
+
 	s.totpMu.Lock()
 	defer s.totpMu.Unlock()
 
@@ -149,6 +180,15 @@ func (s *Server) clearTOTPFailures(email string) {
 
 // clearAccountLoginFailures resets the account login failure count.
 func (s *Server) clearAccountLoginFailures(email string) {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		if err := cs.Del(ctx, rlAccountKey(email)); err != nil {
+			s.logger.Warn("cluster rate-limit: account clear failed", "error", err)
+		}
+		return
+	}
+
 	s.accountLoginMu.Lock()
 	defer s.accountLoginMu.Unlock()
 
@@ -257,6 +297,28 @@ func (s *Server) CleanupExpiredTokens() {
 // toward the lockout. The lockout itself uses exponential backoff once five
 // consecutive failures accumulate (see recordLoginFailure).
 func (s *Server) checkLoginRateLimit(ip string) bool {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		// A 0 count means the sliding window expired (no failures for 5 min),
+		// which in the in-memory path forgets all history — including any
+		// lockout — and allows the attempt.
+		cnt, err := cs.Count(ctx, rlLoginCountKey(ip))
+		if err != nil {
+			s.logger.Warn("cluster rate-limit: login count read failed; allowing", "error", err)
+			return true
+		}
+		if cnt == 0 {
+			return true
+		}
+		locked, err := cs.HasFlag(ctx, rlLoginLockKey(ip))
+		if err != nil {
+			s.logger.Warn("cluster rate-limit: login lock read failed; allowing", "error", err)
+			return true
+		}
+		return !locked
+	}
+
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
 
@@ -290,6 +352,34 @@ func (s *Server) checkLoginRateLimit(ip string) bool {
 // backoff lockout. This is the only place the counter advances, so the lockout
 // reflects failures alone — never successful logins.
 func (s *Server) recordLoginFailure(ip string) {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		// Sliding 5-min window; each failure refreshes the TTL.
+		n, err := cs.IncrSliding(ctx, rlLoginCountKey(ip), 5*time.Minute)
+		if err != nil {
+			s.logger.Warn("cluster rate-limit: login incr failed", "error", err)
+			return
+		}
+		switch {
+		case n == 1:
+			// Fresh window: clear any stale lockout from a prior burst.
+			if err := cs.Del(ctx, rlLoginLockKey(ip)); err != nil {
+				s.logger.Warn("cluster rate-limit: login lock clear failed", "error", err)
+			}
+		case n >= 5:
+			// Exponential backoff: 5min * 2^(n-5), capped at 60min.
+			backoffMinutes := 5 * (1 << (n - 5))
+			if backoffMinutes > 60 {
+				backoffMinutes = 60
+			}
+			if err := cs.SetFlag(ctx, rlLoginLockKey(ip), time.Duration(backoffMinutes)*time.Minute); err != nil {
+				s.logger.Warn("cluster rate-limit: login lock set failed", "error", err)
+			}
+		}
+		return
+	}
+
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
 
@@ -323,6 +413,15 @@ func (s *Server) recordLoginFailure(ip string) {
 // successful login so legitimate authentications never accumulate toward a
 // lockout (mirrors clearAccountLoginFailures for the per-account counter).
 func (s *Server) clearLoginFailures(ip string) {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		if err := cs.Del(ctx, rlLoginCountKey(ip), rlLoginLockKey(ip)); err != nil {
+			s.logger.Warn("cluster rate-limit: login clear failed", "error", err)
+		}
+		return
+	}
+
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
 
@@ -335,6 +434,19 @@ func (s *Server) clearLoginFailures(ip string) {
 // successful logins do not count toward the limit. recordAccountLoginFailure is
 // the sole incrementer and clearAccountLoginFailures resets it on success.
 func (s *Server) checkAccountLoginRateLimit(email string) bool {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		// Blocked once 5 failures accumulate within the sliding 5-min window;
+		// the key's TTL expiry is what "forgets" stale history.
+		cnt, err := cs.Count(ctx, rlAccountKey(email))
+		if err != nil {
+			s.logger.Warn("cluster rate-limit: account count read failed; allowing", "error", err)
+			return true
+		}
+		return cnt < 5
+	}
+
 	s.accountLoginMu.Lock()
 	defer s.accountLoginMu.Unlock()
 
@@ -358,6 +470,15 @@ func (s *Server) checkAccountLoginRateLimit(email string) bool {
 
 // recordAccountLoginFailure increments the failed login counter for an account.
 func (s *Server) recordAccountLoginFailure(email string) {
+	if cs := s.clusterCounters(); cs != nil {
+		ctx, cancel := rlCtx()
+		defer cancel()
+		if _, err := cs.IncrSliding(ctx, rlAccountKey(email), 5*time.Minute); err != nil {
+			s.logger.Warn("cluster rate-limit: account incr failed", "error", err)
+		}
+		return
+	}
+
 	s.accountLoginMu.Lock()
 	defer s.accountLoginMu.Unlock()
 
