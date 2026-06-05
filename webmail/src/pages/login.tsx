@@ -1,13 +1,45 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+
+interface Branding {
+  app_name: string
+  logo_url: string
+  primary_color: string
+}
 
 export function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [branding, setBranding] = useState<Branding | null>(null)
   const { login, isAuthenticated } = useAuth()
+
+  // Resolve per-tenant branding from the domain the user is typing, so the
+  // login screen reflects the tenant before authentication.
+  const domain = email.includes('@') ? (email.split('@')[1] ?? '').trim().toLowerCase() : ''
+  useEffect(() => {
+    if (!domain) {
+      setBranding(null)
+      return
+    }
+    let cancelled = false
+    fetch(`${window.location.origin}/api/v1/branding?domain=${encodeURIComponent(domain)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: Branding | null) => {
+        if (!cancelled) setBranding(b && b.app_name ? b : null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [domain])
+
+  const appName = branding?.app_name || 'uMailServer'
+  useEffect(() => {
+    document.title = `${appName} Webmail`
+  }, [appName])
 
   if (isAuthenticated) {
     return <Navigate to="/inbox" replace />
@@ -35,12 +67,23 @@ export function LoginPage() {
       <div className="max-w-md w-full mx-4">
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">uMailServer</h1>
+            {branding?.logo_url ? (
+              <img
+                src={branding.logo_url}
+                alt={appName}
+                className="w-16 h-16 rounded-2xl object-contain mx-auto mb-4"
+              />
+            ) : (
+              <div
+                className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                style={branding?.primary_color ? { backgroundColor: branding.primary_color } : undefined}
+              >
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+            )}
+            <h1 className="text-2xl font-bold text-gray-900">{appName}</h1>
             <p className="text-gray-500 mt-1">Sign in to your mailbox</p>
           </div>
 
@@ -84,6 +127,7 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
+              style={branding?.primary_color ? { backgroundColor: branding.primary_color } : undefined}
               className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Signing in...' : 'Sign In'}
