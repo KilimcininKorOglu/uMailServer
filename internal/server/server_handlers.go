@@ -49,12 +49,23 @@ func (s *Server) loadLocalAccount(email string) (user, domain string, account *d
 	return user, domain, account, nil
 }
 
-func validateAccountAuthentication(account *db.AccountData) error {
+func (s *Server) validateAccountAuthentication(account *db.AccountData) error {
 	if !account.IsActive {
 		return fmt.Errorf("account is not active")
 	}
 	if account.MustChangePassword {
 		return fmt.Errorf("password change required")
+	}
+	// Block all protocol auth (SMTP/IMAP/POP3/CalDAV/CardDAV — every surface that
+	// authenticates through s.authenticate) for accounts whose owning tenant is
+	// suspended. This is the single canonical credential-validation point, so the
+	// suspend applies uniformly across protocols.
+	if s.database != nil && account.Domain != "" {
+		if dom, derr := s.database.GetDomain(account.Domain); derr == nil && dom.TenantID != "" {
+			if tenant, terr := s.database.GetTenant(dom.TenantID); terr == nil && !tenant.IsActive {
+				return fmt.Errorf("tenant is suspended")
+			}
+		}
 	}
 	return nil
 }
@@ -76,7 +87,7 @@ func (s *Server) authenticate(username, password string) (bool, error) {
 		if err == nil {
 			_, _, localAccount, lookupErr := s.loadLocalAccount(ldapUser.Email)
 			if lookupErr == nil {
-				if err := validateAccountAuthentication(localAccount); err != nil {
+				if err := s.validateAccountAuthentication(localAccount); err != nil {
 					s.logger.Debug("LDAP authentication blocked by local account state",
 						"username", username,
 						"email", ldapUser.Email,
@@ -110,7 +121,7 @@ func (s *Server) authenticate(username, password string) (bool, error) {
 		return false, nil
 	}
 
-	if err := validateAccountAuthentication(account); err != nil {
+	if err := s.validateAccountAuthentication(account); err != nil {
 		return false, err
 	}
 
@@ -123,7 +134,7 @@ func (s *Server) getUserSecret(username string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := validateAccountAuthentication(localAccount); err != nil {
+	if err := s.validateAccountAuthentication(localAccount); err != nil {
 		return "", err
 	}
 	return localAccount.PasswordHash, nil
@@ -773,7 +784,7 @@ func (s *Server) authenticateClientCert(cert *x509.Certificate) (string, bool) {
 		return "", false
 	}
 
-	if err := validateAccountAuthentication(localAccount); err != nil {
+	if err := s.validateAccountAuthentication(localAccount); err != nil {
 		s.logger.Debug("Client certificate blocked by account state", "email", email, "error", err)
 		return "", false
 	}
