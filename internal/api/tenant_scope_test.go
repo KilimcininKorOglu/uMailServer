@@ -144,6 +144,55 @@ func TestHandleStats_TenantScope(t *testing.T) {
 	}
 }
 
+// TestListQueue_TenantScope verifies a tenant-admin only sees queue entries
+// sent from its own tenant's domains.
+func TestListQueue_TenantScope(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := database.Close(); cerr != nil {
+			t.Errorf("close db: %v", cerr)
+		}
+	})
+	server := NewServer(database, nil, Config{JWTSecret: "test-secret"})
+
+	for _, d := range []string{"a.test", "b.test"} {
+		if err := database.CreateDomain(&db.DomainData{Name: d, MaxAccounts: 10}); err != nil {
+			t.Fatalf("CreateDomain %s: %v", d, err)
+		}
+	}
+	if err := database.Enqueue(&db.QueueEntry{ID: "q-a", From: "u@a.test", To: []string{"x@ext.test"}, Status: "pending"}); err != nil {
+		t.Fatalf("enqueue a: %v", err)
+	}
+	if err := database.Enqueue(&db.QueueEntry{ID: "q-b", From: "v@b.test", To: []string{"y@ext.test"}, Status: "pending"}); err != nil {
+		t.Fatalf("enqueue b: %v", err)
+	}
+
+	// Tenant-admin of a.test: only the a.test entry.
+	rec := httptest.NewRecorder()
+	server.listQueue(rec, scopedRequest("a.test", false, true))
+	var list []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 1 || list[0]["from"] != "u@a.test" {
+		t.Errorf("tenant-admin queue: want only u@a.test, got %v", list)
+	}
+
+	// Super-admin: both entries.
+	rec = httptest.NewRecorder()
+	server.listQueue(rec, scopedRequest("", true, false))
+	list = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 2 {
+		t.Errorf("super-admin queue: want 2 entries, got %d", len(list))
+	}
+}
+
 // TestHandleMe_SurfacesTenantScope verifies that the tenant + tenant_admin
 // claims flow through authenticateRequest into the /auth/me response, which is
 // how the SPA learns the caller's tenant scope for self-service admin.

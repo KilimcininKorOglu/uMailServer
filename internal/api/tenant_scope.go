@@ -69,6 +69,15 @@ func (s *Server) mayAccessAccount(r *http.Request, targetEmail string) bool {
 	return true
 }
 
+// senderInScope reports whether the caller may see a queue entry whose envelope
+// sender is the given address: a super-admin sees all, a tenant-admin only mail
+// from its own tenant's domains. System bounces (empty sender) resolve to an
+// empty domain, which a tenant-admin is not allowed to see.
+func (s *Server) senderInScope(r *http.Request, from string) bool {
+	_, domain := parseEmail(from)
+	return s.allowsDomain(s.callerTenantScope(r), domain)
+}
+
 // tenantIDForDomain resolves the tenant that owns a domain, or "" if the domain
 // is unknown or carries no tenant yet. It never errors: tenant scope is
 // best-effort identity metadata layered on top of the existing per-account

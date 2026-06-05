@@ -42,6 +42,10 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 
 	var result []map[string]interface{}
 	for _, e := range entries {
+		// A tenant-admin only sees queue entries sent from its own tenant.
+		if !s.senderInScope(r, e.From) {
+			continue
+		}
 		result = append(result, map[string]interface{}{
 			"id":          e.ID,
 			"from":        e.From,
@@ -60,6 +64,10 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getQueueEntry(w http.ResponseWriter, r *http.Request, id string) {
 	entry, err := s.db.GetQueueEntry(id)
 	if err != nil {
+		s.sendError(w, http.StatusNotFound, "queue entry not found")
+		return
+	}
+	if !s.senderInScope(r, entry.From) {
 		s.sendError(w, http.StatusNotFound, "queue entry not found")
 		return
 	}
@@ -82,6 +90,10 @@ func (s *Server) retryQueueEntry(w http.ResponseWriter, r *http.Request, id stri
 		s.sendError(w, http.StatusNotFound, "queue entry not found")
 		return
 	}
+	if !s.senderInScope(r, entry.From) {
+		s.sendError(w, http.StatusNotFound, "queue entry not found")
+		return
+	}
 
 	// Reset retry count and status
 	entry.Status = "pending"
@@ -98,6 +110,12 @@ func (s *Server) retryQueueEntry(w http.ResponseWriter, r *http.Request, id stri
 }
 
 func (s *Server) dropQueueEntry(w http.ResponseWriter, r *http.Request, id string) {
+	// Resolve the entry first so a tenant-admin cannot drop another tenant's mail.
+	if entry, err := s.db.GetQueueEntry(id); err == nil && !s.senderInScope(r, entry.From) {
+		s.sendError(w, http.StatusNotFound, "queue entry not found")
+		return
+	}
+
 	if err := s.db.Dequeue(id); err != nil {
 		s.sendError(w, http.StatusInternalServerError, "failed to drop queue entry")
 		return
