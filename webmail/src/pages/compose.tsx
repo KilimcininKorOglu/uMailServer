@@ -667,7 +667,7 @@ export function ComposePage() {
             ))}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6">
+                <Button variant="ghost" size="icon" className="h-6 w-6" title="Search address book" aria-label="Search address book">
                   <Plus className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -698,7 +698,7 @@ export function ComposePage() {
             </DropdownMenu>
             <input
               className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder="Type an email, press Enter"
+              placeholder="Search address book or type an email"
               value={recipientInput.to}
               onChange={(e) => {
                 setRecipientInput((p) => ({ ...p, to: e.target.value }))
@@ -782,7 +782,7 @@ export function ComposePage() {
               </DropdownMenu>
               <input
                 className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                placeholder="Type an email, press Enter"
+                placeholder="Search address book or type an email"
                 value={recipientInput.cc}
                 onChange={(e) => {
                   setRecipientInput((p) => ({ ...p, cc: e.target.value }))
@@ -851,7 +851,7 @@ export function ComposePage() {
               </DropdownMenu>
               <input
                 className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                placeholder="Type an email, press Enter"
+                placeholder="Search address book or type an email"
                 value={recipientInput.bcc}
                 onChange={(e) => {
                   setRecipientInput((p) => ({ ...p, bcc: e.target.value }))
