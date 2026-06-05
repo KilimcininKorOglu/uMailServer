@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/umailserver/umailserver/internal/cluster"
 )
 
 // ClusterConfig holds cluster configuration for the API server
@@ -148,8 +150,12 @@ func (s *Server) handleClusterHeartbeat(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err := s.clusterMgr.HealthMonitor().RecordHeartbeat(context.Background())
-	if err != nil {
+	ctx := context.Background()
+	isLeader, lerr := s.clusterMgr.LeaderElection().IsLeader(ctx, cluster.LeaderElectionKey)
+	if lerr != nil {
+		isLeader = false
+	}
+	if err := s.clusterMgr.HealthMonitor().RecordHeartbeat(ctx, isLeader); err != nil {
 		http.Error(w, "Failed to record heartbeat", http.StatusInternalServerError)
 		return
 	}

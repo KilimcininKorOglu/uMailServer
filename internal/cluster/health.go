@@ -47,15 +47,19 @@ func instancesKey() string {
 	return "cluster:instances"
 }
 
-// RecordHeartbeat records a heartbeat for this instance
-func (h *RedisHealthMonitor) RecordHeartbeat(ctx context.Context) error {
+// RecordHeartbeat records a heartbeat for this instance, tagging whether it
+// currently holds cluster leadership.
+func (h *RedisHealthMonitor) RecordHeartbeat(ctx context.Context, isLeader bool) error {
 	now := time.Now().Unix()
 
-	// Store heartbeat with timestamp
+	// Store heartbeat with timestamp and current leadership status. is_leader is
+	// stored as the string "true"/"false" to match the reader in
+	// GetInstanceHealth — go-redis would otherwise encode a Go bool as "1"/"0",
+	// which the reader's `== "true"` check would never match.
 	err := h.client.HSet(ctx, healthKey(h.instanceID), map[string]interface{}{
 		"instance_id": h.instanceID,
 		"last_beat":   now,
-		"is_leader":   false, // Will be updated by leader election
+		"is_leader":   fmt.Sprintf("%t", isLeader),
 	}).Err()
 	if err != nil {
 		return err

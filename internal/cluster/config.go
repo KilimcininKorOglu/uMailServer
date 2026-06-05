@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// LeaderElectionKey is the single lock all nodes contend on. The holder is the
+// cluster leader and runs the singleton side-effect loops (queue delivery, ACME
+// renewal, scheduler, alerts) so they fire exactly once across the cluster.
+const LeaderElectionKey = "umailserver/leader"
+
 // Config holds cluster configuration
 type Config struct {
 	RedisURL     string
@@ -75,8 +80,9 @@ type DistributedLock interface {
 
 // HealthMonitor monitors cluster health
 type HealthMonitor interface {
-	// RecordHeartbeat records a heartbeat for this instance
-	RecordHeartbeat(ctx context.Context) error
+	// RecordHeartbeat records a heartbeat for this instance, tagging whether it
+	// currently holds cluster leadership.
+	RecordHeartbeat(ctx context.Context, isLeader bool) error
 	// GetInstanceHealth returns health status of all instances
 	GetInstanceHealth(ctx context.Context) ([]InstanceHealth, error)
 	// IsHealthy returns true if the instance is healthy

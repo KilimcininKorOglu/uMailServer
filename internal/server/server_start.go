@@ -84,5 +84,9 @@ func (s *Server) Start() error {
 	// service and the admin API are up.
 	s.startConfigReload()
 
+	// Begin cluster leadership + heartbeat when clustering is enabled (no-op
+	// otherwise).
+	s.startClusterHeartbeat()
+
 	return nil
 }
