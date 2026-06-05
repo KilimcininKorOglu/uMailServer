@@ -59,7 +59,8 @@ type AccountData struct {
 	SieveScript        string    `json:"sieve_script,omitempty"`
 	VacationSettings   string    `json:"vacation_settings,omitempty"`
 	MustChangePassword bool      `json:"must_change_password"`
-	IsAdmin            bool      `json:"is_admin"`
+	IsAdmin            bool      `json:"is_admin"`        // global super-admin (all tenants)
+	IsTenantAdmin      bool      `json:"is_tenant_admin"` // self-service admin scoped to the account's own tenant
 	IsActive           bool      `json:"is_active"`
 	CompatibilityTier  uint8     `json:"compatibility_tier"` // per-account Exchange compatibility tier; 0 = TierIMAPOnly, 1 = TierExchange; defaults to 0
 	CreatedAt          time.Time `json:"created_at"`

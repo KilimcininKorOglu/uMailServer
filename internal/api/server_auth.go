@@ -510,10 +510,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	mustChangePassword := requiresPasswordChange(account)
 
-	// Generate JWT
+	// Generate JWT. The tenant scope (owner of the account's domain) and the
+	// self-service tenant-admin bit travel as claims so middleware/handlers can
+	// enforce tenant boundaries without a per-request domain lookup.
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub":                       account.Email,
 		"admin":                     account.IsAdmin,
+		"tenant":                    s.tenantIDForDomain(account.Domain),
+		"tenant_admin":              account.IsTenantAdmin,
 		passwordChangeRequiredClaim: mustChangePassword,
 		"exp":                       time.Now().Add(s.config.TokenExpiry).Unix(),
 		"iat":                       time.Now().Unix(),
@@ -691,10 +695,22 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preserve the caller's tenant scope across refresh: resolve the tenant from
+	// the account's domain and re-read the tenant-admin bit.
+	refreshLocal, refreshDomain := parseEmail(user)
+	refreshTenantAdmin := false
+	if s.db != nil && refreshDomain != "" {
+		if acc, err := s.db.GetAccount(refreshDomain, refreshLocal); err == nil && acc != nil {
+			refreshTenantAdmin = acc.IsTenantAdmin
+		}
+	}
+
 	// Generate new token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub":                       user,
 		"admin":                     isAdmin,
+		"tenant":                    s.tenantIDForDomain(refreshDomain),
+		"tenant_admin":              refreshTenantAdmin,
 		passwordChangeRequiredClaim: mustChangePassword,
 		"exp":                       time.Now().Add(s.config.TokenExpiry).Unix(),
 		"iat":                       time.Now().Unix(),
@@ -748,6 +764,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"authenticated": true,
 		"email":         res.user,
 		"isAdmin":       res.isAdmin,
+		"tenant":        res.tenantID,
+		"tenant_admin":  res.isTenantAdmin,
 		"has_avatar":    hasAvatar,
 	})
 }

@@ -130,15 +130,16 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	isAdmin, _ := r.Context().Value("isAdmin").(bool)
 
 	var req struct {
-		Email       string `json:"email"`
-		Password    string `json:"password"`
-		IsAdmin     bool   `json:"is_admin"`
-		QuotaLimit  *int64 `json:"quota_limit"`
-		Avatar      string `json:"avatar"` // optional data URL profile photo
-		DisplayName string `json:"display_name"`
-		Title       string `json:"title"`
-		Department  string `json:"department"`
-		Phone       string `json:"phone"`
+		Email         string `json:"email"`
+		Password      string `json:"password"`
+		IsAdmin       bool   `json:"is_admin"`
+		IsTenantAdmin bool   `json:"is_tenant_admin"`
+		QuotaLimit    *int64 `json:"quota_limit"`
+		Avatar        string `json:"avatar"` // optional data URL profile photo
+		DisplayName   string `json:"display_name"`
+		Title         string `json:"title"`
+		Department    string `json:"department"`
+		Phone         string `json:"phone"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -204,21 +205,22 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	account := &db.AccountData{
-		Email:        req.Email,
-		LocalPart:    user,
-		Domain:       domain,
-		PasswordHash: hashedPassword,
-		APOPHash:     fmt.Sprintf("%x", sha256.Sum256([]byte(req.Password))),
-		IsAdmin:      req.IsAdmin && isAdmin,
-		IsActive:     true,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		Avatar:       avatarBytes,
-		AvatarType:   avatarType,
-		DisplayName:  req.DisplayName,
-		Title:        req.Title,
-		Department:   req.Department,
-		Phone:        req.Phone,
+		Email:         req.Email,
+		LocalPart:     user,
+		Domain:        domain,
+		PasswordHash:  hashedPassword,
+		APOPHash:      fmt.Sprintf("%x", sha256.Sum256([]byte(req.Password))),
+		IsAdmin:       req.IsAdmin && isAdmin,
+		IsTenantAdmin: req.IsTenantAdmin && isAdmin,
+		IsActive:      true,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+		Avatar:        avatarBytes,
+		AvatarType:    avatarType,
+		DisplayName:   req.DisplayName,
+		Title:         req.Title,
+		Department:    req.Department,
+		Phone:         req.Phone,
 	}
 	if req.QuotaLimit != nil {
 		account.QuotaLimit = *req.QuotaLimit
@@ -298,6 +300,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		Password             *string `json:"password"`
 		MustChangePassword   *bool   `json:"must_change_password"`
 		IsAdmin              *bool   `json:"is_admin"`
+		IsTenantAdmin        *bool   `json:"is_tenant_admin"`
 		IsActive             *bool   `json:"is_active"`
 		ForwardTo            *string `json:"forward_to"`
 		ForwardKeepCopy      *bool   `json:"forward_keep_copy"`
@@ -325,7 +328,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 			s.sendError(w, http.StatusForbidden, "password change required")
 			return
 		}
-		if req.MustChangePassword != nil || req.IsAdmin != nil || req.IsActive != nil || req.ForwardTo != nil ||
+		if req.MustChangePassword != nil || req.IsAdmin != nil || req.IsTenantAdmin != nil || req.IsActive != nil || req.ForwardTo != nil ||
 			req.ForwardKeepCopy != nil || req.QuotaLimit != nil || req.VacationSettings != nil ||
 			req.CurrentAdminPassword != "" {
 			s.sendError(w, http.StatusForbidden, "only password updates are allowed until the required password change is completed")
@@ -412,6 +415,11 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 	}
 	if req.IsAdmin != nil {
 		account.IsAdmin = *req.IsAdmin
+	}
+	// Only a global super-admin may grant/revoke tenant-admin in this phase;
+	// scoped self-service management arrives with the Faz 2 tenant filtering.
+	if req.IsTenantAdmin != nil && isAdmin {
+		account.IsTenantAdmin = *req.IsTenantAdmin
 	}
 	if req.IsActive != nil {
 		account.IsActive = *req.IsActive

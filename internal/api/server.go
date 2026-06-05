@@ -45,8 +45,10 @@ type contextKey string
 
 // Context keys for values stored in request context.
 const (
-	contextKeyTokenHash contextKey = "tokenHash"
-	contextKeyEmail     contextKey = "X-Email"
+	contextKeyTokenHash   contextKey = "tokenHash"
+	contextKeyEmail       contextKey = "X-Email"
+	contextKeyTenantID    contextKey = "tenantID"
+	contextKeyTenantAdmin contextKey = "tenantAdmin"
 )
 
 // ContextKeyEmail is the string value for storing the authenticated email.
@@ -1092,6 +1094,11 @@ type authResult struct {
 	isAdmin            bool
 	mustChangePassword bool
 	tokenHash          string
+	// tenantID is the tenant that owns the caller's domain; isTenantAdmin marks
+	// a self-service admin scoped to that tenant. Both are empty/false on legacy
+	// tokens minted before multi-tenancy and for the global super-admin (isAdmin).
+	tenantID      string
+	isTenantAdmin bool
 }
 
 // authenticateRequest extracts and validates the request's JWT (the HttpOnly
@@ -1181,11 +1188,23 @@ func (s *Server) authenticateRequest(r *http.Request) (authResult, string, bool)
 		return authResult{}, "invalid token", false
 	}
 
+	// Tenant scope (optional claims; absent on legacy/super-admin tokens).
+	tenantID := ""
+	if v, ok := claims["tenant"].(string); ok {
+		tenantID = v
+	}
+	isTenantAdmin := false
+	if v, ok := claims["tenant_admin"].(bool); ok {
+		isTenantAdmin = v
+	}
+
 	return authResult{
 		user:               user,
 		isAdmin:            isAdmin,
 		mustChangePassword: mustChangePassword,
 		tokenHash:          tokenHash,
+		tenantID:           tenantID,
+		isTenantAdmin:      isTenantAdmin,
 	}, "", true
 }
 
@@ -1212,6 +1231,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, "isAdmin", res.isAdmin)                       //nolint:staticcheck // shared string context key read across all handlers
 		ctx = context.WithValue(ctx, "mustChangePassword", res.mustChangePassword) //nolint:staticcheck // shared string context key read across all handlers
 		ctx = context.WithValue(ctx, contextKeyTokenHash, res.tokenHash)
+		ctx = context.WithValue(ctx, contextKeyTenantID, res.tenantID)
+		ctx = context.WithValue(ctx, contextKeyTenantAdmin, res.isTenantAdmin)
 
 		if res.mustChangePassword && !isPasswordChangeOnlyRoute(r, res.user) {
 			s.sendJSON(w, http.StatusForbidden, map[string]interface{}{

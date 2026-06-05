@@ -26,6 +26,7 @@ func accountToJSON(a *db.AccountData) map[string]interface{} {
 	result := map[string]interface{}{
 		"email":                a.Email,
 		"is_admin":             a.IsAdmin,
+		"is_tenant_admin":      a.IsTenantAdmin,
 		"is_active":            a.IsActive,
 		"must_change_password": a.MustChangePassword,
 		"quota_used":           a.QuotaUsed,
