@@ -86,6 +86,14 @@ func enforceAuthenticatedAccount(database *db.DB, user string, mustChangePasswor
 	if !account.IsActive {
 		return false, fmt.Errorf("account is not active")
 	}
+	// Reject if the owning tenant is suspended: a suspended tenant blocks all of
+	// its accounts on every HTTP/API/webmail surface that authenticates through
+	// here. (Protocol auth — SMTP/IMAP/POP3 — enforces tenant active separately.)
+	if dom, derr := database.GetDomain(domain); derr == nil && dom.TenantID != "" {
+		if tenant, terr := database.GetTenant(dom.TenantID); terr == nil && !tenant.IsActive {
+			return false, fmt.Errorf("tenant is suspended")
+		}
+	}
 
 	return account.MustChangePassword, nil
 }
@@ -448,6 +456,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !account.IsActive {
 		s.auditLogger.LogLoginFailure(req.Email, ip, "account_inactive")
 		s.sendError(w, http.StatusForbidden, "account is inactive")
+		return
+	}
+
+	// Reject if the owning tenant is suspended: no account in a suspended tenant
+	// may obtain a token (the per-request gate in enforceAuthenticatedAccount
+	// covers already-issued tokens).
+	if s.tenantSuspendedForDomain(account.Domain) {
+		s.auditLogger.LogLoginFailure(req.Email, ip, "tenant_suspended")
+		s.sendError(w, http.StatusForbidden, "tenant is suspended")
 		return
 	}
 

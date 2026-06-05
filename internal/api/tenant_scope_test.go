@@ -193,6 +193,47 @@ func TestListQueue_TenantScope(t *testing.T) {
 	}
 }
 
+// TestEnforceAuthenticatedAccount_TenantSuspended verifies that suspending a
+// tenant blocks authentication for its accounts on the HTTP auth path.
+func TestEnforceAuthenticatedAccount_TenantSuspended(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := database.Close(); cerr != nil {
+			t.Errorf("close db: %v", cerr)
+		}
+	})
+
+	if err := database.CreateDomain(&db.DomainData{Name: "sus.test", MaxAccounts: 10}); err != nil {
+		t.Fatalf("CreateDomain: %v", err)
+	}
+	if err := database.CreateAccount(&db.AccountData{Email: "u@sus.test", LocalPart: "u", Domain: "sus.test", PasswordHash: "h", IsActive: true}); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Active tenant: authentication passes.
+	if _, err := enforceAuthenticatedAccount(database, "u@sus.test", false); err != nil {
+		t.Fatalf("active tenant should authenticate: %v", err)
+	}
+
+	// Suspend the tenant.
+	tenant, err := database.GetTenant("sus.test")
+	if err != nil {
+		t.Fatalf("GetTenant: %v", err)
+	}
+	tenant.IsActive = false
+	if err := database.UpdateTenant(tenant); err != nil {
+		t.Fatalf("UpdateTenant: %v", err)
+	}
+
+	// Suspended tenant: authentication is rejected.
+	if _, err := enforceAuthenticatedAccount(database, "u@sus.test", false); err == nil {
+		t.Error("suspended tenant must block authentication")
+	}
+}
+
 // TestHandleMe_SurfacesTenantScope verifies that the tenant + tenant_admin
 // claims flow through authenticateRequest into the /auth/me response, which is
 // how the SPA learns the caller's tenant scope for self-service admin.

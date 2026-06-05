@@ -69,6 +69,20 @@ func (s *Server) mayAccessAccount(r *http.Request, targetEmail string) bool {
 	return true
 }
 
+// tenantSuspendedForDomain reports whether the tenant owning the given domain is
+// suspended (IsActive == false). Unknown domain/tenant => not suspended.
+func (s *Server) tenantSuspendedForDomain(domain string) bool {
+	if s.db == nil || domain == "" {
+		return false
+	}
+	dom, err := s.db.GetDomain(domain)
+	if err != nil || dom.TenantID == "" {
+		return false
+	}
+	tenant, err := s.db.GetTenant(dom.TenantID)
+	return err == nil && !tenant.IsActive
+}
+
 // senderInScope reports whether the caller may see a queue entry whose envelope
 // sender is the given address: a super-admin sees all, a tenant-admin only mail
 // from its own tenant's domains. System bounces (empty sender) resolve to an

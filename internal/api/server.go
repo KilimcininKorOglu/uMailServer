@@ -794,6 +794,8 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	// Tenant-scoped admin surfaces: reachable by a super-admin OR a self-service
 	// tenant-admin. Each handler enforces the caller's tenant scope internally
 	// (a tenant-admin only sees/touches resources in its own tenant's domains).
+	api.HandleFunc("/api/v1/tenants", s.tenantAdminMiddleware(http.HandlerFunc(s.handleTenants)).ServeHTTP)
+	api.HandleFunc("/api/v1/tenants/", s.tenantAdminMiddleware(http.HandlerFunc(s.handleTenantDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/domains", s.tenantAdminMiddleware(http.HandlerFunc(s.handleDomains)).ServeHTTP)
 	api.HandleFunc("/api/v1/domains/", s.tenantAdminMiddleware(http.HandlerFunc(s.handleDomainDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/accounts", s.tenantAdminMiddleware(http.HandlerFunc(s.handleAccounts)).ServeHTTP)
