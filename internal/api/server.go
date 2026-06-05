@@ -597,6 +597,9 @@ func (s *Server) initRouter() {
 	// MCP endpoint (protected by auth)
 	mux.Handle("/mcp", s.authMiddleware(http.HandlerFunc(s.mcpServer.HandleHTTP)))
 
+	// Public per-tenant branding for the (pre-auth) login screen.
+	mux.HandleFunc("/api/v1/branding", s.handleBranding)
+
 	// Authentication
 	mux.Handle("/api/v1/auth/login", s.limitBodyMiddleware(http.HandlerFunc(s.handleLogin)))
 	mux.Handle("/api/v1/auth/logout", s.rateLimitMiddleware(s.authMiddleware(http.HandlerFunc(s.handleLogout))))

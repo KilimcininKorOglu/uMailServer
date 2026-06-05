@@ -50,6 +50,17 @@ func (s *Server) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
 		s.exportTenant(w, r, id)
 		return
 	}
+	if sub == "branding" {
+		switch r.Method {
+		case http.MethodGet:
+			s.getTenantBranding(w, r, id)
+		case http.MethodPut:
+			s.updateTenantBranding(w, r, id)
+		default:
+			s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.getTenant(w, r, id)
