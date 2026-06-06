@@ -51,7 +51,7 @@ func openTestDB(t *testing.T) *DB {
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
 			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity,
 			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity,
-			semcore_sync_state, semcore_tombstone, semcore_subscription
+			semcore_sync_state, semcore_tombstone, semcore_subscription, semcore_delegate
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1561,5 +1561,77 @@ func TestSemcoreSubscription(t *testing.T) {
 	// Removing an absent subscription is a no-op (no error).
 	if err := d.RemoveSubscription(id); err != nil {
 		t.Errorf("RemoveSubscription(absent) err=%v want nil", err)
+	}
+}
+
+// TestSemcoreDelegate covers delegate grants: create assigns a del- id, upsert
+// by (owner, email) preserves the id and created_at while updating fields and
+// permissions, lookups by id and by (owner, email), listing, and remove.
+func TestSemcoreDelegate(t *testing.T) {
+	d := openTestDB(t)
+	owner := semcore.MustMailboxId("owner@x.com")
+
+	grant := &semcore.DelegateUser{
+		OwnerID:       owner,
+		DelegateEmail: "bob@x.com",
+		Permissions:   semcore.DelegateFolderPermissions{Calendar: "reviewer", Inbox: "editor"},
+		CanSendAs:     true,
+		GrantedBy:     "owner@x.com",
+	}
+	id, err := d.PutDelegate(grant)
+	if err != nil || id.String()[:4] != "del-" {
+		t.Fatalf("PutDelegate: id=%q err=%v", id.String(), err)
+	}
+	if grant.CreatedAt.IsZero() {
+		t.Error("PutDelegate did not stamp CreatedAt")
+	}
+	created := grant.CreatedAt
+
+	// Get by id round-trips the permissions and flags.
+	got, err := d.GetDelegate(id)
+	if err != nil || got.Permissions.Calendar != "reviewer" || got.Permissions.Inbox != "editor" ||
+		!got.CanSendAs || got.GrantedBy != "owner@x.com" {
+		t.Fatalf("GetDelegate mismatch: %+v err=%v", got, err)
+	}
+
+	// Upsert (same owner+email) keeps the id and created_at, updates permissions.
+	grant.Permissions.Calendar = "author"
+	grant.CanSendAs = false
+	id2, err := d.PutDelegate(grant)
+	if err != nil || !id2.Equal(id) || !grant.CreatedAt.Equal(created) {
+		t.Errorf("upsert changed id/created: id2=%v created=%v err=%v", id2, grant.CreatedAt, err)
+	}
+	if got, err := d.GetDelegate(id); err != nil || got.Permissions.Calendar != "author" || got.CanSendAs {
+		t.Errorf("upsert did not update fields: %+v err=%v", got, err)
+	}
+
+	// GetDelegateForUser by (owner, email).
+	if got, err := d.GetDelegateForUser(owner, "bob@x.com"); err != nil || !got.ID.Equal(id) {
+		t.Errorf("GetDelegateForUser=%v err=%v want id %v", got, err, id)
+	}
+	if _, err := d.GetDelegateForUser(owner, "nobody@x.com"); err == nil {
+		t.Error("GetDelegateForUser(absent) should error")
+	}
+
+	// A second grant from the same owner, then list.
+	if _, err := d.PutDelegate(&semcore.DelegateUser{OwnerID: owner, DelegateEmail: "carol@x.com"}); err != nil {
+		t.Fatalf("PutDelegate carol: %v", err)
+	}
+	if list, err := d.ListDelegates(owner); err != nil || len(list) != 2 {
+		t.Errorf("ListDelegates=%d err=%v want 2", len(list), err)
+	}
+	if all, err := d.ListAllDelegates(); err != nil || len(all) != 2 {
+		t.Errorf("ListAllDelegates=%d err=%v want 2", len(all), err)
+	}
+
+	// Remove by id; removing again errors.
+	if err := d.RemoveDelegate(id); err != nil {
+		t.Fatalf("RemoveDelegate: %v", err)
+	}
+	if _, err := d.GetDelegate(id); err == nil {
+		t.Error("GetDelegate after remove should error")
+	}
+	if err := d.RemoveDelegate(id); err == nil {
+		t.Error("RemoveDelegate(absent) should error")
 	}
 }

@@ -530,3 +530,30 @@ CREATE TABLE IF NOT EXISTS semcore_subscription (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_subscription_mbox ON semcore_subscription (mailbox_id);
+
+-- Semantic-core delegate grants (EWS delegation). Keyed by id; the natural
+-- (owner, delegate_email) pair is unique so PutDelegate can upsert. The six
+-- per-folder permission levels are flattened to typed columns (the
+-- DelegateFolderPermissions struct has a fixed folder set).
+CREATE TABLE IF NOT EXISTS semcore_delegate (
+    id                       TEXT NOT NULL PRIMARY KEY,
+    owner_id                 TEXT NOT NULL,
+    delegate_email           TEXT NOT NULL,
+    delegate_user_id         TEXT NOT NULL DEFAULT '',
+    perm_calendar            TEXT NOT NULL DEFAULT '',
+    perm_tasks               TEXT NOT NULL DEFAULT '',
+    perm_inbox               TEXT NOT NULL DEFAULT '',
+    perm_contacts            TEXT NOT NULL DEFAULT '',
+    perm_notes               TEXT NOT NULL DEFAULT '',
+    perm_journal             TEXT NOT NULL DEFAULT '',
+    view_private_items       BOOLEAN NOT NULL DEFAULT false,
+    receive_copies           BOOLEAN NOT NULL DEFAULT false,
+    deliver_meeting_requests TEXT NOT NULL DEFAULT '',
+    can_send_as              BOOLEAN NOT NULL DEFAULT false,
+    granted_by               TEXT NOT NULL DEFAULT '',
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (owner_id, delegate_email)
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_delegate_owner ON semcore_delegate (owner_id);
+CREATE INDEX IF NOT EXISTS idx_semcore_delegate_email ON semcore_delegate (delegate_email);
