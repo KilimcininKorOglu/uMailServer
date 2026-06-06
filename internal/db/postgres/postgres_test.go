@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -383,6 +384,95 @@ func TestQueueRoundTrip(t *testing.T) {
 	}
 	if _, err := d.GetQueueEntry("q1"); err == nil {
 		t.Error("GetQueueEntry after dequeue should error")
+	}
+}
+
+// TestClaimPendingQueueConcurrent proves the HA claim contract: two nodes
+// claiming the same due backlog at the same time partition it — every entry is
+// claimed by exactly one caller, none by both (no double-delivery).
+func TestClaimPendingQueueConcurrent(t *testing.T) {
+	d := openTestDB(t)
+	past := time.Now().Add(-time.Minute)
+	const n = 40
+	for i := 0; i < n; i++ {
+		if err := d.EnqueueWithLimit(&db.QueueEntry{
+			ID: fmt.Sprintf("c%02d", i), From: "s@x.com", To: []string{"r@x.com"},
+			MessagePath: "/spool/c", NextRetry: past, Status: "pending",
+		}, 1000); err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
+	}
+
+	// Two concurrent claimers, each able to take the whole backlog.
+	type res struct {
+		ids []string
+		err error
+	}
+	ch := make(chan res, 2)
+	var wg sync.WaitGroup
+	for w := 0; w < 2; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			claimed, err := d.ClaimPendingQueue(time.Now(), n)
+			ids := make([]string, 0, len(claimed))
+			for _, e := range claimed {
+				ids = append(ids, e.ID)
+			}
+			ch <- res{ids, err}
+		}()
+	}
+	wg.Wait()
+	close(ch)
+
+	seen := map[string]int{}
+	total := 0
+	for r := range ch {
+		if r.err != nil {
+			t.Fatalf("concurrent claim: %v", r.err)
+		}
+		for _, id := range r.ids {
+			seen[id]++
+			total++
+		}
+	}
+	// Every entry claimed exactly once across both nodes — no overlap, no loss.
+	if total != n || len(seen) != n {
+		t.Fatalf("claimed total=%d distinct=%d, want %d each (overlap or loss)", total, len(seen), n)
+	}
+	for id, c := range seen {
+		if c != 1 {
+			t.Fatalf("entry %s claimed %d times (double-delivery)", id, c)
+		}
+	}
+}
+
+// TestClaimPendingQueueReclaimsStale proves a node that died mid-delivery does
+// not strand its work: an entry left in 'sending' is reclaimed once its lease
+// (next_retry) expires, but not while the lease is still in the future.
+func TestClaimPendingQueueReclaimsStale(t *testing.T) {
+	d := openTestDB(t)
+	// An orphaned claim: status 'sending' with a lease that already expired.
+	if err := d.EnqueueWithLimit(&db.QueueEntry{
+		ID: "stale", From: "s@x.com", To: []string{"r@x.com"}, MessagePath: "/spool/s",
+		NextRetry: time.Now().Add(-time.Minute), Status: "sending",
+	}, 1000); err != nil {
+		t.Fatalf("enqueue stale: %v", err)
+	}
+	claimed, err := d.ClaimPendingQueue(time.Now(), 10)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != "stale" {
+		t.Fatalf("expired-lease 'sending' entry not reclaimed: %+v", claimed)
+	}
+	// It is now re-leased into the future, so an immediate re-claim sees nothing.
+	again, err := d.ClaimPendingQueue(time.Now(), 10)
+	if err != nil {
+		t.Fatalf("re-claim: %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("freshly leased entry should not be re-claimed: %+v", again)
 	}
 }
 

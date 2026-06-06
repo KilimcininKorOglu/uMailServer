@@ -381,9 +381,27 @@ func (m *Manager) queueSweeper(ctx context.Context) {
 	}
 }
 
-// sweepPendingEntries picks up entries ready for delivery and sends them to workers
+// pendingClaimer is the optional capability a relational store exposes to claim
+// due entries atomically (FOR UPDATE SKIP LOCKED) for exactly-once multi-node
+// delivery. The bbolt store is single-writer and does not need it.
+type pendingClaimer interface {
+	ClaimPendingQueue(now time.Time, limit int) ([]*db.QueueEntry, error)
+}
+
+// sweepPendingEntries picks up entries ready for delivery and sends them to
+// workers. When the store supports atomic claiming (the relational backend used
+// in multi-node deployments) it claims a batch the size of the delivery channel,
+// so two nodes never deliver the same message; otherwise it falls back to a
+// plain read (single-writer bbolt, where no other node competes).
 func (m *Manager) sweepPendingEntries() {
-	entries, err := m.db.GetPendingQueue(time.Now())
+	now := time.Now()
+	var entries []*db.QueueEntry
+	var err error
+	if claimer, ok := m.db.(pendingClaimer); ok {
+		entries, err = claimer.ClaimPendingQueue(now, cap(m.deliveryChan))
+	} else {
+		entries, err = m.db.GetPendingQueue(now)
+	}
 	if err != nil {
 		return
 	}

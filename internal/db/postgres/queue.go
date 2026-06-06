@@ -127,24 +127,35 @@ func (d *DB) GetPendingQueue(now time.Time) ([]*db.QueueEntry, error) {
 	return entries, nil
 }
 
+// queueClaimLease is how long a claimed ('sending') entry is reserved for the
+// claiming node. next_retry is pushed this far into the future on claim; if the
+// node delivers (success → 'delivered', failure → 'pending' + backoff) before it
+// expires, the lease is moot. If the node dies mid-delivery, another node
+// reclaims the entry once the lease elapses. It must comfortably exceed a single
+// delivery attempt (SMTP connect + send across MX hosts).
+const queueClaimLease = 10 * time.Minute
+
 // ClaimPendingQueue atomically claims up to limit due entries for this worker by
 // flipping them to 'sending' under FOR UPDATE SKIP LOCKED, so concurrent nodes
-// never grab the same message. This is the relational HA path the single-writer
-// bbolt store could not provide; callers that adopt it replace the
-// GetPendingQueue-then-update sequence.
+// never grab the same message. It also takes a lease (next_retry → now+lease)
+// and matches already-'sending' rows whose lease has expired, so an entry
+// orphaned by a crashed node is reclaimed instead of stranded. This is the
+// relational HA path the single-writer bbolt store could not provide; callers
+// that adopt it replace the GetPendingQueue-then-update sequence.
 func (d *DB) ClaimPendingQueue(now time.Time, limit int) ([]*db.QueueEntry, error) {
 	ctx := context.Background()
+	lease := now.Add(queueClaimLease)
 	rows, err := d.pool.Query(ctx, `
-		UPDATE mail_queue SET status='sending'
+		UPDATE mail_queue SET status='sending', next_retry=$3
 		WHERE id IN (
 			SELECT id FROM mail_queue
-			WHERE status='pending' AND next_retry < $1
+			WHERE next_retry < $1 AND status IN ('pending','sending')
 			ORDER BY priority DESC, next_retry
 			FOR UPDATE SKIP LOCKED
 			LIMIT $2
 		)
 		RETURNING id, sender, message_path, created_at, next_retry, retry_count,
-			last_error, status, priority, notify, ret`, now, limit)
+			last_error, status, priority, notify, ret`, now, limit, lease)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: claim pending queue: %w", err)
 	}
