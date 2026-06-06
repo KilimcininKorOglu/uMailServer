@@ -51,7 +51,8 @@ func openTestDB(t *testing.T) *DB {
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
 			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity,
 			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity,
-			semcore_sync_state, semcore_tombstone, semcore_subscription, semcore_delegate
+			semcore_sync_state, semcore_tombstone, semcore_subscription, semcore_delegate,
+			semcore_rule, semcore_oof, semcore_resource, semcore_room_list
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1633,5 +1634,115 @@ func TestSemcoreDelegate(t *testing.T) {
 	}
 	if err := d.RemoveDelegate(id); err == nil {
 		t.Error("RemoveDelegate(absent) should error")
+	}
+}
+
+// TestSemcorePolicy covers the policy store: inbox rules (put assigns a
+// ChangeKey, conditions/actions round-trip as JSONB, list sorts by priority),
+// out-of-office (typed fields + excludes), resource policies, and room lists.
+func TestSemcorePolicy(t *testing.T) {
+	d := openTestDB(t)
+	mbox := semcore.MustMailboxId("alice@x.com")
+
+	// --- rules ---
+	r1 := &semcore.Rule{
+		ID: semcore.MustRuleId("rule:1"), MailboxID: mbox, Name: "Newsletter", Enabled: true, Priority: 5,
+		MatchAll:   true,
+		Conditions: []semcore.RuleCondition{{Kind: semcore.RuleConditionKindFrom, MatchType: semcore.RuleMatchTypeContains, Value: "news@x.com"}},
+		Actions:    []semcore.RuleAction{{Kind: semcore.RuleActionKindMoveToFolder, Target: "News"}},
+	}
+	if err := d.PutRule(r1); err != nil {
+		t.Fatalf("PutRule: %v", err)
+	}
+	if r1.ChangeKey.IsZero() {
+		t.Error("PutRule did not assign a ChangeKey")
+	}
+	got, err := d.GetRule(r1.ID)
+	if err != nil || got.Name != "Newsletter" || len(got.Conditions) != 1 || got.Conditions[0].Value != "news@x.com" ||
+		len(got.Actions) != 1 || got.Actions[0].Target != "News" {
+		t.Fatalf("GetRule mismatch: %+v err=%v", got, err)
+	}
+	// A higher-priority (lower number) rule, then list sorted.
+	r2 := &semcore.Rule{ID: semcore.MustRuleId("rule:2"), MailboxID: mbox, Name: "Urgent", Priority: 1}
+	if err := d.PutRule(r2); err != nil {
+		t.Fatalf("PutRule r2: %v", err)
+	}
+	list, err := d.ListRules(mbox)
+	if err != nil || len(list) != 2 || list[0].Priority != 1 {
+		t.Errorf("ListRules sort: %+v err=%v want priority 1 first", list, err)
+	}
+	if all, err := d.ListAllRules(); err != nil || len(all) != 2 {
+		t.Errorf("ListAllRules=%d err=%v want 2", len(all), err)
+	}
+	if err := d.DeleteRule(r1.ID); err != nil {
+		t.Fatalf("DeleteRule: %v", err)
+	}
+	if _, err := d.GetRule(r1.ID); err == nil {
+		t.Error("GetRule after delete should error")
+	}
+
+	// --- OOF (OOFId == MailboxId) ---
+	oofID := semcore.MustOOFId("alice@x.com")
+	oof := &semcore.OOFPolicy{
+		ID: oofID, MailboxID: mbox, Enabled: true, State: "Enabled",
+		Subject: "Away", TextBody: "Back Monday", ExcludeAddresses: []string{"boss@x.com"},
+		SendIntervalSeconds: 3600,
+	}
+	if err := d.PutOOF(oof); err != nil {
+		t.Fatalf("PutOOF: %v", err)
+	}
+	if oof.ChangeKey.IsZero() {
+		t.Error("PutOOF did not assign a ChangeKey")
+	}
+	gotOOF, err := d.GetOOF(oofID)
+	if err != nil || !gotOOF.Enabled || gotOOF.Subject != "Away" || len(gotOOF.ExcludeAddresses) != 1 ||
+		gotOOF.ExcludeAddresses[0] != "boss@x.com" || gotOOF.SendIntervalSeconds != 3600 {
+		t.Fatalf("GetOOF mismatch: %+v err=%v", gotOOF, err)
+	}
+	if _, err := d.GetOOF(semcore.MustOOFId("ghost@x.com")); err == nil {
+		t.Error("GetOOF(absent) should error")
+	}
+
+	// --- resources ---
+	resID := semcore.MustResourceId("room:1")
+	res := &semcore.ResourcePolicy{
+		ID: resID, MailboxID: mbox, Name: "Big Room", Email: "room1@x.com", Capacity: 12,
+		AllowRecurring: true, MaxDurationMinutes: 120,
+	}
+	if err := d.PutResource(res); err != nil {
+		t.Fatalf("PutResource: %v", err)
+	}
+	if res.ChangeKey.IsZero() {
+		t.Error("PutResource did not assign a ChangeKey")
+	}
+	if gotRes, err := d.GetResource(resID); err != nil || gotRes.Capacity != 12 || !gotRes.AllowRecurring || gotRes.Email != "room1@x.com" {
+		t.Fatalf("GetResource mismatch: %+v err=%v", gotRes, err)
+	}
+	if resList, err := d.ListResources(); err != nil || len(resList) != 1 {
+		t.Errorf("ListResources=%d err=%v want 1", len(resList), err)
+	}
+	if err := d.DeleteResource(resID); err != nil {
+		t.Fatalf("DeleteResource: %v", err)
+	}
+	if _, err := d.GetResource(resID); err == nil {
+		t.Error("GetResource after delete should error")
+	}
+
+	// --- room lists ---
+	rl := &semcore.RoomList{ID: "rl:1", Name: "Floor 3", Rooms: []string{"room1@x.com", "room2@x.com"}}
+	if err := d.PutRoomList(rl); err != nil {
+		t.Fatalf("PutRoomList: %v", err)
+	}
+	if gotRL, err := d.GetRoomList("rl:1"); err != nil || gotRL.Name != "Floor 3" || len(gotRL.Rooms) != 2 {
+		t.Fatalf("GetRoomList mismatch: %+v err=%v", gotRL, err)
+	}
+	if rls, err := d.ListRoomLists(); err != nil || len(rls) != 1 {
+		t.Errorf("ListRoomLists=%d err=%v want 1", len(rls), err)
+	}
+	if err := d.DeleteRoomList("rl:1"); err != nil {
+		t.Fatalf("DeleteRoomList: %v", err)
+	}
+	if _, err := d.GetRoomList("rl:1"); err == nil {
+		t.Error("GetRoomList after delete should error")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/db/postgres"
 	"github.com/umailserver/umailserver/internal/ews"
+	"github.com/umailserver/umailserver/internal/mapi"
 )
 
 // Compile-time proof that the relational backend satisfies the storage surfaces
@@ -17,6 +18,8 @@ var (
 	_ api.IdentityStore     = (*postgres.DB)(nil)
 	_ api.SubscriptionStore = (*postgres.DB)(nil)
 	_ api.DelegationStore   = (*postgres.DB)(nil)
+	_ api.PolicyStore       = (*postgres.DB)(nil)
+	_ mapi.PolicyStore      = (*postgres.DB)(nil)
 	_ ews.MailStore         = (*postgres.DB)(nil)
 	_ ews.LifecycleStore    = (*postgres.DB)(nil)
 	_ ews.IdentityStore     = (*postgres.DB)(nil)

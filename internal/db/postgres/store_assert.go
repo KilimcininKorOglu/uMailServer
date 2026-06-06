@@ -32,4 +32,5 @@ var (
 	_ semcore.PipelineIdentityStore  = (*DB)(nil)
 	_ semcore.TombstoneWriter        = (*DB)(nil)
 	_ jmap.NotesIdentityStore        = (*DB)(nil)
+	_ jmap.OOFStore                  = (*DB)(nil)
 )

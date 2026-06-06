@@ -557,3 +557,78 @@ CREATE TABLE IF NOT EXISTS semcore_delegate (
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_delegate_owner ON semcore_delegate (owner_id);
 CREATE INDEX IF NOT EXISTS idx_semcore_delegate_email ON semcore_delegate (delegate_email);
+
+-- Semantic-core inbox rules. Scalar fields are typed columns; the variant
+-- condition/action lists are JSONB payloads (the Q1 "typed table + opaque
+-- payload" pattern — NOT the rejected generic (bucket,key,jsonb) shape).
+CREATE TABLE IF NOT EXISTS semcore_rule (
+    id         TEXT     NOT NULL PRIMARY KEY,
+    mailbox_id TEXT     NOT NULL,
+    change_key TEXT     NOT NULL DEFAULT '',
+    name       TEXT     NOT NULL DEFAULT '',
+    enabled    BOOLEAN  NOT NULL DEFAULT false,
+    priority   INTEGER  NOT NULL DEFAULT 0,
+    match_all  BOOLEAN  NOT NULL DEFAULT false,
+    conditions JSONB    NOT NULL DEFAULT '[]',
+    actions    JSONB    NOT NULL DEFAULT '[]',
+    created    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    modified   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_rule_mbox ON semcore_rule (mailbox_id);
+
+-- Semantic-core out-of-office policies (OOFId == MailboxId; one per mailbox).
+-- enum fields (state/reply_style/audience) are stored as their numeric or string
+-- values; exclude_addresses round-trips as TEXT[].
+CREATE TABLE IF NOT EXISTS semcore_oof (
+    id                    TEXT    NOT NULL PRIMARY KEY,
+    mailbox_id            TEXT    NOT NULL,
+    change_key            TEXT    NOT NULL DEFAULT '',
+    enabled               BOOLEAN NOT NULL DEFAULT false,
+    state                 TEXT    NOT NULL DEFAULT '',
+    start_time            TIMESTAMPTZ,
+    end_time              TIMESTAMPTZ,
+    timezone              TEXT    NOT NULL DEFAULT '',
+    subject               TEXT    NOT NULL DEFAULT '',
+    text_body             TEXT    NOT NULL DEFAULT '',
+    html_body             TEXT    NOT NULL DEFAULT '',
+    reply_style           SMALLINT NOT NULL DEFAULT 0,
+    internal_reply        TEXT    NOT NULL DEFAULT '',
+    external_reply        TEXT    NOT NULL DEFAULT '',
+    audience              SMALLINT NOT NULL DEFAULT 0,
+    exclude_addresses     TEXT[]  NOT NULL DEFAULT '{}',
+    ignore_lists          BOOLEAN NOT NULL DEFAULT false,
+    ignore_bulk           BOOLEAN NOT NULL DEFAULT false,
+    ignore_auto_replies   BOOLEAN NOT NULL DEFAULT false,
+    send_interval_seconds BIGINT  NOT NULL DEFAULT 0
+);
+
+-- Semantic-core resource (room/equipment) booking policies.
+CREATE TABLE IF NOT EXISTS semcore_resource (
+    id                   TEXT     NOT NULL PRIMARY KEY,
+    mailbox_id           TEXT     NOT NULL,
+    change_key           TEXT     NOT NULL DEFAULT '',
+    name                 TEXT     NOT NULL DEFAULT '',
+    kind                 SMALLINT NOT NULL DEFAULT 0,
+    email                TEXT     NOT NULL DEFAULT '',
+    capacity             INTEGER  NOT NULL DEFAULT 0,
+    description          TEXT     NOT NULL DEFAULT '',
+    decision             SMALLINT NOT NULL DEFAULT 0,
+    delegate_email       TEXT     NOT NULL DEFAULT '',
+    allow_recurring      BOOLEAN  NOT NULL DEFAULT false,
+    max_duration_minutes INTEGER  NOT NULL DEFAULT 0,
+    min_notice_minutes   INTEGER  NOT NULL DEFAULT 0,
+    allow_conflicts      BOOLEAN  NOT NULL DEFAULT false,
+    max_conflicts        INTEGER  NOT NULL DEFAULT 0,
+    hidden_from_gal      BOOLEAN  NOT NULL DEFAULT false,
+    created              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    modified             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Semantic-core room lists (named groups of room resource emails).
+CREATE TABLE IF NOT EXISTS semcore_room_list (
+    id       TEXT   NOT NULL PRIMARY KEY,
+    name     TEXT   NOT NULL DEFAULT '',
+    rooms    TEXT[] NOT NULL DEFAULT '{}',
+    created  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    modified TIMESTAMPTZ NOT NULL DEFAULT now()
+);
