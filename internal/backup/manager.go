@@ -14,23 +14,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/umailserver/umailserver/internal/storage"
 )
 
-// Manager handles backup and restore operations with support for per-user backups
+// Manager handles backup and restore operations with support for per-user backups.
+// Backups operate on the on-disk Maildir tree under dataDir; the manager holds no
+// database handle.
 type Manager struct {
-	dataDir  string
-	db       *storage.Database
-	msgStore *storage.MessageStore
+	dataDir string
 }
 
 // NewManager creates a new backup manager
-func NewManager(dataDir string, db *storage.Database, msgStore *storage.MessageStore) *Manager {
+func NewManager(dataDir string) *Manager {
 	return &Manager{
-		dataDir:  dataDir,
-		db:       db,
-		msgStore: msgStore,
+		dataDir: dataDir,
 	}
 }
 

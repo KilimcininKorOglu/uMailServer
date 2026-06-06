@@ -89,11 +89,9 @@ func (s *Server) startAPI() {
 	s.apiServer.SetCalendarDeliveryFunc(s.submitMessageWithSieve)
 	// Set task handler data directory for CalDAV-backed (VTODO) tasks API
 	s.apiServer.SetTaskDataDir(s.cfg().Server.DataDir)
-	// Set backup manager for backup/restore operations
-	if s.storageDB != nil {
-		backupMgr := backup.NewManager(s.cfg().Server.DataDir, s.storageDB, s.msgStore)
-		s.apiServer.SetBackupManager(backupMgr)
-	}
+	// Set backup manager for backup/restore operations. It works directly on the
+	// on-disk Maildir tree, so it needs only the data directory.
+	s.apiServer.SetBackupManager(backup.NewManager(s.cfg().Server.DataDir))
 	// Configure API rate limiting
 	s.apiServer.SetAPIRateLimit(s.cfg().Security.RateLimit.HTTPRequestsPerMinute)
 	// Expose the loaded config + its file path to the admin Settings API.
