@@ -249,9 +249,12 @@ tracing:
 # ============================================
 database:
   path: ""                    # Leave empty to use <server.data_dir>/umailserver.db
-  backend: bbolt              # Metadata/index engine. "bbolt" (default, embedded).
-                              # "postgres" is reserved for the in-progress
-                              # relational migration and is rejected for now.
+  backend: bbolt              # Account/metadata engine: "bbolt" (default, embedded)
+                              # or "postgres" (relational; requires dsn below).
+  dsn: ""                     # PostgreSQL connection string, required when
+                              # backend is "postgres", e.g.
+                              # postgres://user:pass@host:5432/umailserver?sslmode=disable
+                              # Secret: never exposed in the admin settings API.
 
 storage:
   sync: true                  # Fsync storage and queue writes for durability
