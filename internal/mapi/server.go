@@ -27,11 +27,11 @@ import (
 // Server is the MAPI/HTTP handler for NSPI and OAB endpoints.
 type Server struct {
 	db          Store
-	policyStore *semcore.BoltPolicyStore
+	policyStore PolicyStore
 }
 
 // NewServer creates a MAPI/HTTP handler wired to the database and policy store.
-func NewServer(db Store, policyStore *semcore.BoltPolicyStore) *Server {
+func NewServer(db Store, policyStore PolicyStore) *Server {
 	return &Server{
 		db:          db,
 		policyStore: policyStore,
