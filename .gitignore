@@ -7,7 +7,9 @@ umailserver.yaml
 # Local HA-stack node config (carries a dev jwt secret + Postgres DSN) and its
 # runtime data dir — local-only, like umailserver.yaml / docker-data.
 umailserver.ha.yaml
+umailserver.ha-full.yaml
 docker-data-ha/
+docker-data-haf/
 *.exe
 *.dll
 *.so

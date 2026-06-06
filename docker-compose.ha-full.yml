@@ -1,0 +1,195 @@
+# Full HA stack for ha-report.md Faz 5 — adds DATA-TIER redundancy on top of the
+# active-active app tier in docker-compose.ha.yml:
+#
+#   * PostgreSQL: a primary + a streaming hot standby (Bitnami replication
+#     mode). The standby holds a continuously-replicated copy, so a primary
+#     storage failure loses no committed data. The app talks to the primary
+#     directly — a single write endpoint, which keeps the boot advisory lock and
+#     every other write on one node (no pgpool statement-routing surprises).
+#     Automatic primary->standby promotion + leader-routing is a Patroni concern
+#     in production (Patroni's REST endpoint drives an HAProxy pg leader check);
+#     this single-host stack stands up the replication that makes that possible.
+#   * Redis: master + replica + a 3-node Sentinel quorum. The app connects with a
+#     redis-sentinel:// URL (newRedisClient -> go-redis FailoverClient), so it
+#     follows a master failover automatically.
+#
+# Two stateless uMailServer nodes behind HAProxy round-robin, sharing the data
+# tier + Maildir, complete the picture. Run:
+#   docker compose -f docker-compose.ha-full.yml up -d
+# (stop the dev stack and docker-compose.ha.yml first — same host ports.)
+
+services:
+  # --- PostgreSQL: primary + streaming hot standby ---
+  pg-primary:
+    image: bitnamilegacy/postgresql:16
+    container_name: umail-haf-pg-primary
+    restart: unless-stopped
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=master
+      - POSTGRESQL_REPLICATION_USER=replicator
+      - POSTGRESQL_REPLICATION_PASSWORD=repl-change-me
+      - POSTGRESQL_USERNAME=umailserver
+      - POSTGRESQL_PASSWORD=change-me-in-deployment
+      - POSTGRESQL_DATABASE=umailserver
+    volumes:
+      - ./docker-data-haf/pg-primary:/bitnami/postgresql
+    networks:
+      - hafnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umailserver -d umailserver"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  pg-standby:
+    image: bitnamilegacy/postgresql:16
+    container_name: umail-haf-pg-standby
+    restart: unless-stopped
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=slave
+      - POSTGRESQL_REPLICATION_USER=replicator
+      - POSTGRESQL_REPLICATION_PASSWORD=repl-change-me
+      - POSTGRESQL_MASTER_HOST=pg-primary
+      - POSTGRESQL_MASTER_PORT_NUMBER=5432
+      - POSTGRESQL_USERNAME=umailserver
+      - POSTGRESQL_PASSWORD=change-me-in-deployment
+    volumes:
+      - ./docker-data-haf/pg-standby:/bitnami/postgresql
+    networks:
+      - hafnet
+
+  # --- Redis: master + replica + 3 Sentinels (official redis:7-alpine) ---
+  redis-master:
+    image: redis:7-alpine
+    container_name: umail-haf-redis-master
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./docker-data-haf/redis-master:/data
+    networks:
+      - hafnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis-replica:
+    image: redis:7-alpine
+    container_name: umail-haf-redis-replica
+    restart: unless-stopped
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    command: ["redis-server", "--replicaof", "redis-master", "6379", "--appendonly", "yes"]
+    networks:
+      - hafnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Each Sentinel writes its config at start (a sentinel conf file must be
+  # writable — Sentinel rewrites it on failover) then runs redis-sentinel.
+  # resolve-hostnames lets us monitor the master by its compose service name.
+  redis-sentinel-1: &sentinel
+    image: redis:7-alpine
+    container_name: umail-haf-sentinel-1
+    restart: unless-stopped
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica:
+        condition: service_started
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/sentinel.conf <<'EOF'
+        port 26379
+        sentinel resolve-hostnames yes
+        sentinel announce-hostnames yes
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel failover-timeout mymaster 10000
+        sentinel parallel-syncs mymaster 1
+        EOF
+        exec redis-sentinel /tmp/sentinel.conf
+    networks:
+      - hafnet
+  redis-sentinel-2:
+    <<: *sentinel
+    container_name: umail-haf-sentinel-2
+  redis-sentinel-3:
+    <<: *sentinel
+    container_name: umail-haf-sentinel-3
+
+  # --- Stateless app tier (active-active) ---
+  node1: &appnode
+    image: umailserver:latest
+    container_name: umail-haf-node1
+    hostname: umail-haf-node1
+    restart: unless-stopped
+    command: ["serve", "--config", "/etc/umailserver/umailserver.ha-full.yaml"]
+    volumes:
+      - ./docker-data-haf/maildata:/data
+      - ./config:/etc/umailserver:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_add:
+      - NET_BIND_SERVICE
+    cap_drop:
+      - ALL
+    networks:
+      - hafnet
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      redis-sentinel-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  node2:
+    <<: *appnode
+    container_name: umail-haf-node2
+    hostname: umail-haf-node2
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    container_name: umail-haf-haproxy
+    restart: unless-stopped
+    volumes:
+      - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "8088:8080"
+      - "8444:8443"
+      - "2525:25"
+      - "2587:587"
+      - "2143:143"
+      - "2110:110"
+      - "4190:4190"
+      - "8082:8082"
+      - "8083:8083"
+      - "8084:8084"
+    networks:
+      - hafnet
+    depends_on:
+      node1:
+        condition: service_healthy
+      node2:
+        condition: service_healthy
+
+networks:
+  hafnet:
+    driver: bridge
