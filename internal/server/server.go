@@ -372,7 +372,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize rate limiter with config
-	s.rateLimiter = ratelimit.New(storageDB.Bolt(), buildRateLimitConfig(cfg))
+	s.rateLimiter = ratelimit.New(ratelimit.NewBoltStore(storageDB.Bolt()), buildRateLimitConfig(cfg))
 
 	// Initialize health monitor
 	s.healthMonitor = health.NewMonitor("1.0.0")

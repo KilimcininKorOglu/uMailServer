@@ -1,18 +1,14 @@
 package ratelimit
 
 import (
-	"encoding/binary"
 	"fmt"
-	"math"
 	"sync"
 	"time"
-
-	"go.etcd.io/bbolt"
 )
 
 // RateLimiter implements comprehensive rate limiting for email sending
 type RateLimiter struct {
-	bolt           *bbolt.DB
+	store          QuotaStore
 	config         *Config
 	configMu       sync.RWMutex
 	ipCounters     map[string]*ipBucket
@@ -132,13 +128,13 @@ type Result struct {
 }
 
 // New creates a new RateLimiter
-func New(bolt *bbolt.DB, cfg *Config) *RateLimiter {
+func New(store QuotaStore, cfg *Config) *RateLimiter {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
 	now := time.Now()
 	rl := &RateLimiter{
-		bolt:           bolt,
+		store:          store,
 		config:         cfg,
 		ipCounters:     make(map[string]*ipBucket),
 		userCounters:   make(map[string]*userBucket),
@@ -151,14 +147,11 @@ func New(bolt *bbolt.DB, cfg *Config) *RateLimiter {
 		stopCh: make(chan struct{}),
 	}
 
-	// Initialize bbolt buckets for persistent user quotas
-	if rl.bolt != nil {
-		if err := rl.bolt.Update(func(tx *bbolt.Tx) error {
-			_, err := tx.CreateBucketIfNotExists([]byte("ratelimit_users"))
-			return err
-		}); err != nil {
-			// Log but don't fail startup - rate limiting can work without persistence
-			fmt.Printf("ratelimit: failed to initialize bucket: %v\n", err)
+	// Initialize persistent user-quota storage (best-effort: rate limiting still
+	// works in-memory if this fails).
+	if rl.store != nil {
+		if err := rl.store.Initialize(); err != nil {
+			fmt.Printf("ratelimit: failed to initialize quota store: %v\n", err)
 		}
 	}
 
@@ -277,8 +270,8 @@ func (rl *RateLimiter) CheckUser(user string) Result {
 			hourReset:   now.Add(time.Hour),
 			dayReset:    now.Add(24 * time.Hour),
 		}
-		// Load persisted sentToday from bbolt
-		if rl.bolt != nil {
+		// Load persisted sentToday from the quota store
+		if rl.store != nil {
 			bucket.sentToday = rl.loadUserSentToday(user)
 		}
 		rl.userCounters[user] = bucket
@@ -652,47 +645,18 @@ func (rl *RateLimiter) cleanup() {
 	rl.connMu.Unlock()
 }
 
-// bbolt persistence for user daily quotas
+// Per-user daily quota persistence is delegated to the QuotaStore.
 
 func (rl *RateLimiter) loadUserSentToday(user string) int64 {
-	if rl.bolt == nil {
+	if rl.store == nil {
 		return 0
 	}
-	var count int64
-	_ = rl.bolt.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("ratelimit_users"))
-		if bucket == nil {
-			return nil
-		}
-		key := []byte(user + ":sent_today")
-		if v := bucket.Get(key); len(v) == 8 {
-			c := binary.BigEndian.Uint64(v)
-			if c > uint64(math.MaxInt64) {
-				c = uint64(math.MaxInt64)
-			}
-			count = int64(c)
-		}
-		return nil
-	})
-	return count
+	return rl.store.GetUserSentToday(user)
 }
 
 func (rl *RateLimiter) saveUserSentToday(user string, count int64) {
-	if rl.bolt == nil {
+	if rl.store == nil {
 		return
 	}
-	_ = rl.bolt.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("ratelimit_users"))
-		if bucket == nil {
-			return nil
-		}
-		key := []byte(user + ":sent_today")
-		var buf [8]byte
-		if count < 0 {
-			count = 0
-		}
-		// #nosec G115 -- count is validated non-negative above
-		binary.BigEndian.PutUint64(buf[:], uint64(count))
-		return bucket.Put(key, buf[:])
-	})
+	rl.store.SetUserSentToday(user, count)
 }

@@ -19,7 +19,7 @@ func TestRateLimiter_WithBoltDB(t *testing.T) {
 	defer db.Close()
 
 	cfg := DefaultConfig()
-	rl := New(db, cfg)
+	rl := New(NewBoltStore(db), cfg)
 
 	// Test CheckUser with persistence
 	for i := 0; i < 3; i++ {
@@ -63,7 +63,7 @@ func TestRateLimiter_CheckUser_WithDailyQuota(t *testing.T) {
 		UserPerHour:   1000,
 		UserPerDay:    5, // Very low limit for testing
 	}
-	rl := New(db, cfg)
+	rl := New(NewBoltStore(db), cfg)
 
 	user := "dailyuser"
 
@@ -118,7 +118,7 @@ func TestRateLimiter_SaveAndLoadUserSentToday(t *testing.T) {
 	defer db.Close()
 
 	cfg := DefaultConfig()
-	rl := New(db, cfg)
+	rl := New(NewBoltStore(db), cfg)
 
 	// Directly test user quota persistence
 	rl.saveUserSentToday("user1", 50)
