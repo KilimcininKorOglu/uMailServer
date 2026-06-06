@@ -89,7 +89,7 @@ func TestOpenMigrate(t *testing.T) {
 		"tenants", "tenant_settings", "domains", "domain_settings",
 		"accounts", "aliases", "mail_groups", "mail_group_members",
 		"mail_queue", "mail_queue_recipients", "revoked_tokens", "client_sessions",
-		"mailboxes", "messages", "threads", "mailbox_acl",
+		"mailboxes", "mailbox_subscriptions", "messages", "threads", "mailbox_acl",
 	}
 	for _, table := range want {
 		var exists bool

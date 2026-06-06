@@ -265,9 +265,18 @@ CREATE TABLE IF NOT EXISTS mailboxes (
     uid_validity   BIGINT   NOT NULL DEFAULT 0,
     uid_next       BIGINT   NOT NULL DEFAULT 1,
     highest_modseq BIGINT   NOT NULL DEFAULT 0,
-    subscribed     BOOLEAN  NOT NULL DEFAULT FALSE,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_email, name)
+);
+
+-- IMAP subscriptions are independent of mailbox existence (RFC 3501: a client
+-- may stay subscribed to a name that has no mailbox), so they are their own
+-- table, NOT a column on mailboxes — matching the separate bbolt subscription
+-- bucket and keeping one canonical source for the subscribed set.
+CREATE TABLE IF NOT EXISTS mailbox_subscriptions (
+    user_email TEXT NOT NULL,
+    mailbox    TEXT NOT NULL,
+    PRIMARY KEY (user_email, mailbox)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
