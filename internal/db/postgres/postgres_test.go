@@ -1901,3 +1901,62 @@ func TestSemcoreJobs(t *testing.T) {
 		t.Errorf("Delete(absent) err=%v want ErrJobNotFound", err)
 	}
 }
+
+// TestSemcoreCollabChecked covers the ews.CollabStore extras: by-id lookups,
+// change-key-checked Put (conflict on stale key) and Delete, and the
+// subscription drain (ExpireAllSubscriptions).
+func TestSemcoreCollabChecked(t *testing.T) {
+	d := openTestDB(t)
+	cal := semcore.MustFolderId("folder:calendar")
+	mbox := semcore.MustMailboxId("alice@x.com")
+	ck1 := semcore.MustCalendarChangeKey("ck-1")
+
+	rec := &semcore.StoredCalendarItemIdentity{
+		ID: semcore.MustCalendarItemId("cal:1"), FolderID: cal, MailboxID: mbox,
+		ChangeKey: ck1, IcalUID: "uid-1", RawData: "v1",
+	}
+	// First insert via checked Put (no existing row → zero currentChangeKey OK).
+	if err := d.PutCalendarItemIdentity("k1", rec, semcore.CalendarChangeKey{}); err != nil {
+		t.Fatalf("PutCalendarItemIdentity insert: %v", err)
+	}
+	// By-id lookup.
+	if got, err := d.GetCalendarItemByID(semcore.MustCalendarItemId("cal:1")); err != nil || got.RawData != "v1" {
+		t.Fatalf("GetCalendarItemByID: %+v err=%v", got, err)
+	}
+	if _, err := d.GetCalendarItemByID(semcore.MustCalendarItemId("ghost")); !errors.Is(err, semcore.ErrCalendarItemNotFound) {
+		t.Errorf("GetCalendarItemByID(absent) err=%v want ErrCalendarItemNotFound", err)
+	}
+	// Stale currentChangeKey is rejected with a version conflict.
+	stale := semcore.MustCalendarChangeKey("wrong")
+	if err := d.PutCalendarItemIdentity("k1", rec, stale); !errors.Is(err, semcore.ErrCollabVersionConflict) {
+		t.Errorf("PutCalendarItemIdentity(stale) err=%v want ErrCollabVersionConflict", err)
+	}
+	// Matching currentChangeKey updates.
+	rec.RawData = "v2"
+	if err := d.PutCalendarItemIdentity("k1", rec, ck1); err != nil {
+		t.Fatalf("PutCalendarItemIdentity update: %v", err)
+	}
+	// Delete with wrong key conflicts; with right key succeeds.
+	if err := d.DeleteCalendarItemIdentity("k1", stale); !errors.Is(err, semcore.ErrCollabVersionConflict) {
+		t.Errorf("DeleteCalendarItemIdentity(stale) err=%v want ErrCollabVersionConflict", err)
+	}
+	if err := d.DeleteCalendarItemIdentity("k1", ck1); err != nil {
+		t.Fatalf("DeleteCalendarItemIdentity: %v", err)
+	}
+	if err := d.DeleteCalendarItemIdentity("k1", ck1); !errors.Is(err, semcore.ErrCalendarItemNotFound) {
+		t.Errorf("DeleteCalendarItemIdentity(absent) err=%v want ErrCalendarItemNotFound", err)
+	}
+
+	// ExpireAllSubscriptions drains active subscriptions.
+	if _, err := d.CreateSubscription(semcore.Subscription{MailboxID: mbox, Kind: semcore.SubscriptionKindPull}); err != nil {
+		t.Fatalf("CreateSubscription: %v", err)
+	}
+	n, err := d.ExpireAllSubscriptions()
+	if err != nil || n != 1 {
+		t.Errorf("ExpireAllSubscriptions=%d err=%v want 1", n, err)
+	}
+	// A second drain finds nothing new.
+	if n, err := d.ExpireAllSubscriptions(); err != nil || n != 0 {
+		t.Errorf("ExpireAllSubscriptions(2nd)=%d err=%v want 0", n, err)
+	}
+}

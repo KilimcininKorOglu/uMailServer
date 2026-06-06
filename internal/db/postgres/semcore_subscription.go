@@ -129,6 +129,17 @@ func (d *DB) RemoveSubscription(id semcore.SubscriptionId) error {
 	return nil
 }
 
+// ExpireAllSubscriptions marks every not-yet-drained subscription as drained
+// (server drain/restart), returning the number newly drained. Mirrors bbolt.
+func (d *DB) ExpireAllSubscriptions() (int, error) {
+	tag, err := d.pool.Exec(context.Background(),
+		`UPDATE semcore_subscription SET drained_at=now() WHERE drained_at IS NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: expire all subscriptions: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func (d *DB) scanSubscription(ctx context.Context, sql string, args ...any) (*semcore.Subscription, error) {
 	return subscriptionFromRow(d.pool.QueryRow(ctx, sql, args...))
 }

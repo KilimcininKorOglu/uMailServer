@@ -650,6 +650,7 @@ CREATE TABLE IF NOT EXISTS semcore_calendar_item (
     raw_data   TEXT     NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_calitem_uid ON semcore_calendar_item (folder_id, ical_uid);
+CREATE INDEX IF NOT EXISTS idx_semcore_calitem_id ON semcore_calendar_item (id);
 
 CREATE TABLE IF NOT EXISTS semcore_task (
     msg_key    TEXT NOT NULL PRIMARY KEY,
@@ -663,6 +664,7 @@ CREATE TABLE IF NOT EXISTS semcore_task (
     raw_data   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_task_uid ON semcore_task (folder_id, ical_uid);
+CREATE INDEX IF NOT EXISTS idx_semcore_task_id ON semcore_task (id);
 
 CREATE TABLE IF NOT EXISTS semcore_contact (
     msg_key    TEXT NOT NULL PRIMARY KEY,
@@ -676,6 +678,7 @@ CREATE TABLE IF NOT EXISTS semcore_contact (
     raw_data   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_contact_uid ON semcore_contact (folder_id, ical_uid);
+CREATE INDEX IF NOT EXISTS idx_semcore_contact_id ON semcore_contact (id);
 
 -- Semantic-core background jobs (migration/backfill/rollback scheduler). Scalar
 -- fields are typed columns; the variant step list is a JSONB payload.

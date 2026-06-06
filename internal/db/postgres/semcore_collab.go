@@ -286,3 +286,153 @@ func (d *DB) DeleteContactByUID(folderID semcore.FolderId, icalUID string) error
 	}
 	return nil
 }
+
+// --- ews.CollabStore extras: by-id lookups + change-key-checked put/delete ---
+
+// GetCalendarItemByID returns a calendar item by its CalendarItemId.
+func (d *DB) GetCalendarItemByID(id semcore.CalendarItemId) (*semcore.StoredCalendarItemIdentity, error) {
+	var msgKey, masterID, folderID, mailboxID, changeKey, icalUID, rawHash, etag, rawData string
+	var kind int16
+	err := d.pool.QueryRow(context.Background(), `
+		SELECT msg_key, master_id, folder_id, mailbox_id, change_key, kind, ical_uid, raw_hash, etag, raw_data
+		FROM semcore_calendar_item WHERE id=$1 LIMIT 1`, id.String(),
+	).Scan(&msgKey, &masterID, &folderID, &mailboxID, &changeKey, &kind, &icalUID, &rawHash, &etag, &rawData)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, semcore.ErrCalendarItemNotFound
+		}
+		return nil, fmt.Errorf("postgres: get calendar item by id %s: %w", id, err)
+	}
+	_ = msgKey
+	return &semcore.StoredCalendarItemIdentity{
+		ID: id, MasterID: parseCalendarItemID(masterID), FolderID: parseFolderID(folderID),
+		MailboxID: parseMailboxID(mailboxID), ChangeKey: parseCalendarChangeKey(changeKey),
+		Kind: semcore.CollabKind(uint8(kind)), IcalUID: icalUID, RawHash: rawHash, ETag: etag, RawData: rawData,
+	}, nil
+}
+
+// PutCalendarItemIdentity upserts with an optimistic change-key check on update.
+func (d *DB) PutCalendarItemIdentity(msgKey string, rec *semcore.StoredCalendarItemIdentity, currentChangeKey semcore.CalendarChangeKey) error {
+	if err := d.checkCollabChangeKey(context.Background(), "semcore_calendar_item", msgKey, currentChangeKey.String(), currentChangeKey.IsZero()); err != nil {
+		return err
+	}
+	return d.PutCalendarItemIdentityUnsafe(msgKey, rec)
+}
+
+// DeleteCalendarItemIdentity removes by msg_key with an optimistic change-key check.
+func (d *DB) DeleteCalendarItemIdentity(msgKey string, currentChangeKey semcore.CalendarChangeKey) error {
+	return d.deleteCollabChecked(context.Background(), "semcore_calendar_item", msgKey, currentChangeKey.String(), semcore.ErrCalendarItemNotFound)
+}
+
+// GetContactByID returns a contact by its ContactId.
+func (d *DB) GetContactByID(id semcore.ContactId) (*semcore.StoredContactIdentity, error) {
+	var msgKey, folderID, mailboxID, changeKey, icalUID, rawHash, etag, rawData string
+	err := d.pool.QueryRow(context.Background(), `
+		SELECT msg_key, folder_id, mailbox_id, change_key, ical_uid, raw_hash, etag, raw_data
+		FROM semcore_contact WHERE id=$1 LIMIT 1`, id.String(),
+	).Scan(&msgKey, &folderID, &mailboxID, &changeKey, &icalUID, &rawHash, &etag, &rawData)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, semcore.ErrContactNotFound
+		}
+		return nil, fmt.Errorf("postgres: get contact by id %s: %w", id, err)
+	}
+	_ = msgKey
+	return &semcore.StoredContactIdentity{
+		ID: id, FolderID: parseFolderID(folderID), MailboxID: parseMailboxID(mailboxID),
+		ChangeKey: parseContactChangeKey(changeKey), IcalUID: icalUID, RawHash: rawHash, ETag: etag, RawData: rawData,
+	}, nil
+}
+
+// PutContactIdentity upserts with an optimistic change-key check on update.
+func (d *DB) PutContactIdentity(msgKey string, rec *semcore.StoredContactIdentity, currentChangeKey semcore.ContactChangeKey) error {
+	if err := d.checkCollabChangeKey(context.Background(), "semcore_contact", msgKey, currentChangeKey.String(), currentChangeKey.IsZero()); err != nil {
+		return err
+	}
+	return d.PutContactIdentityUnsafe(msgKey, rec)
+}
+
+// DeleteContactIdentity removes by msg_key with an optimistic change-key check.
+func (d *DB) DeleteContactIdentity(msgKey string, currentChangeKey semcore.ContactChangeKey) error {
+	return d.deleteCollabChecked(context.Background(), "semcore_contact", msgKey, currentChangeKey.String(), semcore.ErrContactNotFound)
+}
+
+// GetTaskByID returns a task by its TaskId.
+func (d *DB) GetTaskByID(id semcore.TaskId) (*semcore.StoredTaskIdentity, error) {
+	var msgKey, folderID, mailboxID, changeKey, icalUID, rawHash, etag, rawData string
+	err := d.pool.QueryRow(context.Background(), `
+		SELECT msg_key, folder_id, mailbox_id, change_key, ical_uid, raw_hash, etag, raw_data
+		FROM semcore_task WHERE id=$1 LIMIT 1`, id.String(),
+	).Scan(&msgKey, &folderID, &mailboxID, &changeKey, &icalUID, &rawHash, &etag, &rawData)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, semcore.ErrTaskNotFound
+		}
+		return nil, fmt.Errorf("postgres: get task by id %s: %w", id, err)
+	}
+	_ = msgKey
+	return &semcore.StoredTaskIdentity{
+		ID: id, FolderID: parseFolderID(folderID), MailboxID: parseMailboxID(mailboxID),
+		ChangeKey: parseTaskChangeKey(changeKey), IcalUID: icalUID, RawHash: rawHash, ETag: etag, RawData: rawData,
+	}, nil
+}
+
+// PutTaskIdentity upserts with an optimistic change-key check on update.
+func (d *DB) PutTaskIdentity(msgKey string, rec *semcore.StoredTaskIdentity, currentChangeKey semcore.TaskChangeKey) error {
+	if err := d.checkCollabChangeKey(context.Background(), "semcore_task", msgKey, currentChangeKey.String(), currentChangeKey.IsZero()); err != nil {
+		return err
+	}
+	return d.PutTaskIdentityUnsafe(msgKey, rec)
+}
+
+// DeleteTaskIdentity removes by msg_key with an optimistic change-key check.
+func (d *DB) DeleteTaskIdentity(msgKey string, currentChangeKey semcore.TaskChangeKey) error {
+	return d.deleteCollabChecked(context.Background(), "semcore_task", msgKey, currentChangeKey.String(), semcore.ErrTaskNotFound)
+}
+
+// checkCollabChangeKey enforces the optimistic-concurrency rule the bbolt store
+// applies on a checked Put: if a row already exists at msgKey, currentChangeKey
+// must be non-zero and match the stored change_key, else ErrCollabVersionConflict.
+// A fresh insert (no existing row) passes without a check.
+func (d *DB) checkCollabChangeKey(ctx context.Context, table, msgKey, currentChangeKey string, currentZero bool) error {
+	var stored string
+	err := d.pool.QueryRow(ctx, `SELECT change_key FROM `+table+` WHERE msg_key=$1`, msgKey).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // fresh insert
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: check change key %s/%s: %w", table, msgKey, err)
+	}
+	if currentZero {
+		return fmt.Errorf("put %s: update requires currentChangeKey", table)
+	}
+	if stored != currentChangeKey {
+		return semcore.ErrCollabVersionConflict
+	}
+	return nil
+}
+
+// deleteCollabChecked deletes a collab row by msg_key, enforcing the change-key
+// check: absent -> notFound, mismatch -> ErrCollabVersionConflict.
+func (d *DB) deleteCollabChecked(ctx context.Context, table, msgKey, currentChangeKey string, notFound error) error {
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: delete %s: %w", table, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+	var stored string
+	err = tx.QueryRow(ctx, `SELECT change_key FROM `+table+` WHERE msg_key=$1 FOR UPDATE`, msgKey).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return notFound
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: delete %s/%s: %w", table, msgKey, err)
+	}
+	if stored != currentChangeKey {
+		return semcore.ErrCollabVersionConflict
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM `+table+` WHERE msg_key=$1`, msgKey); err != nil {
+		return fmt.Errorf("postgres: delete %s/%s: %w", table, msgKey, err)
+	}
+	return tx.Commit(ctx)
+}

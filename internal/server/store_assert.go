@@ -28,4 +28,6 @@ var (
 	_ ews.TombstoneStore     = (*postgres.DB)(nil)
 	_ ews.SubscriptionStore  = (*postgres.DB)(nil)
 	_ ews.DelegateStore      = (*postgres.DB)(nil)
+	_ ews.PolicyStore        = (*postgres.DB)(nil)
+	_ ews.CollabStore        = (*postgres.DB)(nil)
 )
