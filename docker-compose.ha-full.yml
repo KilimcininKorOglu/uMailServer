@@ -1,14 +1,12 @@
 # Full HA stack for ha-report.md Faz 5 — adds DATA-TIER redundancy on top of the
 # active-active app tier in docker-compose.ha.yml:
 #
-#   * PostgreSQL: a primary + a streaming hot standby (Bitnami replication
-#     mode). The standby holds a continuously-replicated copy, so a primary
-#     storage failure loses no committed data. The app talks to the primary
-#     directly — a single write endpoint, which keeps the boot advisory lock and
-#     every other write on one node (no pgpool statement-routing surprises).
-#     Automatic primary->standby promotion + leader-routing is a Patroni concern
-#     in production (Patroni's REST endpoint drives an HAProxy pg leader check);
-#     this single-host stack stands up the replication that makes that possible.
+#   * PostgreSQL: a two-node repmgr cluster (pg-1/pg-2) with AUTOMATIC failover —
+#     repmgr promotes the surviving node when the primary dies — fronted by pgpool
+#     as the single connection endpoint that follows the current primary. Load
+#     balancing is disabled, so pgpool is a failover-aware write proxy (the boot
+#     advisory lock and all writes always reach the primary). The app's DSN points
+#     at pgpool, so a primary failure is transparent to it.
 #   * Redis: master + replica + a 3-node Sentinel quorum. The app connects with a
 #     redis-sentinel:// URL (newRedisClient -> go-redis FailoverClient), so it
 #     follows a master failover automatically.
@@ -19,47 +17,99 @@
 # (stop the dev stack and docker-compose.ha.yml first — same host ports.)
 
 services:
-  # --- PostgreSQL: primary + streaming hot standby ---
-  pg-primary:
-    image: bitnamilegacy/postgresql:16
-    container_name: umail-haf-pg-primary
+  # --- PostgreSQL: two-node repmgr cluster with AUTOMATIC failover ---
+  # postgresql-repmgr runs repmgr alongside Postgres: the two nodes elect a
+  # primary and, when it dies, repmgr promotes the surviving standby with no
+  # operator action. pgpool (below) is the single connection endpoint that tracks
+  # which node is currently primary and routes there, so the app sees one stable
+  # address across a failover.
+  pg-1:
+    image: bitnamilegacy/postgresql-repmgr:16
+    container_name: umail-haf-pg-1
     restart: unless-stopped
     environment:
-      - POSTGRESQL_REPLICATION_MODE=master
-      - POSTGRESQL_REPLICATION_USER=replicator
-      - POSTGRESQL_REPLICATION_PASSWORD=repl-change-me
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres-admin-change-me
       - POSTGRESQL_USERNAME=umailserver
       - POSTGRESQL_PASSWORD=change-me-in-deployment
       - POSTGRESQL_DATABASE=umailserver
+      - REPMGR_PASSWORD=repmgr-change-me
+      - REPMGR_PRIMARY_HOST=pg-1
+      - REPMGR_PRIMARY_PORT=5432
+      - REPMGR_PARTNER_NODES=pg-1,pg-2
+      - REPMGR_NODE_NAME=pg-1
+      - REPMGR_NODE_NETWORK_NAME=pg-1
+      - REPMGR_PORT_NUMBER=5432
     volumes:
-      - ./docker-data-haf/pg-primary:/bitnami/postgresql
+      - ./docker-data-haf/pg-1:/bitnami/postgresql
     networks:
       - hafnet
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U umailserver -d umailserver"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 15
+      retries: 20
 
-  pg-standby:
-    image: bitnamilegacy/postgresql:16
-    container_name: umail-haf-pg-standby
+  pg-2:
+    image: bitnamilegacy/postgresql-repmgr:16
+    container_name: umail-haf-pg-2
     restart: unless-stopped
-    depends_on:
-      pg-primary:
-        condition: service_healthy
     environment:
-      - POSTGRESQL_REPLICATION_MODE=slave
-      - POSTGRESQL_REPLICATION_USER=replicator
-      - POSTGRESQL_REPLICATION_PASSWORD=repl-change-me
-      - POSTGRESQL_MASTER_HOST=pg-primary
-      - POSTGRESQL_MASTER_PORT_NUMBER=5432
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres-admin-change-me
       - POSTGRESQL_USERNAME=umailserver
       - POSTGRESQL_PASSWORD=change-me-in-deployment
+      - POSTGRESQL_DATABASE=umailserver
+      - REPMGR_PASSWORD=repmgr-change-me
+      - REPMGR_PRIMARY_HOST=pg-1
+      - REPMGR_PRIMARY_PORT=5432
+      - REPMGR_PARTNER_NODES=pg-1,pg-2
+      - REPMGR_NODE_NAME=pg-2
+      - REPMGR_NODE_NETWORK_NAME=pg-2
+      - REPMGR_PORT_NUMBER=5432
     volumes:
-      - ./docker-data-haf/pg-standby:/bitnami/postgresql
+      - ./docker-data-haf/pg-2:/bitnami/postgresql
     networks:
       - hafnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umailserver -d umailserver"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # pgpool is the single Postgres endpoint the app talks to. It health-checks both
+  # repmgr nodes and forwards to the current primary; on a failover it follows the
+  # newly promoted node. Load balancing is OFF so every statement (including the
+  # boot pg_advisory_lock and all writes) goes to the primary — pgpool acts purely
+  # as a failover-aware write proxy, not a read splitter.
+  pgpool:
+    image: bitnamilegacy/pgpool:4
+    container_name: umail-haf-pgpool
+    restart: unless-stopped
+    depends_on:
+      pg-1:
+        condition: service_healthy
+      pg-2:
+        condition: service_healthy
+    environment:
+      - PGPOOL_BACKEND_NODES=0:pg-1:5432,1:pg-2:5432
+      - PGPOOL_SR_CHECK_USER=umailserver
+      - PGPOOL_SR_CHECK_PASSWORD=change-me-in-deployment
+      - PGPOOL_HEALTH_CHECK_USER=umailserver
+      - PGPOOL_HEALTH_CHECK_PASSWORD=change-me-in-deployment
+      - PGPOOL_POSTGRES_USERNAME=postgres
+      - PGPOOL_POSTGRES_PASSWORD=postgres-admin-change-me
+      - PGPOOL_ADMIN_USERNAME=admin
+      - PGPOOL_ADMIN_PASSWORD=pgpool-admin-change-me
+      - PGPOOL_POSTGRES_CUSTOM_USERS=umailserver
+      - PGPOOL_POSTGRES_CUSTOM_PASSWORDS=change-me-in-deployment
+      - PGPOOL_ENABLE_LOAD_BALANCING=no
+      - PGPOOL_ENABLE_LDAP=no
+    networks:
+      - hafnet
+    healthcheck:
+      test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
 
   # --- Redis: master + replica + 3 Sentinels (official redis:7-alpine) ---
   redis-master:
@@ -147,7 +197,7 @@ services:
     networks:
       - hafnet
     depends_on:
-      pg-primary:
+      pgpool:
         condition: service_healthy
       redis-master:
         condition: service_healthy
