@@ -127,11 +127,13 @@ type Server struct {
 	stopOnce sync.Once
 }
 
-// openStore opens the account/metadata store for the configured backend and
+// OpenStore opens the account/metadata store for the configured backend and
 // applies its schema/migrations. The bbolt store runs the embedded KV
 // migrations; the PostgreSQL store applies the relational schema. The returned
-// db.Store is the only handle the rest of the server uses.
-func openStore(ctx context.Context, cfg *config.Config) (db.Store, error) {
+// db.Store is the only handle the rest of the server uses. It is exported so the
+// CLI (account/domain/queue subcommands) opens the SAME backend the server would
+// from a single canonical path, rather than hard-coding bbolt.
+func OpenStore(ctx context.Context, cfg *config.Config) (db.Store, error) {
 	switch cfg.DatabaseBackend() {
 	case "postgres":
 		pg, err := postgres.Open(ctx, cfg.Database.DSN)
@@ -178,7 +180,7 @@ type storageBackend interface {
 // openStorage selects the message-metadata backend for the configured engine.
 // For bbolt it opens the dedicated mail.db and derives the spam / rate-limit
 // quota stores from its raw handle. For postgres the metadata, spam, and quota
-// surfaces are all served by the SAME *postgres.DB that openStore already
+// surfaces are all served by the SAME *postgres.DB that OpenStore already
 // returned as db.Store — so message metadata, search, accounts, spam tokens,
 // and daily quotas share one connection pool and no bbolt is opened at all.
 // The returned sharesDB flag tells the shutdown path not to double-close that
@@ -266,7 +268,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// default, PostgreSQL when database.backend is "postgres"). Engine-specific
 	// open + migrate happens here on the concrete type; everything downstream
 	// holds the db.Store interface.
-	database, err := openStore(ctx, cfg)
+	database, err := OpenStore(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -509,6 +510,44 @@ func getDatabasePath() string {
 	return cfg.DatabasePath()
 }
 
+// openConfiguredStore opens the account/metadata store on the backend the
+// config selects (bbolt by default, PostgreSQL when database.backend is
+// "postgres"), via the server's single canonical opener. The account, domain,
+// and queue subcommands use this so they operate on the same store the running
+// server does instead of hard-opening the embedded bbolt file. Exits on error.
+func openConfiguredStore() db.Store {
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	store, err := server.OpenStore(context.Background(), cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
+		os.Exit(1)
+	}
+	return store
+}
+
+// requireBboltBackend guards the bbolt-only KV-migration subcommands (db
+// status/migrate/rollback). Those drive the embedded bbolt migration framework
+// via BoltDB(); with database.backend "postgres" the relational schema is
+// applied automatically by the server on startup (idempotent), so there is
+// nothing for them to do — say so and exit cleanly rather than silently
+// creating an empty bbolt file at the configured path.
+func requireBboltBackend(action string) {
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.DatabaseBackend() == "postgres" {
+		fmt.Printf("database.backend is \"postgres\": %q applies only to the embedded bbolt store.\n", action)
+		fmt.Println("The PostgreSQL relational schema is created and kept current automatically by the server on startup.")
+		os.Exit(0)
+	}
+}
+
 func cmdDomain(args []string) {
 	if len(args) < 1 {
 		fmt.Println("Usage: umailserver domain <subcommand>")
@@ -518,12 +557,8 @@ func cmdDomain(args []string) {
 
 	subcmd := args[0]
 
-	// Load database using config's data_dir
-	database, err := db.Open(getDatabasePath())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
-		os.Exit(1)
-	}
+	// Open the configured backend (bbolt or postgres).
+	database := openConfiguredStore()
 	defer database.Close()
 
 	switch subcmd {
@@ -654,12 +689,8 @@ func cmdAccount(args []string) {
 
 	subcmd := args[0]
 
-	// Load database using config's data_dir
-	database, err := db.Open(getDatabasePath())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
-		os.Exit(1)
-	}
+	// Open the configured backend (bbolt or postgres).
+	database := openConfiguredStore()
 	defer database.Close()
 
 	switch subcmd {
@@ -850,12 +881,8 @@ func cmdQueue(args []string) {
 
 	subcmd := args[0]
 
-	// Open database using config's data_dir
-	database, err := db.Open(getDatabasePath())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
-		os.Exit(1)
-	}
+	// Open the configured backend (bbolt or postgres).
+	database := openConfiguredStore()
 	defer database.Close()
 
 	switch subcmd {
@@ -1109,6 +1136,13 @@ func cmdMigrate(args []string) {
 		os.Exit(1)
 	}
 
+	// The legacy importer (IMAP/Dovecot/mbox) writes through the concrete bbolt
+	// *db.DB, so it cannot target the PostgreSQL backend.
+	if cfg.DatabaseBackend() == "postgres" {
+		fmt.Fprintln(os.Stderr, "legacy migration (imap/dovecot/mbox) supports only the bbolt backend; database.backend is \"postgres\".")
+		os.Exit(1)
+	}
+
 	database, err := db.Open(cfg.DatabasePath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
@@ -1181,6 +1215,9 @@ func cmdDB(args []string) {
 }
 
 func cmdDBStatus(args []string) {
+	if len(args) == 0 {
+		requireBboltBackend("db status")
+	}
 	dbPath := getDatabasePath()
 	if len(args) > 0 {
 		dbPath = filepath.Join(args[0], "umailserver.db")
@@ -1213,6 +1250,9 @@ func cmdDBStatus(args []string) {
 }
 
 func cmdDBMigrate(args []string) {
+	if len(args) == 0 {
+		requireBboltBackend("db migrate")
+	}
 	dbPath := getDatabasePath()
 	if len(args) > 0 {
 		dbPath = filepath.Join(args[0], "umailserver.db")
@@ -1240,6 +1280,9 @@ func cmdDBMigrate(args []string) {
 }
 
 func cmdDBRollback(args []string) {
+	if len(args) == 0 {
+		requireBboltBackend("db rollback")
+	}
 	dbPath := getDatabasePath()
 	if len(args) > 0 {
 		dbPath = filepath.Join(args[0], "umailserver.db")
