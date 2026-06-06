@@ -2001,13 +2001,16 @@ func TestDeliverLocal_SuccessWithQuotaHeadroom(t *testing.T) {
 		t.Errorf("expected QuotaUsed=%d, got %d", len(msgData), account.QuotaUsed)
 	}
 
-	mboxID, err := srv.semcoreStore.Identity().GetMailboxIDByEmail("alice@test.example.com")
-	if err != nil {
+	if _, err := srv.semcoreStore.Identity().GetMailboxIDByEmail("alice@test.example.com"); err != nil {
 		t.Fatalf("GetMailboxIDByEmail failed: %v", err)
 	}
-	items, err := srv.semcoreStore.Identity().ListItemIdentitiesByMailbox(mboxID)
+	folderID, err := srv.semcoreStore.Identity().GetFolderID("alice@test.example.com", "INBOX")
 	if err != nil {
-		t.Fatalf("ListItemIdentitiesByMailbox failed: %v", err)
+		t.Fatalf("GetFolderID(INBOX) failed: %v", err)
+	}
+	items, err := srv.semcoreStore.Identity().ListItemIdentitiesByFolder(folderID)
+	if err != nil {
+		t.Fatalf("ListItemIdentitiesByFolder failed: %v", err)
 	}
 	if len(items) != 1 {
 		t.Fatalf("expected 1 semantic item, got %d", len(items))

@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/tracing"
 )
 
@@ -24,7 +23,7 @@ type Server struct {
 	dataDir         string
 	storage         Store
 	tracingProvider *tracing.Provider
-	collabStore     *semcore.BoltCollaborationStore
+	collabStore     any // *semcore.BoltCollaborationStore or *postgres.DB; set via SetCollaborationStore
 }
 
 // UseCanonicalStore switches contacts persistence to the semcore collaboration
@@ -64,7 +63,7 @@ func (s *Server) SetAuthFunc(fn func(username, password string) (bool, error)) {
 // SetCollaborationStore wires the semcore collaboration store into the CardDAV
 // server. When set, ETags are derived from ContactChangeKey instead of
 // filesystem mtime. Passing nil clears the store (reverts to mtime-based ETags).
-func (s *Server) SetCollaborationStore(store *semcore.BoltCollaborationStore) {
+func (s *Server) SetCollaborationStore(store any) {
 	s.collabStore = store
 }
 

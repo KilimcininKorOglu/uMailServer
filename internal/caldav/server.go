@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/tracing"
 )
 
@@ -61,7 +60,7 @@ func (s *Server) SetAuthFunc(fn func(username, password string) (bool, error)) {
 // SetCollaborationStore wires the semcore collaboration store into the CalDAV
 // server. When set, ETags are derived from CalendarChangeKey instead of
 // filesystem mtime. Passing nil clears the store (reverts to mtime-based ETags).
-func (s *Server) SetCollaborationStore(store *semcore.BoltCollaborationStore) {
+func (s *Server) SetCollaborationStore(store any) {
 	s.collabStore = store
 }
 

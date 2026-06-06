@@ -94,7 +94,10 @@ type Server struct {
 	// Semantic-core canonical store and mutation pipeline.
 	// These are initialized during New() when the data directory is available.
 	// They are nil if semantic-core is disabled or not yet initialized.
-	semcoreStore *semcore.Store
+	// semcoreStore is the canonical semantic-core surface for the configured
+	// backend: a bbolt *semcore.Store or the relational *postgres.DB, behind the
+	// semanticStores seam (see semantic.go).
+	semcoreStore semanticStores
 	mutationPipe *semcore.MutationPipeline
 
 	// S/MIME and OpenPGP keystores
@@ -426,29 +429,36 @@ func New(cfg *config.Config) (*Server, error) {
 	s.searchSvc = searchSvc
 	s.indexWork = make(chan indexJob, 1000)
 
-	// Initialize semantic-core canonical store and mutation pipeline.
-	// The semcore store lives under dataDir/semcore/ and uses a separate bbolt DB.
-	// It is safe to create even if backfill hasn't run yet — the mutation
-	// pipeline will lazily register mailbox/folder identities as needed.
-	semcoreStore, err := semcore.NewStore(s.cfg().Server.DataDir)
-	if err != nil {
-		// Best-effort cleanup of partially-initialized resources.
-		//nolint:errcheck // cleanup in error path; error is already returned
-		_ = tlsManager.Close()
-		//nolint:errcheck // cleanup in error path; error is already returned
-		_ = msgStore.Close()
-		//nolint:errcheck // cleanup in error path; error is already returned
-		_ = database.Close()
-		return nil, fmt.Errorf("failed to create semcore store: %w", err)
+	// Initialize the canonical semantic-core store for the configured backend.
+	// bbolt opens a separate DB under dataDir/semcore/; postgres reuses the same
+	// *postgres.DB as the account/metadata store (so semcore, accounts, and
+	// message metadata share one pool and no bbolt is opened). Both are held
+	// behind the semanticStores seam. It is safe to create even before backfill —
+	// the mutation pipeline lazily registers mailbox/folder identities as needed.
+	if pg, ok := database.(*postgres.DB); ok {
+		s.semcoreStore = pgSemantic{pg}
+		logger.Info("Semantic-core store initialized", "backend", "postgres")
+	} else {
+		semcoreStore, serr := semcore.NewStore(s.cfg().Server.DataDir)
+		if serr != nil {
+			// Best-effort cleanup of partially-initialized resources.
+			//nolint:errcheck // cleanup in error path; error is already returned
+			_ = tlsManager.Close()
+			//nolint:errcheck // cleanup in error path; error is already returned
+			_ = msgStore.Close()
+			//nolint:errcheck // cleanup in error path; error is already returned
+			_ = database.Close()
+			return nil, fmt.Errorf("failed to create semcore store: %w", serr)
+		}
+		s.semcoreStore = boltSemantic{semcoreStore}
+		logger.Info("Semantic-core store initialized", "backend", "bbolt")
 	}
-	s.semcoreStore = semcoreStore
-	s.mutationPipe = semcore.NewMutationPipeline(semcoreStore.Identity(), semcoreStore.Lifecycle())
-	logger.Info("Semantic-core store initialized")
+	s.mutationPipe = semcore.NewMutationPipeline(s.semcoreStore.Identity(), s.semcoreStore.Lifecycle())
 
 	// Wire canonical identity store into search service so that search documents
 	// use ItemId as DocID and can resolve hits back to semantic-core items.
 	if s.searchSvc != nil {
-		s.searchSvc.SetIdentityStore(semcoreStore.Identity())
+		s.searchSvc.SetIdentityStore(s.semcoreStore.Identity())
 		logger.Info("Search service wired to semantic-core identity store")
 	}
 
