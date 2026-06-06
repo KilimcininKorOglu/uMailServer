@@ -653,3 +653,90 @@ func TestGetNextUIDConcurrent(t *testing.T) {
 		t.Errorf("uid_next=%d after %d claims, want %d", mb.UIDNext, n, n+1)
 	}
 }
+
+// TestMailboxLifecycleAndChanges covers Create/Delete/Rename/EnsureDefault and
+// the JMAP change journal they feed.
+func TestMailboxLifecycleAndChanges(t *testing.T) {
+	d := openTestDB(t)
+	const user = "u@x.com"
+
+	// Initial state token is "0".
+	if st, err := d.CurrentChangeState(user); err != nil || st != "0" {
+		t.Fatalf("initial state=%q err=%v want 0", st, err)
+	}
+
+	// Create records a "created" mailbox change; a no-op re-create records nothing.
+	if err := d.CreateMailbox(user, "Work"); err != nil {
+		t.Fatalf("CreateMailbox: %v", err)
+	}
+	if err := d.CreateMailbox(user, "Work"); err != nil {
+		t.Fatalf("CreateMailbox (dup): %v", err)
+	}
+	changes, hasMore, last, err := d.GetChangesSince(user, "mailbox", 0, 100)
+	if err != nil {
+		t.Fatalf("GetChangesSince: %v", err)
+	}
+	if len(changes) != 1 || changes[0].Kind != "created" || changes[0].ID != "Work" {
+		t.Errorf("expected one created change for Work, got %+v", changes)
+	}
+	if hasMore {
+		t.Error("hasMore should be false")
+	}
+
+	// Rename records destroyed(old)+created(new); messages would cascade.
+	if err := d.RenameMailbox(user, "Work", "Projects"); err != nil {
+		t.Fatalf("RenameMailbox: %v", err)
+	}
+	list, err := d.ListMailboxes(user)
+	if err != nil {
+		t.Fatalf("ListMailboxes: %v", err)
+	}
+	foundProjects, foundWork := false, false
+	for _, n := range list {
+		if n == "Projects" {
+			foundProjects = true
+		}
+		if n == "Work" {
+			foundWork = true
+		}
+	}
+	if !foundProjects || foundWork {
+		t.Errorf("after rename, mailboxes=%v (want Projects, not Work)", list)
+	}
+
+	// Delete records a "destroyed" change.
+	if err := d.DeleteMailbox(user, "Projects"); err != nil {
+		t.Fatalf("DeleteMailbox: %v", err)
+	}
+
+	// The change feed since the start must include created+destroyed+rename pair.
+	all, _, newLast, err := d.GetChangesSince(user, "mailbox", 0, 100)
+	if err != nil {
+		t.Fatalf("GetChangesSince (all): %v", err)
+	}
+	if len(all) < 4 { // created Work, destroyed Work, created Projects, destroyed Projects
+		t.Errorf("expected >=4 mailbox changes, got %d: %+v", len(all), all)
+	}
+	if newLast <= last {
+		t.Errorf("lastSeq did not advance: %d <= %d", newLast, last)
+	}
+	// State token advanced past the initial 0.
+	if st, serr := d.CurrentChangeState(user); serr != nil || st == "0" {
+		t.Errorf("state token should have advanced: st=%q err=%v", st, serr)
+	}
+
+	// EnsureDefaultMailboxes creates the standard set idempotently.
+	if err := d.EnsureDefaultMailboxes(user); err != nil {
+		t.Fatalf("EnsureDefaultMailboxes: %v", err)
+	}
+	if err := d.EnsureDefaultMailboxes(user); err != nil {
+		t.Fatalf("EnsureDefaultMailboxes (idempotent): %v", err)
+	}
+	names, err := d.ListMailboxes(user)
+	if err != nil {
+		t.Fatalf("ListMailboxes: %v", err)
+	}
+	if len(names) < 7 {
+		t.Errorf("expected >=7 default mailboxes, got %d: %v", len(names), names)
+	}
+}

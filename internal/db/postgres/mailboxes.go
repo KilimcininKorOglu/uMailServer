@@ -17,6 +17,78 @@ import (
 // which record change-journal entries) and message-derived reads (counts,
 // ReconcileUIDNext) land with the change journal and message CRUD.
 
+// CreateMailbox creates the mailbox row on first use and records a "created"
+// change only when it was newly created (matching the bbolt store, which
+// records a change only on first creation). The change journal write is
+// best-effort: a journal failure does not fail the create.
+func (d *DB) CreateMailbox(user, mailbox string) error {
+	ctx := context.Background()
+	ct, err := d.pool.Exec(ctx, `
+		INSERT INTO mailboxes (user_email, name, uid_validity, uid_next)
+		VALUES ($1, $2, $3, 1)
+		ON CONFLICT (user_email, name) DO NOTHING`,
+		user, mailbox, time.Now().Unix(),
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: create mailbox %s/%s: %w", user, mailbox, err)
+	}
+	if ct.RowsAffected() > 0 {
+		// Best-effort journal: the mailbox is created regardless of a journal error.
+		//nolint:errcheck // best-effort journal
+		_ = d.RecordChange(user, storage.ChangeTypeMailbox, storage.ChangeKindCreated, mailbox, "")
+	}
+	return nil
+}
+
+// DeleteMailbox removes the mailbox (and its messages via cascade) and records a
+// "destroyed" change when it existed.
+func (d *DB) DeleteMailbox(user, mailbox string) error {
+	ctx := context.Background()
+	ct, err := d.pool.Exec(ctx,
+		`DELETE FROM mailboxes WHERE user_email=$1 AND name=$2`, user, mailbox)
+	if err != nil {
+		return fmt.Errorf("postgres: delete mailbox %s/%s: %w", user, mailbox, err)
+	}
+	if ct.RowsAffected() > 0 {
+		//nolint:errcheck // best-effort journal
+		_ = d.RecordChange(user, storage.ChangeTypeMailbox, storage.ChangeKindDestroyed, mailbox, "")
+	}
+	return nil
+}
+
+// RenameMailbox renames the mailbox; its messages follow via the ON UPDATE
+// CASCADE foreign key (their UIDs are preserved). When the source does not
+// exist it creates the destination, matching the bbolt store. Records destroyed
+// (old) + created (new) so a JMAP sync sees the rename.
+func (d *DB) RenameMailbox(user, oldName, newName string) error {
+	ctx := context.Background()
+	ct, err := d.pool.Exec(ctx,
+		`UPDATE mailboxes SET name=$3 WHERE user_email=$1 AND name=$2`, user, oldName, newName)
+	if err != nil {
+		return fmt.Errorf("postgres: rename mailbox %s/%s->%s: %w", user, oldName, newName, err)
+	}
+	if ct.RowsAffected() == 0 {
+		// Source absent: just create the destination (bbolt behavior).
+		return d.CreateMailbox(user, newName)
+	}
+	//nolint:errcheck // best-effort journal
+	_ = d.RecordChange(user, storage.ChangeTypeMailbox, storage.ChangeKindDestroyed, oldName, "")
+	//nolint:errcheck // best-effort journal
+	_ = d.RecordChange(user, storage.ChangeTypeMailbox, storage.ChangeKindCreated, newName, "")
+	return nil
+}
+
+// EnsureDefaultMailboxes creates the standard set (INBOX, Sent, ...) if absent.
+func (d *DB) EnsureDefaultMailboxes(user string) error {
+	var firstErr error
+	for _, name := range storage.DefaultMailboxes {
+		if err := d.CreateMailbox(user, name); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // GetMailbox returns the mailbox state, or a default (uid_validity/uid_next = 1)
 // when the mailbox row does not exist yet — matching the bbolt store.
 func (d *DB) GetMailbox(user, mailbox string) (*storage.Mailbox, error) {

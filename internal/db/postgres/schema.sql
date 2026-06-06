@@ -304,7 +304,10 @@ CREATE TABLE IF NOT EXISTS messages (
             coalesce(to_addr, ''))
     ) STORED,
     PRIMARY KEY (user_email, mailbox, uid),
-    FOREIGN KEY (user_email, mailbox) REFERENCES mailboxes (user_email, name) ON DELETE CASCADE
+    -- ON UPDATE CASCADE so RenameMailbox is a single UPDATE of mailboxes.name
+    -- that carries the messages along (preserving their UIDs).
+    FOREIGN KEY (user_email, mailbox) REFERENCES mailboxes (user_email, name)
+        ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_messages_search ON messages USING GIN (search);
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (user_email, thread_id);
@@ -332,3 +335,18 @@ CREATE TABLE IF NOT EXISTS mailbox_acl (
     PRIMARY KEY (owner_email, mailbox, grantee)
 );
 CREATE INDEX IF NOT EXISTS idx_mailbox_acl_grantee ON mailbox_acl (grantee);
+
+-- Per-user change journal (JMAP incremental sync). seq is a global BIGSERIAL;
+-- since change-state tokens are opaque to clients and each user's entries get
+-- strictly increasing seq values, GetChangesSince(user, type, sinceSeq) is
+-- monotonic per user without a per-user counter.
+CREATE TABLE IF NOT EXISTS changes (
+    seq        BIGSERIAL PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    type       TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    id         TEXT NOT NULL DEFAULT '',
+    mailbox    TEXT NOT NULL DEFAULT '',
+    at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_changes_user_type_seq ON changes (user_email, type, seq);
