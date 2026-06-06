@@ -461,3 +461,27 @@ CREATE TABLE IF NOT EXISTS semcore_folder_identity (
     PRIMARY KEY (mbox_key, folder_name)
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_folder_role ON semcore_folder_identity (mbox_key, role);
+
+-- Semantic-core item identities. Keyed by the bbolt storage_key (default
+-- "email\x00msgKey", or an explicit key for the same content in another folder);
+-- item_id is the canonical ItemId, indexed for id-based lookups/updates.
+CREATE TABLE IF NOT EXISTS semcore_item_identity (
+    storage_key     BYTEA   NOT NULL PRIMARY KEY,  -- bbolt key may contain NUL separators
+    item_id         TEXT    NOT NULL,
+    mailbox_id      TEXT    NOT NULL DEFAULT '',
+    folder_id       TEXT    NOT NULL DEFAULT '',
+    change_key      TEXT    NOT NULL DEFAULT '',
+    conversation_id TEXT    NOT NULL DEFAULT '',
+    msg_key         TEXT    NOT NULL DEFAULT '',
+    email           TEXT    NOT NULL DEFAULT '',
+    is_read         BOOLEAN NOT NULL DEFAULT false,
+    categories      TEXT[]  NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_item_id ON semcore_item_identity (item_id);
+CREATE INDEX IF NOT EXISTS idx_semcore_item_folder ON semcore_item_identity (folder_id);
+
+-- Semantic-core conversation identities (ConversationId -> owning mailbox).
+CREATE TABLE IF NOT EXISTS semcore_conversation_identity (
+    conversation_id TEXT NOT NULL PRIMARY KEY,
+    mailbox_id      TEXT NOT NULL DEFAULT ''
+);

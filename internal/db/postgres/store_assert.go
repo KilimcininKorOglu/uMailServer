@@ -29,4 +29,6 @@ var (
 
 	// Semantic-core sub-stores (the semcore->Postgres migration, in progress).
 	_ semcore.PipelineLifecycleStore = (*DB)(nil)
+	_ semcore.PipelineIdentityStore  = (*DB)(nil)
+	_ jmap.NotesIdentityStore        = (*DB)(nil)
 )

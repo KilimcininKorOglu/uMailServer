@@ -14,6 +14,8 @@ import (
 // each consumer interface.
 var (
 	_ api.MailStore      = (*postgres.DB)(nil)
+	_ api.IdentityStore  = (*postgres.DB)(nil)
 	_ ews.MailStore      = (*postgres.DB)(nil)
 	_ ews.LifecycleStore = (*postgres.DB)(nil)
+	_ ews.IdentityStore  = (*postgres.DB)(nil)
 )

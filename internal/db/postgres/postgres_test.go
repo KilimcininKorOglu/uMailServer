@@ -50,7 +50,7 @@ func openTestDB(t *testing.T) *DB {
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
 			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity,
-			semcore_folder_identity
+			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1294,5 +1294,113 @@ func TestSemcoreFolderIdentity(t *testing.T) {
 	}
 	if err := d.DeleteFolder(sent); !errors.Is(err, semcore.ErrFolderNotFound) {
 		t.Errorf("DeleteFolder(absent) err=%v want ErrFolderNotFound", err)
+	}
+}
+
+// TestSemcoreItemIdentity covers the item-identity surface: put (default and
+// explicit storage key), get-by-id, list-by-folder, folder/msgKey moves,
+// read/category state updates, the optimistic ChangeKey advance (with stale
+// rejection), delete, and conversation registration.
+func TestSemcoreItemIdentity(t *testing.T) {
+	d := openTestDB(t)
+	mbox := semcore.MustMailboxId("alice@x.com")
+	folder := semcore.MustFolderId("folder:inbox")
+	item := semcore.MustItemId("item:1")
+	conv := semcore.MustConversationId("conv:1")
+
+	// Put under the default storage key (email + msgKey).
+	if err := d.PutItemIdentity("msg-1", "alice@x.com", item, mbox, folder, semcore.ChangeKey{}, conv, false); err != nil {
+		t.Fatalf("PutItemIdentity: %v", err)
+	}
+	// A duplicate storage key is rejected.
+	if err := d.PutItemIdentity("msg-1", "alice@x.com", item, mbox, folder, semcore.ChangeKey{}, conv, false); !errors.Is(err, semcore.ErrIdentityExists) {
+		t.Errorf("duplicate put err=%v want ErrIdentityExists", err)
+	}
+
+	// Get round-trips the fields.
+	rec, err := d.GetItemIdentity(item)
+	if err != nil || rec.MsgKey != "msg-1" || rec.Email != "alice@x.com" ||
+		!rec.FolderID.Equal(folder) || rec.IsRead || !rec.ConversationID.Equal(conv) {
+		t.Fatalf("GetItemIdentity mismatch: %+v err=%v", rec, err)
+	}
+	if _, err := d.GetItemIdentity(semcore.MustItemId("ghost")); !errors.Is(err, semcore.ErrItemNotFound) {
+		t.Errorf("GetItemIdentity(absent) err=%v want ErrItemNotFound", err)
+	}
+
+	// List by folder.
+	if list, err := d.ListItemIdentitiesByFolder(folder); err != nil || len(list) != 1 || !list[0].ItemID.Equal(item) {
+		t.Errorf("ListItemIdentitiesByFolder=%+v err=%v want [item:1]", list, err)
+	}
+
+	// Move folder + msgKey.
+	other := semcore.MustFolderId("folder:archive")
+	if err := d.SetItemFolder(item, other); err != nil {
+		t.Fatalf("SetItemFolder: %v", err)
+	}
+	if err := d.SetItemMsgKey(item, "msg-1-new"); err != nil {
+		t.Fatalf("SetItemMsgKey: %v", err)
+	}
+	rec, err = d.GetItemIdentity(item)
+	if err != nil || !rec.FolderID.Equal(other) || rec.MsgKey != "msg-1-new" {
+		t.Errorf("after moves: folder=%v msgKey=%q err=%v", rec.FolderID, rec.MsgKey, err)
+	}
+
+	// UpdateItemState: read flag only, then categories only (each preserves the other).
+	read := true
+	if err := d.UpdateItemState(item, &read, nil); err != nil {
+		t.Fatalf("UpdateItemState(read): %v", err)
+	}
+	if err := d.UpdateItemState(item, nil, []string{"Work", "Urgent"}); err != nil {
+		t.Fatalf("UpdateItemState(cats): %v", err)
+	}
+	rec, err = d.GetItemIdentity(item)
+	if err != nil || !rec.IsRead || len(rec.Categories) != 2 || rec.Categories[0] != "Work" {
+		t.Errorf("UpdateItemState result: isRead=%v cats=%v err=%v", rec.IsRead, rec.Categories, err)
+	}
+
+	// ChangeKey optimistic advance: first write (zero current) succeeds.
+	ck1 := semcore.MustChangeKey("ck-1")
+	if err := d.PutChangeKey(item, semcore.ChangeKey{}, ck1); err != nil {
+		t.Fatalf("PutChangeKey(first): %v", err)
+	}
+	// A stale current key is rejected.
+	if err := d.PutChangeKey(item, semcore.ChangeKey{}, semcore.MustChangeKey("ck-x")); err == nil {
+		t.Error("PutChangeKey with stale current should error")
+	}
+	// The matching current key advances it.
+	if err := d.PutChangeKey(item, ck1, semcore.MustChangeKey("ck-2")); err != nil {
+		t.Fatalf("PutChangeKey(advance): %v", err)
+	}
+	if rec, err := d.GetItemIdentity(item); err != nil || rec.ChangeKey.String() != "ck-2" {
+		t.Errorf("ChangeKey=%q err=%v want ck-2", rec.ChangeKey.String(), err)
+	}
+	// Absent item.
+	if err := d.PutChangeKey(semcore.MustItemId("ghost"), semcore.ChangeKey{}, ck1); !errors.Is(err, semcore.ErrItemNotFound) {
+		t.Errorf("PutChangeKey(absent) err=%v want ErrItemNotFound", err)
+	}
+
+	// Explicit-storage-key put (same content, different folder identity).
+	item2 := semcore.MustItemId("item:2")
+	if err := d.PutItemIdentityWithKey("custom-key", "msg-1", "alice@x.com", item2, mbox, folder, semcore.ChangeKey{}, conv, true); err != nil {
+		t.Fatalf("PutItemIdentityWithKey: %v", err)
+	}
+	if rec, err := d.GetItemIdentity(item2); err != nil || !rec.IsRead {
+		t.Errorf("item2 get: %+v err=%v", rec, err)
+	}
+
+	// Conversation registration: idempotent-reject on duplicate.
+	if err := d.PutConversationIdentity(conv, mbox); err != nil {
+		t.Fatalf("PutConversationIdentity: %v", err)
+	}
+	if err := d.PutConversationIdentity(conv, mbox); !errors.Is(err, semcore.ErrIdentityExists) {
+		t.Errorf("duplicate conversation err=%v want ErrIdentityExists", err)
+	}
+
+	// Delete.
+	if err := d.DeleteItemIdentity(item); err != nil {
+		t.Fatalf("DeleteItemIdentity: %v", err)
+	}
+	if _, err := d.GetItemIdentity(item); !errors.Is(err, semcore.ErrItemNotFound) {
+		t.Errorf("after delete err=%v want ErrItemNotFound", err)
 	}
 }
