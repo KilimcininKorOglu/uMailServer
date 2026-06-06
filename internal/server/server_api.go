@@ -306,6 +306,20 @@ func (s *Server) submitMessageWithSieve(from string, to []string, data []byte) e
 		for _, recipient := range to {
 			user, domain := parseEmail(recipient)
 			s.logger.Info("submit sieve: checking recipient", "user", user, "domain", domain, "recipient", recipient)
+			// In cluster mode the compiled-Sieve cache is per-process, so a rule or
+			// OOF policy created on another node lives only in the shared Sieve
+			// directory until this node reloads it. The recompile stores the script
+			// under BOTH the local-part and the full-email key (sieveUserIDs), and
+			// the lookup below checks the local-part first, so refresh both keys
+			// from the shared source before evaluating — otherwise a stale
+			// local-part entry shadows the freshly-written full-email rule.
+			if s.cfg().Cluster.Enabled {
+				for _, key := range []string{user, recipient} {
+					if err := s.sieveManager.ReloadUser(key); err != nil {
+						s.logger.Warn("cluster: sieve reload failed; using cached script", "key", key, "error", err)
+					}
+				}
+			}
 			hasScript := s.sieveManager.HasActiveScript(user)
 			if !hasScript {
 				// Also try the full email

@@ -65,6 +65,55 @@ func (m *Manager) persistUserLocked(userID string) {
 	}
 }
 
+// ReloadUser re-reads a single user's persisted Sieve state from disk and
+// refreshes the in-memory cache, so a script compiled on another node (which
+// wrote the shared file) becomes visible here. It exists for the multi-node
+// deployment: the compiled-script cache is per-process, and the shared Sieve
+// directory is the cross-node source of truth. A no-op when persistence is
+// disabled. When the user's file is absent (e.g. all their rules were removed
+// on another node) their in-memory scripts are cleared.
+func (m *Manager) ReloadUser(userID string) error {
+	m.scriptsMu.Lock()
+	defer m.scriptsMu.Unlock()
+	if m.storageDir == "" {
+		return nil
+	}
+	data, err := os.ReadFile(m.userFile(userID))
+	if err != nil {
+		if os.IsNotExist(err) {
+			delete(m.scripts, userID)
+			delete(m.activeScripts, userID)
+			return nil
+		}
+		return fmt.Errorf("sieve reload %q: %w", userID, err)
+	}
+	var pu persistedUser
+	if json.Unmarshal(data, &pu) != nil {
+		return nil // a half-written file: keep what we have rather than wipe it
+	}
+	m.applyPersistedUserLocked(userID, pu)
+	return nil
+}
+
+// applyPersistedUserLocked refreshes one user's in-memory scripts from a parsed
+// on-disk record, recompiling each source. The caller must hold scriptsMu.
+func (m *Manager) applyPersistedUserLocked(userID string, pu persistedUser) {
+	m.scripts[userID] = make(map[string]*StoredScript)
+	for name, src := range pu.Scripts {
+		script, cerr := m.CompileScript(src)
+		if cerr != nil {
+			continue // skip a script that no longer compiles
+		}
+		m.scripts[userID][name] = &StoredScript{Name: name, Source: src, Script: script}
+	}
+	delete(m.activeScripts, userID)
+	if pu.Active != "" {
+		if _, ok := m.scripts[userID][pu.Active]; ok {
+			m.activeScripts[userID] = pu.Active
+		}
+	}
+}
+
 // load reads every persisted user file into memory, recompiling each source.
 // Corrupt scripts or files are skipped rather than aborting startup.
 func (m *Manager) load() error {
