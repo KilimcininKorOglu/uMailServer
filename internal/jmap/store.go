@@ -1,6 +1,9 @@
 package jmap
 
-import "github.com/umailserver/umailserver/internal/storage"
+import (
+	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/storage"
+)
 
 // MailStore is the mailbox/message-metadata surface the JMAP server needs from
 // the storage database. *storage.Database satisfies it today; a relational
@@ -35,3 +38,24 @@ var (
 	_ MailStore    = (*storage.Database)(nil)
 	_ MessageStore = (*storage.MessageStore)(nil)
 )
+
+// OOFStore is the out-of-office policy surface the JMAP vacation handler needs.
+// *semcore.BoltPolicyStore satisfies it.
+type OOFStore interface {
+	GetOOF(id semcore.OOFId) (*semcore.OOFPolicy, error)
+	PutOOF(policy *semcore.OOFPolicy) error
+}
+
+var _ OOFStore = (*semcore.BoltPolicyStore)(nil)
+
+// NotesIdentityStore is the identity surface the JMAP notes handler needs to
+// resolve mailbox/folder ids and item identities. *semcore.BoltIdentityStore
+// satisfies it.
+type NotesIdentityStore interface {
+	EnsureMailboxId(email string) (semcore.MailboxId, error)
+	EnsureFolderId(mboxKey, folderName, role string) (semcore.FolderId, error)
+	ListItemIdentitiesByFolder(folderID semcore.FolderId) ([]semcore.StoredItemIdentity, error)
+	DeleteItemIdentity(id semcore.ItemId) error
+}
+
+var _ NotesIdentityStore = (*semcore.BoltIdentityStore)(nil)

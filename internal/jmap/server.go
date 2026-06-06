@@ -42,7 +42,7 @@ type Server struct {
 	// policyStore is the canonical out-of-office policy store, shared with EWS
 	// and webmail. When set, VacationResponse/get and /set read and write it so a
 	// vacation reply configured over JMAP is the same one EWS/webmail show.
-	policyStore *semcore.BoltPolicyStore
+	policyStore OOFStore
 	// recompileSieve rebuilds and installs a mailbox's active Sieve script from
 	// its canonical policy (inbox rules + OOF) so a VacationResponse change takes
 	// effect at delivery. Mirrors the EWS/webmail recompile path.
@@ -57,14 +57,14 @@ type Server struct {
 	// IPM.StickyNote messages in the Notes folder, shared with EWS/IMAP/webmail;
 	// the identity store + mutation pipeline let a JMAP-created note also reach
 	// the semcore surface EWS reads. Both must be non-nil to advertise Note.
-	notesIdentity *semcore.BoltIdentityStore
+	notesIdentity NotesIdentityStore
 	notesPipe     *semcore.MutationPipeline
 }
 
 // SetNotesStore wires the semcore identity store and mutation pipeline so the
 // JMAP Note type shares one source of truth (the Notes folder) with
 // EWS/IMAP/webmail. Both must be non-nil for Note to be advertised.
-func (s *Server) SetNotesStore(identity *semcore.BoltIdentityStore, pipe *semcore.MutationPipeline) {
+func (s *Server) SetNotesStore(identity NotesIdentityStore, pipe *semcore.MutationPipeline) {
 	s.notesIdentity = identity
 	s.notesPipe = pipe
 }
@@ -85,7 +85,7 @@ func (s *Server) SetCollabStores(cal caldav.Store, card carddav.Store) {
 // SetVacationStores wires the canonical OOF policy store and the Sieve recompile
 // callback so JMAP VacationResponse shares one source of truth with EWS and
 // webmail. Both must be non-nil for VacationResponse to be advertised.
-func (s *Server) SetVacationStores(policy *semcore.BoltPolicyStore, recompile func(email string) error) {
+func (s *Server) SetVacationStores(policy OOFStore, recompile func(email string) error) {
 	s.policyStore = policy
 	s.recompileSieve = recompile
 }
