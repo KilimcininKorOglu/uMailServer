@@ -74,6 +74,23 @@ func (d *DB) putItem(storageKey, msgKey, email string, id semcore.ItemId, mailbo
 	return nil
 }
 
+// GetItemIDByKey returns the ItemId of the item stored under the given message
+// key (the msg_key the writer recorded), or ErrItemNotFound. Mirrors the bbolt
+// store's key/suffix lookup, which resolves to the same record.
+func (d *DB) GetItemIDByKey(msgKey string) (semcore.ItemId, error) {
+	var raw string
+	err := d.pool.QueryRow(context.Background(),
+		`SELECT item_id FROM semcore_item_identity WHERE msg_key=$1 LIMIT 1`, msgKey,
+	).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return semcore.ItemId{}, semcore.ErrItemNotFound
+		}
+		return semcore.ItemId{}, fmt.Errorf("postgres: get item id by key %q: %w", msgKey, err)
+	}
+	return semcore.NewItemId(raw)
+}
+
 // GetItemIdentity returns the item identity for an ItemId, or ErrItemNotFound.
 func (d *DB) GetItemIdentity(id semcore.ItemId) (*semcore.StoredItemIdentity, error) {
 	var itemID, mailboxID, folderID, changeKey, convID, msgKey, email string

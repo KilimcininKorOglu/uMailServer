@@ -1390,6 +1390,13 @@ func TestSemcoreItemIdentity(t *testing.T) {
 	if rec, err := d.GetItemIdentity(item2); err != nil || !rec.IsRead {
 		t.Errorf("item2 get: %+v err=%v", rec, err)
 	}
+	// GetItemIDByKey resolves an item by its stored message key.
+	if gotID, err := d.GetItemIDByKey("msg-1"); err != nil || !gotID.Equal(item2) {
+		t.Errorf("GetItemIDByKey(msg-1)=%v err=%v want %v", gotID, err, item2)
+	}
+	if _, err := d.GetItemIDByKey("no-such-key"); !errors.Is(err, semcore.ErrItemNotFound) {
+		t.Errorf("GetItemIDByKey(absent) err=%v want ErrItemNotFound", err)
+	}
 
 	// Conversation registration: idempotent-reject on duplicate.
 	if err := d.PutConversationIdentity(conv, mbox); err != nil {

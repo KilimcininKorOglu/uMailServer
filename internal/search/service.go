@@ -10,13 +10,24 @@ import (
 	"github.com/umailserver/umailserver/internal/semcore"
 )
 
+// IdentityStore is the canonical-identity surface the search service needs to
+// resolve a message blob key or ItemId back to a semantic-core item. Both the
+// bbolt *semcore.BoltIdentityStore and the relational *postgres.DB satisfy it,
+// so the service carries no engine dependency on the identity backend.
+type IdentityStore interface {
+	GetItemIDByKey(msgKey string) (semcore.ItemId, error)
+	GetItemIdentity(id semcore.ItemId) (*semcore.StoredItemIdentity, error)
+}
+
+var _ IdentityStore = (*semcore.BoltIdentityStore)(nil)
+
 // Service provides message search functionality
 type Service struct {
 	index         *Index
 	logger        *slog.Logger
 	db            MetadataStore
 	msgStore      MessageReader
-	identityStore *semcore.BoltIdentityStore // canonical identity store for ItemId resolution
+	identityStore IdentityStore // canonical identity store for ItemId resolution
 	mu            sync.RWMutex
 	indexes       map[string]*Index // user -> index
 }
@@ -40,7 +51,7 @@ func NewService(database MetadataStore, msgStore MessageReader, logger *slog.Log
 // When set, the search service uses ItemId as the document ID and can resolve
 // search hits back to canonical semantic-core items. When nil (backward-compatible
 // mode), the service uses the legacy folder:uid document ID format.
-func (s *Service) SetIdentityStore(store *semcore.BoltIdentityStore) {
+func (s *Service) SetIdentityStore(store IdentityStore) {
 	s.identityStore = store
 }
 

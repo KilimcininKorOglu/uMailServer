@@ -23,6 +23,7 @@ var (
 	_ db.Store             = (*DB)(nil)
 	_ imap.MetadataStore   = (*DB)(nil)
 	_ search.MetadataStore = (*DB)(nil)
+	_ search.IdentityStore = (*DB)(nil)
 	_ jmap.MailStore       = (*DB)(nil)
 	_ spam.Store           = (*DB)(nil)
 	_ ratelimit.QuotaStore = (*DB)(nil)
