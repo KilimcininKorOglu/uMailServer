@@ -16,3 +16,22 @@ type DelegateStore interface {
 }
 
 var _ DelegateStore = (*semcore.BoltDelegateStore)(nil)
+
+// SubscriptionStore is the push-subscription surface the EWS server needs.
+type SubscriptionStore interface {
+	CreateSubscription(sub semcore.Subscription) (semcore.SubscriptionId, error)
+	GetSubscription(id semcore.SubscriptionId) (*semcore.Subscription, error)
+	RenewSubscription(id semcore.SubscriptionId) error
+	RemoveSubscription(id semcore.SubscriptionId) error
+}
+
+var _ SubscriptionStore = (*semcore.BoltSubscriptionStore)(nil)
+
+// LifecycleStore is the item-lifecycle event surface the EWS server needs.
+type LifecycleStore interface {
+	AppendLifecycle(event semcore.Lifecycle) error
+	PollEvents(mboxID semcore.MailboxId, sinceSeq uint64, limit int) ([]semcore.Lifecycle, uint64, error)
+	HighestSequence(mboxID semcore.MailboxId) (uint64, error)
+}
+
+var _ LifecycleStore = (*semcore.BoltLifecycleStore)(nil)
