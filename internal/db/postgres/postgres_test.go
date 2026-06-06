@@ -46,7 +46,7 @@ func openTestDB(t *testing.T) *DB {
 		`TRUNCATE accounts, aliases, mail_groups, mail_queue, domains, tenants,
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
-			spam_tokens, spam_stats, ratelimit_quota
+			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1029,5 +1029,84 @@ func TestQuotaStore(t *testing.T) {
 	d.SetUserSentToday("a@x.com", -5) // clamps to 0
 	if got := d.GetUserSentToday("a@x.com"); got != 0 {
 		t.Errorf("count after negative=%d want 0", got)
+	}
+}
+
+// TestBackupJobsAndManifests covers the admin backup persistence surface:
+// job create/get/update/delete/list (with the enabledOnly filter) and manifest
+// create/get/delete/list (with the target filter), including the not-found
+// error parity with the bbolt store.
+func TestBackupJobsAndManifests(t *testing.T) {
+	d := openTestDB(t)
+
+	// --- jobs ---
+	lastRun := time.Now().UTC().Truncate(time.Second)
+	job := &storage.BackupJob{
+		ID: "job1", Name: "nightly", Type: "full", Target: "all",
+		Schedule: "0 3 * * *", Retention: 7, Enabled: true, LastRun: &lastRun,
+		Destinations: "s3", Options: "{}", Status: "idle",
+	}
+	if err := d.CreateBackupJob(job); err != nil {
+		t.Fatalf("CreateBackupJob: %v", err)
+	}
+	got, err := d.GetBackupJob("job1")
+	if err != nil || got.Name != "nightly" || got.Retention != 7 || !got.Enabled || got.LastRun == nil {
+		t.Errorf("GetBackupJob mismatch: %+v err=%v", got, err)
+	}
+	job.Status = "running"
+	job.Enabled = false
+	if err := d.UpdateBackupJob(job); err != nil {
+		t.Fatalf("UpdateBackupJob: %v", err)
+	}
+	if got, err := d.GetBackupJob("job1"); err != nil || got.Status != "running" || got.Enabled {
+		t.Errorf("after update: %+v err=%v", got, err)
+	}
+	// A disabled job must be created and then excluded by the enabledOnly filter.
+	if err := d.CreateBackupJob(&storage.BackupJob{ID: "job2", Name: "weekly", Enabled: true}); err != nil {
+		t.Fatalf("CreateBackupJob job2: %v", err)
+	}
+	all, err := d.ListBackupJobs(false)
+	if err != nil || len(all) != 2 {
+		t.Errorf("ListBackupJobs(false)=%d err=%v want 2", len(all), err)
+	}
+	enabled, err := d.ListBackupJobs(true)
+	if err != nil || len(enabled) != 1 || enabled[0].ID != "job2" {
+		t.Errorf("ListBackupJobs(true)=%+v err=%v want [job2]", enabled, err)
+	}
+	if err := d.DeleteBackupJob("job1"); err != nil {
+		t.Fatalf("DeleteBackupJob: %v", err)
+	}
+	if _, err := d.GetBackupJob("job1"); err == nil {
+		t.Error("GetBackupJob(job1) should error after delete")
+	}
+
+	// --- manifests ---
+	man := &storage.BackupManifest{
+		ID: "m1", Filename: "m1.tar.gz", Size: 4096,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Type: "full", Target: "alice",
+		Checksum: "abc", Encrypted: true, RetentionUntil: time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second),
+		Destination: "local", Path: "/backups/m1.tar.gz",
+	}
+	if err := d.CreateBackupManifest(man); err != nil {
+		t.Fatalf("CreateBackupManifest: %v", err)
+	}
+	gotMan, err := d.GetBackupManifest("m1")
+	if err != nil || gotMan.Size != 4096 || !gotMan.Encrypted || gotMan.RetentionUntil.IsZero() {
+		t.Errorf("GetBackupManifest mismatch: %+v err=%v", gotMan, err)
+	}
+	if err := d.CreateBackupManifest(&storage.BackupManifest{ID: "m2", Target: "bob", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("CreateBackupManifest m2: %v", err)
+	}
+	if list, err := d.ListBackupManifests(""); err != nil || len(list) != 2 {
+		t.Errorf("ListBackupManifests()=%d err=%v want 2", len(list), err)
+	}
+	if list, err := d.ListBackupManifests("alice"); err != nil || len(list) != 1 || list[0].ID != "m1" {
+		t.Errorf("ListBackupManifests(alice)=%+v err=%v want [m1]", list, err)
+	}
+	if err := d.DeleteBackupManifest("m1"); err != nil {
+		t.Fatalf("DeleteBackupManifest: %v", err)
+	}
+	if _, err := d.GetBackupManifest("m1"); err == nil {
+		t.Error("GetBackupManifest(m1) should error after delete")
 	}
 }

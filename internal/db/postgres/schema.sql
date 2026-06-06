@@ -375,3 +375,40 @@ CREATE TABLE IF NOT EXISTS ratelimit_quota (
     user_email TEXT   NOT NULL PRIMARY KEY,
     sent_today BIGINT NOT NULL DEFAULT 0
 );
+
+-- Scheduled backup jobs (admin backup API). Typed columns mirror storage.BackupJob;
+-- the bbolt store kept the same record as a JSON blob in "backup_jobs".
+CREATE TABLE IF NOT EXISTS backup_jobs (
+    id            TEXT    NOT NULL PRIMARY KEY,
+    name          TEXT    NOT NULL DEFAULT '',
+    type          TEXT    NOT NULL DEFAULT '',
+    target        TEXT    NOT NULL DEFAULT '',
+    schedule      TEXT    NOT NULL DEFAULT '',
+    retention     INTEGER NOT NULL DEFAULT 0,
+    enabled       BOOLEAN NOT NULL DEFAULT false,
+    last_run      TIMESTAMPTZ,
+    next_run      TIMESTAMPTZ,
+    destinations  TEXT    NOT NULL DEFAULT '',
+    options       TEXT    NOT NULL DEFAULT '',
+    status        TEXT    NOT NULL DEFAULT '',
+    last_error    TEXT    NOT NULL DEFAULT ''
+);
+
+-- Stored backup manifests (admin backup API). Typed columns mirror
+-- storage.BackupManifest; the bbolt store kept this as a JSON blob in
+-- "backup_manifests".
+CREATE TABLE IF NOT EXISTS backup_manifests (
+    id              TEXT   NOT NULL PRIMARY KEY,
+    filename        TEXT   NOT NULL DEFAULT '',
+    size            BIGINT NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    type            TEXT   NOT NULL DEFAULT '',
+    target          TEXT   NOT NULL DEFAULT '',
+    checksum        TEXT   NOT NULL DEFAULT '',
+    encrypted       BOOLEAN NOT NULL DEFAULT false,
+    retention_until TIMESTAMPTZ,
+    destination     TEXT   NOT NULL DEFAULT '',
+    path            TEXT   NOT NULL DEFAULT '',
+    metadata        TEXT   NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_backup_manifests_target ON backup_manifests (target);
