@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/storage"
 )
 
 // Report accumulates the per-record-type counts of a migration run so the
@@ -33,6 +35,13 @@ type Report struct {
 	Categories  int
 	Vacations   int
 	UserConfigs int
+
+	// Storage layer (mailbox/message metadata; Maildir bodies stay on disk).
+	Mailboxes     int
+	Messages      int
+	Subscriptions int
+	ACLs          int
+	Threads       int
 }
 
 // CopyDB copies the account/metadata layer (the data kept in umailserver.db)
@@ -210,4 +219,114 @@ func copyUserConfigs(src *db.DB, dst db.Store, r *Report) error {
 		return fmt.Errorf("enumerate user configs: %w", err)
 	}
 	return nil
+}
+
+// CopyStorage copies the message-metadata layer (mail.db) from a bbolt storage
+// database to the relational *postgres.DB for each of the given users (the
+// account emails produced by the db-layer copy). Maildir message bodies stay on
+// disk and are not touched — only the metadata, mailbox counters, subscriptions,
+// ACLs, and thread index move.
+//
+// Per mailbox the order is RestoreMailbox (which fixes UIDVALIDITY, uid_next,
+// and highest-modseq from the source so IMAP clients keep their caches) BEFORE
+// the messages, so the message inserts find an existing row and never mint a
+// fresh UIDVALIDITY. Each message keeps its exact UID and mod-seq. The JMAP
+// change journal is not copied; it starts fresh on the destination (clients
+// resync from current state, standard on a server migration).
+func CopyStorage(src *storage.Database, dst *postgres.DB, users []string, r *Report) error {
+	if src == nil || dst == nil || r == nil {
+		return errors.New("migratestore: nil source, destination, or report")
+	}
+	for _, user := range users {
+		mailboxes, err := src.ListMailboxes(user)
+		if err != nil {
+			return fmt.Errorf("list mailboxes for %q: %w", user, err)
+		}
+		for _, name := range mailboxes {
+			if err := copyMailbox(src, dst, user, name, r); err != nil {
+				return err
+			}
+		}
+
+		// Subscriptions are independent of mailbox existence (RFC 3501).
+		subs, err := src.ListSubscribed(user)
+		if err != nil {
+			return fmt.Errorf("list subscriptions for %q: %w", user, err)
+		}
+		for _, name := range subs {
+			if err := dst.SetSubscribed(user, name, true); err != nil {
+				return fmt.Errorf("copy subscription %q/%q: %w", user, name, err)
+			}
+			r.Subscriptions++
+		}
+
+		// ACL grants are keyed (owner, mailbox); enumerate the owner's mailboxes.
+		for _, name := range mailboxes {
+			entries, err := src.ListACL(user, name)
+			if err != nil {
+				return fmt.Errorf("list ACL for %q/%q: %w", user, name, err)
+			}
+			for _, e := range entries {
+				if err := dst.SetACL(user, name, e.Grantee, e.Rights, e.GrantedBy); err != nil {
+					return fmt.Errorf("copy ACL %q/%q grantee %q: %w", user, name, e.Grantee, err)
+				}
+				r.ACLs++
+			}
+		}
+
+		if err := copyThreads(src, dst, user, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyMailbox restores one mailbox with its source counters, then copies every
+// message's metadata at its original UID.
+func copyMailbox(src *storage.Database, dst *postgres.DB, user, name string, r *Report) error {
+	mb, err := src.GetMailbox(user, name)
+	if err != nil {
+		return fmt.Errorf("get mailbox %q/%q: %w", user, name, err)
+	}
+	if err := dst.RestoreMailbox(user, name, mb.UIDValidity, mb.UIDNext, mb.HighestModSeq); err != nil {
+		return fmt.Errorf("restore mailbox %q/%q: %w", user, name, err)
+	}
+	r.Mailboxes++
+
+	uids, err := src.GetMessageUIDs(user, name)
+	if err != nil {
+		return fmt.Errorf("list message UIDs for %q/%q: %w", user, name, err)
+	}
+	for _, uid := range uids {
+		meta, err := src.GetMessageMetadata(user, name, uid)
+		if err != nil {
+			return fmt.Errorf("get message %q/%q/%d: %w", user, name, uid, err)
+		}
+		if err := dst.StoreMessageMetadata(user, name, uid, meta); err != nil {
+			return fmt.Errorf("copy message %q/%q/%d: %w", user, name, uid, err)
+		}
+		r.Messages++
+	}
+	return nil
+}
+
+// copyThreads copies the per-user thread index, paginating the source so a large
+// mailbox does not load every thread at once.
+func copyThreads(src *storage.Database, dst *postgres.DB, user string, r *Report) error {
+	const page = 500
+	for offset := 0; ; offset += page {
+		threads, err := src.GetThreads(user, page, offset)
+		if err != nil {
+			return fmt.Errorf("list threads for %q: %w", user, err)
+		}
+		for _, th := range threads {
+			if err := dst.UpdateThread(user, th); err != nil {
+				return fmt.Errorf("copy thread %q/%q: %w", user, th.ThreadID, err)
+			}
+			r.Threads++
+		}
+		if len(threads) < page {
+			return nil
+		}
+	}
 }

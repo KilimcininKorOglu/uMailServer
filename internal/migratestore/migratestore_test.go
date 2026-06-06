@@ -9,6 +9,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
 
@@ -141,5 +142,95 @@ func TestCopyDB(t *testing.T) {
 	}
 	if blob, err := dst.GetUserConfig("a@ex.test", "OWA.UserOptions"); err != nil || blob.Dictionary != `{"theme":"dark"}` {
 		t.Fatalf("GetUserConfig: %+v err=%v", blob, err)
+	}
+}
+
+func TestCopyStorage(t *testing.T) {
+	dst := openTestPostgres(t)
+
+	const user = "a@ex.test"
+	src, err := storage.OpenDatabase(filepath.Join(t.TempDir(), "mail.db"))
+	if err != nil {
+		t.Fatalf("storage.OpenDatabase: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := src.Close(); err != nil {
+			t.Errorf("close storage source: %v", err)
+		}
+	})
+
+	// Seed one mailbox with a message at a specific UID, a subscription, an ACL
+	// grant, and a thread.
+	if err := src.CreateMailbox(user, "INBOX"); err != nil {
+		t.Fatalf("seed mailbox: %v", err)
+	}
+	srcMB, err := src.GetMailbox(user, "INBOX")
+	if err != nil {
+		t.Fatalf("read source mailbox: %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	if err := src.StoreMessageMetadata(user, "INBOX", 5, &storage.MessageMetadata{
+		MessageID: "<m1@ex.test>", UID: 5, Flags: []string{"\\Seen"}, ModSeq: 3,
+		InternalDate: now, Size: 1234, Subject: "Hello", ThreadID: "t-1", IsThreadRoot: true,
+	}); err != nil {
+		t.Fatalf("seed message: %v", err)
+	}
+	if err := src.SetSubscribed(user, "INBOX", true); err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	if err := src.SetACL(user, "INBOX", "b@ex.test", storage.ACLLookup|storage.ACLRead, user); err != nil {
+		t.Fatalf("seed ACL: %v", err)
+	}
+	if err := src.UpdateThread(user, &storage.Thread{
+		ThreadID: "t-1", Subject: "Hello", Participants: []string{user},
+		MessageCount: 1, UnreadCount: 0, LastActivity: now, CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed thread: %v", err)
+	}
+
+	var r Report
+	if err := CopyStorage(src, dst, []string{user}, &r); err != nil {
+		t.Fatalf("CopyStorage: %v", err)
+	}
+
+	want := Report{Mailboxes: 1, Messages: 1, Subscriptions: 1, ACLs: 1, Threads: 1}
+	if r != want {
+		t.Fatalf("report = %+v, want %+v", r, want)
+	}
+
+	// UIDVALIDITY, uid_next, and highest-modseq must match the source exactly so
+	// IMAP clients keep their caches — the whole reason for the faithful restore.
+	dstMB, err := dst.GetMailbox(user, "INBOX")
+	if err != nil {
+		t.Fatalf("dst GetMailbox: %v", err)
+	}
+	if dstMB.UIDValidity != srcMB.UIDValidity {
+		t.Fatalf("UIDVALIDITY = %d, want %d (source)", dstMB.UIDValidity, srcMB.UIDValidity)
+	}
+	if dstMB.UIDNext != srcMB.UIDNext {
+		t.Fatalf("uid_next = %d, want %d (source)", dstMB.UIDNext, srcMB.UIDNext)
+	}
+
+	meta, err := dst.GetMessageMetadata(user, "INBOX", 5)
+	if err != nil || meta.MessageID != "<m1@ex.test>" || meta.ModSeq != 3 || meta.Subject != "Hello" {
+		t.Fatalf("dst message at UID 5: %+v err=%v", meta, err)
+	}
+	if len(meta.Flags) != 1 || meta.Flags[0] != "\\Seen" {
+		t.Fatalf("dst message flags = %v, want [\\Seen]", meta.Flags)
+	}
+
+	subs, err := dst.ListSubscribed(user)
+	if err != nil || len(subs) != 1 || subs[0] != "INBOX" {
+		t.Fatalf("dst ListSubscribed = %v err=%v", subs, err)
+	}
+
+	acl, err := dst.ListACL(user, "INBOX")
+	if err != nil || len(acl) != 1 || acl[0].Grantee != "b@ex.test" || acl[0].Rights != (storage.ACLLookup|storage.ACLRead) {
+		t.Fatalf("dst ListACL = %+v err=%v", acl, err)
+	}
+
+	th, err := dst.GetThread(user, "t-1")
+	if err != nil || th.ThreadID != "t-1" || th.Subject != "Hello" {
+		t.Fatalf("dst GetThread = %+v err=%v", th, err)
 	}
 }

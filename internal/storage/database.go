@@ -151,6 +151,36 @@ func (db *Database) CreateMailbox(user, mailbox string) error {
 	return err
 }
 
+// RestoreMailbox creates the mailbox with the exact UIDVALIDITY, uid_next, and
+// highest-modseq counters supplied instead of minting fresh ones like
+// CreateMailbox. It exists for the bbolt↔Postgres migration: a copied mailbox
+// must keep its UIDVALIDITY (IMAP clients key their offline caches on it, per
+// RFC 3501) and its UID continuity. No change-journal entry is recorded — a
+// restore is not a user mutation. Existing counters are overwritten, so the
+// target mailbox ends with exactly the source's state.
+func (db *Database) RestoreMailbox(user, mailbox string, uidValidity, uidNext uint32, highestModSeq uint64) error {
+	if db.bolt == nil {
+		return nil
+	}
+	return db.bolt.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(mailboxKey(user, mailbox)))
+		if err != nil {
+			return err
+		}
+		if err := b.Put([]byte("uidvalidity"), itob(uidValidity)); err != nil {
+			return err
+		}
+		if err := b.Put([]byte("uidnext"), itob(uidNext)); err != nil {
+			return err
+		}
+		if err := b.Put([]byte("highestmodseq"), itob64(highestModSeq)); err != nil {
+			return err
+		}
+		_, err = tx.CreateBucketIfNotExists([]byte(messagesBucket(user, mailbox)))
+		return err
+	})
+}
+
 // DefaultMailboxes is the canonical set of standard folders provisioned for
 // every account so all protocols (IMAP, JMAP, EWS, webmail) expose a consistent
 // view. This is the single source of truth for the default folder set.

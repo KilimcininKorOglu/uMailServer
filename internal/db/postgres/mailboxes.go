@@ -40,6 +40,26 @@ func (d *DB) CreateMailbox(user, mailbox string) error {
 	return nil
 }
 
+// RestoreMailbox creates (or resets) the mailbox row with the exact UIDVALIDITY,
+// uid_next, and highest-modseq counters supplied, for the bbolt→Postgres
+// migration. Unlike CreateMailbox it mints no fresh UIDVALIDITY and records no
+// change-journal entry, so a migrated mailbox keeps the source's UID continuity
+// and IMAP clients keep their offline caches (RFC 3501).
+func (d *DB) RestoreMailbox(user, mailbox string, uidValidity, uidNext uint32, highestModSeq uint64) error {
+	ctx := context.Background()
+	_, err := d.pool.Exec(ctx, `
+		INSERT INTO mailboxes (user_email, name, uid_validity, uid_next, highest_modseq)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_email, name) DO UPDATE SET
+			uid_validity=EXCLUDED.uid_validity, uid_next=EXCLUDED.uid_next,
+			highest_modseq=EXCLUDED.highest_modseq`,
+		user, mailbox, int64(uidValidity), int64(uidNext), int64(highestModSeq))
+	if err != nil {
+		return fmt.Errorf("postgres: restore mailbox %s/%s: %w", user, mailbox, err)
+	}
+	return nil
+}
+
 // DeleteMailbox removes the mailbox (and its messages via cascade) and records a
 // "destroyed" change when it existed.
 func (d *DB) DeleteMailbox(user, mailbox string) error {
