@@ -130,7 +130,7 @@ type Server struct {
 
 	// Read-only durable-job store view, built lazily from semStore. Nil when
 	// semantic-core is disabled or the job bucket could not be opened.
-	jobStore *semcore.BoltJobStore
+	jobStore semcore.JobStore
 
 	// Runtime config view for the admin Settings API. liveConfig is swapped to a
 	// validated clone on each successful PUT; it is never mutated in place, so it
@@ -907,7 +907,7 @@ func (s *Server) SetSemcoreStore(store *semcore.Store) {
 	// endpoint can list job records. This creates the bucket if absent; jobs
 	// remain empty until a scheduler populates them.
 	if store != nil {
-		if js, err := semcore.NewBoltJobStore(store.Bolt()); err == nil {
+		if js, err := store.NewJobStore(); err == nil {
 			s.jobStore = js
 		}
 	}

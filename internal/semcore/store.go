@@ -146,6 +146,14 @@ func (s *Store) Close() error {
 // Bolt returns the underlying bbolt.DB.
 func (s *Store) Bolt() *bbolt.DB { return s.db }
 
+// NewJobStore returns a durable JobStore backed by this store, keeping the
+// bbolt handle encapsulated so callers depend on the JobStore interface rather
+// than reaching for the raw database. This is the seam a future relational
+// backend slots into.
+func (s *Store) NewJobStore() (JobStore, error) {
+	return NewBoltJobStore(s.db)
+}
+
 // Identity returns the canonical identity store (MailboxId, FolderId, ItemId,
 // ChangeKey, AttachmentId, ConversationId).
 func (s *Store) Identity() *BoltIdentityStore { return s.identity }
