@@ -1260,7 +1260,10 @@ func TestSemcoreFolderIdentity(t *testing.T) {
 	}
 
 	// A second role + a user folder, then list.
-	sent, _ := d.EnsureFolderId(mbox, "Sent", "sent")
+	sent, err := d.EnsureFolderId(mbox, "Sent", "sent")
+	if err != nil {
+		t.Fatalf("EnsureFolderId(Sent): %v", err)
+	}
 	if _, err := d.EnsureFolderId(mbox, "Project X", ""); err != nil {
 		t.Fatalf("EnsureFolderId(user): %v", err)
 	}
@@ -1278,8 +1281,8 @@ func TestSemcoreFolderIdentity(t *testing.T) {
 	if err := d.SetFolderParent(sent, inbox); err != nil {
 		t.Fatalf("SetFolderParent: %v", err)
 	}
-	if rec, _ := d.GetFolderByID(sent); !rec.ParentID.Equal(inbox) {
-		t.Errorf("SetFolderParent not applied: parent=%v want %v", rec.ParentID, inbox)
+	if rec, err := d.GetFolderByID(sent); err != nil || !rec.ParentID.Equal(inbox) {
+		t.Errorf("SetFolderParent not applied: parent=%v err=%v want %v", rec.ParentID, err, inbox)
 	}
 
 	// DeleteFolder removes it.
