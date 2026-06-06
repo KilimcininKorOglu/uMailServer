@@ -17,7 +17,7 @@ func TestClassifier_Initialize(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestClassifier_TrainSpam(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -87,7 +87,7 @@ func TestClassifier_TrainHam(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -126,7 +126,7 @@ func TestClassifier_GetTokenFrequency(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestClassifier_TrainFromEmail(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -200,7 +200,7 @@ func TestClassifier_TrainFromEmail_Empty(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -221,7 +221,7 @@ func TestClassifier_Train_DuplicateTokens(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -256,7 +256,7 @@ func TestUpdateStats(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -282,7 +282,7 @@ func TestClassifier_Classify_WithTraining(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -314,7 +314,7 @@ func TestClassifier_IncrementToken(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -342,7 +342,7 @@ func TestClassifier_IncrementToken_Ham(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -388,7 +388,7 @@ func TestGetTotalCounts_EmptyDB(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -468,7 +468,7 @@ func TestClassifier_Classify_HighSpamScore(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -496,7 +496,7 @@ func TestClassifier_Classify_HighHamScore(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -524,7 +524,7 @@ func TestCountAllTokens(t *testing.T) {
 	}
 	defer db.Close()
 
-	classifier := NewClassifier(db)
+	classifier := NewClassifier(NewBoltStore(db))
 	if err := classifier.Initialize(); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}

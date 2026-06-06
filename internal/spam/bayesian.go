@@ -1,151 +1,72 @@
 package spam
 
 import (
-	"encoding/binary"
-	"fmt"
 	"math"
 	"strings"
 	"sync"
 	"unicode"
-
-	"go.etcd.io/bbolt"
 )
 
-// SpamBucket is the bbolt bucket name for spam token counts
+// SpamBucket is the storage bucket name for spam token counts
 const SpamBucket = "spam_tokens"
 
-// HamBucket is the bbolt bucket name for ham token counts
+// HamBucket is the storage bucket name for ham token counts
 const HamBucket = "ham_tokens"
 
-// StatsBucket is the bbolt bucket name for total counts
+// StatsBucket is the storage bucket name for total counts
 const StatsBucket = "spam_stats"
 
-// Classifier performs Bayesian spam classification
+// Classifier performs Bayesian spam classification. Persistence is delegated to
+// a Store, so the classifier logic carries no engine dependency.
 type Classifier struct {
-	bolt      *bbolt.DB
+	store     Store
 	tokenizer *Tokenizer
 	mu        sync.RWMutex
 }
 
-// NewClassifier creates a new Bayesian classifier
-func NewClassifier(bolt *bbolt.DB) *Classifier {
+// NewClassifier creates a new Bayesian classifier backed by the given Store. A
+// nil Store disables persistence and the classifier returns neutral results.
+func NewClassifier(store Store) *Classifier {
 	return &Classifier{
-		bolt:      bolt,
+		store:     store,
 		tokenizer: NewTokenizer(),
 	}
 }
 
-// Initialize sets up the bbolt buckets if needed
+// Initialize sets up the backing storage if needed.
 func (c *Classifier) Initialize() error {
-	if c.bolt == nil {
+	if c.store == nil {
 		return nil
 	}
-	return c.bolt.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(SpamBucket))
-		if err != nil {
-			return err
-		}
-		_, err = tx.CreateBucketIfNotExists([]byte(HamBucket))
-		if err != nil {
-			return err
-		}
-		_, err = tx.CreateBucketIfNotExists([]byte(StatsBucket))
-		return err
-	})
+	return c.store.Initialize()
 }
 
-// tokenKey creates a bucket key for a token
-func tokenKey(token string) []byte {
-	return []byte(token)
-}
-
-// GetTotalCounts returns total ham and spam token counts
+// GetTotalCounts returns total ham and spam token counts.
 func (c *Classifier) GetTotalCounts() (totalHam uint64, totalSpam uint64, err error) {
-	if c.bolt == nil {
+	if c.store == nil {
 		return 1, 1, nil
 	}
-	err = c.bolt.View(func(tx *bbolt.Tx) error {
-		spamBucket := tx.Bucket([]byte(SpamBucket))
-		hamBucket := tx.Bucket([]byte(HamBucket))
-		statsBucket := tx.Bucket([]byte(StatsBucket))
-
-		if spamBucket != nil {
-			totalSpam = countAllTokens(spamBucket)
-		}
-		if hamBucket != nil {
-			totalHam = countAllTokens(hamBucket)
-		}
-		if statsBucket != nil {
-			if v := statsBucket.Get([]byte("total_ham")); len(v) == 8 {
-				totalHam = binary.BigEndian.Uint64(v)
-			}
-			if v := statsBucket.Get([]byte("total_spam")); len(v) == 8 {
-				totalSpam = binary.BigEndian.Uint64(v)
-			}
-		}
-		return nil
-	})
-	return
+	return c.store.GetTotalCounts()
 }
 
-// countAllTokens counts all tokens in a bucket
-func countAllTokens(bucket *bbolt.Bucket) uint64 {
-	var count uint64
-	cursor := bucket.Cursor()
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		if len(v) >= 4 {
-			count += uint64(binary.BigEndian.Uint32(v))
-		}
-	}
-	return count
-}
-
-// IncrementToken increments the count for a token in the given bucket
+// IncrementToken increments the count for a token in the given bucket.
 func (c *Classifier) IncrementToken(bucketName string, token string, delta uint32) error {
-	if c.bolt == nil {
+	if c.store == nil {
 		return nil
 	}
-	return c.bolt.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte(bucketName))
-		if bucket == nil {
-			return fmt.Errorf("bucket %s not found", bucketName)
-		}
-		key := tokenKey(token)
-		var count uint32
-		if v := bucket.Get(key); len(v) >= 4 {
-			count = binary.BigEndian.Uint32(v)
-		}
-		count += delta
-		var buf [4]byte
-		binary.BigEndian.PutUint32(buf[:], count)
-		return bucket.Put(key, buf[:])
-	})
+	return c.store.IncrementToken(bucketName, token, delta)
 }
 
-// UpdateStats updates the total ham/spam counts in stats bucket
+// UpdateStats recomputes and persists the total ham/spam counts.
 func (c *Classifier) UpdateStats() error {
-	if c.bolt == nil {
+	if c.store == nil {
 		return nil
 	}
-	// Get counts first (outside the Update transaction to avoid nested transactions)
-	totalHam, totalSpam, err := c.GetTotalCounts()
+	totalHam, totalSpam, err := c.store.GetTotalCounts()
 	if err != nil {
 		return err
 	}
-	// Now update in a separate transaction
-	return c.bolt.Update(func(tx *bbolt.Tx) error {
-		statsBucket := tx.Bucket([]byte(StatsBucket))
-		if statsBucket == nil {
-			return nil
-		}
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], totalHam)
-		if err := statsBucket.Put([]byte("total_ham"), buf[:]); err != nil {
-			return err
-		}
-		binary.BigEndian.PutUint64(buf[:], totalSpam)
-		return statsBucket.Put([]byte("total_spam"), buf[:])
-	})
+	return c.store.SetTotals(totalHam, totalSpam)
 }
 
 // TrainSpam trains the classifier with a spam email
@@ -174,33 +95,17 @@ func (c *Classifier) TrainHam(tokens []string) error {
 	return c.UpdateStats()
 }
 
-// GetTokenFrequency retrieves the ham and spam counts for a token
+// GetTokenFrequency retrieves the ham and spam counts for a token.
 func (c *Classifier) GetTokenFrequency(token string) (hamCount, spamCount uint32, err error) {
-	if c.bolt == nil {
+	if c.store == nil {
 		return 1, 1, nil
 	}
-	err = c.bolt.View(func(tx *bbolt.Tx) error {
-		spamBucket := tx.Bucket([]byte(SpamBucket))
-		hamBucket := tx.Bucket([]byte(HamBucket))
-
-		if hamBucket != nil {
-			if v := hamBucket.Get(tokenKey(token)); len(v) >= 4 {
-				hamCount = binary.BigEndian.Uint32(v)
-			}
-		}
-		if spamBucket != nil {
-			if v := spamBucket.Get(tokenKey(token)); len(v) >= 4 {
-				spamCount = binary.BigEndian.Uint32(v)
-			}
-		}
-		return nil
-	})
-	return
+	return c.store.GetTokenFrequency(token)
 }
 
 // Classify classifies a message as spam or ham based on tokens
 func (c *Classifier) Classify(tokens []string) (*ClassifyResult, error) {
-	if c.bolt == nil || len(tokens) == 0 {
+	if c.store == nil || len(tokens) == 0 {
 		return &ClassifyResult{
 			SpamProbability: 0.5,
 			IsSpam:          false,

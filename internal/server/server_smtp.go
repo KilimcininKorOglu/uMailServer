@@ -71,7 +71,7 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 
 		var classifier *spam.Classifier
 		if s.cfg().Spam.Bayesian.Enabled && s.storageDB != nil {
-			candidate := spam.NewClassifier(s.storageDB.Bolt())
+			candidate := spam.NewClassifier(spam.NewBoltStore(s.storageDB.Bolt()))
 			if err := candidate.Initialize(); err != nil {
 				s.logger.Error("failed to initialize Bayesian classifier", "error", err)
 			} else {
