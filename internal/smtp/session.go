@@ -434,9 +434,13 @@ func (s *Session) handleDATA() error {
 
 		// Pipeline stages may rewrite the message body (e.g. S/MIME and
 		// OpenPGP decryption, or a Sieve addheader injecting X-Category).
-		// Persist those mutations so delivery stores the updated message.
+		// Persist those mutations so delivery stores the updated message — and
+		// sync the local `data` too, otherwise the Authentication-Results /
+		// X-Spam-Score / Received headers prepended below would rebuild from the
+		// pre-pipeline body and clobber the rewrite (matches the BDAT path).
 		if len(ctx.Data) > 0 {
 			s.data = ctx.Data
+			data = ctx.Data
 		}
 
 		switch result {
