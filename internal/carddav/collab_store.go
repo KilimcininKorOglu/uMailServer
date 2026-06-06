@@ -24,12 +24,12 @@ const (
 // created via CardDAV or webmail is visible over EWS and vice versa. Each
 // mailbox maps to a single contacts folder (role "contacts").
 type CollabStore struct {
-	collab   *semcore.BoltCollaborationStore
-	identity *semcore.BoltIdentityStore
+	collab   collabBackend
+	identity identityBackend
 }
 
 // NewCollabStore builds a semcore-backed contacts Store.
-func NewCollabStore(collab *semcore.BoltCollaborationStore, identity *semcore.BoltIdentityStore) *CollabStore {
+func NewCollabStore(collab collabBackend, identity identityBackend) *CollabStore {
 	return &CollabStore{collab: collab, identity: identity}
 }
 
