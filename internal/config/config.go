@@ -329,6 +329,18 @@ type TracingConfig struct {
 // DatabaseConfig holds database settings
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
+	// Backend selects the metadata/index storage engine. Empty or "bbolt" uses
+	// the embedded bbolt store (the default). "postgres" is reserved for the
+	// in-progress relational migration and is rejected until that backend lands.
+	Backend string `yaml:"backend"`
+}
+
+// DatabaseBackend returns the effective metadata backend, defaulting to bbolt.
+func (c *Config) DatabaseBackend() string {
+	if c.Database.Backend == "" {
+		return "bbolt"
+	}
+	return c.Database.Backend
 }
 
 // StorageConfig holds storage settings
@@ -614,6 +626,18 @@ func (c *Config) Validate() error {
 	// Validate data directory is writable
 	if err := checkDirWritable(c.Server.DataDir); err != nil {
 		return fmt.Errorf("server.data_dir is not writable: %w", err)
+	}
+
+	// Validate the metadata backend. Only bbolt is implemented; "postgres" is
+	// reserved for the in-progress relational migration and is rejected loudly
+	// rather than silently falling back, so an operator never thinks they are on
+	// Postgres when they are not.
+	switch c.Database.Backend {
+	case "", "bbolt":
+	case "postgres":
+		return fmt.Errorf("database.backend %q is not yet implemented (relational migration in progress); use \"bbolt\"", c.Database.Backend)
+	default:
+		return fmt.Errorf("database.backend %q is unknown; valid values: \"bbolt\"", c.Database.Backend)
 	}
 
 	// Validate JWT secret length (empty is allowed - will be generated at runtime)

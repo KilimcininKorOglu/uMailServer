@@ -67,6 +67,31 @@ services:
       timeout: 5s
       retries: 3
 
+  # PostgreSQL is the target metadata/index backend for the in-progress
+  # relational migration (database.backend: postgres). It is commented out
+  # because no node connects to it yet — uncomment it, the postgres volume,
+  # and the umailserver depends_on entry once the Postgres backend lands, so a
+  # dev stack does not run an unused database in the meantime.
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: umail-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_DB=umailserver
+  #     - POSTGRES_USER=umailserver
+  #     - POSTGRES_PASSWORD=change-me-in-deployment
+  #     - TZ=:/etc/localtime
+  #   volumes:
+  #     - /usr/share/zoneinfo/Europe/Istanbul:/etc/localtime:ro
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - mailnet
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U umailserver"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+
   prometheus:
     image: prom/prometheus:latest
     container_name: umail-prometheus
@@ -109,6 +134,7 @@ volumes:
   prometheus_data:
   grafana_data:
   redis_data:
+  # postgres_data:   # uncomment together with the postgres service above
 
 networks:
   mailnet:

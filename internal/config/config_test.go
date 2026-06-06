@@ -75,6 +75,39 @@ func TestValidate_ClusterRequirements(t *testing.T) {
 	}
 }
 
+func TestValidate_DatabaseBackend(t *testing.T) {
+	// Empty and "bbolt" are the supported backends and must validate.
+	for _, backend := range []string{"", "bbolt"} {
+		cfg := validConfigForTest(t)
+		cfg.Database.Backend = backend
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("database.backend %q must validate: %v", backend, err)
+		}
+	}
+
+	// "postgres" is reserved but unimplemented: it must be rejected loudly so an
+	// operator is never silently downgraded to bbolt while believing otherwise.
+	cfg := validConfigForTest(t)
+	cfg.Database.Backend = "postgres"
+	if err := cfg.Validate(); err == nil {
+		t.Error("database.backend postgres must fail until the relational backend lands")
+	}
+
+	// An unknown backend is rejected rather than silently defaulted.
+	cfg = validConfigForTest(t)
+	cfg.Database.Backend = "mysql"
+	if err := cfg.Validate(); err == nil {
+		t.Error("unknown database.backend must fail")
+	}
+
+	// DatabaseBackend resolves empty to the bbolt default.
+	cfg = validConfigForTest(t)
+	cfg.Database.Backend = ""
+	if got := cfg.DatabaseBackend(); got != "bbolt" {
+		t.Errorf("DatabaseBackend() default = %q, want bbolt", got)
+	}
+}
+
 func TestParseSize(t *testing.T) {
 	tests := []struct {
 		input    string

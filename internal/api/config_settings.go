@@ -252,7 +252,8 @@ type tracingSectionDTO struct {
 }
 
 type databaseSectionDTO struct {
-	Path string `json:"path"`
+	Path    string `json:"path"`
+	Backend string `json:"backend"`
 }
 
 type storageSectionDTO struct {
@@ -621,7 +622,7 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 			Environment:  cfg.Tracing.Environment,
 			SampleRate:   cfg.Tracing.SampleRate,
 		},
-		Database: databaseSectionDTO{Path: cfg.Database.Path},
+		Database: databaseSectionDTO{Path: cfg.Database.Path, Backend: cfg.Database.Backend},
 		Storage: storageSectionDTO{
 			Sync:          cfg.Storage.Sync,
 			SharedFolders: cfg.Storage.SharedFolders,
@@ -845,6 +846,7 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.Tracing.SampleRate = req.Tracing.SampleRate
 
 	cfg.Database.Path = req.Database.Path
+	cfg.Database.Backend = req.Database.Backend
 
 	cfg.Storage.Sync = req.Storage.Sync
 	cfg.Storage.SharedFolders = req.Storage.SharedFolders
