@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,7 +43,8 @@ func openTestDB(t *testing.T) *DB {
 	}
 	if _, err := d.pool.Exec(ctx,
 		`TRUNCATE accounts, aliases, mail_groups, mail_queue, domains, tenants,
-			user_ui_prefs, user_signatures, user_vacation, ews_user_config
+			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
+			mailboxes, mailbox_subscriptions, threads, mailbox_acl
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -559,5 +561,95 @@ func TestTypedKVRoundTrip(t *testing.T) {
 	}
 	if _, err := d.GetUserConfig("e:u@x.com", "Calendar:OWAUserConfig"); err == nil {
 		t.Error("GetUserConfig after delete should error")
+	}
+}
+
+// TestMailboxState covers mailbox reads, the default fallbacks, and the
+// subscription set (which is independent of mailbox existence).
+func TestMailboxState(t *testing.T) {
+	d := openTestDB(t)
+
+	// No mailbox row yet: GetMailbox returns the default, ListMailboxes ["INBOX"].
+	mb, err := d.GetMailbox("u@x.com", "INBOX")
+	if err != nil {
+		t.Fatalf("GetMailbox: %v", err)
+	}
+	if mb.UIDValidity != 1 || mb.UIDNext != 1 {
+		t.Errorf("default mailbox mismatch: %+v", mb)
+	}
+	list, err := d.ListMailboxes("u@x.com")
+	if err != nil {
+		t.Fatalf("ListMailboxes: %v", err)
+	}
+	if len(list) != 1 || list[0] != "INBOX" {
+		t.Errorf("default list mismatch: %+v", list)
+	}
+
+	// Subscriptions are independent of mailbox existence (RFC 3501).
+	if err := d.SetSubscribed("u@x.com", "Archive", true); err != nil {
+		t.Fatalf("SetSubscribed: %v", err)
+	}
+	if ok, err := d.GetSubscribed("u@x.com", "Archive"); err != nil || !ok {
+		t.Errorf("Archive should be subscribed: ok=%v err=%v", ok, err)
+	}
+	subs, err := d.ListSubscribed("u@x.com")
+	if err != nil {
+		t.Fatalf("ListSubscribed: %v", err)
+	}
+	if len(subs) != 1 || subs[0] != "Archive" {
+		t.Errorf("subscribed list mismatch: %+v", subs)
+	}
+	if err := d.SetSubscribed("u@x.com", "Archive", false); err != nil {
+		t.Fatalf("unsubscribe: %v", err)
+	}
+	if ok, err := d.GetSubscribed("u@x.com", "Archive"); err != nil || ok {
+		t.Errorf("Archive should be unsubscribed: ok=%v err=%v", ok, err)
+	}
+}
+
+// TestGetNextUIDConcurrent proves the atomic UID claim: many concurrent callers
+// must each get a distinct UID with no gaps or duplicates — the relational
+// replacement for the bbolt single-writer assumption.
+func TestGetNextUIDConcurrent(t *testing.T) {
+	d := openTestDB(t)
+
+	const n = 50
+	got := make([]uint32, n)
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			uid, err := d.GetNextUID("u@x.com", "INBOX")
+			got[idx] = uid
+			errs[idx] = err
+		}(i)
+	}
+	wg.Wait()
+
+	seen := map[uint32]bool{}
+	for i := 0; i < n; i++ {
+		if errs[i] != nil {
+			t.Fatalf("GetNextUID[%d]: %v", i, errs[i])
+		}
+		if seen[got[i]] {
+			t.Errorf("duplicate UID %d claimed by concurrent callers", got[i])
+		}
+		seen[got[i]] = true
+	}
+	// The n claims must be exactly the contiguous range 1..n.
+	for uid := uint32(1); uid <= n; uid++ {
+		if !seen[uid] {
+			t.Errorf("UID %d missing from concurrent claims (gap)", uid)
+		}
+	}
+	// uid_next must now be n+1.
+	mb, err := d.GetMailbox("u@x.com", "INBOX")
+	if err != nil {
+		t.Fatalf("GetMailbox: %v", err)
+	}
+	if mb.UIDNext != n+1 {
+		t.Errorf("uid_next=%d after %d claims, want %d", mb.UIDNext, n, n+1)
 	}
 }
