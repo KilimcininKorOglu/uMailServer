@@ -836,3 +836,68 @@ func TestMessageCRUD(t *testing.T) {
 		t.Errorf("message still present after delete: %v err=%v", uids, uerr)
 	}
 }
+
+// TestThreads covers deterministic and subject-based thread id assignment and
+// the thread record round-trip / thread-message listing.
+func TestThreads(t *testing.T) {
+	d := openTestDB(t)
+	const user, mbox = "u@x.com", "INBOX"
+
+	// Header-based: a reply to the same root gets the same deterministic id.
+	root, err := d.GetOrCreateThreadID(user, mbox, "Hello", "<a@x>", "", nil)
+	if err != nil {
+		t.Fatalf("GetOrCreateThreadID(root): %v", err)
+	}
+	reply, err := d.GetOrCreateThreadID(user, mbox, "Re: Hello", "<b@x>", "<a@x>", nil)
+	if err != nil {
+		t.Fatalf("GetOrCreateThreadID(reply): %v", err)
+	}
+	if root == "" || root != reply {
+		t.Errorf("reply thread id %q != root %q (deterministic threading broken)", reply, root)
+	}
+
+	// Store two messages on the thread, list them.
+	for i, mid := range []string{"<a@x>", "<b@x>"} {
+		if err := d.StoreMessageMetadata(user, mbox, uint32(i+1), &storage.MessageMetadata{
+			MessageID: mid, UID: uint32(i + 1), ThreadID: root, Subject: "Hello",
+			From: "p@x", To: user, Flags: []string{}, InternalDate: time.Now(),
+		}); err != nil {
+			t.Fatalf("StoreMessageMetadata: %v", err)
+		}
+	}
+	tmsgs, err := d.GetThreadMessages(user, mbox, root)
+	if err != nil {
+		t.Fatalf("GetThreadMessages: %v", err)
+	}
+	if len(tmsgs) != 2 {
+		t.Errorf("GetThreadMessages returned %d, want 2", len(tmsgs))
+	}
+
+	// Subject-based fallback: a header-less message matches the stored subject.
+	subjThread, err := d.GetOrCreateThreadID(user, mbox, "Hello", "", "", nil)
+	if err != nil {
+		t.Fatalf("GetOrCreateThreadID(subject): %v", err)
+	}
+	if subjThread != root {
+		t.Errorf("subject fallback id %q != %q", subjThread, root)
+	}
+
+	// Thread record round-trip.
+	th := &storage.Thread{
+		ThreadID: root, Subject: "Hello", Participants: []string{"p@x", user},
+		MessageCount: 2, UnreadCount: 1, CreatedAt: time.Now().UTC().Truncate(time.Second),
+	}
+	if err := d.UpdateThread(user, th); err != nil {
+		t.Fatalf("UpdateThread: %v", err)
+	}
+	got, err := d.GetThread(user, root)
+	if err != nil {
+		t.Fatalf("GetThread: %v", err)
+	}
+	if got.Subject != "Hello" || got.MessageCount != 2 || got.UnreadCount != 1 || len(got.Participants) != 2 {
+		t.Errorf("thread mismatch: %+v", got)
+	}
+	if _, err := d.GetThread(user, "missing"); err == nil {
+		t.Error("GetThread(missing) should error")
+	}
+}

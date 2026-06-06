@@ -27,7 +27,7 @@ func TestGetOrCreateThreadID_RootAndReplyShareID(t *testing.T) {
 	db := &Database{bolt: nil}
 
 	rootMsgID := "root-msg@example.com"
-	want := deterministicThreadID(rootMsgID)
+	want := DeterministicThreadID(rootMsgID)
 
 	// The root message: its own Message-ID, no references.
 	rootID, _ := db.GetOrCreateThreadID("user@example.com", "INBOX", "Subject", rootMsgID, "", nil) //nolint:errcheck
@@ -55,7 +55,7 @@ func TestGetOrCreateThreadID_ReferencesUsesMostRecent(t *testing.T) {
 
 	refs := []string{"oldest@example.com", "older@example.com", "parent@example.com"}
 	got, _ := db.GetOrCreateThreadID("user@example.com", "INBOX", "Re: x", "self@example.com", "", refs) //nolint:errcheck
-	if want := deterministicThreadID("parent@example.com"); got != want {
+	if want := DeterministicThreadID("parent@example.com"); got != want {
 		t.Errorf("thread id = %s, want %s (most recent reference)", got, want)
 	}
 }
@@ -194,13 +194,13 @@ func TestFindThreadBySubject_OldThread(t *testing.T) {
 	}
 }
 
-// Test generateThreadID
+// Test GenerateThreadID
 func TestGenerateThreadID(t *testing.T) {
 	// Generate two thread IDs with a small delay
-	id1 := generateThreadID("Test Subject")
+	id1 := GenerateThreadID("Test Subject")
 	time.Sleep(1 * time.Millisecond) // Ensure different timestamp
-	id2 := generateThreadID("Test Subject")
-	id3 := generateThreadID("Different Subject")
+	id2 := GenerateThreadID("Test Subject")
+	id3 := GenerateThreadID("Different Subject")
 
 	// All should be non-empty
 	if id1 == "" || id2 == "" || id3 == "" {

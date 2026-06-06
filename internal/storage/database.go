@@ -824,7 +824,7 @@ func threadBucket(user string) string {
 // carry none of those headers fall back to the legacy subject-based grouping.
 func (db *Database) GetOrCreateThreadID(user, mailbox, subject, ownMessageID, inReplyTo string, references []string) (string, error) {
 	if root := threadRootID(ownMessageID, inReplyTo, references); root != "" {
-		return deterministicThreadID(root), nil
+		return DeterministicThreadID(root), nil
 	}
 
 	// Header-less message: fall back to subject-based grouping.
@@ -833,7 +833,7 @@ func (db *Database) GetOrCreateThreadID(user, mailbox, subject, ownMessageID, in
 			return threadID, nil
 		}
 	}
-	return generateThreadID(subject), nil
+	return GenerateThreadID(subject), nil
 }
 
 // threadRootID returns the conversation-root Message-ID (without angle
@@ -845,9 +845,9 @@ func threadRootID(ownMessageID, inReplyTo string, references []string) string {
 	return root
 }
 
-// deterministicThreadID maps a conversation-root Message-ID to a stable 16-byte
+// DeterministicThreadID maps a conversation-root Message-ID to a stable 16-byte
 // hex thread id, so every message sharing that root gets the same id.
-func deterministicThreadID(rootMessageID string) string {
+func DeterministicThreadID(rootMessageID string) string {
 	hash := sha256.Sum256([]byte("thread:" + rootMessageID))
 	return hex.EncodeToString(hash[:16])
 }
@@ -930,8 +930,8 @@ func NormalizeSubject(subject string) string {
 	return strings.TrimSpace(subject)
 }
 
-// generateThreadID creates a unique thread ID based on subject and timestamp
-func generateThreadID(subject string) string {
+// GenerateThreadID creates a unique thread ID based on subject and timestamp
+func GenerateThreadID(subject string) string {
 	data := fmt.Sprintf("%s:%d", subject, time.Now().UnixNano())
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:16])
