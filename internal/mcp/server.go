@@ -20,7 +20,7 @@ import (
 
 // Server implements MCP (Model Context Protocol)
 type Server struct {
-	db             *db.DB
+	db             Store
 	version        string
 	corsOrigin     string
 	authToken      string
@@ -43,7 +43,7 @@ type rateAttempt struct {
 }
 
 // NewServer creates MCP server
-func NewServer(database *db.DB) *Server {
+func NewServer(database Store) *Server {
 	return &Server{
 		db:      database,
 		version: "1.0.0",
