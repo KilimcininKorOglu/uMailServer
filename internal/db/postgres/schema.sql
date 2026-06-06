@@ -246,3 +246,80 @@ CREATE TABLE IF NOT EXISTS ews_user_config (
     binary_data TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (owner, name)
 );
+
+-- Message metadata + search (the internal/storage layer) -------------------
+-- This is the storage half of the migration: per-mailbox state, per-message
+-- metadata, threads, and the search index. Message BODIES stay as Maildir files
+-- on disk regardless of backend; only metadata and the search index are here.
+-- It lives in this one schema file (and applies through one connection) because
+-- it is the same PostgreSQL database as everything above.
+--
+-- The relational shape dissolves the single-writer landmines: IMAP UID
+-- monotonicity -> mailboxes.uid_next with UPDATE ... RETURNING; RFC 7162
+-- mod-sequence -> mailboxes.highest_modseq; full-text search -> a generated
+-- tsvector column + GIN index (no separately maintained index bucket).
+
+CREATE TABLE IF NOT EXISTS mailboxes (
+    user_email     TEXT     NOT NULL,
+    name           TEXT     NOT NULL,
+    uid_validity   BIGINT   NOT NULL DEFAULT 0,
+    uid_next       BIGINT   NOT NULL DEFAULT 1,
+    highest_modseq BIGINT   NOT NULL DEFAULT 0,
+    subscribed     BOOLEAN  NOT NULL DEFAULT FALSE,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_email, name)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    user_email    TEXT     NOT NULL,
+    mailbox       TEXT     NOT NULL,
+    uid           BIGINT   NOT NULL,
+    message_id    TEXT     NOT NULL DEFAULT '',
+    flags         TEXT[]   NOT NULL DEFAULT '{}',
+    labels        TEXT[]   NOT NULL DEFAULT '{}',
+    internal_date TIMESTAMPTZ NOT NULL DEFAULT now(),
+    size          BIGINT   NOT NULL DEFAULT 0,
+    mod_seq       BIGINT   NOT NULL DEFAULT 0,
+    subject       TEXT     NOT NULL DEFAULT '',
+    date_hdr      TEXT     NOT NULL DEFAULT '',
+    from_addr     TEXT     NOT NULL DEFAULT '',
+    to_addr       TEXT     NOT NULL DEFAULT '',
+    in_reply_to   TEXT     NOT NULL DEFAULT '',
+    refs          TEXT[]   NOT NULL DEFAULT '{}',
+    thread_id     TEXT     NOT NULL DEFAULT '',
+    is_thread_root BOOLEAN NOT NULL DEFAULT FALSE,
+    search tsvector GENERATED ALWAYS AS (
+        to_tsvector('simple',
+            coalesce(subject, '') || ' ' ||
+            coalesce(from_addr, '') || ' ' ||
+            coalesce(to_addr, ''))
+    ) STORED,
+    PRIMARY KEY (user_email, mailbox, uid),
+    FOREIGN KEY (user_email, mailbox) REFERENCES mailboxes (user_email, name) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_messages_search ON messages USING GIN (search);
+CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (user_email, thread_id);
+CREATE INDEX IF NOT EXISTS idx_messages_modseq ON messages (user_email, mailbox, mod_seq);
+
+CREATE TABLE IF NOT EXISTS threads (
+    user_email    TEXT     NOT NULL,
+    thread_id     TEXT     NOT NULL,
+    subject       TEXT     NOT NULL DEFAULT '',
+    participants  TEXT[]   NOT NULL DEFAULT '{}',
+    message_count INTEGER  NOT NULL DEFAULT 0,
+    unread_count  INTEGER  NOT NULL DEFAULT 0,
+    last_activity TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_email, thread_id)
+);
+
+-- IMAP ACLs (RFC 4314). rights is the ACLRights bitmask.
+CREATE TABLE IF NOT EXISTS mailbox_acl (
+    owner_email TEXT     NOT NULL,
+    mailbox     TEXT     NOT NULL,
+    grantee     TEXT     NOT NULL,
+    rights      SMALLINT NOT NULL DEFAULT 0,
+    granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner_email, mailbox, grantee)
+);
+CREATE INDEX IF NOT EXISTS idx_mailbox_acl_grantee ON mailbox_acl (grantee);

@@ -82,11 +82,14 @@ func TestOpenMigrate(t *testing.T) {
 		t.Fatalf("Migrate (second apply): %v", err)
 	}
 
-	// Every net-surface table must exist after migration.
+	// Every table in the one relational schema must exist after migration —
+	// both the account/metadata tables and the message-metadata/search tables
+	// (they share this single schema and connection).
 	want := []string{
 		"tenants", "tenant_settings", "domains", "domain_settings",
 		"accounts", "aliases", "mail_groups", "mail_group_members",
 		"mail_queue", "mail_queue_recipients", "revoked_tokens", "client_sessions",
+		"mailboxes", "messages", "threads", "mailbox_acl",
 	}
 	for _, table := range want {
 		var exists bool
@@ -100,6 +103,17 @@ func TestOpenMigrate(t *testing.T) {
 		if !exists {
 			t.Errorf("table %q missing after Migrate", table)
 		}
+	}
+
+	// The generated tsvector + GIN search index must exist.
+	var hasGIN bool
+	if err := db.Pool().QueryRow(ctx,
+		"SELECT EXISTS (SELECT FROM pg_indexes WHERE indexname='idx_messages_search')",
+	).Scan(&hasGIN); err != nil {
+		t.Fatalf("check search index: %v", err)
+	}
+	if !hasGIN {
+		t.Error("idx_messages_search (GIN) missing after Migrate")
 	}
 }
 
