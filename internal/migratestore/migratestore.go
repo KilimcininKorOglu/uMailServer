@@ -63,6 +63,92 @@ type Report struct {
 	Contacts      int
 }
 
+// Migrate copies an entire bbolt-backed deployment to the relational Postgres
+// backend: the account/metadata store (dbPath, normally umailserver.db), the
+// message-metadata store (dataDir/mail/mail.db), and the semantic core
+// (dataDir/semcore). Maildir message bodies stay on disk and are not touched.
+//
+// The bbolt stores are single-writer, so the server MUST be stopped while this
+// runs. The destination must be an already-open, freshly-migrated *postgres.DB
+// (an empty database). Copying is done in foreign-key-safe order and aborts on
+// the first error, returning the partial Report so the operator sees exactly how
+// far it got. The JMAP/EWS sync cursors (lifecycle journal, sync state,
+// tombstones, subscriptions) are intentionally not copied — they reset on a
+// server migration and clients resync.
+func Migrate(dbPath, dataDir string, dst *postgres.DB) (*Report, error) {
+	if dst == nil {
+		return nil, errors.New("migratestore: nil destination")
+	}
+	r := &Report{}
+
+	// Account/metadata layer.
+	srcDB, err := db.Open(dbPath)
+	if err != nil {
+		return r, fmt.Errorf("open source account store %q: %w", dbPath, err)
+	}
+	defer srcDB.Close() //nolint:errcheck // read-only source; close error is not actionable
+	if err := srcDB.RunMigrations(); err != nil {
+		return r, fmt.Errorf("migrate source account store: %w", err)
+	}
+	if err := CopyDB(srcDB, dst, r); err != nil {
+		return r, err
+	}
+	emails, err := accountEmails(srcDB)
+	if err != nil {
+		return r, err
+	}
+
+	// Message-metadata layer.
+	srcStorage, err := storage.OpenDatabase(dataDir + "/mail/mail.db")
+	if err != nil {
+		return r, fmt.Errorf("open source message store: %w", err)
+	}
+	defer srcStorage.Close() //nolint:errcheck // read-only source
+	if err := CopyStorage(srcStorage, dst, emails, r); err != nil {
+		return r, err
+	}
+
+	// Semantic-core layer.
+	srcSemcore, err := semcore.NewStore(dataDir)
+	if err != nil {
+		return r, fmt.Errorf("open source semantic core: %w", err)
+	}
+	defer srcSemcore.Close() //nolint:errcheck // read-only source
+	if err := CopySemcoreIdentity(srcSemcore, dst, r); err != nil {
+		return r, err
+	}
+	if err := CopySemcorePolicy(srcSemcore, dst, r); err != nil {
+		return r, err
+	}
+	if err := CopySemcoreDelegation(srcSemcore, dst, r); err != nil {
+		return r, err
+	}
+	if err := CopySemcoreCollab(srcSemcore, dst, r); err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+// accountEmails returns every account email in the source store, walking domains
+// then their accounts (the storage and semantic layers are copied per user).
+func accountEmails(src *db.DB) ([]string, error) {
+	domains, err := src.ListDomains()
+	if err != nil {
+		return nil, fmt.Errorf("list domains: %w", err)
+	}
+	var emails []string
+	for _, d := range domains {
+		accounts, err := src.ListAccountsByDomain(d.Name)
+		if err != nil {
+			return nil, fmt.Errorf("list accounts for domain %q: %w", d.Name, err)
+		}
+		for _, a := range accounts {
+			emails = append(emails, a.Email)
+		}
+	}
+	return emails, nil
+}
+
 // CopyDB copies the account/metadata layer (the data kept in umailserver.db)
 // from a bbolt source store to any destination Store — in practice the
 // relational *postgres.DB. The order is FK-safe: tenants → domains → accounts →

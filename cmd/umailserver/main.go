@@ -18,6 +18,8 @@ import (
 	"github.com/umailserver/umailserver/internal/config"
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/migrations"
+	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/migratestore"
 	"github.com/umailserver/umailserver/internal/server"
 	"github.com/umailserver/umailserver/internal/storage"
 	"golang.org/x/crypto/bcrypt"
@@ -1091,17 +1093,86 @@ func cmdRestore(args []string) {
 	}
 }
 
+// migrateBboltToPostgres copies the whole bbolt deployment (account/metadata
+// store, message metadata, and the semantic core) into the PostgreSQL database
+// at dsn. The server must be stopped (bbolt is single-writer) and the target
+// must be empty. Maildir message bodies stay on disk.
+func migrateBboltToPostgres(dsn string) {
+	if dsn == "" {
+		fmt.Fprintln(os.Stderr, "Usage: umailserver migrate --type postgres --postgres-dsn <dsn>")
+		fmt.Fprintln(os.Stderr, "Run with the server stopped; the target database must be empty.")
+		os.Exit(1)
+	}
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+	dst, err := postgres.Open(ctx, dsn)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open target PostgreSQL: %v\n", err)
+		os.Exit(1)
+	}
+	defer dst.Close() //nolint:errcheck // process is exiting
+	if err := dst.Migrate(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to apply PostgreSQL schema: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Migrating bbolt → PostgreSQL (server must be stopped)...")
+	report, err := migratestore.Migrate(cfg.DatabasePath(), cfg.Server.DataDir, dst)
+	if err != nil {
+		// Print the partial report so the operator sees how far it got.
+		fmt.Fprintf(os.Stderr, "Migration failed: %v\n", err)
+		printMigrateReport(report)
+		os.Exit(1)
+	}
+	fmt.Println("Migration complete.")
+	printMigrateReport(report)
+}
+
+// printMigrateReport prints the per-record-type counts of a store migration.
+func printMigrateReport(r *migratestore.Report) {
+	if r == nil {
+		return
+	}
+	fmt.Printf("  Tenants: %d  Domains: %d  Accounts: %d  Aliases: %d  MailGroups: %d\n",
+		r.Tenants, r.Domains, r.Accounts, r.Aliases, r.MailGroups)
+	fmt.Printf("  Prefs: %d  Signatures: %d  Categories: %d  Vacations: %d  UserConfigs: %d\n",
+		r.UIPrefs, r.Signatures, r.Categories, r.Vacations, r.UserConfigs)
+	fmt.Printf("  Mailboxes: %d  Messages: %d  Subscriptions: %d  ACLs: %d  Threads: %d\n",
+		r.Mailboxes, r.Messages, r.Subscriptions, r.ACLs, r.Threads)
+	fmt.Printf("  MailboxIDs: %d  FolderIDs: %d  ItemIDs: %d  Conversations: %d\n",
+		r.MailboxIdentities, r.FolderIdentities, r.ItemIdentities, r.Conversations)
+	fmt.Printf("  Rules: %d  OOF: %d  Resources: %d  RoomLists: %d  Delegates: %d\n",
+		r.Rules, r.OOFPolicies, r.Resources, r.RoomLists, r.Delegates)
+	fmt.Printf("  CalendarItems: %d  Tasks: %d  Contacts: %d\n",
+		r.CalendarItems, r.Tasks, r.Contacts)
+}
+
 func cmdMigrate(args []string) {
 	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
-	sourceType := fs.String("type", "", "Source type (imap, dovecot, mbox)")
+	sourceType := fs.String("type", "", "Source type (imap, dovecot, mbox, dav, postgres)")
 	source := fs.String("source", "", "Source path or URL")
 	username := fs.String("username", "", "Source username (for IMAP)")
 	password := fs.String("password", "", "Source password (for IMAP)")
 	targetUser := fs.String("target", "", "Target user email")
 	dryRun := fs.Bool("dry-run", false, "Dry run mode")
 	passwdFile := fs.String("passwd-file", "", "Password file (for Dovecot)")
+	postgresDSN := fs.String("postgres-dsn", "", "Target PostgreSQL DSN (for --type postgres)")
 
 	_ = fs.Parse(args)
+
+	// bbolt → PostgreSQL store migration: copy the entire bbolt deployment
+	// (accounts/metadata, mailbox/message metadata, and the semantic core) into a
+	// fresh PostgreSQL database. Maildir bodies stay on disk. Run with the server
+	// STOPPED — the bbolt stores are single-writer — and against an EMPTY target.
+	if *sourceType == "postgres" {
+		migrateBboltToPostgres(*postgresDSN)
+		return
+	}
 
 	// DAV unification migration: import legacy filesystem CalDAV/CardDAV data
 	// into the canonical semcore collaboration store. Run with the server
