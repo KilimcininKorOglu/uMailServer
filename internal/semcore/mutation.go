@@ -152,24 +152,52 @@ type MutationResult struct {
 // All protocol adapters (SMTP, IMAP, JMAP, EWS) must route message-creation
 // and message-update operations through this pipeline instead of calling
 // storage directly.
+// PipelineIdentityStore is the identity surface the MutationPipeline needs on the
+// canonical write path: allocating/resolving mailbox and folder identities,
+// stamping item identities and their state, and the EnsureMailboxId /
+// EnsureFolderId resolution its callers reach through Identity(). The concrete
+// *BoltIdentityStore satisfies it today; a relational identity store satisfies
+// it later, so the pipeline carries no engine dependency.
+type PipelineIdentityStore interface {
+	EnsureMailboxId(email string) (MailboxId, error)
+	EnsureFolderId(mboxKey, folderName, role string) (FolderId, error)
+	GetItemIdentity(id ItemId) (*StoredItemIdentity, error)
+	PutItemIdentity(msgKey, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId, isRead bool) error
+	PutItemIdentityWithKey(storageKey, msgKey, email string, id ItemId, mailboxID MailboxId, folderID FolderId, ck ChangeKey, convID ConversationId, isRead bool) error
+	PutChangeKey(id ItemId, currentCK ChangeKey, newCK ChangeKey) error
+	PutConversationIdentity(id ConversationId, mailboxID MailboxId) error
+}
+
+// PipelineLifecycleStore is the lifecycle-event surface the pipeline appends to.
+// *BoltLifecycleStore satisfies it; a relational lifecycle store will too.
+type PipelineLifecycleStore interface {
+	AppendLifecycle(event Lifecycle) error
+}
+
+// The bbolt-backed stores satisfy the pipeline's consumer interfaces.
+var (
+	_ PipelineIdentityStore  = (*BoltIdentityStore)(nil)
+	_ PipelineLifecycleStore = (*BoltLifecycleStore)(nil)
+)
+
 type MutationPipeline struct {
-	identity  *BoltIdentityStore
-	lifecycle *BoltLifecycleStore
+	identity  PipelineIdentityStore
+	lifecycle PipelineLifecycleStore
 }
 
 // NewMutationPipeline creates a new mutation pipeline backed by the given
 // identity store and optional lifecycle store. The identity store must be the
-// same BoltIdentityStore owned by the semcore.Store so that identity and
-// sync-state remain coherent. If lifecycle is nil, lifecycle events are
-// returned in MutationResult but not persisted.
-func NewMutationPipeline(identity *BoltIdentityStore, lifecycle *BoltLifecycleStore) *MutationPipeline {
+// same one owned by the semcore.Store so that identity and sync-state remain
+// coherent. If lifecycle is nil, lifecycle events are returned in
+// MutationResult but not persisted.
+func NewMutationPipeline(identity PipelineIdentityStore, lifecycle PipelineLifecycleStore) *MutationPipeline {
 	return &MutationPipeline{identity: identity, lifecycle: lifecycle}
 }
 
 // Identity returns the underlying identity store, exposing helpers like
 // EnsureMailboxId and EnsureFolderId for use by callers that need to
 // resolve or register identities before calling MutateItem.
-func (p *MutationPipeline) Identity() *BoltIdentityStore {
+func (p *MutationPipeline) Identity() PipelineIdentityStore {
 	return p.identity
 }
 
