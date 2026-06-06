@@ -9,6 +9,7 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/mapi"
 	"github.com/umailserver/umailserver/internal/queue"
+	"github.com/umailserver/umailserver/internal/vacation"
 )
 
 // The relational backend must satisfy the existing consumer interfaces so it can
@@ -36,7 +37,9 @@ func openTestDB(t *testing.T) *DB {
 		t.Fatalf("Migrate: %v", err)
 	}
 	if _, err := d.pool.Exec(ctx,
-		`TRUNCATE accounts, aliases, mail_groups, domains, tenants RESTART IDENTITY CASCADE`,
+		`TRUNCATE accounts, aliases, mail_groups, mail_queue, domains, tenants,
+			user_ui_prefs, user_signatures, user_vacation, ews_user_config
+			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -451,5 +454,88 @@ func TestAuthRoundTrip(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Errorf("revoked session still listed: %+v", list)
+	}
+}
+
+// TestTypedKVRoundTrip covers the typed replacements for the generic-KV buckets:
+// UI prefs, signature, vacation (with excludes), and EWS user configuration.
+func TestTypedKVRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+
+	// UI prefs.
+	if err := d.PutUIPrefs("u@x.com", map[string]bool{"dark": true, "compact": false}); err != nil {
+		t.Fatalf("PutUIPrefs: %v", err)
+	}
+	prefs, err := d.GetUIPrefs("u@x.com")
+	if err != nil {
+		t.Fatalf("GetUIPrefs: %v", err)
+	}
+	if !prefs["dark"] || prefs["compact"] {
+		t.Errorf("ui prefs mismatch: %+v", prefs)
+	}
+	// Unset user yields an empty (non-nil) map.
+	empty, err := d.GetUIPrefs("none@x.com")
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Errorf("empty prefs mismatch: %+v err=%v", empty, err)
+	}
+
+	// Signature.
+	if err := d.PutSignature("u@x.com", "Best,\nA"); err != nil {
+		t.Fatalf("PutSignature: %v", err)
+	}
+	sig, err := d.GetSignature("u@x.com")
+	if err != nil || sig != "Best,\nA" {
+		t.Errorf("signature mismatch: %q err=%v", sig, err)
+	}
+	if s, serr := d.GetSignature("none@x.com"); serr != nil || s != "" {
+		t.Errorf("unset signature should be empty: %q err=%v", s, serr)
+	}
+
+	// Vacation with excludes and a duration.
+	vac := &vacation.Config{
+		Enabled:          true,
+		Subject:          "OOO",
+		Message:          "away",
+		SendInterval:     7 * 24 * time.Hour,
+		IgnoreLists:      true,
+		ExcludeAddresses: []string{"boss@x.com", "ops@x.com"},
+	}
+	if err := d.PutVacation("u@x.com", vac); err != nil {
+		t.Fatalf("PutVacation: %v", err)
+	}
+	gotVac, err := d.GetVacation("u@x.com")
+	if err != nil {
+		t.Fatalf("GetVacation: %v", err)
+	}
+	if !gotVac.Enabled || gotVac.Subject != "OOO" || gotVac.SendInterval != 7*24*time.Hour {
+		t.Errorf("vacation mismatch: %+v", gotVac)
+	}
+	if len(gotVac.ExcludeAddresses) != 2 || gotVac.ExcludeAddresses[0] != "boss@x.com" {
+		t.Errorf("vacation excludes mismatch: %+v", gotVac.ExcludeAddresses)
+	}
+	if err := d.DeleteVacation("u@x.com"); err != nil {
+		t.Fatalf("DeleteVacation: %v", err)
+	}
+	if _, err := d.GetVacation("u@x.com"); err == nil {
+		t.Error("GetVacation after delete should error")
+	}
+
+	// EWS user configuration (opaque blob).
+	blob := &db.UserConfigBlob{Dictionary: "<d/>", XMLData: "<x/>", BinaryData: "Yg=="}
+	if err := d.PutUserConfig("e:u@x.com", "Calendar:OWAUserConfig", blob); err != nil {
+		t.Fatalf("PutUserConfig: %v", err)
+	}
+	gotBlob, err := d.GetUserConfig("e:u@x.com", "Calendar:OWAUserConfig")
+	if err != nil {
+		t.Fatalf("GetUserConfig: %v", err)
+	}
+	if gotBlob.Dictionary != "<d/>" || gotBlob.XMLData != "<x/>" || gotBlob.BinaryData != "Yg==" {
+		t.Errorf("user config blob mismatch: %+v", gotBlob)
+	}
+	if err := d.DeleteUserConfig("e:u@x.com", "Calendar:OWAUserConfig"); err != nil {
+		t.Fatalf("DeleteUserConfig: %v", err)
+	}
+	if _, err := d.GetUserConfig("e:u@x.com", "Calendar:OWAUserConfig"); err == nil {
+		t.Error("GetUserConfig after delete should error")
 	}
 }

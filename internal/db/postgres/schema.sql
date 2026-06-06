@@ -183,3 +183,57 @@ CREATE TABLE IF NOT EXISTS client_sessions (
     revoked     BOOLEAN     NOT NULL DEFAULT FALSE
 );
 CREATE INDEX IF NOT EXISTS idx_client_sessions_email ON client_sessions (email);
+
+-- Typed replacements for the generic-KV preference/vacation buckets ----------
+-- These hold what the bbolt store kept as opaque JSON under BucketPreferences /
+-- BucketVacation, now as real columns (ratified: fully typed, with an opaque
+-- exception only for Outlook's protocol-opaque UserConfiguration).
+
+-- Webmail UI toggles (map[string]bool under the bare user key).
+CREATE TABLE IF NOT EXISTS user_ui_prefs (
+    user_email TEXT    NOT NULL,
+    key        TEXT    NOT NULL,
+    enabled    BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (user_email, key)
+);
+
+-- Outgoing-mail signature (one per user).
+CREATE TABLE IF NOT EXISTS user_signatures (
+    user_email TEXT PRIMARY KEY,
+    signature  TEXT NOT NULL DEFAULT ''
+);
+
+-- Vacation / auto-reply config (the legacy fallback store; the canonical OOF
+-- lives in the semantic core). send_interval is stored as nanoseconds to match
+-- the Go time.Duration round-trip.
+CREATE TABLE IF NOT EXISTS user_vacation (
+    user_email    TEXT PRIMARY KEY,
+    enabled       BOOLEAN     NOT NULL DEFAULT FALSE,
+    start_date    TIMESTAMPTZ,
+    end_date      TIMESTAMPTZ,
+    subject       TEXT        NOT NULL DEFAULT '',
+    message       TEXT        NOT NULL DEFAULT '',
+    html_message  TEXT        NOT NULL DEFAULT '',
+    send_interval BIGINT      NOT NULL DEFAULT 0,
+    ignore_lists  BOOLEAN     NOT NULL DEFAULT FALSE,
+    ignore_bulk   BOOLEAN     NOT NULL DEFAULT FALSE
+);
+CREATE TABLE IF NOT EXISTS user_vacation_excludes (
+    user_email TEXT    NOT NULL REFERENCES user_vacation (user_email) ON DELETE CASCADE,
+    ord        INTEGER NOT NULL,
+    address    TEXT    NOT NULL,
+    PRIMARY KEY (user_email, ord)
+);
+
+-- Outlook EWS UserConfiguration: protocol-opaque roaming config. The values are
+-- opaque to the server (a dictionary blob, an XML blob, a base64 binary blob),
+-- so this is the deliberate typed-but-blob exception — keyed by (owner, name),
+-- never the universal (bucket, key, jsonb) shape.
+CREATE TABLE IF NOT EXISTS ews_user_config (
+    owner       TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    dictionary  TEXT NOT NULL DEFAULT '',
+    xml_data    TEXT NOT NULL DEFAULT '',
+    binary_data TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (owner, name)
+);
