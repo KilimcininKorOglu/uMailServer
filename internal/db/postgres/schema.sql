@@ -550,6 +550,7 @@ CREATE TABLE IF NOT EXISTS semcore_delegate (
     receive_copies           BOOLEAN NOT NULL DEFAULT false,
     deliver_meeting_requests TEXT NOT NULL DEFAULT '',
     can_send_as              BOOLEAN NOT NULL DEFAULT false,
+    can_send_on_behalf       BOOLEAN NOT NULL DEFAULT false,
     granted_by               TEXT NOT NULL DEFAULT '',
     created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),

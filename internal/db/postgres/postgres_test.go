@@ -1581,11 +1581,12 @@ func TestSemcoreDelegate(t *testing.T) {
 	owner := semcore.MustMailboxId("owner@x.com")
 
 	grant := &semcore.DelegateUser{
-		OwnerID:       owner,
-		DelegateEmail: "bob@x.com",
-		Permissions:   semcore.DelegateFolderPermissions{Calendar: "reviewer", Inbox: "editor"},
-		CanSendAs:     true,
-		GrantedBy:     "owner@x.com",
+		OwnerID:         owner,
+		DelegateEmail:   "bob@x.com",
+		Permissions:     semcore.DelegateFolderPermissions{Calendar: "reviewer", Inbox: "editor"},
+		CanSendAs:       true,
+		CanSendOnBehalf: true,
+		GrantedBy:       "owner@x.com",
 	}
 	id, err := d.PutDelegate(grant)
 	if err != nil || id.String()[:4] != "del-" {
@@ -1599,7 +1600,7 @@ func TestSemcoreDelegate(t *testing.T) {
 	// Get by id round-trips the permissions and flags.
 	got, err := d.GetDelegate(id)
 	if err != nil || got.Permissions.Calendar != "reviewer" || got.Permissions.Inbox != "editor" ||
-		!got.CanSendAs || got.GrantedBy != "owner@x.com" {
+		!got.CanSendAs || !got.CanSendOnBehalf || got.GrantedBy != "owner@x.com" {
 		t.Fatalf("GetDelegate mismatch: %+v err=%v", got, err)
 	}
 

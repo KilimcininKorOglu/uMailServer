@@ -21,7 +21,7 @@ import (
 const delegateSelectCols = `id, owner_id, delegate_email, delegate_user_id,
 	perm_calendar, perm_tasks, perm_inbox, perm_contacts, perm_notes, perm_journal,
 	view_private_items, receive_copies, deliver_meeting_requests, can_send_as,
-	granted_by, created_at, updated_at`
+	can_send_on_behalf, granted_by, created_at, updated_at`
 
 // PutDelegate upserts a grant keyed by (owner, delegate_email). A new grant gets
 // a fresh id and created_at; an existing grant keeps both. Returns the grant id.
@@ -49,8 +49,8 @@ func (d *DB) PutDelegate(del *semcore.DelegateUser) (semcore.DelegateId, error) 
 			(id, owner_id, delegate_email, delegate_user_id,
 			 perm_calendar, perm_tasks, perm_inbox, perm_contacts, perm_notes, perm_journal,
 			 view_private_items, receive_copies, deliver_meeting_requests, can_send_as,
-			 granted_by, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now(),now())
+			 can_send_on_behalf, granted_by, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),now())
 		ON CONFLICT (owner_id, delegate_email) DO UPDATE SET
 			delegate_user_id=EXCLUDED.delegate_user_id,
 			perm_calendar=EXCLUDED.perm_calendar, perm_tasks=EXCLUDED.perm_tasks,
@@ -58,12 +58,12 @@ func (d *DB) PutDelegate(del *semcore.DelegateUser) (semcore.DelegateId, error) 
 			perm_notes=EXCLUDED.perm_notes, perm_journal=EXCLUDED.perm_journal,
 			view_private_items=EXCLUDED.view_private_items, receive_copies=EXCLUDED.receive_copies,
 			deliver_meeting_requests=EXCLUDED.deliver_meeting_requests, can_send_as=EXCLUDED.can_send_as,
-			granted_by=EXCLUDED.granted_by, updated_at=now()
+			can_send_on_behalf=EXCLUDED.can_send_on_behalf, granted_by=EXCLUDED.granted_by, updated_at=now()
 		RETURNING id, created_at`,
 		candidate, del.OwnerID.String(), del.DelegateEmail, del.DelegateUserID,
 		string(p.Calendar), string(p.Tasks), string(p.Inbox), string(p.Contacts), string(p.Notes), string(p.Journal),
 		del.ViewPrivateItems, del.ReceiveCopies, string(del.DeliverRequests), del.CanSendAs,
-		del.GrantedBy,
+		del.CanSendOnBehalf, del.GrantedBy,
 	).Scan(&gotID, &createdAt)
 	if err != nil {
 		return semcore.DelegateId{}, fmt.Errorf("postgres: put delegate: %w", err)
@@ -156,12 +156,12 @@ func (d *DB) queryDelegates(sql string, args ...any) ([]*semcore.DelegateUser, e
 func scanDelegate(row rowScanner) (*semcore.DelegateUser, error) {
 	var id, ownerID, email, userID string
 	var pCal, pTasks, pInbox, pContacts, pNotes, pJournal string
-	var viewPriv, recvCopies, canSendAs bool
+	var viewPriv, recvCopies, canSendAs, canSendOnBehalf bool
 	var deliver, grantedBy string
 	var createdAt, updatedAt time.Time
 	if err := row.Scan(&id, &ownerID, &email, &userID,
 		&pCal, &pTasks, &pInbox, &pContacts, &pNotes, &pJournal,
-		&viewPriv, &recvCopies, &deliver, &canSendAs, &grantedBy, &createdAt, &updatedAt); err != nil {
+		&viewPriv, &recvCopies, &deliver, &canSendAs, &canSendOnBehalf, &grantedBy, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	did, err := semcore.NewDelegateId(id)
@@ -185,6 +185,7 @@ func scanDelegate(row rowScanner) (*semcore.DelegateUser, error) {
 		ReceiveCopies:    recvCopies,
 		DeliverRequests:  semcore.DeliverMeetingRequests(deliver),
 		CanSendAs:        canSendAs,
+		CanSendOnBehalf:  canSendOnBehalf,
 		GrantedBy:        grantedBy,
 		CreatedAt:        createdAt,
 		UpdatedAt:        updatedAt,
