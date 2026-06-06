@@ -136,7 +136,7 @@ func ewsEnvelopeDirectory(op string, body string) string {
 }
 
 // ensureResourcePolicy creates a resource policy in the policy store.
-func ensureResourcePolicy(t *testing.T, policyStore *semcore.BoltPolicyStore, email, name string, kind semcore.ResourceKind) {
+func ensureResourcePolicy(t *testing.T, policyStore PolicyStore, email, name string, kind semcore.ResourceKind) {
 	t.Helper()
 	resourceID, err := semcore.NewResourceId(email)
 	if err != nil {

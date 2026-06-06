@@ -35,3 +35,18 @@ type LifecycleStore interface {
 }
 
 var _ LifecycleStore = (*semcore.BoltLifecycleStore)(nil)
+
+// PolicyStore is the rules/OOF/resource-policy surface the EWS server needs.
+type PolicyStore interface {
+	PutRule(rule *semcore.Rule) error
+	GetRule(id semcore.RuleId) (*semcore.Rule, error)
+	ListRules(mailboxID semcore.MailboxId) ([]*semcore.Rule, error)
+	DeleteRule(id semcore.RuleId) error
+	PutOOF(policy *semcore.OOFPolicy) error
+	GetOOF(id semcore.OOFId) (*semcore.OOFPolicy, error)
+	PutResource(policy *semcore.ResourcePolicy) error
+	GetResource(id semcore.ResourceId) (*semcore.ResourcePolicy, error)
+	ListResources() ([]*semcore.ResourcePolicy, error)
+}
+
+var _ PolicyStore = (*semcore.BoltPolicyStore)(nil)
