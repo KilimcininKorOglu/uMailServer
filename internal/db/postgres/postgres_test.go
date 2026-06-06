@@ -8,11 +8,15 @@ import (
 
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/mapi"
+	"github.com/umailserver/umailserver/internal/queue"
 )
 
-// The relational backend must satisfy the existing consumer interface so it can
-// replace *db.DB behind it without touching the MAPI/HTTP server.
-var _ mapi.Store = (*DB)(nil)
+// The relational backend must satisfy the existing consumer interfaces so it can
+// replace *db.DB behind them without touching the consuming packages.
+var (
+	_ mapi.Store  = (*DB)(nil)
+	_ queue.Store = (*DB)(nil)
+)
 
 // openTestDB connects to UMAIL_TEST_POSTGRES_DSN, migrates, and truncates the
 // net-surface tables so each test starts clean. It skips when no DSN is set.
@@ -277,5 +281,175 @@ func TestIncrementQuota(t *testing.T) {
 	}
 	if _, err := d.GetAccount("example.com", "a"); err == nil {
 		t.Error("GetAccount after delete should error")
+	}
+}
+
+// TestQueueRoundTrip covers enqueue (with recipients), limit, pending read,
+// claim under SKIP LOCKED, update, and dequeue.
+func TestQueueRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+	past := time.Now().Add(-time.Minute)
+	entry := &db.QueueEntry{
+		ID:          "q1",
+		From:        "s@example.com",
+		To:          []string{"a@x.com", "b@x.com"},
+		MessagePath: "/spool/q1",
+		NextRetry:   past,
+		Status:      "pending",
+		Priority:    db.PriorityHigh,
+	}
+	if err := d.EnqueueWithLimit(entry, 10); err != nil {
+		t.Fatalf("EnqueueWithLimit: %v", err)
+	}
+	if err := d.EnqueueWithLimit(&db.QueueEntry{ID: "q2", Status: "pending", NextRetry: past}, 1); err == nil {
+		t.Error("EnqueueWithLimit past max should error")
+	}
+
+	got, err := d.GetQueueEntry("q1")
+	if err != nil {
+		t.Fatalf("GetQueueEntry: %v", err)
+	}
+	if len(got.To) != 2 || got.To[0] != "a@x.com" || got.To[1] != "b@x.com" || got.Priority != db.PriorityHigh {
+		t.Errorf("queue entry mismatch: %+v", got)
+	}
+
+	pending, err := d.GetPendingQueue(time.Now())
+	if err != nil {
+		t.Fatalf("GetPendingQueue: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != "q1" {
+		t.Errorf("GetPendingQueue mismatch: %+v", pending)
+	}
+
+	// Claim flips status to sending atomically.
+	claimed, err := d.ClaimPendingQueue(time.Now(), 10)
+	if err != nil {
+		t.Fatalf("ClaimPendingQueue: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].Status != "sending" {
+		t.Errorf("ClaimPendingQueue mismatch: %+v", claimed)
+	}
+	// Already claimed: no longer pending.
+	pending, err = d.GetPendingQueue(time.Now())
+	if err != nil {
+		t.Fatalf("GetPendingQueue after claim: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("claimed entry still pending: %+v", pending)
+	}
+
+	got.Status = "delivered"
+	if err := d.UpdateQueueEntry(got); err != nil {
+		t.Fatalf("UpdateQueueEntry: %v", err)
+	}
+	if err := d.Dequeue("q1"); err != nil {
+		t.Fatalf("Dequeue: %v", err)
+	}
+	if _, err := d.GetQueueEntry("q1"); err == nil {
+		t.Error("GetQueueEntry after dequeue should error")
+	}
+}
+
+// TestMailGroupRoundTrip covers static membership round-trip and dynamic
+// expansion against accounts.
+func TestMailGroupRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+	if err := d.CreateDomain(&db.DomainData{Name: "example.com", IsActive: true}); err != nil {
+		t.Fatalf("CreateDomain: %v", err)
+	}
+	static := &db.MailGroup{
+		Email: "team@example.com", LocalPart: "team", Domain: "example.com",
+		IsActive: true, Members: []string{"a@x.com", "b@x.com"},
+	}
+	if err := d.CreateMailGroup(static); err != nil {
+		t.Fatalf("CreateMailGroup: %v", err)
+	}
+	got, err := d.GetMailGroup("example.com", "TEAM") // case-insensitive
+	if err != nil {
+		t.Fatalf("GetMailGroup: %v", err)
+	}
+	if len(got.Members) != 2 || got.Members[0] != "a@x.com" {
+		t.Errorf("members mismatch: %+v", got.Members)
+	}
+	exp, err := d.ExpandMailGroup(got)
+	if err != nil {
+		t.Fatalf("ExpandMailGroup static: %v", err)
+	}
+	if len(exp) != 2 {
+		t.Errorf("static expand mismatch: %+v", exp)
+	}
+
+	// Dynamic group: all active accounts in the domain.
+	if err := d.CreateAccount(&db.AccountData{Email: "u1@example.com", LocalPart: "u1", Domain: "example.com", IsActive: true}); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	dyn := &db.MailGroup{
+		Email: "all@example.com", LocalPart: "all", Domain: "example.com",
+		IsActive: true, Dynamic: true,
+	}
+	if err := d.CreateMailGroup(dyn); err != nil {
+		t.Fatalf("CreateMailGroup dynamic: %v", err)
+	}
+	exp, err = d.ExpandMailGroup(dyn)
+	if err != nil {
+		t.Fatalf("ExpandMailGroup dynamic: %v", err)
+	}
+	if len(exp) != 1 || exp[0] != "u1@example.com" {
+		t.Errorf("dynamic expand mismatch: %+v", exp)
+	}
+
+	if err := d.DeleteMailGroup("example.com", "team"); err != nil {
+		t.Fatalf("DeleteMailGroup: %v", err)
+	}
+	if _, err := d.GetMailGroup("example.com", "team"); err == nil {
+		t.Error("GetMailGroup after delete should error")
+	}
+}
+
+// TestAuthRoundTrip covers the revoked-token blacklist and client sessions.
+func TestAuthRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+
+	// Active revocation.
+	if err := d.StoreRevokedToken("hash1", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("StoreRevokedToken: %v", err)
+	}
+	revoked, err := d.IsTokenRevoked("hash1")
+	if err != nil || !revoked {
+		t.Errorf("IsTokenRevoked(active)=%v,%v want true,nil", revoked, err)
+	}
+	// Expired revocation reports false and is pruned.
+	if err := d.StoreRevokedToken("hash2", time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("StoreRevokedToken expired: %v", err)
+	}
+	if revoked, rerr := d.IsTokenRevoked("hash2"); rerr != nil || revoked {
+		t.Errorf("expired token: revoked=%v err=%v want false,nil", revoked, rerr)
+	}
+	// Unknown token is not revoked.
+	if revoked, rerr := d.IsTokenRevoked("nope"); rerr != nil || revoked {
+		t.Errorf("unknown token: revoked=%v err=%v want false,nil", revoked, rerr)
+	}
+
+	sess := &db.ClientSession{ID: "s1", Email: "u@example.com", TokenHash: "t", DeviceType: "mobile"}
+	if err := d.CreateClientSession(sess); err != nil {
+		t.Fatalf("CreateClientSession: %v", err)
+	}
+	list, err := d.ListClientSessionsByEmail("u@example.com")
+	if err != nil {
+		t.Fatalf("ListClientSessionsByEmail: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != "s1" {
+		t.Errorf("session list mismatch: %+v", list)
+	}
+	if err := d.RevokeClientSession("s1"); err != nil {
+		t.Fatalf("RevokeClientSession: %v", err)
+	}
+	// Revoked sessions are excluded from the by-email listing.
+	list, err = d.ListClientSessionsByEmail("u@example.com")
+	if err != nil {
+		t.Fatalf("ListClientSessionsByEmail after revoke: %v", err)
+	}
+	if len(list) != 0 {
+		t.Errorf("revoked session still listed: %+v", list)
 	}
 }
