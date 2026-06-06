@@ -8,22 +8,21 @@ import (
 	"sync"
 
 	"github.com/umailserver/umailserver/internal/semcore"
-	"github.com/umailserver/umailserver/internal/storage"
 )
 
 // Service provides message search functionality
 type Service struct {
 	index         *Index
 	logger        *slog.Logger
-	db            *storage.Database
-	msgStore      *storage.MessageStore
+	db            MetadataStore
+	msgStore      MessageReader
 	identityStore *semcore.BoltIdentityStore // canonical identity store for ItemId resolution
 	mu            sync.RWMutex
 	indexes       map[string]*Index // user -> index
 }
 
 // NewService creates a new search service
-func NewService(database *storage.Database, msgStore *storage.MessageStore, logger *slog.Logger) *Service {
+func NewService(database MetadataStore, msgStore MessageReader, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
