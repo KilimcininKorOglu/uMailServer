@@ -632,3 +632,47 @@ CREATE TABLE IF NOT EXISTS semcore_room_list (
     created  TIMESTAMPTZ NOT NULL DEFAULT now(),
     modified TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Semantic-core collaboration identities (calendar items, tasks, contacts).
+-- Keyed by msg_key (the blob key the writing surface chose); located by
+-- (folder, ical_uid). RawData holds the canonical iCalendar/vCard payload.
+CREATE TABLE IF NOT EXISTS semcore_calendar_item (
+    msg_key    TEXT     NOT NULL PRIMARY KEY,
+    id         TEXT     NOT NULL DEFAULT '',
+    master_id  TEXT     NOT NULL DEFAULT '',
+    folder_id  TEXT     NOT NULL DEFAULT '',
+    mailbox_id TEXT     NOT NULL DEFAULT '',
+    change_key TEXT     NOT NULL DEFAULT '',
+    kind       SMALLINT NOT NULL DEFAULT 0,
+    ical_uid   TEXT     NOT NULL DEFAULT '',
+    raw_hash   TEXT     NOT NULL DEFAULT '',
+    etag       TEXT     NOT NULL DEFAULT '',
+    raw_data   TEXT     NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_calitem_uid ON semcore_calendar_item (folder_id, ical_uid);
+
+CREATE TABLE IF NOT EXISTS semcore_task (
+    msg_key    TEXT NOT NULL PRIMARY KEY,
+    id         TEXT NOT NULL DEFAULT '',
+    folder_id  TEXT NOT NULL DEFAULT '',
+    mailbox_id TEXT NOT NULL DEFAULT '',
+    change_key TEXT NOT NULL DEFAULT '',
+    ical_uid   TEXT NOT NULL DEFAULT '',
+    raw_hash   TEXT NOT NULL DEFAULT '',
+    etag       TEXT NOT NULL DEFAULT '',
+    raw_data   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_task_uid ON semcore_task (folder_id, ical_uid);
+
+CREATE TABLE IF NOT EXISTS semcore_contact (
+    msg_key    TEXT NOT NULL PRIMARY KEY,
+    id         TEXT NOT NULL DEFAULT '',
+    folder_id  TEXT NOT NULL DEFAULT '',
+    mailbox_id TEXT NOT NULL DEFAULT '',
+    change_key TEXT NOT NULL DEFAULT '',
+    ical_uid   TEXT NOT NULL DEFAULT '',
+    raw_hash   TEXT NOT NULL DEFAULT '',
+    etag       TEXT NOT NULL DEFAULT '',
+    raw_data   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_contact_uid ON semcore_contact (folder_id, ical_uid);

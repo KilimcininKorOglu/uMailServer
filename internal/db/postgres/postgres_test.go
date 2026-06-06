@@ -52,7 +52,8 @@ func openTestDB(t *testing.T) *DB {
 			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity,
 			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity,
 			semcore_sync_state, semcore_tombstone, semcore_subscription, semcore_delegate,
-			semcore_rule, semcore_oof, semcore_resource, semcore_room_list
+			semcore_rule, semcore_oof, semcore_resource, semcore_room_list,
+			semcore_calendar_item, semcore_task, semcore_contact
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1744,5 +1745,87 @@ func TestSemcorePolicy(t *testing.T) {
 	}
 	if _, err := d.GetRoomList("rl:1"); err == nil {
 		t.Error("GetRoomList after delete should error")
+	}
+}
+
+// TestSemcoreCollab covers the collaboration identities (calendar/task/contact):
+// PutUnsafe upsert, FindByUID (found + not-found), ListByFolder, and DeleteByUID.
+func TestSemcoreCollab(t *testing.T) {
+	d := openTestDB(t)
+	mbox := semcore.MustMailboxId("alice@x.com")
+	cal := semcore.MustFolderId("folder:calendar")
+	tasks := semcore.MustFolderId("folder:tasks")
+	contacts := semcore.MustFolderId("folder:contacts")
+
+	// Calendar item.
+	if err := d.PutCalendarItemIdentityUnsafe("cal-key-1", &semcore.StoredCalendarItemIdentity{
+		ID: semcore.MustCalendarItemId("cal:1"), FolderID: cal, MailboxID: mbox,
+		IcalUID: "uid-cal-1", RawData: "BEGIN:VEVENT", ETag: "etag1",
+	}); err != nil {
+		t.Fatalf("PutCalendarItemIdentityUnsafe: %v", err)
+	}
+	key, rec, found, err := d.FindCalendarItemByUID(cal, "uid-cal-1")
+	if err != nil || !found || key != "cal-key-1" || rec.ID.String() != "cal:1" || rec.RawData != "BEGIN:VEVENT" {
+		t.Fatalf("FindCalendarItemByUID: key=%q rec=%+v found=%v err=%v", key, rec, found, err)
+	}
+	if _, _, found, err := d.FindCalendarItemByUID(cal, "nope"); err != nil || found {
+		t.Errorf("FindCalendarItemByUID(absent) found=%v err=%v want false,nil", found, err)
+	}
+	if list, err := d.ListCalendarItemsByFolder(cal); err != nil || len(list) != 1 {
+		t.Errorf("ListCalendarItemsByFolder=%d err=%v want 1", len(list), err)
+	}
+	// Upsert (same key) updates in place.
+	if err := d.PutCalendarItemIdentityUnsafe("cal-key-1", &semcore.StoredCalendarItemIdentity{
+		ID: semcore.MustCalendarItemId("cal:1"), FolderID: cal, MailboxID: mbox, IcalUID: "uid-cal-1", RawData: "UPDATED",
+	}); err != nil {
+		t.Fatalf("PutCalendarItemIdentityUnsafe update: %v", err)
+	}
+	if _, rec, _, err := d.FindCalendarItemByUID(cal, "uid-cal-1"); err != nil || rec.RawData != "UPDATED" {
+		t.Errorf("calendar upsert did not update RawData: %q err=%v", rec.RawData, err)
+	}
+	if err := d.DeleteCalendarItemByUID(cal, "uid-cal-1"); err != nil {
+		t.Fatalf("DeleteCalendarItemByUID: %v", err)
+	}
+	if _, _, found, err := d.FindCalendarItemByUID(cal, "uid-cal-1"); err != nil || found {
+		t.Errorf("calendar item still found after delete: found=%v err=%v", found, err)
+	}
+	// Delete-absent is a no-op.
+	if err := d.DeleteCalendarItemByUID(cal, "uid-cal-1"); err != nil {
+		t.Errorf("DeleteCalendarItemByUID(absent) err=%v want nil", err)
+	}
+
+	// Task.
+	if err := d.PutTaskIdentityUnsafe("task-key-1", &semcore.StoredTaskIdentity{
+		ID: semcore.MustTaskId("task:1"), FolderID: tasks, MailboxID: mbox, IcalUID: "uid-task-1", RawData: "BEGIN:VTODO",
+	}); err != nil {
+		t.Fatalf("PutTaskIdentityUnsafe: %v", err)
+	}
+	if key, rec, found, err := d.FindTaskByUID(tasks, "uid-task-1"); err != nil || !found || key != "task-key-1" || rec.ID.String() != "task:1" {
+		t.Errorf("FindTaskByUID: key=%q rec=%+v found=%v err=%v", key, rec, found, err)
+	}
+	if list, err := d.ListTasksByFolder(tasks); err != nil || len(list) != 1 {
+		t.Errorf("ListTasksByFolder=%d err=%v want 1", len(list), err)
+	}
+	if err := d.DeleteTaskByUID(tasks, "uid-task-1"); err != nil {
+		t.Fatalf("DeleteTaskByUID: %v", err)
+	}
+
+	// Contact.
+	if err := d.PutContactIdentityUnsafe("contact-key-1", &semcore.StoredContactIdentity{
+		ID: semcore.MustContactId("contact:1"), FolderID: contacts, MailboxID: mbox, IcalUID: "uid-contact-1", RawData: "BEGIN:VCARD",
+	}); err != nil {
+		t.Fatalf("PutContactIdentityUnsafe: %v", err)
+	}
+	if key, rec, found, err := d.FindContactByUID(contacts, "uid-contact-1"); err != nil || !found || key != "contact-key-1" || rec.ID.String() != "contact:1" {
+		t.Errorf("FindContactByUID: key=%q rec=%+v found=%v err=%v", key, rec, found, err)
+	}
+	if list, err := d.ListContactsByFolder(contacts); err != nil || len(list) != 1 {
+		t.Errorf("ListContactsByFolder=%d err=%v want 1", len(list), err)
+	}
+	if err := d.DeleteContactByUID(contacts, "uid-contact-1"); err != nil {
+		t.Fatalf("DeleteContactByUID: %v", err)
+	}
+	if _, _, found, err := d.FindContactByUID(contacts, "uid-contact-1"); err != nil || found {
+		t.Errorf("contact still found after delete: found=%v err=%v", found, err)
 	}
 }
