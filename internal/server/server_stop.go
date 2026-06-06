@@ -157,8 +157,10 @@ func (s *Server) Stop() error {
 		_ = s.database.Close()
 	}
 
-	// Close storage database
-	if s.storageDB != nil {
+	// Close storage database. In postgres mode storageDB is the SAME handle as
+	// database (already closed just above), so skip the second close to avoid
+	// double-closing the shared connection pool.
+	if s.storageDB != nil && !s.storageSharesDB {
 		_ = s.storageDB.Close()
 	}
 

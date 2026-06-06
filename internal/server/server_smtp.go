@@ -70,8 +70,8 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 		pipeline.AddStage(smtp.NewHeuristicStage())
 
 		var classifier *spam.Classifier
-		if s.cfg().Spam.Bayesian.Enabled && s.storageDB != nil {
-			candidate := spam.NewClassifier(spam.NewBoltStore(s.storageDB.Bolt()))
+		if s.cfg().Spam.Bayesian.Enabled && s.spamStore != nil {
+			candidate := spam.NewClassifier(s.spamStore)
 			if err := candidate.Initialize(); err != nil {
 				s.logger.Error("failed to initialize Bayesian classifier", "error", err)
 			} else {

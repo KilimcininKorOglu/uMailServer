@@ -25,6 +25,7 @@ import (
 	"github.com/umailserver/umailserver/internal/config"
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/health"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/jmap"
@@ -37,6 +38,7 @@ import (
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 	"github.com/umailserver/umailserver/internal/smtp"
+	"github.com/umailserver/umailserver/internal/spam"
 	"github.com/umailserver/umailserver/internal/storage"
 	umailTLS "github.com/umailserver/umailserver/internal/tls"
 	"github.com/umailserver/umailserver/internal/tracing"
@@ -69,7 +71,10 @@ type Server struct {
 	pushSvc           *push.Service
 	searchSvc         *search.Service
 	sieveManager      *sieve.Manager
-	storageDB         *storage.Database
+	storageDB         storageBackend
+	storageSharesDB   bool
+	quotaStore        ratelimit.QuotaStore
+	spamStore         spam.Store
 	mailstore         *imap.BboltMailstore
 	pop3Server        *pop3.Server
 	mcpHTTPServer     *http.Server
@@ -149,6 +154,46 @@ func openStore(ctx context.Context, cfg *config.Config) (db.Store, error) {
 			return nil, fmt.Errorf("failed to run migrations: %w", err)
 		}
 		return boltDB, nil
+	}
+}
+
+// storageBackend is the message-metadata / mailbox / search surface the server
+// holds on s.storageDB. Both the bbolt *storage.Database and the relational
+// *postgres.DB satisfy it, so the composition root can pick either. It is the
+// union of every consumer interface the handle is passed to downstream:
+// imap.MetadataStore (the IMAP mailstore + search), jmap.MailStore (adds
+// GetChangesSince), api.MailStore (adds the backup job/manifest surface), and
+// ews.MailStore (a metadata subset). Overlapping methods across these share
+// identical signatures, so the embedding is well-formed.
+type storageBackend interface {
+	imap.MetadataStore
+	jmap.MailStore
+	api.MailStore
+	ews.MailStore
+}
+
+// openStorage selects the message-metadata backend for the configured engine.
+// For bbolt it opens the dedicated mail.db and derives the spam / rate-limit
+// quota stores from its raw handle. For postgres the metadata, spam, and quota
+// surfaces are all served by the SAME *postgres.DB that openStore already
+// returned as db.Store — so message metadata, search, accounts, spam tokens,
+// and daily quotas share one connection pool and no bbolt is opened at all.
+// The returned sharesDB flag tells the shutdown path not to double-close that
+// shared handle.
+func openStorage(cfg *config.Config, database db.Store, dataDir string) (sb storageBackend, quota ratelimit.QuotaStore, spamStore spam.Store, sharesDB bool, err error) {
+	switch cfg.DatabaseBackend() {
+	case "postgres":
+		pg, ok := database.(*postgres.DB)
+		if !ok {
+			return nil, nil, nil, false, fmt.Errorf("postgres backend: account store is %T, not *postgres.DB", database)
+		}
+		return pg, pg, pg, true, nil
+	default:
+		storageDB, oerr := storage.OpenDatabaseWithOptions(dataDir+"/mail/mail.db", cfg.Storage.Sync)
+		if oerr != nil {
+			return nil, nil, nil, false, oerr
+		}
+		return storageDB, ratelimit.NewBoltStore(storageDB.Bolt()), spam.NewBoltStore(storageDB.Bolt()), false, nil
 	}
 }
 
@@ -355,18 +400,21 @@ func New(cfg *config.Config) (*Server, error) {
 		logger.Info("LDAP authentication enabled", "url", cfg.LDAP.URL)
 	}
 
-	// Initialize storage database for search
-	storageDBPath := s.cfg().Server.DataDir + "/mail/mail.db"
-	storageDB, err := storage.OpenDatabaseWithOptions(storageDBPath, cfg.Storage.Sync)
+	// Initialize the message-metadata / search backend for the configured engine.
+	// bbolt opens a dedicated mail.db; postgres reuses the account store's pool
+	// (so storageDB and database are the same *postgres.DB — see storageSharesDB).
+	// The spam and rate-limit quota stores come from the same selection.
+	storageDB, quotaStore, spamStore, sharesDB, err := openStorage(cfg, database, s.cfg().Server.DataDir)
 	if err != nil {
 		_ = tlsManager.Close()
 		_ = msgStore.Close()
 		_ = database.Close()
 		return nil, fmt.Errorf("failed to open storage database: %w", err)
 	}
-
-	// Initialize search service
 	s.storageDB = storageDB
+	s.storageSharesDB = sharesDB
+	s.quotaStore = quotaStore
+	s.spamStore = spamStore
 
 	// Provision standard folders for every existing account so that accounts
 	// created through any path (admin API, CLI, quickstart, bootstrap, MCP,
@@ -405,7 +453,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize rate limiter with config
-	s.rateLimiter = ratelimit.New(ratelimit.NewBoltStore(storageDB.Bolt()), buildRateLimitConfig(cfg))
+	s.rateLimiter = ratelimit.New(quotaStore, buildRateLimitConfig(cfg))
 
 	// Initialize health monitor
 	s.healthMonitor = health.NewMonitor("1.0.0")
@@ -583,7 +631,7 @@ func ensureBootstrapAdminAccounts(database db.Store, configuredDomains []config.
 // existing account at startup. It is idempotent and runs regardless of which
 // path created the account, so the default folder set is consistent across all
 // protocols even for accounts created while the server was offline.
-func ensureAllAccountsDefaultMailboxes(database db.Store, storageDB *storage.Database, logger *slog.Logger) {
+func ensureAllAccountsDefaultMailboxes(database db.Store, storageDB storageBackend, logger *slog.Logger) {
 	if database == nil || storageDB == nil {
 		return
 	}
