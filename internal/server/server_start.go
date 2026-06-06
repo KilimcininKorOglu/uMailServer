@@ -88,5 +88,9 @@ func (s *Server) Start() error {
 	// otherwise).
 	s.startClusterHeartbeat()
 
+	// Bridge IMAP IDLE / webmail SSE notifications across the cluster (no-op
+	// when un-clustered).
+	s.startNotificationBridge()
+
 	return nil
 }

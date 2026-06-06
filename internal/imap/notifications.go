@@ -34,6 +34,12 @@ type MailboxNotification struct {
 type NotificationHub struct {
 	subscribers map[string][]chan MailboxNotification // user -> channels
 	mu          sync.RWMutex
+
+	// publisher, when set, mirrors every locally originated notification onto the
+	// cluster so other nodes can wake their own IDLE/SSE subscribers. It is set
+	// once at startup and read on every Notify, so it is guarded separately.
+	pubMu     sync.RWMutex
+	publisher func(MailboxNotification)
 }
 
 // NewNotificationHub creates a new notification hub
@@ -41,6 +47,22 @@ func NewNotificationHub() *NotificationHub {
 	return &NotificationHub{
 		subscribers: make(map[string][]chan MailboxNotification),
 	}
+}
+
+// SetPublisher installs a cluster fan-out sink. After this, every notification
+// raised on this node (via Notify) is also handed to fn for cross-node
+// propagation. Pass nil to detach. Notifications arriving FROM the cluster must
+// be delivered with DeliverLocal, never Notify, to avoid a re-publish loop.
+func (h *NotificationHub) SetPublisher(fn func(MailboxNotification)) {
+	h.pubMu.Lock()
+	h.publisher = fn
+	h.pubMu.Unlock()
+}
+
+func (h *NotificationHub) currentPublisher() func(MailboxNotification) {
+	h.pubMu.RLock()
+	defer h.pubMu.RUnlock()
+	return h.publisher
 }
 
 // Subscribe subscribes a session to notifications for a user
@@ -70,13 +92,31 @@ func (h *NotificationHub) Unsubscribe(user string, ch chan MailboxNotification) 
 	}
 }
 
-// Notify sends a notification to all subscribers for a user
+// Notify sends a notification to all subscribers for a user on this node and,
+// when a cluster publisher is set, mirrors it to the other nodes.
 func (h *NotificationHub) Notify(user string, notification MailboxNotification) {
-	h.mu.RLock()
-	channels := h.subscribers[user]
-	h.mu.RUnlock()
-
+	notification.User = user
 	notification.Timestamp = time.Now()
+
+	h.deliverLocal(notification)
+
+	if pub := h.currentPublisher(); pub != nil {
+		pub(notification)
+	}
+}
+
+// DeliverLocal fans a notification out to this node's subscribers WITHOUT
+// re-publishing it to the cluster. It is the entry point for notifications
+// relayed in from other nodes, breaking the cross-node propagation loop.
+func (h *NotificationHub) DeliverLocal(notification MailboxNotification) {
+	h.deliverLocal(notification)
+}
+
+// deliverLocal performs the local subscriber fan-out for notification.User.
+func (h *NotificationHub) deliverLocal(notification MailboxNotification) {
+	h.mu.RLock()
+	channels := h.subscribers[notification.User]
+	h.mu.RUnlock()
 
 	for _, ch := range channels {
 		// Non-blocking send; drop if subscriber is slow

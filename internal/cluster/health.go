@@ -155,6 +155,7 @@ type ClusterManager struct {
 	lock     DistributedLock
 	health   HealthMonitor
 	counters CounterStore
+	pubsub   PubSub
 }
 
 // NewClusterManager creates a new cluster manager
@@ -184,6 +185,11 @@ func NewClusterManager(config *Config, redisURL string) (*ClusterManager, error)
 		return nil, fmt.Errorf("failed to create counter store: %w", err)
 	}
 
+	pubsub, err := NewRedisPubSub(redisURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pubsub: %w", err)
+	}
+
 	return &ClusterManager{
 		config:   config,
 		session:  session,
@@ -191,6 +197,7 @@ func NewClusterManager(config *Config, redisURL string) (*ClusterManager, error)
 		lock:     lock,
 		health:   health,
 		counters: counters,
+		pubsub:   pubsub,
 	}, nil
 }
 
@@ -219,6 +226,16 @@ func (c *ClusterManager) Counters() CounterStore {
 	return c.counters
 }
 
+// PubSub returns the cross-node real-time notification fan-out.
+func (c *ClusterManager) PubSub() PubSub {
+	return c.pubsub
+}
+
+// InstanceID returns this node's cluster instance identifier.
+func (c *ClusterManager) InstanceID() string {
+	return c.config.InstanceID
+}
+
 // Close closes all cluster resources
 func (c *ClusterManager) Close() error {
 	if c.session != nil {
@@ -236,6 +253,11 @@ func (c *ClusterManager) Close() error {
 	var err error
 	if c.counters != nil {
 		err = c.counters.Close()
+	}
+	if c.pubsub != nil {
+		if perr := c.pubsub.Close(); perr != nil && err == nil {
+			err = perr
+		}
 	}
 	return err
 }
