@@ -69,7 +69,7 @@ type Server struct {
 	sseServer       *websocket.SSEServer
 	searchSvc       *search.Service
 	msgStore        *storage.MessageStore
-	mailDB          *storage.Database
+	mailDB          MailStore
 	mailDeliver     func(from string, to []string, data []byte) error
 	calendarDeliver func(from string, to []string, data []byte) error
 	queueMgr        *queue.Manager
@@ -1444,7 +1444,7 @@ func (s *Server) SetHealthMonitor(mon HealthMonitor) {
 }
 
 // SetMailDB sets the mail database for email operations
-func (s *Server) SetMailDB(db *storage.Database) {
+func (s *Server) SetMailDB(db MailStore) {
 	s.mailDB = db
 	s.initMailHandler()
 }

@@ -21,7 +21,7 @@ import (
 // IMAP/JMAP/webmail); a delete removes it from all three.
 type NotesHandler struct {
 	msgStore *storage.MessageStore
-	mailDB   *storage.Database
+	mailDB   MailStore
 	identity IdentityStore
 	pipe     *semcore.MutationPipeline
 }
@@ -36,7 +36,7 @@ func NewNotesHandler() *NotesHandler {
 
 // SetStores wires the message blob store, the IMAP mailstore index, the semcore
 // identity store, and a mutation pipeline so notes round-trip across protocols.
-func (h *NotesHandler) SetStores(msgStore *storage.MessageStore, mailDB *storage.Database, identity IdentityStore, pipe *semcore.MutationPipeline) {
+func (h *NotesHandler) SetStores(msgStore *storage.MessageStore, mailDB MailStore, identity IdentityStore, pipe *semcore.MutationPipeline) {
 	h.msgStore = msgStore
 	h.mailDB = mailDB
 	h.identity = identity

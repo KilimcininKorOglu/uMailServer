@@ -115,7 +115,7 @@ func buildMultipartBody(textBody string, attachments []Attachment) (string, stri
 // MailHandler handles mail-related API requests
 type MailHandler struct {
 	msgStore *storage.MessageStore
-	mailDB   *storage.Database
+	mailDB   MailStore
 	// deliver routes a submitted outbound message through the shared delivery
 	// path (local delivery for local domains, queue relay for external),
 	// identical to the SMTP submission / EWS / JMAP send path. When nil, send
@@ -137,7 +137,7 @@ func NewMailHandler() *MailHandler {
 }
 
 // SetStorage sets the storage backends for mail operations
-func (h *MailHandler) SetStorage(msgStore *storage.MessageStore, mailDB *storage.Database) {
+func (h *MailHandler) SetStorage(msgStore *storage.MessageStore, mailDB MailStore) {
 	h.msgStore = msgStore
 	h.mailDB = mailDB
 }
