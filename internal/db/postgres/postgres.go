@@ -62,9 +62,12 @@ func (d *DB) Migrate(ctx context.Context) error {
 // on top of this package.
 func (d *DB) Pool() *pgxpool.Pool { return d.pool }
 
-// Close releases the connection pool.
-func (d *DB) Close() {
+// Close releases the connection pool. It returns an error to match the
+// db.Store contract (the bbolt store's Close can fail); the pgx pool close
+// itself does not report one.
+func (d *DB) Close() error {
 	if d.pool != nil {
 		d.pool.Close()
 	}
+	return nil
 }

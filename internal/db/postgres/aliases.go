@@ -74,6 +74,20 @@ func (d *DB) DeleteAlias(domain, localPart string) error {
 	return nil
 }
 
+// ResolveAlias returns the active alias target at (domain, local part), or ""
+// when no active alias exists, matching db.DB.ResolveAlias.
+func (d *DB) ResolveAlias(domain, localPart string) (string, error) {
+	alias, err := d.GetAlias(domain, localPart)
+	if err != nil {
+		// A missing alias is not an error here: no alias means no redirect.
+		return "", nil //nolint:nilerr // absent alias resolves to empty, like the bbolt store
+	}
+	if alias == nil || !alias.IsActive {
+		return "", nil
+	}
+	return alias.Target, nil
+}
+
 // ListAliases returns every alias, ordered by domain then local part.
 func (d *DB) ListAliases() ([]*db.AliasData, error) {
 	ctx := context.Background()
