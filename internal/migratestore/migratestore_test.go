@@ -41,7 +41,9 @@ func openTestPostgres(t *testing.T) *postgres.DB {
 			user_ui_prefs, user_signatures, user_categories, user_vacation, ews_user_config,
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
 			semcore_mailbox_identity, semcore_folder_identity, semcore_item_identity,
-			semcore_conversation_identity
+			semcore_conversation_identity, semcore_rule, semcore_oof, semcore_resource,
+			semcore_room_list, semcore_delegate, semcore_calendar_item, semcore_task,
+			semcore_contact
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -386,5 +388,83 @@ func TestCopySemcoreDelegation(t *testing.T) {
 	del, err := dst.GetDelegateForUser(owner, "b@ex.test")
 	if err != nil || del.DelegateEmail != "b@ex.test" || !del.CanSendAs {
 		t.Fatalf("dst GetDelegateForUser = %+v err=%v", del, err)
+	}
+}
+
+func TestCopySemcoreCollab(t *testing.T) {
+	dst := openTestPostgres(t)
+
+	const email = "a@ex.test"
+	src, err := semcore.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("semcore.NewStore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := src.Close(); err != nil {
+			t.Errorf("close semcore source: %v", err)
+		}
+	})
+	id := src.Identity()
+	mid := semcore.MustMailboxId(email)
+	if _, err := id.EnsureMailboxId(email); err != nil {
+		t.Fatalf("seed mailbox identity: %v", err)
+	}
+	fid, err := id.EnsureFolderId(email, "Calendar", "calendar")
+	if err != nil {
+		t.Fatalf("seed folder identity: %v", err)
+	}
+
+	collab := src.Collaboration()
+	cck, err := semcore.NewCalendarChangeKey("c1")
+	if err != nil {
+		t.Fatalf("NewCalendarChangeKey: %v", err)
+	}
+	tck, err := semcore.NewTaskChangeKey("t1")
+	if err != nil {
+		t.Fatalf("NewTaskChangeKey: %v", err)
+	}
+	xck, err := semcore.NewContactChangeKey("x1")
+	if err != nil {
+		t.Fatalf("NewContactChangeKey: %v", err)
+	}
+	if err := collab.PutCalendarItemIdentity("hash-cal-1", &semcore.StoredCalendarItemIdentity{
+		ID: semcore.MustCalendarItemId("cal-1"), FolderID: fid, MailboxID: mid, ChangeKey: cck,
+		Kind: semcore.CollabKindEvent, IcalUID: "uid-cal-1", RawHash: "hash-cal-1", ETag: "etag-c", RawData: "BEGIN:VEVENT\nEND:VEVENT",
+	}, semcore.CalendarChangeKey{}); err != nil {
+		t.Fatalf("seed calendar item: %v", err)
+	}
+	if err := collab.PutTaskIdentity("hash-task-1", &semcore.StoredTaskIdentity{
+		ID: semcore.MustTaskId("task-1"), FolderID: fid, MailboxID: mid, ChangeKey: tck,
+		IcalUID: "uid-task-1", RawHash: "hash-task-1", ETag: "etag-t", RawData: "BEGIN:VTODO\nEND:VTODO",
+	}, semcore.TaskChangeKey{}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+	if err := collab.PutContactIdentity("hash-contact-1", &semcore.StoredContactIdentity{
+		ID: semcore.MustContactId("contact-1"), FolderID: fid, MailboxID: mid, ChangeKey: xck,
+		IcalUID: "uid-contact-1", RawHash: "hash-contact-1", ETag: "etag-x", RawData: "BEGIN:VCARD\nEND:VCARD",
+	}, semcore.ContactChangeKey{}); err != nil {
+		t.Fatalf("seed contact: %v", err)
+	}
+
+	// Identity first (folders must exist), then collaboration.
+	var r Report
+	if err := CopySemcoreIdentity(src, dst, &r); err != nil {
+		t.Fatalf("CopySemcoreIdentity: %v", err)
+	}
+	if err := CopySemcoreCollab(src, dst, &r); err != nil {
+		t.Fatalf("CopySemcoreCollab: %v", err)
+	}
+	if r.CalendarItems != 1 || r.Tasks != 1 || r.Contacts != 1 {
+		t.Fatalf("collab counts = cal:%d task:%d contact:%d, want 1/1/1", r.CalendarItems, r.Tasks, r.Contacts)
+	}
+
+	if c, err := dst.GetCalendarItemByID(semcore.MustCalendarItemId("cal-1")); err != nil || c.IcalUID != "uid-cal-1" || c.FolderID.String() != fid.String() {
+		t.Fatalf("dst GetCalendarItemByID = %+v err=%v", c, err)
+	}
+	if tk, err := dst.GetTaskByID(semcore.MustTaskId("task-1")); err != nil || tk.IcalUID != "uid-task-1" {
+		t.Fatalf("dst GetTaskByID = %+v err=%v", tk, err)
+	}
+	if c, err := dst.GetContactByID(semcore.MustContactId("contact-1")); err != nil || c.IcalUID != "uid-contact-1" {
+		t.Fatalf("dst GetContactByID = %+v err=%v", c, err)
 	}
 }

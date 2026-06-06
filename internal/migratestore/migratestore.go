@@ -56,6 +56,11 @@ type Report struct {
 	Resources   int
 	RoomLists   int
 	Delegates   int
+
+	// Semantic-core collaboration identities (CalDAV/CardDAV/EWS).
+	CalendarItems int
+	Tasks         int
+	Contacts      int
 }
 
 // CopyDB copies the account/metadata layer (the data kept in umailserver.db)
@@ -511,6 +516,60 @@ func CopySemcoreDelegation(src *semcore.Store, dst *postgres.DB, r *Report) erro
 			return fmt.Errorf("copy delegate %s→%s: %w", del.OwnerID.String(), del.DelegateEmail, err)
 		}
 		r.Delegates++
+	}
+	return nil
+}
+
+// CopySemcoreCollab copies the collaboration identities (calendar items, tasks,
+// contacts) from the bbolt semcore.Store to the relational *postgres.DB. These
+// records reference folder ids (preserved by CopySemcoreIdentity, which must run
+// first) and carry their own canonical ids and full RawData payload. Each is
+// keyed by its RawHash — the same msg key the EWS/DAV pipeline uses — and is
+// written through the Unsafe put (no optimistic change-key check: a migration is
+// a bulk restore, not a concurrent edit). Run after CopySemcoreIdentity so the
+// folders the items live in already exist.
+func CopySemcoreCollab(src *semcore.Store, dst *postgres.DB, r *Report) error {
+	if src == nil || dst == nil || r == nil {
+		return errors.New("migratestore: nil source, destination, or report")
+	}
+	folders, err := src.Identity().ListFolderIdentities()
+	if err != nil {
+		return fmt.Errorf("list folder identities: %w", err)
+	}
+	collab := src.Collaboration()
+	for _, f := range folders {
+		cals, err := collab.ListCalendarItemsByFolder(f.FolderID)
+		if err != nil {
+			return fmt.Errorf("list calendar items in folder %s: %w", f.FolderID.String(), err)
+		}
+		for i := range cals {
+			if err := dst.PutCalendarItemIdentityUnsafe(cals[i].RawHash, &cals[i]); err != nil {
+				return fmt.Errorf("copy calendar item %s: %w", cals[i].ID.String(), err)
+			}
+			r.CalendarItems++
+		}
+
+		tasks, err := collab.ListTasksByFolder(f.FolderID)
+		if err != nil {
+			return fmt.Errorf("list tasks in folder %s: %w", f.FolderID.String(), err)
+		}
+		for i := range tasks {
+			if err := dst.PutTaskIdentityUnsafe(tasks[i].RawHash, &tasks[i]); err != nil {
+				return fmt.Errorf("copy task %s: %w", tasks[i].ID.String(), err)
+			}
+			r.Tasks++
+		}
+
+		contacts, err := collab.ListContactsByFolder(f.FolderID)
+		if err != nil {
+			return fmt.Errorf("list contacts in folder %s: %w", f.FolderID.String(), err)
+		}
+		for i := range contacts {
+			if err := dst.PutContactIdentityUnsafe(contacts[i].RawHash, &contacts[i]); err != nil {
+				return fmt.Errorf("copy contact %s: %w", contacts[i].ID.String(), err)
+			}
+			r.Contacts++
+		}
 	}
 	return nil
 }
