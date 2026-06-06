@@ -805,9 +805,10 @@ func TestHandleDATA_WithPipelineReject(t *testing.T) {
 
 	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	resp2, _ := reader.ReadString('\n')
-	// Pipeline.Process returns error for reject, so handleDATA returns 451
-	if !strings.HasPrefix(resp2, "451") {
-		t.Errorf("Expected 451 for pipeline error, got: %s", resp2)
+	// A pipeline reject must surface as a permanent reject (default 550), not a
+	// temporary 451 — the accompanying error carries the reason, not a deferral.
+	if !strings.HasPrefix(resp2, "550") {
+		t.Errorf("Expected 550 for pipeline reject, got: %s", resp2)
 	}
 }
 
@@ -1133,9 +1134,10 @@ func TestHandleBDAT_LastWithPipelineReject(t *testing.T) {
 	n, _ := clientConn.Read(buf)
 	response := string(buf[:n])
 
-	// Pipeline.Process returns error for reject, so BDAT returns 451
-	if !strings.Contains(response, "451") {
-		t.Errorf("Expected 451 for pipeline reject in BDAT, got: %q", response)
+	// A pipeline reject in BDAT must emit the permanent reject code (default 550),
+	// not a temporary 451 — same contract as the DATA path.
+	if !strings.Contains(response, "550") {
+		t.Errorf("Expected 550 for pipeline reject in BDAT, got: %q", response)
 	}
 }
 
@@ -1381,8 +1383,10 @@ func TestHandleDATA_PipelineRejectCustomCode(t *testing.T) {
 	defer session.Close()
 	defer clientConn.Close()
 
-	// Pipeline.Process returns (ResultReject, error) for reject stages.
-	// handleDATA checks err first and returns 451. This tests that path.
+	// Pipeline.Process returns (ResultReject, error) for reject stages. The
+	// session must emit a PERMANENT reject from the stage's RejectionCode
+	// (default 550), NOT flatten the accompanying error into a temporary 451 —
+	// a 451 would tell the sender to retry a message that was permanently refused.
 	logger := &testLogger{}
 	pipeline := NewPipeline(logger)
 	pipeline.AddStage(&rejectStage{})
@@ -1401,8 +1405,8 @@ func TestHandleDATA_PipelineRejectCustomCode(t *testing.T) {
 
 	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	resp, _ := reader.ReadString('\n')
-	if !strings.Contains(resp, "451") {
-		t.Errorf("Expected 451 for pipeline error, got: %s", resp)
+	if !strings.Contains(resp, "550") {
+		t.Errorf("Expected 550 for pipeline reject, got: %s", resp)
 	}
 }
 

@@ -420,7 +420,11 @@ func (s *Session) handleDATA() error {
 		}
 
 		result, err := s.server.pipeline.Process(ctx)
-		if err != nil {
+		// A rejection is signaled by ResultReject; the pipeline also returns a
+		// non-nil error carrying the reason, but that must NOT be flattened into a
+		// generic 451 — the ResultReject case below emits the stage's intended code
+		// (550 policy/spam/sieve, 451 greylist, 421 rate-limit) from ctx.RejectionCode.
+		if err != nil && result != ResultReject {
 			s.resetTransaction()
 			return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
 		}
@@ -678,7 +682,9 @@ func (s *Session) handleBDAT(arg string) error {
 			}
 
 			result, err := s.server.pipeline.Process(ctx)
-			if err != nil {
+			// See the DATA path: a ResultReject must reach the switch below so the
+			// stage's intended code is emitted, not a blanket 451.
+			if err != nil && result != ResultReject {
 				s.resetTransaction()
 				return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
 			}
