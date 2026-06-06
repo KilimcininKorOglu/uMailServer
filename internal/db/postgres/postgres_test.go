@@ -45,7 +45,7 @@ func openTestDB(t *testing.T) *DB {
 	if _, err := d.pool.Exec(ctx,
 		`TRUNCATE accounts, aliases, mail_groups, mail_queue, domains, tenants,
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
-			mailboxes, mailbox_subscriptions, threads, mailbox_acl
+			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -899,5 +899,62 @@ func TestThreads(t *testing.T) {
 	}
 	if _, err := d.GetThread(user, "missing"); err == nil {
 		t.Error("GetThread(missing) should error")
+	}
+}
+
+// TestACL covers the RFC 4314 ACL surface: set/get/list, removal via rights=0,
+// bulk delete, and the shared-with / grantees queries.
+func TestACL(t *testing.T) {
+	d := openTestDB(t)
+	const owner, mbox = "owner@x.com", "Shared"
+
+	if err := d.SetACL(owner, mbox, "bob@x.com", storage.ACLRead|storage.ACLLookup, owner); err != nil {
+		t.Fatalf("SetACL: %v", err)
+	}
+	rights, err := d.GetACL(owner, mbox, "bob@x.com")
+	if err != nil {
+		t.Fatalf("GetACL: %v", err)
+	}
+	if rights != storage.ACLRead|storage.ACLLookup {
+		t.Errorf("rights=%d want %d", rights, storage.ACLRead|storage.ACLLookup)
+	}
+	// Absent grant returns 0.
+	if r, err := d.GetACL(owner, mbox, "nobody@x.com"); err != nil || r != 0 {
+		t.Errorf("absent grant rights=%d err=%v want 0,nil", r, err)
+	}
+
+	entries, err := d.ListACL(owner, mbox)
+	if err != nil || len(entries) != 1 || entries[0].Grantee != "bob@x.com" || entries[0].GrantedBy != owner {
+		t.Errorf("ListACL mismatch: %+v err=%v", entries, err)
+	}
+
+	shared, err := d.ListMailboxesSharedWith("bob@x.com")
+	if err != nil || len(shared) != 1 || shared[0] != owner+":"+mbox {
+		t.Errorf("ListMailboxesSharedWith mismatch: %v err=%v", shared, err)
+	}
+	grantees, err := d.ListGranteesMailboxes(owner)
+	if err != nil || len(grantees) != 1 || grantees[0] != mbox {
+		t.Errorf("ListGranteesMailboxes mismatch: %v err=%v", grantees, err)
+	}
+
+	// rights=0 removes the grant.
+	if err := d.SetACL(owner, mbox, "bob@x.com", 0, owner); err != nil {
+		t.Fatalf("SetACL(0): %v", err)
+	}
+	if r, err := d.GetACL(owner, mbox, "bob@x.com"); err != nil || r != 0 {
+		t.Errorf("after rights=0, rights=%d err=%v want 0,nil", r, err)
+	}
+
+	// Bulk delete: add two grants then delete all for the mailbox.
+	for _, g := range []string{"a@x.com", "b@x.com"} {
+		if err := d.SetACL(owner, mbox, g, storage.ACLRead, owner); err != nil {
+			t.Fatalf("SetACL(%s): %v", g, err)
+		}
+	}
+	if err := d.DeleteACL(owner, mbox, ""); err != nil {
+		t.Fatalf("DeleteACL(all): %v", err)
+	}
+	if list, err := d.ListACL(owner, mbox); err != nil || len(list) != 0 {
+		t.Errorf("after bulk delete, ListACL=%+v err=%v want empty", list, err)
 	}
 }

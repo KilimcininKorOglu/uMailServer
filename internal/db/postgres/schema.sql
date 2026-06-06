@@ -331,6 +331,7 @@ CREATE TABLE IF NOT EXISTS mailbox_acl (
     mailbox     TEXT     NOT NULL,
     grantee     TEXT     NOT NULL,
     rights      SMALLINT NOT NULL DEFAULT 0,
+    granted_by  TEXT     NOT NULL DEFAULT '',
     granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (owner_email, mailbox, grantee)
 );
