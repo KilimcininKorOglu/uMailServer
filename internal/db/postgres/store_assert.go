@@ -6,6 +6,7 @@ import (
 	"github.com/umailserver/umailserver/internal/jmap"
 	"github.com/umailserver/umailserver/internal/ratelimit"
 	"github.com/umailserver/umailserver/internal/search"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/spam"
 )
 
@@ -25,4 +26,7 @@ var (
 	_ jmap.MailStore       = (*DB)(nil)
 	_ spam.Store           = (*DB)(nil)
 	_ ratelimit.QuotaStore = (*DB)(nil)
+
+	// Semantic-core sub-stores (the semcore->Postgres migration, in progress).
+	_ semcore.PipelineLifecycleStore = (*DB)(nil)
 )

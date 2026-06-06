@@ -412,3 +412,26 @@ CREATE TABLE IF NOT EXISTS backup_manifests (
     metadata        TEXT   NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_backup_manifests_target ON backup_manifests (target);
+
+-- Semantic-core lifecycle events (the canonical audit/sync journal). Each
+-- mailbox has a strictly increasing seq (the bbolt store kept a per-mailbox
+-- counter bucket); semcore_lifecycle_seq is the atomic allocator and
+-- semcore_lifecycle holds the events. kind is the numeric semcore.LifecycleKind.
+CREATE TABLE IF NOT EXISTS semcore_lifecycle_seq (
+    mailbox_id TEXT   NOT NULL PRIMARY KEY,
+    seq_next   BIGINT NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS semcore_lifecycle (
+    mailbox_id     TEXT     NOT NULL,
+    seq            BIGINT   NOT NULL,
+    folder_id      TEXT     NOT NULL DEFAULT '',
+    item_id        TEXT     NOT NULL DEFAULT '',
+    kind           SMALLINT NOT NULL DEFAULT 0,
+    at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    actor          TEXT     NOT NULL DEFAULT '',
+    change_key     TEXT     NOT NULL DEFAULT '',
+    delegate_email TEXT     NOT NULL DEFAULT '',
+    delegate_id    TEXT     NOT NULL DEFAULT '',
+    PRIMARY KEY (mailbox_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_lifecycle_at ON semcore_lifecycle (at);

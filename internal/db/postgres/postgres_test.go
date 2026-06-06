@@ -10,6 +10,7 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/mapi"
 	"github.com/umailserver/umailserver/internal/queue"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
@@ -46,7 +47,8 @@ func openTestDB(t *testing.T) *DB {
 		`TRUNCATE accounts, aliases, mail_groups, mail_queue, domains, tenants,
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
-			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests
+			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
+			semcore_lifecycle, semcore_lifecycle_seq
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1108,5 +1110,64 @@ func TestBackupJobsAndManifests(t *testing.T) {
 	}
 	if _, err := d.GetBackupManifest("m1"); err == nil {
 		t.Error("GetBackupManifest(m1) should error after delete")
+	}
+}
+
+// TestSemcoreLifecycle covers the semantic-core lifecycle journal: per-mailbox
+// monotonic seq allocation on append, seq-ordered polling with the sinceSeq
+// filter and limit, HighestSequence, and that distinct mailboxes get
+// independent seq streams.
+func TestSemcoreLifecycle(t *testing.T) {
+	d := openTestDB(t)
+	mboxA := semcore.MustMailboxId("mbox:a@x.com")
+	mboxB := semcore.MustMailboxId("mbox:b@x.com")
+
+	// Empty mailbox: highest seq is 0, poll returns nothing.
+	if h, err := d.HighestSequence(mboxA); err != nil || h != 0 {
+		t.Errorf("HighestSequence(empty)=%d err=%v want 0", h, err)
+	}
+
+	// Append three events to A; seq must be 1,2,3.
+	for i := 0; i < 3; i++ {
+		ev := semcore.Lifecycle{
+			MailboxID: mboxA,
+			FolderID:  semcore.MustFolderId("folder:inbox"),
+			Kind:      semcore.LifecycleKindCreated,
+			At:        time.Now().UTC().Truncate(time.Second),
+			Actor:     "alice@x.com",
+		}
+		if err := d.AppendLifecycle(ev); err != nil {
+			t.Fatalf("AppendLifecycle #%d: %v", i, err)
+		}
+	}
+	if h, err := d.HighestSequence(mboxA); err != nil || h != 3 {
+		t.Errorf("HighestSequence(A)=%d err=%v want 3", h, err)
+	}
+
+	// B is independent: its first event is seq 1.
+	if err := d.AppendLifecycle(semcore.Lifecycle{MailboxID: mboxB, Kind: semcore.LifecycleKindUpdated, At: time.Now().UTC()}); err != nil {
+		t.Fatalf("AppendLifecycle B: %v", err)
+	}
+	if h, err := d.HighestSequence(mboxB); err != nil || h != 1 {
+		t.Errorf("HighestSequence(B)=%d err=%v want 1", h, err)
+	}
+
+	// Poll A from the start returns all three, highest=3, fields round-trip.
+	evs, highest, err := d.PollEvents(mboxA, 0, 100)
+	if err != nil || len(evs) != 3 || highest != 3 {
+		t.Fatalf("PollEvents(A,0)=%d highest=%d err=%v want 3,3", len(evs), highest, err)
+	}
+	if evs[0].FolderID.String() != "folder:inbox" || evs[0].Actor != "alice@x.com" ||
+		evs[0].Kind != semcore.LifecycleKindCreated || evs[0].MailboxID.String() != "mbox:a@x.com" {
+		t.Errorf("event round-trip mismatch: %+v", evs[0])
+	}
+
+	// sinceSeq filter: only events after seq 1.
+	if evs, _, err := d.PollEvents(mboxA, 1, 100); err != nil || len(evs) != 2 {
+		t.Errorf("PollEvents(A,since=1)=%d err=%v want 2", len(evs), err)
+	}
+	// limit caps the result.
+	if evs, _, err := d.PollEvents(mboxA, 0, 2); err != nil || len(evs) != 2 {
+		t.Errorf("PollEvents(A,limit=2)=%d err=%v want 2", len(evs), err)
 	}
 }
