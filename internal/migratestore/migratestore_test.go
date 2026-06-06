@@ -304,3 +304,87 @@ func mustChangeKey(t *testing.T, raw string) semcore.ChangeKey {
 	}
 	return ck
 }
+
+func TestCopySemcorePolicy(t *testing.T) {
+	dst := openTestPostgres(t)
+
+	const email = "a@ex.test"
+	src, err := semcore.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("semcore.NewStore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := src.Close(); err != nil {
+			t.Errorf("close semcore source: %v", err)
+		}
+	})
+	pol := src.Policy()
+	mid := semcore.MustMailboxId(email)
+
+	if err := pol.PutRule(&semcore.Rule{ID: semcore.MustRuleId("rule-1"), MailboxID: mid, Name: "R1", Enabled: true, Priority: 1, MatchAll: true}); err != nil {
+		t.Fatalf("seed rule: %v", err)
+	}
+	if err := pol.PutOOF(&semcore.OOFPolicy{ID: semcore.MustOOFId("oof-1"), MailboxID: mid, Enabled: true, State: "Enabled", Subject: "Away", TextBody: "OOO"}); err != nil {
+		t.Fatalf("seed OOF: %v", err)
+	}
+	if err := pol.PutResource(&semcore.ResourcePolicy{ID: semcore.MustResourceId("res-1"), MailboxID: mid, Name: "Room A", Kind: semcore.ResourceKindRoom}); err != nil {
+		t.Fatalf("seed resource: %v", err)
+	}
+	if err := pol.PutRoomList(&semcore.RoomList{ID: "rl-1", Name: "All Rooms", Rooms: []string{"room-a@ex.test"}}); err != nil {
+		t.Fatalf("seed room list: %v", err)
+	}
+
+	var r Report
+	if err := CopySemcorePolicy(src, dst, &r); err != nil {
+		t.Fatalf("CopySemcorePolicy: %v", err)
+	}
+	want := Report{Rules: 1, OOFPolicies: 1, Resources: 1, RoomLists: 1}
+	if r != want {
+		t.Fatalf("report = %+v, want %+v", r, want)
+	}
+
+	if rules, err := dst.ListAllRules(); err != nil || len(rules) != 1 || rules[0].ID.String() != "rule-1" {
+		t.Fatalf("dst ListAllRules = %+v err=%v", rules, err)
+	}
+	if res, err := dst.ListResources(); err != nil || len(res) != 1 || res[0].ID.String() != "res-1" {
+		t.Fatalf("dst ListResources = %+v err=%v", res, err)
+	}
+	if rls, err := dst.ListRoomLists(); err != nil || len(rls) != 1 || rls[0].ID != "rl-1" {
+		t.Fatalf("dst ListRoomLists = %+v err=%v", rls, err)
+	}
+}
+
+func TestCopySemcoreDelegation(t *testing.T) {
+	dst := openTestPostgres(t)
+
+	const email = "a@ex.test"
+	src, err := semcore.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("semcore.NewStore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := src.Close(); err != nil {
+			t.Errorf("close semcore source: %v", err)
+		}
+	})
+
+	owner := semcore.MustMailboxId(email)
+	if _, err := src.Delegation().PutDelegate(&semcore.DelegateUser{
+		OwnerID: owner, DelegateEmail: "b@ex.test", GrantedBy: email, CanSendAs: true,
+	}); err != nil {
+		t.Fatalf("seed delegate: %v", err)
+	}
+
+	var r Report
+	if err := CopySemcoreDelegation(src, dst, &r); err != nil {
+		t.Fatalf("CopySemcoreDelegation: %v", err)
+	}
+	if r.Delegates != 1 {
+		t.Fatalf("report delegates = %d, want 1", r.Delegates)
+	}
+
+	del, err := dst.GetDelegateForUser(owner, "b@ex.test")
+	if err != nil || del.DelegateEmail != "b@ex.test" || !del.CanSendAs {
+		t.Fatalf("dst GetDelegateForUser = %+v err=%v", del, err)
+	}
+}

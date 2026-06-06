@@ -49,6 +49,13 @@ type Report struct {
 	FolderIdentities  int
 	ItemIdentities    int
 	Conversations     int
+
+	// Semantic-core durable policy and delegation.
+	Rules       int
+	OOFPolicies int
+	Resources   int
+	RoomLists   int
+	Delegates   int
 }
 
 // CopyDB copies the account/metadata layer (the data kept in umailserver.db)
@@ -424,6 +431,86 @@ func copyFolderItems(id *semcore.BoltIdentityStore, dst *postgres.DB, f semcore.
 			}
 		}
 		r.ItemIdentities++
+	}
+	return nil
+}
+
+// CopySemcorePolicy copies the durable semantic-core policy records — inbox
+// rules, out-of-office policies, resource mailboxes, and room lists — from the
+// bbolt semcore.Store to the relational *postgres.DB. Each Put preserves the
+// record's canonical id (ON CONFLICT (id)). Only currently-active OOF policies
+// are enumerable through the store, so inactive ones are not copied; that is the
+// store's read surface, not a silent drop. Notification policies (push
+// registrations) are session/registration state and are not migrated.
+func CopySemcorePolicy(src *semcore.Store, dst *postgres.DB, r *Report) error {
+	if src == nil || dst == nil || r == nil {
+		return errors.New("migratestore: nil source, destination, or report")
+	}
+	pol := src.Policy()
+
+	rules, err := pol.ListAllRules()
+	if err != nil {
+		return fmt.Errorf("list rules: %w", err)
+	}
+	for _, rule := range rules {
+		if err := dst.PutRule(rule); err != nil {
+			return fmt.Errorf("copy rule %s: %w", rule.ID.String(), err)
+		}
+		r.Rules++
+	}
+
+	oofs, err := pol.ListActiveOOF()
+	if err != nil {
+		return fmt.Errorf("list OOF policies: %w", err)
+	}
+	for _, p := range oofs {
+		if err := dst.PutOOF(p); err != nil {
+			return fmt.Errorf("copy OOF %s: %w", p.ID.String(), err)
+		}
+		r.OOFPolicies++
+	}
+
+	resources, err := pol.ListResources()
+	if err != nil {
+		return fmt.Errorf("list resources: %w", err)
+	}
+	for _, p := range resources {
+		if err := dst.PutResource(p); err != nil {
+			return fmt.Errorf("copy resource %s: %w", p.ID.String(), err)
+		}
+		r.Resources++
+	}
+
+	roomLists, err := pol.ListRoomLists()
+	if err != nil {
+		return fmt.Errorf("list room lists: %w", err)
+	}
+	for _, rl := range roomLists {
+		if err := dst.PutRoomList(rl); err != nil {
+			return fmt.Errorf("copy room list %s: %w", rl.ID, err)
+		}
+		r.RoomLists++
+	}
+	return nil
+}
+
+// CopySemcoreDelegation copies every delegate grant from the bbolt semcore.Store
+// to the relational *postgres.DB. PutDelegate mints a fresh grant id (delegate
+// ids are leaf references nothing else points at) but preserves the owner
+// MailboxId and all permission fields.
+func CopySemcoreDelegation(src *semcore.Store, dst *postgres.DB, r *Report) error {
+	if src == nil || dst == nil || r == nil {
+		return errors.New("migratestore: nil source, destination, or report")
+	}
+	delegates, err := src.Delegation().ListAllDelegates()
+	if err != nil {
+		return fmt.Errorf("list delegates: %w", err)
+	}
+	for _, del := range delegates {
+		if _, err := dst.PutDelegate(del); err != nil {
+			return fmt.Errorf("copy delegate %s→%s: %w", del.OwnerID.String(), del.DelegateEmail, err)
+		}
+		r.Delegates++
 	}
 	return nil
 }
