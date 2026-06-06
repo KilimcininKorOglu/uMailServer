@@ -20,7 +20,6 @@ import (
 	"github.com/umailserver/umailserver/internal/caldav"
 	"github.com/umailserver/umailserver/internal/carddav"
 	"github.com/umailserver/umailserver/internal/semcore"
-	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
 )
 
@@ -31,8 +30,8 @@ var idCounter uint64
 type Server struct {
 	logger          *slog.Logger
 	config          Config
-	db              *storage.Database
-	msgStore        *storage.MessageStore
+	db              MailStore
+	msgStore        MessageStore
 	sessions        map[string]*Session
 	sessionMu       sync.RWMutex
 	tracingProvider *tracing.Provider
@@ -125,7 +124,7 @@ type Session struct {
 }
 
 // NewServer creates a new JMAP server
-func NewServer(db *storage.Database, msgStore *storage.MessageStore, logger *slog.Logger, config Config) *Server {
+func NewServer(db MailStore, msgStore MessageStore, logger *slog.Logger, config Config) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
