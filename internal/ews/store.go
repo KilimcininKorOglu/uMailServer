@@ -4,12 +4,27 @@ import (
 	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/storage"
 )
 
 // This file collects the consumer-side interfaces the EWS server depends on for
 // its semantic-core stores, decoupling the handlers from the concrete
 // bbolt-backed implementations one store at a time so a relational backend can
 // slot in later. The bbolt types satisfy these via compile-time assertions.
+
+// MailStore is the message-metadata / UID-index surface the EWS server needs to
+// keep the mailstore index in sync as items are created, fetched, and deleted.
+// Both the bbolt *storage.Database and the relational *postgres.DB satisfy it;
+// Maildir message bodies are read through msgStore, not this interface.
+type MailStore interface {
+	GetNextUID(user, mailbox string) (uint32, error)
+	GetMessageUIDs(user, mailbox string) ([]uint32, error)
+	GetMessageMetadata(user, mailbox string, uid uint32) (*storage.MessageMetadata, error)
+	StoreMessageMetadata(user, mailbox string, uid uint32, meta *storage.MessageMetadata) error
+	DeleteMessage(user, mailbox string, uid uint32) error
+}
+
+var _ MailStore = (*storage.Database)(nil)
 
 // DelegateStore is the delegation surface the EWS server needs.
 type DelegateStore interface {

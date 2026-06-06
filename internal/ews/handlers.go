@@ -29,7 +29,7 @@ type Server struct {
 	sync          SyncStore
 	tombstones    TombstoneStore
 	msgStore      *storage.MessageStore
-	storageDB     *storage.Database
+	storageDB     MailStore
 	db            db.Store
 	mutationPipe  *semcore.MutationPipeline
 	subscriptions SubscriptionStore
@@ -80,7 +80,7 @@ type FreeBusyInterval struct {
 // RemoveDelegate, GetDelegate) and shared mailbox discovery.
 // The sieveMgr is used to recompile the Sieve script after policy changes.
 // The db parameter provides account/domain lookups for GAL directory operations.
-func NewServer(identity IdentityStore, syncState SyncStore, tombstones TombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, db db.Store, mutationPipe *semcore.MutationPipeline, subscriptions SubscriptionStore, lifecycle LifecycleStore, collabStore CollabStore, policyStore PolicyStore, delegateStore DelegateStore, sieveMgr *sieve.Manager, submitMessage func(from string, to []string, data []byte) error) *Server {
+func NewServer(identity IdentityStore, syncState SyncStore, tombstones TombstoneStore, msgStore *storage.MessageStore, storageDB MailStore, db db.Store, mutationPipe *semcore.MutationPipeline, subscriptions SubscriptionStore, lifecycle LifecycleStore, collabStore CollabStore, policyStore PolicyStore, delegateStore DelegateStore, sieveMgr *sieve.Manager, submitMessage func(from string, to []string, data []byte) error) *Server {
 	return &Server{
 		identity:      identity,
 		sync:          syncState,
