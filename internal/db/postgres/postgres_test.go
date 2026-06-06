@@ -51,7 +51,7 @@ func openTestDB(t *testing.T) *DB {
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
 			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity,
 			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity,
-			semcore_sync_state
+			semcore_sync_state, semcore_tombstone
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1449,5 +1449,58 @@ func TestSemcoreSyncState(t *testing.T) {
 	}
 	if rec, err := d.GetSyncState(mbox, folder, client); err != nil || rec.FolderGone || rec.Version != 3 {
 		t.Errorf("after re-put: %+v err=%v want folderGone=false version=3", rec, err)
+	}
+}
+
+// TestSemcoreTombstone covers tombstones: put, newest-wins upsert, the
+// since/folder filters in ListTombstonesSince, and that an older write does not
+// overwrite a newer record.
+func TestSemcoreTombstone(t *testing.T) {
+	d := openTestDB(t)
+	mbox := semcore.MustMailboxId("alice@x.com")
+	inbox := semcore.MustFolderId("folder:inbox")
+	archive := semcore.MustFolderId("folder:archive")
+	item := semcore.MustItemId("item:1")
+
+	t0 := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	t1 := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
+	t2 := time.Now().UTC().Truncate(time.Second)
+
+	// Initial tombstone in the inbox.
+	if err := d.PutTombstone(semcore.Tombstone{MailboxID: mbox, FolderID: inbox, ItemID: item, Kind: semcore.LifecycleKindSoftDeleted, DeletedAt: t1, Actor: "alice"}); err != nil {
+		t.Fatalf("PutTombstone: %v", err)
+	}
+	// A newer write for the same key advances DeletedAt.
+	if err := d.PutTombstone(semcore.Tombstone{MailboxID: mbox, FolderID: inbox, ItemID: item, Kind: semcore.LifecycleKindSoftDeleted, DeletedAt: t2, Actor: "alice"}); err != nil {
+		t.Fatalf("PutTombstone newer: %v", err)
+	}
+	// An older write must NOT overwrite the newer record.
+	if err := d.PutTombstone(semcore.Tombstone{MailboxID: mbox, FolderID: inbox, ItemID: item, Kind: semcore.LifecycleKindSoftDeleted, DeletedAt: t0, Actor: "stale"}); err != nil {
+		t.Fatalf("PutTombstone older: %v", err)
+	}
+	// A tombstone in another folder.
+	if err := d.PutTombstone(semcore.Tombstone{MailboxID: mbox, FolderID: archive, ItemID: semcore.MustItemId("item:2"), Kind: semcore.LifecycleKindHardDeleted, DeletedAt: t2}); err != nil {
+		t.Fatalf("PutTombstone archive: %v", err)
+	}
+
+	// Since-filter from before t1 returns both, and the inbox record keeps t2.
+	all, err := d.ListTombstonesSince(mbox, semcore.FolderId{}, t0)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("ListTombstonesSince(all)=%d err=%v want 2", len(all), err)
+	}
+	for _, ts := range all {
+		if ts.FolderID.Equal(inbox) && (!ts.DeletedAt.Equal(t2) || ts.Actor != "alice") {
+			t.Errorf("inbox tombstone not newest: %+v", ts)
+		}
+	}
+
+	// Folder filter restricts to the archive folder.
+	if list, err := d.ListTombstonesSince(mbox, archive, t0); err != nil || len(list) != 1 || !list[0].FolderID.Equal(archive) {
+		t.Errorf("ListTombstonesSince(archive)=%+v err=%v want 1 archive", list, err)
+	}
+
+	// Since after t2 excludes everything.
+	if list, err := d.ListTombstonesSince(mbox, semcore.FolderId{}, t2.Add(time.Second)); err != nil || len(list) != 0 {
+		t.Errorf("ListTombstonesSince(future)=%d err=%v want 0", len(list), err)
 	}
 }

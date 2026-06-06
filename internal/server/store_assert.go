@@ -19,4 +19,5 @@ var (
 	_ ews.LifecycleStore = (*postgres.DB)(nil)
 	_ ews.IdentityStore  = (*postgres.DB)(nil)
 	_ ews.SyncStore      = (*postgres.DB)(nil)
+	_ ews.TombstoneStore = (*postgres.DB)(nil)
 )

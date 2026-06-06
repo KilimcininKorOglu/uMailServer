@@ -500,3 +500,17 @@ CREATE TABLE IF NOT EXISTS semcore_sync_state (
     PRIMARY KEY (mailbox_id, folder_id, client_id)
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_sync_folder ON semcore_sync_state (folder_id);
+
+-- Semantic-core tombstones (deletion records for incremental sync). Keyed by
+-- (mailbox, folder, item, kind); a newer deletion supersedes an older one for the
+-- same key. kind is the numeric semcore.LifecycleKind.
+CREATE TABLE IF NOT EXISTS semcore_tombstone (
+    mailbox_id TEXT     NOT NULL,
+    folder_id  TEXT     NOT NULL DEFAULT '',
+    item_id    TEXT     NOT NULL DEFAULT '',
+    kind       SMALLINT NOT NULL DEFAULT 0,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    actor      TEXT     NOT NULL DEFAULT '',
+    PRIMARY KEY (mailbox_id, folder_id, item_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_tombstone_since ON semcore_tombstone (mailbox_id, deleted_at);
