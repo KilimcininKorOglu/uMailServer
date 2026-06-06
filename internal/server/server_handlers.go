@@ -297,11 +297,14 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 		}
 	}
 
-	// If no fileinto targets, use inbox as default (unless discard with no explicit keep)
+	// If no fileinto targets, use inbox as default (unless discard or redirect
+	// cancels the implicit keep). RFC 5228: a bare redirect (no :copy) forwards
+	// the message WITHOUT keeping a local copy; an explicit `keep` after redirect
+	// still keeps one (hasKeep below).
 	if len(targetFolders) == 0 {
 		if hasKeep {
 			targetFolders = []string{""} // keep overrides discard
-		} else if !hasDiscard {
+		} else if !hasDiscard && len(redirectAddrs) == 0 {
 			targetFolders = []string{""} // implicit keep
 		}
 	} else if hasKeep {
