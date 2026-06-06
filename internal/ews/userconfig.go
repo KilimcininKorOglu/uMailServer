@@ -13,8 +13,6 @@ import (
 // (Dictionary, XmlData, BinaryData) is stored opaquely and replayed verbatim on
 // Get, which is sufficient for client round-tripping.
 
-const userConfigBucketPrefix = "ewsuserconfig:"
-
 // userConfigNameRef is the UserConfigurationName (config name + owning folder).
 type userConfigNameRef struct {
 	Name                  string `xml:"Name,attr"`
@@ -38,11 +36,11 @@ func (n userConfigNameRef) folderKey() string {
 	}
 }
 
-// storedUserConfig is the persisted UserConfiguration payload.
-type storedUserConfig struct {
-	Dictionary string `json:"dictionary,omitempty"` // raw inner XML of <Dictionary>
-	XMLData    string `json:"xml_data,omitempty"`   // base64
-	BinaryData string `json:"binary_data,omitempty"` // base64
+// userConfigOwnerName derives the (owner, name) identity the store keys an EWS
+// UserConfiguration by: owner is the mailbox key (without the "e:" prefix) and
+// name combines the folder key with the configuration name.
+func userConfigOwnerName(mboxKey string, n userConfigNameRef) (owner, name string) {
+	return strings.TrimPrefix(mboxKey, "e:"), n.folderKey() + ":" + n.Name
 }
 
 // userConfigPayload captures the data fields of a UserConfiguration element.
@@ -77,10 +75,6 @@ type GetUserConfigurationRequest struct {
 type DeleteUserConfigurationRequest struct {
 	XMLName xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteUserConfiguration"`
 	Name    userConfigNameRef `xml:"http://schemas.microsoft.com/exchange/services/2006/messages UserConfigurationName"`
-}
-
-func (s *Server) userConfigKey(mailboxKey string, n userConfigNameRef) string {
-	return userConfigBucketPrefix + mailboxKey + ":" + n.folderKey() + ":" + n.Name
 }
 
 func (s *Server) handleCreateUserConfiguration(ctx context.Context, body []byte) []byte {
@@ -119,13 +113,13 @@ func (s *Server) putUserConfiguration(ctx context.Context, body []byte, op strin
 		return s.errorResponseXML(op, ErrErrorInvalidOperation, "UserConfigurationName is required")
 	}
 
-	stored := storedUserConfig{
+	blob := &db.UserConfigBlob{
 		Dictionary: strings.TrimSpace(cfg.Dictionary.Inner),
 		XMLData:    strings.TrimSpace(cfg.XMLData),
 		BinaryData: strings.TrimSpace(cfg.BinaryData),
 	}
-	key := s.userConfigKey(strings.TrimPrefix(mboxKey, "e:"), cfg.Name)
-	if err := s.db.Put(db.BucketPreferences, key, stored); err != nil {
+	owner, name := userConfigOwnerName(mboxKey, cfg.Name)
+	if err := s.db.PutUserConfig(owner, name, blob); err != nil {
 		return s.errorResponseXML(op, ErrErrorInternalServer, "failed to persist configuration")
 	}
 
@@ -145,9 +139,9 @@ func (s *Server) handleGetUserConfiguration(ctx context.Context, body []byte) []
 		return s.errorResponseXML("GetUserConfiguration", ErrErrorInternalServer, "configuration store not available")
 	}
 
-	var stored storedUserConfig
-	key := s.userConfigKey(strings.TrimPrefix(mboxKey, "e:"), req.Name)
-	if err := s.db.Get(db.BucketPreferences, key, &stored); err != nil {
+	owner, name := userConfigOwnerName(mboxKey, req.Name)
+	stored, err := s.db.GetUserConfig(owner, name)
+	if err != nil {
 		return s.errorResponseXML("GetUserConfiguration", ErrErrorItemNotFound, "user configuration not found")
 	}
 
@@ -195,8 +189,8 @@ func (s *Server) handleDeleteUserConfiguration(ctx context.Context, body []byte)
 	if s.db == nil {
 		return s.errorResponseXML("DeleteUserConfiguration", ErrErrorInternalServer, "configuration store not available")
 	}
-	key := s.userConfigKey(strings.TrimPrefix(mboxKey, "e:"), req.Name)
-	if err := s.db.Delete(db.BucketPreferences, key); err != nil {
+	owner, name := userConfigOwnerName(mboxKey, req.Name)
+	if err := s.db.DeleteUserConfig(owner, name); err != nil {
 		return s.errorResponseXML("DeleteUserConfiguration", ErrErrorInternalServer, "failed to delete configuration")
 	}
 	return s.userConfigSimpleResponse("DeleteUserConfigurationResponse")

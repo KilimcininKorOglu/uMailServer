@@ -88,6 +88,54 @@ func (d *DB) PutSignature(user, signature string) error {
 	return nil
 }
 
+// GetCategories returns the user's ordered webmail categories (nil when none).
+func (d *DB) GetCategories(user string) ([]db.Category, error) {
+	ctx := context.Background()
+	rows, err := d.pool.Query(ctx,
+		`SELECT name, color FROM user_categories WHERE user_email=$1 ORDER BY ord`, user)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: get categories %q: %w", user, err)
+	}
+	defer rows.Close()
+	var cats []db.Category
+	for rows.Next() {
+		var c db.Category
+		if err := rows.Scan(&c.Name, &c.Color); err != nil {
+			return nil, fmt.Errorf("postgres: scan category %q: %w", user, err)
+		}
+		cats = append(cats, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: get categories %q: %w", user, err)
+	}
+	return cats, nil
+}
+
+// PutCategories replaces the user's categories.
+func (d *DB) PutCategories(user string, categories []db.Category) error {
+	ctx := context.Background()
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin put categories: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+	if _, err := tx.Exec(ctx, `DELETE FROM user_categories WHERE user_email=$1`, user); err != nil {
+		return fmt.Errorf("postgres: clear categories %q: %w", user, err)
+	}
+	for i, c := range categories {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO user_categories (user_email, ord, name, color) VALUES ($1,$2,$3,$4)`,
+			user, i, c.Name, c.Color,
+		); err != nil {
+			return fmt.Errorf("postgres: insert category %q[%d]: %w", user, i, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres: commit put categories: %w", err)
+	}
+	return nil
+}
+
 // GetVacation returns the user's vacation config, erroring when none is stored
 // (the caller falls back to its default), including the exclude list.
 func (d *DB) GetVacation(user string) (*vacation.Config, error) {

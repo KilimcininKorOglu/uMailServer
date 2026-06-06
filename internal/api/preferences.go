@@ -22,8 +22,8 @@ func (s *Server) handlePreferences(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		prefs := map[string]bool{}
-		if err := s.db.Get(db.BucketPreferences, user, &prefs); err != nil {
+		prefs, err := s.db.GetUIPrefs(user)
+		if err != nil {
 			prefs = map[string]bool{}
 		}
 		s.sendJSON(w, http.StatusOK, map[string]interface{}{"preferences": prefs})
@@ -33,7 +33,7 @@ func (s *Server) handlePreferences(w http.ResponseWriter, r *http.Request) {
 			s.sendError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		if err := s.db.Put(db.BucketPreferences, user, prefs); err != nil {
+		if err := s.db.PutUIPrefs(user, prefs); err != nil {
 			s.sendError(w, http.StatusInternalServerError, "failed to save preferences")
 			return
 		}
@@ -65,14 +65,13 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := user + ":signature"
 	switch r.Method {
 	case http.MethodGet:
-		var pref signaturePref
-		if err := s.db.Get(db.BucketPreferences, key, &pref); err != nil {
-			pref = signaturePref{}
+		sig, err := s.db.GetSignature(user)
+		if err != nil {
+			sig = ""
 		}
-		s.sendJSON(w, http.StatusOK, pref)
+		s.sendJSON(w, http.StatusOK, signaturePref{Signature: sig})
 	case http.MethodPut, http.MethodPost:
 		var pref signaturePref
 		if err := decodeJSON(r, &pref); err != nil {
@@ -83,7 +82,7 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 			s.sendError(w, http.StatusBadRequest, "signature exceeds maximum length of 10000")
 			return
 		}
-		if err := s.db.Put(db.BucketPreferences, key, pref); err != nil {
+		if err := s.db.PutSignature(user, pref.Signature); err != nil {
 			s.sendError(w, http.StatusInternalServerError, "failed to save signature")
 			return
 		}
@@ -105,10 +104,9 @@ type categoriesPref struct {
 }
 
 const (
-	maxCategories     = 50
-	maxCategoryName   = 100
-	maxCategoryColor  = 32
-	categoriesPrefKey = ":categories"
+	maxCategories    = 50
+	maxCategoryName  = 100
+	maxCategoryColor = 32
 )
 
 // handleCategories stores and returns the user's master category list (name +
@@ -125,17 +123,17 @@ func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := user + categoriesPrefKey
 	switch r.Method {
 	case http.MethodGet:
-		var pref categoriesPref
-		if err := s.db.Get(db.BucketPreferences, key, &pref); err != nil {
-			pref = categoriesPref{}
+		stored, err := s.db.GetCategories(user)
+		if err != nil {
+			stored = nil
 		}
-		if pref.Categories == nil {
-			pref.Categories = []category{}
+		cats := make([]category, 0, len(stored))
+		for _, c := range stored {
+			cats = append(cats, category{Name: c.Name, Color: c.Color})
 		}
-		s.sendJSON(w, http.StatusOK, pref)
+		s.sendJSON(w, http.StatusOK, categoriesPref{Categories: cats})
 	case http.MethodPut, http.MethodPost:
 		var pref categoriesPref
 		if err := decodeJSON(r, &pref); err != nil {
@@ -145,6 +143,7 @@ func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
 		// Normalize: trim, drop empties, dedupe by name (case-insensitive), cap.
 		seen := map[string]bool{}
 		normalized := make([]category, 0, len(pref.Categories))
+		stored := make([]db.Category, 0, len(pref.Categories))
 		for _, c := range pref.Categories {
 			name := strings.TrimSpace(c.Name)
 			if name == "" || len(name) > maxCategoryName || len(c.Color) > maxCategoryColor {
@@ -155,13 +154,15 @@ func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seen[lc] = true
-			normalized = append(normalized, category{Name: name, Color: strings.TrimSpace(c.Color)})
+			color := strings.TrimSpace(c.Color)
+			normalized = append(normalized, category{Name: name, Color: color})
+			stored = append(stored, db.Category{Name: name, Color: color})
 			if len(normalized) >= maxCategories {
 				break
 			}
 		}
 		pref.Categories = normalized
-		if err := s.db.Put(db.BucketPreferences, key, pref); err != nil {
+		if err := s.db.PutCategories(user, stored); err != nil {
 			s.sendError(w, http.StatusInternalServerError, "failed to save categories")
 			return
 		}

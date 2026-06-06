@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
@@ -221,11 +220,11 @@ func (s *Server) getVacationConfig(user string) (*vacation.Config, error) {
 		return defaultConfig, nil
 	}
 	// Load from the database; a missing key means no config is set yet.
-	var config vacation.Config
-	if err := s.db.Get(db.BucketVacation, user, &config); err != nil {
+	config, err := s.db.GetVacation(user)
+	if err != nil {
 		return defaultConfig, nil
 	}
-	return &config, nil
+	return config, nil
 }
 
 // setVacationConfig sets vacation config for a user
@@ -258,7 +257,7 @@ func (s *Server) setVacationConfig(user string, config *vacation.Config) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	return s.db.Put(db.BucketVacation, user, config)
+	return s.db.PutVacation(user, config)
 }
 
 // deleteVacationConfig deletes vacation config for a user
@@ -294,7 +293,7 @@ func (s *Server) deleteVacationConfig(user string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	return s.db.Delete(db.BucketVacation, user)
+	return s.db.DeleteVacation(user)
 }
 
 // listActiveVacations lists all active vacations

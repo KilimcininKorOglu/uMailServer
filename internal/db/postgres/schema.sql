@@ -203,6 +203,15 @@ CREATE TABLE IF NOT EXISTS user_signatures (
     signature  TEXT NOT NULL DEFAULT ''
 );
 
+-- Webmail message categories (ordered name + color per user).
+CREATE TABLE IF NOT EXISTS user_categories (
+    user_email TEXT    NOT NULL,
+    ord        INTEGER NOT NULL,
+    name       TEXT    NOT NULL,
+    color      TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (user_email, ord)
+);
+
 -- Vacation / auto-reply config (the legacy fallback store; the canonical OOF
 -- lives in the semantic core). send_interval is stored as nanoseconds to match
 -- the Go time.Duration round-trip.
