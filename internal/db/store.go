@@ -1,10 +1,18 @@
 package db
 
 import (
+	"errors"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/vacation"
 )
+
+// ErrNotFound is returned (wrapped) by a Store's lookup methods when the
+// requested record does not exist. Callers distinguish "absent" from a real
+// failure with errors.Is(err, db.ErrNotFound) rather than matching an
+// engine-specific error string, so the bbolt and PostgreSQL backends are
+// interchangeable.
+var ErrNotFound = errors.New("not found")
 
 // Store is the account/domain/alias/group/tenant/queue/auth/preferences surface
 // the server and its protocol handlers depend on at runtime. The bbolt-backed

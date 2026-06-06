@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -480,7 +481,7 @@ func syncConfiguredDomains(database db.Store, configuredDomains []config.DomainC
 	for _, domain := range configuredDomains {
 		existingDomain, err := database.GetDomain(domain.Name)
 		if err != nil {
-			if !strings.HasPrefix(err.Error(), "key not found:") {
+			if !errors.Is(err, db.ErrNotFound) {
 				return err
 			}
 			if err := database.CreateDomain(&db.DomainData{

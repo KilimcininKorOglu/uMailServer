@@ -81,7 +81,7 @@ func (d *DB) GetMailGroup(domain, localPart string) (*db.MailGroup, error) {
 		mailGroupSelect+` WHERE lower(domain)=lower($1) AND lower(local_part)=lower($2)`, domain, localPart))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: mail group %s/%s not found", domain, localPart)
+			return nil, fmt.Errorf("postgres: mail group %s/%s not found: %w", domain, localPart, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get mail group %s/%s: %w", domain, localPart, err)
 	}

@@ -65,7 +65,7 @@ func (d *DB) GetDomain(name string) (*db.DomainData, error) {
 	domain, err := scanDomain(d.pool.QueryRow(ctx, domainSelect+` WHERE name=$1`, name))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: domain %q not found", name)
+			return nil, fmt.Errorf("postgres: domain %q not found: %w", name, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get domain %q: %w", name, err)
 	}
@@ -101,7 +101,7 @@ func (d *DB) UpdateDomain(domain *db.DomainData) error {
 		return fmt.Errorf("postgres: update domain %q: %w", domain.Name, err)
 	}
 	if ct.RowsAffected() == 0 {
-		return fmt.Errorf("postgres: domain %q not found", domain.Name)
+		return fmt.Errorf("postgres: domain %q not found: %w", domain.Name, db.ErrNotFound)
 	}
 	if err := replaceDomainSettings(ctx, tx, domain.Name, domain.Settings); err != nil {
 		return err

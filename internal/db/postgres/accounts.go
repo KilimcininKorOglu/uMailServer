@@ -52,7 +52,7 @@ func (d *DB) GetAccount(domain, localPart string) (*db.AccountData, error) {
 	account, err := scanAccount(d.pool.QueryRow(ctx, accountSelect+` WHERE domain=$1 AND local_part=$2`, domain, localPart))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: account %s/%s not found", domain, localPart)
+			return nil, fmt.Errorf("postgres: account %s/%s not found: %w", domain, localPart, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get account %s/%s: %w", domain, localPart, err)
 	}
@@ -109,7 +109,7 @@ func (d *DB) UpdateAccount(account *db.AccountData) error {
 		return fmt.Errorf("postgres: update account %q: %w", account.Email, err)
 	}
 	if ct.RowsAffected() == 0 {
-		return fmt.Errorf("postgres: account %q not found", account.Email)
+		return fmt.Errorf("postgres: account %q not found: %w", account.Email, db.ErrNotFound)
 	}
 	return nil
 }
@@ -147,7 +147,7 @@ func (d *DB) IncrementQuota(domain, localPart string, delta int64) error {
 	).Scan(&used, &limit)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("postgres: account %s/%s not found", domain, localPart)
+			return fmt.Errorf("postgres: account %s/%s not found: %w", domain, localPart, db.ErrNotFound)
 		}
 		return fmt.Errorf("postgres: lock account %s/%s: %w", domain, localPart, err)
 	}

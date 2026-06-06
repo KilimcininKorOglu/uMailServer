@@ -285,7 +285,7 @@ func (d *DB) Get(bucket string, key string, dest interface{}) error {
 
 		data := b.Get([]byte(key))
 		if data == nil {
-			return fmt.Errorf("key not found: %s", key)
+			return fmt.Errorf("key not found: %s: %w", key, ErrNotFound)
 		}
 
 		return json.Unmarshal(data, dest)

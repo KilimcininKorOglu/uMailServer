@@ -25,7 +25,7 @@ import (
 )
 
 func isAccountLookupMiss(err error) bool {
-	return err != nil && strings.HasPrefix(err.Error(), "key not found: ")
+	return errors.Is(err, db.ErrNotFound)
 }
 
 // baseLocalPart strips an RFC 5233 "+detail" subaddress suffix from a local part,

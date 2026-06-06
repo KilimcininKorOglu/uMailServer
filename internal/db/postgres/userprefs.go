@@ -151,7 +151,7 @@ func (d *DB) GetVacation(user string) (*vacation.Config, error) {
 		&interval, &c.IgnoreLists, &c.IgnoreBulk)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: vacation config for %q not found", user)
+			return nil, fmt.Errorf("postgres: vacation config for %q not found: %w", user, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get vacation %q: %w", user, err)
 	}
@@ -239,7 +239,7 @@ func (d *DB) GetUserConfig(owner, name string) (*db.UserConfigBlob, error) {
 	).Scan(&b.Dictionary, &b.XMLData, &b.BinaryData)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: user config %s/%s not found", owner, name)
+			return nil, fmt.Errorf("postgres: user config %s/%s not found: %w", owner, name, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get user config %s/%s: %w", owner, name, err)
 	}

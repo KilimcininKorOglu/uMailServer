@@ -55,7 +55,7 @@ func (d *DB) GetAlias(domain, localPart string) (*db.AliasData, error) {
 	).Scan(&a.Domain, &a.Alias, &a.Target, &a.IsActive, &a.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: alias %s/%s not found", domain, localPart)
+			return nil, fmt.Errorf("postgres: alias %s/%s not found: %w", domain, localPart, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get alias %s/%s: %w", domain, localPart, err)
 	}

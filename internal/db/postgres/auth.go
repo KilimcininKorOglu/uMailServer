@@ -89,7 +89,7 @@ func (d *DB) GetClientSession(id string) (*db.ClientSession, error) {
 	s, err := scanSession(d.pool.QueryRow(ctx, sessionSelect+` WHERE id=$1`, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: client session %q not found", id)
+			return nil, fmt.Errorf("postgres: client session %q not found: %w", id, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get client session %q: %w", id, err)
 	}
@@ -110,7 +110,7 @@ func (d *DB) UpdateClientSession(session *db.ClientSession) error {
 		return fmt.Errorf("postgres: update client session %q: %w", session.ID, err)
 	}
 	if ct.RowsAffected() == 0 {
-		return fmt.Errorf("postgres: client session %q not found", session.ID)
+		return fmt.Errorf("postgres: client session %q not found: %w", session.ID, db.ErrNotFound)
 	}
 	return nil
 }
@@ -155,7 +155,7 @@ func (d *DB) RevokeClientSession(id string) error {
 		return fmt.Errorf("postgres: revoke client session %q: %w", id, err)
 	}
 	if ct.RowsAffected() == 0 {
-		return fmt.Errorf("postgres: client session %q not found", id)
+		return fmt.Errorf("postgres: client session %q not found: %w", id, db.ErrNotFound)
 	}
 	return nil
 }

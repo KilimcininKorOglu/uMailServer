@@ -75,7 +75,7 @@ func (d *DB) GetTenant(id string) (*db.TenantData, error) {
 	).Scan(&t.ID, &t.Name, &t.IsActive, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: tenant %q not found", id)
+			return nil, fmt.Errorf("postgres: tenant %q not found: %w", id, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get tenant %q: %w", id, err)
 	}

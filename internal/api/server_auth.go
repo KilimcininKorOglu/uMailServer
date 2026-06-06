@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -78,7 +79,7 @@ func enforceAuthenticatedAccount(database db.Store, user string, mustChangePassw
 	localPart, domain := parseEmail(user)
 	account, err := database.GetAccount(domain, localPart)
 	if err != nil {
-		if strings.HasPrefix(err.Error(), "key not found: ") {
+		if errors.Is(err, db.ErrNotFound) {
 			return mustChangePasswordClaim, nil
 		}
 		return false, err

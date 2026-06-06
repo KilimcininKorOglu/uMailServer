@@ -78,7 +78,7 @@ func (d *DB) GetQueueEntry(id string) (*db.QueueEntry, error) {
 	entry, err := scanQueueEntry(d.pool.QueryRow(ctx, queueSelect+` WHERE id=$1`, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: queue entry %q not found", id)
+			return nil, fmt.Errorf("postgres: queue entry %q not found: %w", id, db.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get queue entry %q: %w", id, err)
 	}
