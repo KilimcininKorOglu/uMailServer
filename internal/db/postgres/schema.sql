@@ -93,15 +93,17 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 CREATE INDEX IF NOT EXISTS idx_accounts_domain ON accounts (domain);
 
--- Aliases -------------------------------------------------------------------
+-- Aliases. The alias column holds the local part (e.g. "info"); identity is
+-- (domain, local part). Matching the bbolt store, the key is case-insensitive
+-- (it lower-cased the local part), so uniqueness and lookups use lower(alias).
 CREATE TABLE IF NOT EXISTS aliases (
-    alias      TEXT PRIMARY KEY,
-    target     TEXT        NOT NULL,
     domain     TEXT        NOT NULL REFERENCES domains (name) ON DELETE CASCADE,
+    alias      TEXT        NOT NULL,
+    target     TEXT        NOT NULL,
     is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_aliases_domain ON aliases (domain);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_aliases_key ON aliases (domain, lower(alias));
 
 -- Mail groups ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mail_groups (

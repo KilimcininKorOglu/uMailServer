@@ -167,3 +167,115 @@ func TestDomainRoundTrip(t *testing.T) {
 		t.Errorf("ListDomains mismatch: %+v", domains)
 	}
 }
+
+// TestAliasRoundTrip covers alias create/get/list/delete with case-insensitive
+// keying matching the bbolt store.
+func TestAliasRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+	if err := d.CreateDomain(&db.DomainData{Name: "example.com", IsActive: true}); err != nil {
+		t.Fatalf("CreateDomain: %v", err)
+	}
+	if err := d.CreateAlias(&db.AliasData{Alias: "Info", Domain: "example.com", Target: "user@example.com", IsActive: true}); err != nil {
+		t.Fatalf("CreateAlias: %v", err)
+	}
+	// Case-insensitive lookup matches the bbolt lower-cased key.
+	got, err := d.GetAlias("example.com", "info")
+	if err != nil {
+		t.Fatalf("GetAlias: %v", err)
+	}
+	if got.Target != "user@example.com" {
+		t.Errorf("alias target mismatch: %+v", got)
+	}
+	// Re-create with same case-insensitive key overwrites (bbolt Put semantics).
+	if err := d.CreateAlias(&db.AliasData{Alias: "info", Domain: "example.com", Target: "two@example.com", IsActive: true}); err != nil {
+		t.Fatalf("CreateAlias overwrite: %v", err)
+	}
+	list, err := d.ListAliases()
+	if err != nil {
+		t.Fatalf("ListAliases: %v", err)
+	}
+	if len(list) != 1 || list[0].Target != "two@example.com" {
+		t.Errorf("alias overwrite/list mismatch: %+v", list)
+	}
+	if err := d.DeleteAlias("example.com", "INFO"); err != nil {
+		t.Fatalf("DeleteAlias: %v", err)
+	}
+	if _, err := d.GetAlias("example.com", "info"); err == nil {
+		t.Error("GetAlias after delete should error")
+	}
+}
+
+// TestTenantRoundTrip covers tenant create/get/list with settings.
+func TestTenantRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+	tn := &db.TenantData{ID: "acme", Name: "Acme", IsActive: true, Settings: map[string]string{"plan": "pro"}}
+	if err := d.CreateTenant(tn); err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	got, err := d.GetTenant("acme")
+	if err != nil {
+		t.Fatalf("GetTenant: %v", err)
+	}
+	if got.Name != "Acme" || got.Settings["plan"] != "pro" {
+		t.Errorf("tenant mismatch: %+v", got)
+	}
+	if err := d.CreateTenant(&db.TenantData{}); err == nil {
+		t.Error("CreateTenant with empty id should error")
+	}
+}
+
+// TestIncrementQuota covers the atomic quota update and the effective-ceiling
+// rule (tighter of account limit and domain max_mailbox_size).
+func TestIncrementQuota(t *testing.T) {
+	d := openTestDB(t)
+	if err := d.CreateDomain(&db.DomainData{Name: "example.com", MaxMailboxSize: 1000, IsActive: true}); err != nil {
+		t.Fatalf("CreateDomain: %v", err)
+	}
+	if err := d.CreateAccount(&db.AccountData{Email: "a@example.com", LocalPart: "a", Domain: "example.com", QuotaLimit: 5000, IsActive: true}); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	// 500 is within both limits.
+	if err := d.IncrementQuota("example.com", "a", 500); err != nil {
+		t.Fatalf("IncrementQuota(+500): %v", err)
+	}
+	acc, err := d.GetAccount("example.com", "a")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if acc.QuotaUsed != 500 {
+		t.Errorf("quota_used=%d want 500", acc.QuotaUsed)
+	}
+	// +600 would reach 1100 > domain ceiling 1000 (tighter than account 5000).
+	if err := d.IncrementQuota("example.com", "a", 600); err == nil {
+		t.Error("IncrementQuota past domain ceiling should error")
+	}
+	// Shrinking is always allowed and ignores the ceiling.
+	if err := d.IncrementQuota("example.com", "a", -200); err != nil {
+		t.Fatalf("IncrementQuota(-200): %v", err)
+	}
+	acc, err = d.GetAccount("example.com", "a")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if acc.QuotaUsed != 300 {
+		t.Errorf("quota_used=%d want 300", acc.QuotaUsed)
+	}
+	// Update/Delete round-trip.
+	acc.DisplayName = "Renamed"
+	if err := d.UpdateAccount(acc); err != nil {
+		t.Fatalf("UpdateAccount: %v", err)
+	}
+	reread, err := d.GetAccount("example.com", "a")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if reread.DisplayName != "Renamed" {
+		t.Errorf("UpdateAccount not persisted: %+v", reread)
+	}
+	if err := d.DeleteAccount("example.com", "a"); err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+	if _, err := d.GetAccount("example.com", "a"); err == nil {
+		t.Error("GetAccount after delete should error")
+	}
+}

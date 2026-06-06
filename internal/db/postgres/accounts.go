@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -80,6 +81,106 @@ func (d *DB) ListAccountsByDomain(domain string) ([]*db.AccountData, error) {
 		return nil, fmt.Errorf("postgres: list accounts in %q: %w", domain, err)
 	}
 	return accounts, nil
+}
+
+// UpdateAccount re-stamps UpdatedAt and overwrites the account row identified by
+// email, mirroring db.DB.UpdateAccount's Put.
+func (d *DB) UpdateAccount(account *db.AccountData) error {
+	ctx := context.Background()
+	account.UpdatedAt = time.Now()
+	ct, err := d.pool.Exec(ctx, `
+		UPDATE accounts SET local_part=$2, domain=$3, password_hash=$4, apop_hash=$5,
+			totp_secret=$6, totp_enabled=$7, totp_last_used_step=$8, quota_used=$9,
+			quota_limit=$10, max_message_size=$11, forward_to=$12, forward_keep_copy=$13,
+			sieve_script=$14, vacation_settings=$15, must_change_password=$16, is_admin=$17,
+			is_tenant_admin=$18, is_active=$19, compatibility_tier=$20, updated_at=$21,
+			last_login_at=$22, avatar=$23, avatar_type=$24, display_name=$25, title=$26,
+			department=$27, phone=$28
+		WHERE email=$1`,
+		account.Email, account.LocalPart, account.Domain, account.PasswordHash, account.APOPHash,
+		account.TOTPSecret, account.TOTPEnabled, account.TOTPLastUsedStep, account.QuotaUsed,
+		account.QuotaLimit, account.MaxMessageSize, account.ForwardTo, account.ForwardKeepCopy,
+		account.SieveScript, account.VacationSettings, account.MustChangePassword, account.IsAdmin,
+		account.IsTenantAdmin, account.IsActive, account.CompatibilityTier, account.UpdatedAt,
+		nullTime(account.LastLoginAt), nullBytes(account.Avatar), account.AvatarType, account.DisplayName,
+		account.Title, account.Department, account.Phone,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: update account %q: %w", account.Email, err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("postgres: account %q not found", account.Email)
+	}
+	return nil
+}
+
+// DeleteAccount removes the account at (domain, local_part).
+func (d *DB) DeleteAccount(domain, localPart string) error {
+	ctx := context.Background()
+	if _, err := d.pool.Exec(ctx,
+		`DELETE FROM accounts WHERE domain=$1 AND local_part=$2`, domain, localPart,
+	); err != nil {
+		return fmt.Errorf("postgres: delete account %s/%s: %w", domain, localPart, err)
+	}
+	return nil
+}
+
+// IncrementQuota atomically adds delta to an account's quota_used, enforcing the
+// same effective ceiling as db.DB.IncrementQuota: the tighter of the account's
+// own quota_limit and the domain's max_mailbox_size (0 = unlimited on either
+// side), checked only on growth. The account row is locked FOR UPDATE so the
+// read-modify-write is safe under concurrent writers across nodes — the reason
+// this moves off the single-writer bbolt store.
+func (d *DB) IncrementQuota(domain, localPart string, delta int64) error {
+	ctx := context.Background()
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin increment quota: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	var used, limit int64
+	err = tx.QueryRow(ctx,
+		`SELECT quota_used, quota_limit FROM accounts
+		 WHERE domain=$1 AND local_part=$2 FOR UPDATE`,
+		domain, localPart,
+	).Scan(&used, &limit)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("postgres: account %s/%s not found", domain, localPart)
+		}
+		return fmt.Errorf("postgres: lock account %s/%s: %w", domain, localPart, err)
+	}
+
+	effectiveLimit := limit
+	if delta > 0 {
+		var domLimit int64
+		derr := tx.QueryRow(ctx, `SELECT max_mailbox_size FROM domains WHERE name=$1`, domain).Scan(&domLimit)
+		if derr != nil && !errors.Is(derr, pgx.ErrNoRows) {
+			return fmt.Errorf("postgres: read domain ceiling %q: %w", domain, derr)
+		}
+		if domLimit > 0 && (effectiveLimit == 0 || domLimit < effectiveLimit) {
+			effectiveLimit = domLimit
+		}
+	}
+	if effectiveLimit > 0 && used+delta > effectiveLimit {
+		return fmt.Errorf("quota exceeded for user: %s/%s", domain, localPart)
+	}
+	if delta > 0 && used > math.MaxInt64-delta {
+		return fmt.Errorf("quota overflow for user: %s/%s", domain, localPart)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE accounts SET quota_used=$3, updated_at=now()
+		 WHERE domain=$1 AND local_part=$2`,
+		domain, localPart, used+delta,
+	); err != nil {
+		return fmt.Errorf("postgres: update quota %s/%s: %w", domain, localPart, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres: commit increment quota: %w", err)
+	}
+	return nil
 }
 
 const accountSelect = `
