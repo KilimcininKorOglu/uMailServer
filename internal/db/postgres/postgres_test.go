@@ -10,6 +10,7 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/mapi"
 	"github.com/umailserver/umailserver/internal/queue"
+	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
 
@@ -738,5 +739,100 @@ func TestMailboxLifecycleAndChanges(t *testing.T) {
 	}
 	if len(names) < 7 {
 		t.Errorf("expected >=7 default mailboxes, got %d: %v", len(names), names)
+	}
+}
+
+// TestMessageCRUD covers store/get/update/delete, counts, the atomic modseq
+// bump in UpdateMessageMetadataFunc, ClearRecent, and the generated search
+// vector — against real Postgres.
+func TestMessageCRUD(t *testing.T) {
+	d := openTestDB(t)
+	const user, mbox = "u@x.com", "INBOX"
+
+	meta := &storage.MessageMetadata{
+		MessageID: "<m1@x>", UID: 1, Flags: []string{"\\Recent"},
+		Size: 1234, Subject: "Quarterly report", From: "boss@x.com", To: "u@x.com",
+		ThreadID: "t1", IsThreadRoot: true,
+	}
+	if err := d.StoreMessageMetadata(user, mbox, 1, meta); err != nil {
+		t.Fatalf("StoreMessageMetadata: %v", err)
+	}
+	// Email "created" change recorded.
+	ch, _, _, err := d.GetChangesSince(user, "email", 0, 10)
+	if err != nil {
+		t.Fatalf("GetChangesSince(email): %v", err)
+	}
+	if len(ch) != 1 || ch[0].Kind != "created" || ch[0].ID != "<m1@x>" {
+		t.Errorf("expected created email change, got %+v", ch)
+	}
+
+	got, err := d.GetMessageMetadata(user, mbox, 1)
+	if err != nil {
+		t.Fatalf("GetMessageMetadata: %v", err)
+	}
+	if got.Subject != "Quarterly report" || got.Size != 1234 || got.ThreadID != "t1" || !got.IsThreadRoot {
+		t.Errorf("message fields mismatch: %+v", got)
+	}
+	// Missing message returns empty (not error), matching bbolt.
+	if empty, err := d.GetMessageMetadata(user, mbox, 999); err != nil || empty.MessageID != "" {
+		t.Errorf("missing message should be empty: %+v err=%v", empty, err)
+	}
+
+	uids, err := d.GetMessageUIDs(user, mbox)
+	if err != nil || len(uids) != 1 || uids[0] != 1 {
+		t.Errorf("GetMessageUIDs mismatch: %v err=%v", uids, err)
+	}
+
+	// Counts: 1 exists, 1 recent (\Recent), 1 unseen (no \Seen).
+	ex, rc, un, err := d.GetMailboxCounts(user, mbox)
+	if err != nil || ex != 1 || rc != 1 || un != 1 {
+		t.Errorf("counts exists=%d recent=%d unseen=%d err=%v want 1,1,1", ex, rc, un, err)
+	}
+
+	// UpdateMessageMetadataFunc sets \Seen and bumps modseq.
+	if err := d.UpdateMessageMetadataFunc(user, mbox, 1, func(m *storage.MessageMetadata) error {
+		m.Flags = []string{"\\Seen"}
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateMessageMetadataFunc: %v", err)
+	}
+	after, err := d.GetMessageMetadata(user, mbox, 1)
+	if err != nil {
+		t.Fatalf("GetMessageMetadata: %v", err)
+	}
+	if after.ModSeq == 0 {
+		t.Error("modseq should have advanced after flag update")
+	}
+	_, rc2, un2, cerr := d.GetMailboxCounts(user, mbox)
+	if cerr != nil {
+		t.Fatalf("GetMailboxCounts: %v", cerr)
+	}
+	if rc2 != 0 || un2 != 0 {
+		t.Errorf("after \\Seen: recent=%d unseen=%d want 0,0", rc2, un2)
+	}
+
+	// ClearRecent is a no-op now (no \Recent left) but must not error.
+	if err := d.ClearRecent(user, mbox); err != nil {
+		t.Fatalf("ClearRecent: %v", err)
+	}
+
+	// The generated search vector indexes the subject.
+	var matches int
+	if err := d.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM messages WHERE user_email=$1 AND search @@ to_tsquery('simple','quarterly')`,
+		user,
+	).Scan(&matches); err != nil {
+		t.Fatalf("search query: %v", err)
+	}
+	if matches != 1 {
+		t.Errorf("tsvector search for 'quarterly' matched %d, want 1", matches)
+	}
+
+	// Delete records a destroyed email change and removes the row.
+	if err := d.DeleteMessage(user, mbox, 1); err != nil {
+		t.Fatalf("DeleteMessage: %v", err)
+	}
+	if uids, uerr := d.GetMessageUIDs(user, mbox); uerr != nil || len(uids) != 0 {
+		t.Errorf("message still present after delete: %v err=%v", uids, uerr)
 	}
 }
