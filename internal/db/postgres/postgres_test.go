@@ -49,7 +49,8 @@ func openTestDB(t *testing.T) *DB {
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
-			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity
+			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity,
+			semcore_folder_identity
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1214,5 +1215,81 @@ func TestSemcoreMailboxIdentity(t *testing.T) {
 	}
 	if m[id1.String()] != "alice@x.com" || m[idBob.String()] != "bob@x.com" {
 		t.Errorf("MailboxEmailsByID mismatch: %+v", m)
+	}
+}
+
+// TestSemcoreFolderIdentity covers the folder-identity surface: EnsureFolderId
+// idempotency and role-based dedup, lookups by name/id/role, listing,
+// name-by-id, parent set, and delete.
+func TestSemcoreFolderIdentity(t *testing.T) {
+	d := openTestDB(t)
+	const mbox = "alice@x.com"
+
+	// EnsureFolderId mints a stable id; re-ensuring the same name returns it.
+	inbox, err := d.EnsureFolderId(mbox, "INBOX", "inbox")
+	if err != nil || inbox.IsZero() {
+		t.Fatalf("EnsureFolderId(INBOX): id=%v err=%v", inbox, err)
+	}
+	if again, err := d.EnsureFolderId(mbox, "INBOX", "inbox"); err != nil || !again.Equal(inbox) {
+		t.Errorf("EnsureFolderId not idempotent: %v vs %v err=%v", again, inbox, err)
+	}
+
+	// Role dedup: a different name with the same existing role returns the
+	// existing folder's id (bbolt parity).
+	if dup, err := d.EnsureFolderId(mbox, "Inbox-alias", "inbox"); err != nil || !dup.Equal(inbox) {
+		t.Errorf("role dedup failed: %v vs %v err=%v", dup, inbox, err)
+	}
+
+	// GetFolderID resolves by name.
+	if got, err := d.GetFolderID(mbox, "INBOX"); err != nil || !got.Equal(inbox) {
+		t.Errorf("GetFolderID=%v err=%v want %v", got, err, inbox)
+	}
+	if _, err := d.GetFolderID(mbox, "Nope"); !errors.Is(err, semcore.ErrFolderNotFound) {
+		t.Errorf("GetFolderID(absent) err=%v want ErrFolderNotFound", err)
+	}
+
+	// GetFolderByID returns the record with MailboxID == mbox key.
+	rec, err := d.GetFolderByID(inbox)
+	if err != nil || rec.Role != "inbox" || rec.MailboxID.String() != mbox || !rec.IsSubscribed {
+		t.Errorf("GetFolderByID mismatch: %+v err=%v", rec, err)
+	}
+
+	// FolderNameByID recovers the stored name.
+	if name, err := d.FolderNameByID(mbox, inbox); err != nil || name != "INBOX" {
+		t.Errorf("FolderNameByID=%q err=%v want INBOX", name, err)
+	}
+
+	// A second role + a user folder, then list.
+	sent, _ := d.EnsureFolderId(mbox, "Sent", "sent")
+	if _, err := d.EnsureFolderId(mbox, "Project X", ""); err != nil {
+		t.Fatalf("EnsureFolderId(user): %v", err)
+	}
+	list, err := d.ListFolderIdentitiesForMailbox(mbox)
+	if err != nil || len(list) != 3 { // INBOX, Sent, Project X (Inbox-alias deduped to inbox, not stored)
+		t.Errorf("ListFolderIdentitiesForMailbox=%d err=%v want 3", len(list), err)
+	}
+
+	// GetFolderByMailbox by role.
+	if got, err := d.GetFolderByMailbox(mbox, "sent"); err != nil || !got.FolderID.Equal(sent) {
+		t.Errorf("GetFolderByMailbox(sent)=%v err=%v want %v", got, err, sent)
+	}
+
+	// SetFolderParent then verify.
+	if err := d.SetFolderParent(sent, inbox); err != nil {
+		t.Fatalf("SetFolderParent: %v", err)
+	}
+	if rec, _ := d.GetFolderByID(sent); !rec.ParentID.Equal(inbox) {
+		t.Errorf("SetFolderParent not applied: parent=%v want %v", rec.ParentID, inbox)
+	}
+
+	// DeleteFolder removes it.
+	if err := d.DeleteFolder(sent); err != nil {
+		t.Fatalf("DeleteFolder: %v", err)
+	}
+	if _, err := d.GetFolderByID(sent); !errors.Is(err, semcore.ErrFolderNotFound) {
+		t.Errorf("after delete, GetFolderByID err=%v want ErrFolderNotFound", err)
+	}
+	if err := d.DeleteFolder(sent); !errors.Is(err, semcore.ErrFolderNotFound) {
+		t.Errorf("DeleteFolder(absent) err=%v want ErrFolderNotFound", err)
 	}
 }

@@ -445,3 +445,19 @@ CREATE TABLE IF NOT EXISTS semcore_mailbox_identity (
     uid_validity   BIGINT NOT NULL DEFAULT 1,
     highest_modseq BIGINT NOT NULL DEFAULT 0
 );
+
+-- Semantic-core folder identities, keyed by (mailbox key, folder name) like the
+-- bbolt store's "mboxKey\x00folderName" key. The folder's MailboxID is the
+-- mailbox key itself (the bbolt store stored MailboxId{raw: mboxKey}).
+CREATE TABLE IF NOT EXISTS semcore_folder_identity (
+    mbox_key       TEXT    NOT NULL,
+    folder_name    TEXT    NOT NULL,
+    folder_id      TEXT    NOT NULL UNIQUE,
+    parent_id      TEXT    NOT NULL DEFAULT '',
+    role           TEXT    NOT NULL DEFAULT '',
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    highest_modseq BIGINT  NOT NULL DEFAULT 0,
+    is_subscribed  BOOLEAN NOT NULL DEFAULT true,
+    PRIMARY KEY (mbox_key, folder_name)
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_folder_role ON semcore_folder_identity (mbox_key, role);
