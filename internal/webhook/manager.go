@@ -22,7 +22,7 @@ import (
 
 // Manager handles webhook delivery
 type Manager struct {
-	db              *db.DB
+	db              db.Store
 	client          *http.Client
 	secret          string
 	hooks           []*Webhook
@@ -68,7 +68,7 @@ const (
 )
 
 // NewManager creates webhook manager
-func NewManager(database *db.DB, secret string) *Manager {
+func NewManager(database db.Store, secret string) *Manager {
 	return &Manager{
 		db:             database,
 		client:         &http.Client{Timeout: 30 * time.Second},

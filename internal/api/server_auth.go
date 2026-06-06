@@ -67,7 +67,7 @@ func requiresPasswordChange(account *db.AccountData) bool {
 	return account != nil && account.MustChangePassword
 }
 
-func enforceAuthenticatedAccount(database *db.DB, user string, mustChangePasswordClaim bool) (bool, error) {
+func enforceAuthenticatedAccount(database db.Store, user string, mustChangePasswordClaim bool) (bool, error) {
 	if user == "" {
 		return false, fmt.Errorf("missing subject")
 	}

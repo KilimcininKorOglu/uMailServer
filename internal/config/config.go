@@ -329,10 +329,14 @@ type TracingConfig struct {
 // DatabaseConfig holds database settings
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
-	// Backend selects the metadata/index storage engine. Empty or "bbolt" uses
-	// the embedded bbolt store (the default). "postgres" is reserved for the
-	// in-progress relational migration and is rejected until that backend lands.
+	// Backend selects the account/metadata storage engine. Empty or "bbolt" uses
+	// the embedded bbolt store (the default). "postgres" uses the relational
+	// backend and requires DSN.
 	Backend string `yaml:"backend"`
+	// DSN is the PostgreSQL connection string (pgx/libpq URL or keyword form),
+	// required when Backend is "postgres". It is a secret and is never exposed in
+	// the admin settings DTO.
+	DSN string `yaml:"dsn"`
 }
 
 // DatabaseBackend returns the effective metadata backend, defaulting to bbolt.
@@ -628,16 +632,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("server.data_dir is not writable: %w", err)
 	}
 
-	// Validate the metadata backend. Only bbolt is implemented; "postgres" is
-	// reserved for the in-progress relational migration and is rejected loudly
-	// rather than silently falling back, so an operator never thinks they are on
-	// Postgres when they are not.
+	// Validate the metadata backend. bbolt (default) and postgres are supported;
+	// postgres requires a DSN, rejected loudly when missing so an operator never
+	// boots a relational deployment with no connection string.
 	switch c.Database.Backend {
 	case "", "bbolt":
 	case "postgres":
-		return fmt.Errorf("database.backend %q is not yet implemented (relational migration in progress); use \"bbolt\"", c.Database.Backend)
+		if c.Database.DSN == "" {
+			return fmt.Errorf("database.backend %q requires database.dsn", c.Database.Backend)
+		}
 	default:
-		return fmt.Errorf("database.backend %q is unknown; valid values: \"bbolt\"", c.Database.Backend)
+		return fmt.Errorf("database.backend %q is unknown; valid values: \"bbolt\", \"postgres\"", c.Database.Backend)
 	}
 
 	// Validate JWT secret length (empty is allowed - will be generated at runtime)

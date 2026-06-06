@@ -23,6 +23,7 @@ import (
 	"github.com/umailserver/umailserver/internal/cluster"
 	"github.com/umailserver/umailserver/internal/config"
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/db/postgres"
 	"github.com/umailserver/umailserver/internal/health"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/jmap"
@@ -54,7 +55,7 @@ type Server struct {
 	configWatcher     *config.Watcher
 	sighupCh          chan os.Signal
 	logger            *slog.Logger
-	database          *db.DB
+	database          db.Store
 	queue             *queue.Manager
 	msgStore          *storage.MessageStore
 	smtpServer        *smtp.Server
@@ -115,6 +116,39 @@ type Server struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	stopOnce sync.Once
+}
+
+// openStore opens the account/metadata store for the configured backend and
+// applies its schema/migrations. The bbolt store runs the embedded KV
+// migrations; the PostgreSQL store applies the relational schema. The returned
+// db.Store is the only handle the rest of the server uses.
+func openStore(ctx context.Context, cfg *config.Config) (db.Store, error) {
+	switch cfg.DatabaseBackend() {
+	case "postgres":
+		pg, err := postgres.Open(ctx, cfg.Database.DSN)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open postgres database: %w", err)
+		}
+		if err := pg.Migrate(ctx); err != nil {
+			if cerr := pg.Close(); cerr != nil {
+				return nil, fmt.Errorf("failed to apply postgres schema: %w (close: %v)", err, cerr)
+			}
+			return nil, fmt.Errorf("failed to apply postgres schema: %w", err)
+		}
+		return pg, nil
+	default:
+		boltDB, err := db.Open(cfg.DatabasePath())
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database: %w", err)
+		}
+		if err := boltDB.RunMigrations(); err != nil {
+			if cerr := boltDB.Close(); cerr != nil {
+				return nil, fmt.Errorf("failed to run migrations: %w (close: %v)", err, cerr)
+			}
+			return nil, fmt.Errorf("failed to run migrations: %w", err)
+		}
+		return boltDB, nil
+	}
 }
 
 // New creates a new Server instance
@@ -179,18 +213,16 @@ func New(cfg *config.Config) (*Server, error) {
 	// Load configured S/MIME signing keys into the keystore (outbound signing).
 	s.loadSMIMESigningKeys()
 
-	// Initialize database
-	database, err := db.Open(cfg.DatabasePath())
+	// Initialize the account/metadata store on the configured backend (bbolt by
+	// default, PostgreSQL when database.backend is "postgres"). Engine-specific
+	// open + migrate happens here on the concrete type; everything downstream
+	// holds the db.Store interface.
+	database, err := openStore(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, err
 	}
 	s.database = database
 
-	// Run pending database migrations
-	if err := database.RunMigrations(); err != nil {
-		_ = database.Close()
-		return nil, fmt.Errorf("failed to run migrations: %w", err)
-	}
 	if err := syncConfiguredDomains(database, cfg.Domains); err != nil {
 		_ = database.Close()
 		return nil, fmt.Errorf("failed to sync configured domains: %w", err)
@@ -444,7 +476,7 @@ func parseTLSMinVersion(version string) uint16 {
 	}
 }
 
-func syncConfiguredDomains(database *db.DB, configuredDomains []config.DomainConfig) error {
+func syncConfiguredDomains(database db.Store, configuredDomains []config.DomainConfig) error {
 	for _, domain := range configuredDomains {
 		existingDomain, err := database.GetDomain(domain.Name)
 		if err != nil {
@@ -473,7 +505,7 @@ func syncConfiguredDomains(database *db.DB, configuredDomains []config.DomainCon
 	return nil
 }
 
-func ensureBootstrapAdminAccounts(database *db.DB, configuredDomains []config.DomainConfig, logger *slog.Logger) error {
+func ensureBootstrapAdminAccounts(database db.Store, configuredDomains []config.DomainConfig, logger *slog.Logger) error {
 	const bootstrapAdminLocalPart = "admin"
 	const bootstrapAdminDefaultPassword = "password"
 
@@ -550,7 +582,7 @@ func ensureBootstrapAdminAccounts(database *db.DB, configuredDomains []config.Do
 // existing account at startup. It is idempotent and runs regardless of which
 // path created the account, so the default folder set is consistent across all
 // protocols even for accounts created while the server was offline.
-func ensureAllAccountsDefaultMailboxes(database *db.DB, storageDB *storage.Database, logger *slog.Logger) {
+func ensureAllAccountsDefaultMailboxes(database db.Store, storageDB *storage.Database, logger *slog.Logger) {
 	if database == nil || storageDB == nil {
 		return
 	}
@@ -580,7 +612,7 @@ func ensureAllAccountsDefaultMailboxes(database *db.DB, storageDB *storage.Datab
 }
 
 // GetDatabase returns the database instance
-func (s *Server) GetDatabase() *db.DB {
+func (s *Server) GetDatabase() db.Store {
 	return s.database
 }
 

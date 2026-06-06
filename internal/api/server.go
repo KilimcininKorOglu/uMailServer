@@ -62,7 +62,7 @@ const ContextKeyEmail = "X-Email" //nolint:staticcheck
 
 // Server represents the admin API server
 type Server struct {
-	db              *db.DB
+	db              db.Store
 	logger          *slog.Logger
 	config          Config
 	mcpServer       *mcp.Server
@@ -233,7 +233,7 @@ type AuditLogConfig struct {
 }
 
 // NewServer creates a new admin API server
-func NewServer(database *db.DB, logger *slog.Logger, config Config) *Server {
+func NewServer(database db.Store, logger *slog.Logger, config Config) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -350,7 +350,7 @@ func NewServer(database *db.DB, logger *slog.Logger, config Config) *Server {
 
 // NewServerWithInterfaces creates a new admin API server with injectable interfaces for testing
 func NewServerWithInterfaces(
-	database *db.DB,
+	database db.Store,
 	logger *slog.Logger,
 	config Config,
 	vacationMgr VacationManager,

@@ -85,12 +85,20 @@ func TestValidate_DatabaseBackend(t *testing.T) {
 		}
 	}
 
-	// "postgres" is reserved but unimplemented: it must be rejected loudly so an
-	// operator is never silently downgraded to bbolt while believing otherwise.
+	// "postgres" with a DSN is supported now that the relational backend landed.
 	cfg := validConfigForTest(t)
 	cfg.Database.Backend = "postgres"
+	cfg.Database.DSN = "postgres://u:p@localhost:5432/umail?sslmode=disable"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("database.backend postgres with a DSN must validate: %v", err)
+	}
+
+	// "postgres" without a DSN is rejected loudly rather than booting with no
+	// connection string.
+	cfg = validConfigForTest(t)
+	cfg.Database.Backend = "postgres"
 	if err := cfg.Validate(); err == nil {
-		t.Error("database.backend postgres must fail until the relational backend lands")
+		t.Error("database.backend postgres without a dsn must fail")
 	}
 
 	// An unknown backend is rejected rather than silently defaulted.
