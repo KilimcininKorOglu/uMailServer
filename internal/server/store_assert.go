@@ -13,11 +13,13 @@ import (
 // to pin that *postgres.DB can stand in for the bbolt *storage.Database behind
 // each consumer interface.
 var (
-	_ api.MailStore      = (*postgres.DB)(nil)
-	_ api.IdentityStore  = (*postgres.DB)(nil)
-	_ ews.MailStore      = (*postgres.DB)(nil)
-	_ ews.LifecycleStore = (*postgres.DB)(nil)
-	_ ews.IdentityStore  = (*postgres.DB)(nil)
-	_ ews.SyncStore      = (*postgres.DB)(nil)
-	_ ews.TombstoneStore = (*postgres.DB)(nil)
+	_ api.MailStore         = (*postgres.DB)(nil)
+	_ api.IdentityStore     = (*postgres.DB)(nil)
+	_ api.SubscriptionStore = (*postgres.DB)(nil)
+	_ ews.MailStore         = (*postgres.DB)(nil)
+	_ ews.LifecycleStore    = (*postgres.DB)(nil)
+	_ ews.IdentityStore     = (*postgres.DB)(nil)
+	_ ews.SyncStore         = (*postgres.DB)(nil)
+	_ ews.TombstoneStore    = (*postgres.DB)(nil)
+	_ ews.SubscriptionStore = (*postgres.DB)(nil)
 )

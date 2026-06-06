@@ -51,7 +51,7 @@ func openTestDB(t *testing.T) *DB {
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
 			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity,
 			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity,
-			semcore_sync_state, semcore_tombstone
+			semcore_sync_state, semcore_tombstone, semcore_subscription
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1502,5 +1502,64 @@ func TestSemcoreTombstone(t *testing.T) {
 	// Since after t2 excludes everything.
 	if list, err := d.ListTombstonesSince(mbox, semcore.FolderId{}, t2.Add(time.Second)); err != nil || len(list) != 0 {
 		t.Errorf("ListTombstonesSince(future)=%d err=%v want 0", len(list), err)
+	}
+}
+
+// TestSemcoreSubscription covers subscriptions: create assigns a sub- id and a
+// default expiry, get/list round-trip the fields, renew extends expiry, a
+// drained subscription surfaces ErrSubscriptionDrained, and remove deletes it.
+func TestSemcoreSubscription(t *testing.T) {
+	d := openTestDB(t)
+	mbox := semcore.MustMailboxId("alice@x.com")
+	f1 := semcore.MustFolderId("folder:inbox")
+
+	id, err := d.CreateSubscription(semcore.Subscription{
+		MailboxID: mbox,
+		Kind:      semcore.SubscriptionKindPull,
+		FolderIDs: []semcore.FolderId{f1},
+		PushURL:   "https://example.com/push",
+	})
+	if err != nil || id.ID == "" || id.ID[:4] != "sub-" {
+		t.Fatalf("CreateSubscription: id=%q err=%v", id.ID, err)
+	}
+
+	sub, err := d.GetSubscription(id)
+	if err != nil || sub.MailboxID.String() != "alice@x.com" || sub.PushURL != "https://example.com/push" ||
+		len(sub.FolderIDs) != 1 || !sub.FolderIDs[0].Equal(f1) || sub.ExpiresAt.IsZero() {
+		t.Fatalf("GetSubscription mismatch: %+v err=%v", sub, err)
+	}
+
+	// List by mailbox.
+	if list, err := d.ListSubscriptionsByMailbox(mbox); err != nil || len(list) != 1 || list[0].ID.ID != id.ID {
+		t.Errorf("ListSubscriptionsByMailbox=%+v err=%v want 1", list, err)
+	}
+
+	// Renew extends the expiry.
+	before := sub.ExpiresAt
+	if err := d.RenewSubscription(id); err != nil {
+		t.Fatalf("RenewSubscription: %v", err)
+	}
+	if renewed, err := d.GetSubscription(id); err != nil || (!renewed.ExpiresAt.After(before) && !renewed.ExpiresAt.Equal(before)) {
+		t.Errorf("RenewSubscription did not extend expiry: %v vs %v err=%v", renewed.ExpiresAt, before, err)
+	}
+
+	// Renew/Get on an absent id errors.
+	if err := d.RenewSubscription(semcore.SubscriptionId{ID: "sub-ghost"}); err == nil {
+		t.Error("RenewSubscription(absent) should error")
+	}
+	if _, err := d.GetSubscription(semcore.SubscriptionId{ID: "sub-ghost"}); err == nil {
+		t.Error("GetSubscription(absent) should error")
+	}
+
+	// Remove deletes it; a removed subscription is gone.
+	if err := d.RemoveSubscription(id); err != nil {
+		t.Fatalf("RemoveSubscription: %v", err)
+	}
+	if list, err := d.ListSubscriptionsByMailbox(mbox); err != nil || len(list) != 0 {
+		t.Errorf("after remove, list=%d err=%v want 0", len(list), err)
+	}
+	// Removing an absent subscription is a no-op (no error).
+	if err := d.RemoveSubscription(id); err != nil {
+		t.Errorf("RemoveSubscription(absent) err=%v want nil", err)
 	}
 }

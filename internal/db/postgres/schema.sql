@@ -514,3 +514,19 @@ CREATE TABLE IF NOT EXISTS semcore_tombstone (
     PRIMARY KEY (mailbox_id, folder_id, item_id, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_tombstone_since ON semcore_tombstone (mailbox_id, deleted_at);
+
+-- Semantic-core push/pull subscriptions (EWS notifications). expires_at/drained_at
+-- are NULL when unset; folder_ids empty means all folders. kind is the numeric
+-- semcore.SubscriptionKind.
+CREATE TABLE IF NOT EXISTS semcore_subscription (
+    id         TEXT     NOT NULL PRIMARY KEY,
+    mailbox_id TEXT     NOT NULL,
+    kind       SMALLINT NOT NULL DEFAULT 0,
+    folder_ids TEXT[]   NOT NULL DEFAULT '{}',
+    last_seq   BIGINT   NOT NULL DEFAULT 0,
+    push_url   TEXT     NOT NULL DEFAULT '',
+    expires_at TIMESTAMPTZ,
+    drained_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_subscription_mbox ON semcore_subscription (mailbox_id);
