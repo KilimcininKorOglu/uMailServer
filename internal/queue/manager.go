@@ -381,27 +381,22 @@ func (m *Manager) queueSweeper(ctx context.Context) {
 	}
 }
 
-// pendingClaimer is the optional capability a relational store exposes to claim
-// due entries atomically (FOR UPDATE SKIP LOCKED) for exactly-once multi-node
-// delivery. The bbolt store is single-writer and does not need it.
-type pendingClaimer interface {
-	ClaimPendingQueue(now time.Time, limit int) ([]*db.QueueEntry, error)
+// deliveryClaimer is the optional capability a relational store exposes to claim
+// a single entry atomically for exactly-once multi-node delivery. The claim
+// happens at the delivery choke point (deliver), so both the immediate enqueue
+// path and the sweeper funnel through one guard; the bbolt store is single-writer
+// and does not need it.
+type deliveryClaimer interface {
+	ClaimQueueEntry(id string, now time.Time) (bool, error)
 }
 
 // sweepPendingEntries picks up entries ready for delivery and sends them to
-// workers. When the store supports atomic claiming (the relational backend used
-// in multi-node deployments) it claims a batch the size of the delivery channel,
-// so two nodes never deliver the same message; otherwise it falls back to a
-// plain read (single-writer bbolt, where no other node competes).
+// workers. It reads the due-pending set without claiming — the cross-node guard
+// is the per-entry claim in deliver(), so two nodes may both surface the same
+// entry here but only one will win the claim and actually send it.
 func (m *Manager) sweepPendingEntries() {
 	now := time.Now()
-	var entries []*db.QueueEntry
-	var err error
-	if claimer, ok := m.db.(pendingClaimer); ok {
-		entries, err = claimer.ClaimPendingQueue(now, cap(m.deliveryChan))
-	} else {
-		entries, err = m.db.GetPendingQueue(now)
-	}
+	entries, err := m.db.GetPendingQueue(now)
 	if err != nil {
 		return
 	}
@@ -461,9 +456,30 @@ func (m *Manager) deliver(ctx context.Context, entry *db.QueueEntry) {
 		}
 	}()
 
-	// Update status to sending
-	entry.Status = "sending"
-	_ = m.db.UpdateQueueEntry(entry)
+	// Claim the entry for delivery. Across nodes — and across the immediate
+	// enqueue path vs the sweeper — this is the single guard that ensures at most
+	// one worker delivers a given entry: the claim flips it to 'sending' and takes
+	// a lease only if it is still due, so a node that lost the race (another node
+	// holds a fresh lease) skips silently here. Single-writer bbolt has no
+	// contender, so it falls back to an unconditional mark.
+	now := time.Now()
+	if claimer, ok := m.db.(deliveryClaimer); ok {
+		claimed, err := claimer.ClaimQueueEntry(entry.ID, now)
+		if err != nil {
+			m.logger.Warn("queue claim failed; skipping to avoid double delivery", "id", entry.ID, "error", err)
+			return
+		}
+		if !claimed {
+			// Another node already owns this entry (fresh lease) — skip silently.
+			return
+		}
+		entry.Status = "sending"
+	} else {
+		entry.Status = "sending"
+		if err := m.db.UpdateQueueEntry(entry); err != nil {
+			m.logger.Error("failed to mark queue entry sending", "id", entry.ID, "error", err)
+		}
+	}
 
 	// Read message from disk
 	message, err := readFile(entry.MessagePath)

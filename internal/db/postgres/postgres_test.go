@@ -414,15 +414,21 @@ func TestQueueRoundTrip(t *testing.T) {
 		t.Errorf("GetPendingQueue mismatch: %+v", pending)
 	}
 
-	// Claim flips status to sending atomically.
-	claimed, err := d.ClaimPendingQueue(time.Now(), 10)
+	// Claim flips status to sending atomically and wins.
+	won, err := d.ClaimQueueEntry("q1", time.Now())
 	if err != nil {
-		t.Fatalf("ClaimPendingQueue: %v", err)
+		t.Fatalf("ClaimQueueEntry: %v", err)
 	}
-	if len(claimed) != 1 || claimed[0].Status != "sending" {
-		t.Errorf("ClaimPendingQueue mismatch: %+v", claimed)
+	if !won {
+		t.Error("ClaimQueueEntry should win for a due pending entry")
 	}
-	// Already claimed: no longer pending.
+	// Already claimed (fresh lease): no longer due, so a re-claim loses.
+	if again, err := d.ClaimQueueEntry("q1", time.Now()); err != nil {
+		t.Fatalf("re-claim: %v", err)
+	} else if again {
+		t.Error("re-claim of a freshly leased entry should lose")
+	}
+	// And it no longer appears in the pending set.
 	pending, err = d.GetPendingQueue(time.Now())
 	if err != nil {
 		t.Fatalf("GetPendingQueue after claim: %v", err)
@@ -443,23 +449,26 @@ func TestQueueRoundTrip(t *testing.T) {
 	}
 }
 
-// TestClaimPendingQueueConcurrent proves the HA claim contract: two nodes
-// claiming the same due backlog at the same time partition it — every entry is
-// claimed by exactly one caller, none by both (no double-delivery).
-func TestClaimPendingQueueConcurrent(t *testing.T) {
+// TestClaimQueueEntryConcurrent proves the HA claim contract: when two nodes try
+// to claim the same due entries at the same time, each entry is won by exactly
+// one caller, never both (no double-delivery). Both workers race over the whole
+// backlog id-by-id; the per-entry atomic claim partitions it.
+func TestClaimQueueEntryConcurrent(t *testing.T) {
 	d := openTestDB(t)
 	past := time.Now().Add(-time.Minute)
 	const n = 40
+	ids := make([]string, n)
 	for i := 0; i < n; i++ {
+		ids[i] = fmt.Sprintf("c%02d", i)
 		if err := d.EnqueueWithLimit(&db.QueueEntry{
-			ID: fmt.Sprintf("c%02d", i), From: "s@x.com", To: []string{"r@x.com"},
+			ID: ids[i], From: "s@x.com", To: []string{"r@x.com"},
 			MessagePath: "/spool/c", NextRetry: past, Status: "pending",
 		}, 1000); err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)
 		}
 	}
 
-	// Two concurrent claimers, each able to take the whole backlog.
+	// Two concurrent claimers, each sweeping the whole backlog.
 	type res struct {
 		ids []string
 		err error
@@ -470,12 +479,18 @@ func TestClaimPendingQueueConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			claimed, err := d.ClaimPendingQueue(time.Now(), n)
-			ids := make([]string, 0, len(claimed))
-			for _, e := range claimed {
-				ids = append(ids, e.ID)
+			won := []string{}
+			for _, id := range ids {
+				ok, err := d.ClaimQueueEntry(id, time.Now())
+				if err != nil {
+					ch <- res{nil, err}
+					return
+				}
+				if ok {
+					won = append(won, id)
+				}
 			}
-			ch <- res{ids, err}
+			ch <- res{won, nil}
 		}()
 	}
 	wg.Wait()
@@ -503,10 +518,10 @@ func TestClaimPendingQueueConcurrent(t *testing.T) {
 	}
 }
 
-// TestClaimPendingQueueReclaimsStale proves a node that died mid-delivery does
-// not strand its work: an entry left in 'sending' is reclaimed once its lease
+// TestClaimQueueEntryReclaimsStale proves a node that died mid-delivery does not
+// strand its work: an entry left in 'sending' is reclaimable once its lease
 // (next_retry) expires, but not while the lease is still in the future.
-func TestClaimPendingQueueReclaimsStale(t *testing.T) {
+func TestClaimQueueEntryReclaimsStale(t *testing.T) {
 	d := openTestDB(t)
 	// An orphaned claim: status 'sending' with a lease that already expired.
 	if err := d.EnqueueWithLimit(&db.QueueEntry{
@@ -515,20 +530,20 @@ func TestClaimPendingQueueReclaimsStale(t *testing.T) {
 	}, 1000); err != nil {
 		t.Fatalf("enqueue stale: %v", err)
 	}
-	claimed, err := d.ClaimPendingQueue(time.Now(), 10)
+	won, err := d.ClaimQueueEntry("stale", time.Now())
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
-	if len(claimed) != 1 || claimed[0].ID != "stale" {
-		t.Fatalf("expired-lease 'sending' entry not reclaimed: %+v", claimed)
+	if !won {
+		t.Fatal("expired-lease 'sending' entry should be reclaimable")
 	}
-	// It is now re-leased into the future, so an immediate re-claim sees nothing.
-	again, err := d.ClaimPendingQueue(time.Now(), 10)
+	// It is now re-leased into the future, so an immediate re-claim loses.
+	again, err := d.ClaimQueueEntry("stale", time.Now())
 	if err != nil {
 		t.Fatalf("re-claim: %v", err)
 	}
-	if len(again) != 0 {
-		t.Fatalf("freshly leased entry should not be re-claimed: %+v", again)
+	if again {
+		t.Fatal("freshly leased entry should not be re-claimed")
 	}
 }
 

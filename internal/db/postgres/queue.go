@@ -107,7 +107,7 @@ func (d *DB) UpdateQueueEntry(entry *db.QueueEntry) error {
 
 // GetPendingQueue returns entries that are pending and due (next_retry < now),
 // ordered for the retry worker. It does not claim them — matching the bbolt
-// read; the multi-node claim is ClaimPendingQueue.
+// read; the multi-node, per-entry claim happens at delivery via ClaimQueueEntry.
 func (d *DB) GetPendingQueue(now time.Time) ([]*db.QueueEntry, error) {
 	ctx := context.Background()
 	rows, err := d.pool.Query(ctx,
@@ -135,40 +135,27 @@ func (d *DB) GetPendingQueue(now time.Time) ([]*db.QueueEntry, error) {
 // delivery attempt (SMTP connect + send across MX hosts).
 const queueClaimLease = 10 * time.Minute
 
-// ClaimPendingQueue atomically claims up to limit due entries for this worker by
-// flipping them to 'sending' under FOR UPDATE SKIP LOCKED, so concurrent nodes
-// never grab the same message. It also takes a lease (next_retry → now+lease)
-// and matches already-'sending' rows whose lease has expired, so an entry
-// orphaned by a crashed node is reclaimed instead of stranded. This is the
-// relational HA path the single-writer bbolt store could not provide; callers
-// that adopt it replace the GetPendingQueue-then-update sequence.
-func (d *DB) ClaimPendingQueue(now time.Time, limit int) ([]*db.QueueEntry, error) {
+// ClaimQueueEntry atomically claims a single entry for delivery, flipping it to
+// 'sending' and taking a lease (next_retry → now+lease) — but only if the entry
+// is still due (next_retry <= now) and not already delivered. It returns true if
+// THIS caller won the claim, false if another node already holds a fresh lease
+// (or the row is gone/delivered). This is the cluster-wide guard that ensures an
+// entry is delivered by at most one worker at a time, regardless of whether it
+// reached delivery via the immediate enqueue path or a sweeper: both funnel
+// through deliver(), which claims here before sending. A 'sending' row whose
+// lease has expired (next_retry <= now) is reclaimable, so an entry orphaned by a
+// crashed node is retried instead of stranded. This is the relational HA guard
+// the single-writer bbolt store could not provide.
+func (d *DB) ClaimQueueEntry(id string, now time.Time) (bool, error) {
 	ctx := context.Background()
 	lease := now.Add(queueClaimLease)
-	rows, err := d.pool.Query(ctx, `
+	tag, err := d.pool.Exec(ctx, `
 		UPDATE mail_queue SET status='sending', next_retry=$3
-		WHERE id IN (
-			SELECT id FROM mail_queue
-			WHERE next_retry < $1 AND status IN ('pending','sending')
-			ORDER BY priority DESC, next_retry
-			FOR UPDATE SKIP LOCKED
-			LIMIT $2
-		)
-		RETURNING id, sender, message_path, created_at, next_retry, retry_count,
-			last_error, status, priority, notify, ret`, now, limit, lease)
+		WHERE id=$1 AND status <> 'delivered' AND next_retry <= $2`, id, now, lease)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: claim pending queue: %w", err)
+		return false, fmt.Errorf("postgres: claim queue entry: %w", err)
 	}
-	entries, err := collectQueueEntries(rows)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range entries {
-		if err := d.loadRecipients(ctx, e); err != nil {
-			return nil, err
-		}
-	}
-	return entries, nil
+	return tag.RowsAffected() == 1, nil
 }
 
 // ForEachQueueEntry invokes fn for every queue entry (recipients loaded).
