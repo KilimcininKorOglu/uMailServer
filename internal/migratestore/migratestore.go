@@ -19,6 +19,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
@@ -42,6 +43,12 @@ type Report struct {
 	Subscriptions int
 	ACLs          int
 	Threads       int
+
+	// Semantic-core layer (canonical identity mappings).
+	MailboxIdentities int
+	FolderIdentities  int
+	ItemIdentities    int
+	Conversations     int
 }
 
 // CopyDB copies the account/metadata layer (the data kept in umailserver.db)
@@ -329,4 +336,94 @@ func copyThreads(src *storage.Database, dst *postgres.DB, user string, r *Report
 			return nil
 		}
 	}
+}
+
+// CopySemcoreIdentity copies the canonical semantic-core identity layer (mailbox,
+// folder, item, and conversation identities) from a bbolt *semcore.Store to the
+// relational *postgres.DB. Identity is the foundation every other semcore record
+// references, so the source canonical ids are PRESERVED exactly via the restore
+// writes — minting fresh ids (as EnsureMailboxId/EnsureFolderId would) would
+// break every item, policy, and delegate that points at a mailbox or folder.
+//
+// Order: mailbox identities → folder identities (whose mbox_key is a mailbox id)
+// → item identities (which reference both) → conversation identities (derived
+// from the items). The JMAP/EWS sync cursors (lifecycle journal, sync state,
+// tombstones, subscriptions) are deliberately NOT copied: they are session
+// continuity state that resets on a server migration, and clients resync.
+func CopySemcoreIdentity(src *semcore.Store, dst *postgres.DB, r *Report) error {
+	if src == nil || dst == nil || r == nil {
+		return errors.New("migratestore: nil source, destination, or report")
+	}
+	id := src.Identity()
+
+	mailboxes, err := id.ListMailboxIdentities()
+	if err != nil {
+		return fmt.Errorf("list mailbox identities: %w", err)
+	}
+	for _, m := range mailboxes {
+		// The bbolt store prefixes the stored email with "e:" (see
+		// MailboxEmailsByID); the canonical key the Postgres store uses is the
+		// bare email, so strip the prefix to keep the two backends in agreement.
+		email := strings.TrimPrefix(m.Email, "e:")
+		if err := dst.RestoreMailboxIdentity(email, m.MailboxID, m.UIDValidity, m.HighestModSeq); err != nil {
+			return fmt.Errorf("copy mailbox identity %q: %w", email, err)
+		}
+		r.MailboxIdentities++
+	}
+
+	folders, err := id.ListFolderIdentities()
+	if err != nil {
+		return fmt.Errorf("list folder identities: %w", err)
+	}
+	// seenConv dedupes conversation identities across folders so the report
+	// counts distinct conversations, not item→conversation links.
+	seenConv := map[string]bool{}
+	for _, f := range folders {
+		name, err := id.FolderNameByID(f.MailboxID.String(), f.FolderID)
+		if err != nil {
+			return fmt.Errorf("resolve folder name for %s: %w", f.FolderID.String(), err)
+		}
+		if err := dst.RestoreFolderIdentity(name, f); err != nil {
+			return fmt.Errorf("copy folder identity %s/%s: %w", f.MailboxID.String(), name, err)
+		}
+		r.FolderIdentities++
+
+		if err := copyFolderItems(id, dst, f, seenConv, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyFolderItems copies every item identity in one folder, preserving each
+// ItemId/ChangeKey/ConversationId and the read/category state, and registers the
+// conversation identity each item belongs to (deduped per destination via the
+// ON CONFLICT DO NOTHING on PutConversationIdentity).
+func copyFolderItems(id *semcore.BoltIdentityStore, dst *postgres.DB, f semcore.StoredFolderIdentity, seenConv map[string]bool, r *Report) error {
+	items, err := id.ListItemIdentitiesByFolder(f.FolderID)
+	if err != nil {
+		return fmt.Errorf("list items in folder %s: %w", f.FolderID.String(), err)
+	}
+	for _, it := range items {
+		// Register the conversation first so the item's reference is backed by a
+		// row. Zero conversation ids are skipped (no conversation); duplicates
+		// across folders are written once and counted once.
+		if !it.ConversationID.IsZero() && !seenConv[it.ConversationID.String()] {
+			if err := dst.PutConversationIdentity(it.ConversationID, it.MailboxID); err != nil {
+				return fmt.Errorf("copy conversation %s: %w", it.ConversationID.String(), err)
+			}
+			seenConv[it.ConversationID.String()] = true
+			r.Conversations++
+		}
+		if err := dst.PutItemIdentity(it.MsgKey, it.Email, it.ItemID, it.MailboxID, it.FolderID, it.ChangeKey, it.ConversationID, it.IsRead); err != nil {
+			return fmt.Errorf("copy item identity %s: %w", it.ItemID.String(), err)
+		}
+		if len(it.Categories) > 0 {
+			if err := dst.UpdateItemState(it.ItemID, nil, it.Categories); err != nil {
+				return fmt.Errorf("copy item categories %s: %w", it.ItemID.String(), err)
+			}
+		}
+		r.ItemIdentities++
+	}
+	return nil
 }

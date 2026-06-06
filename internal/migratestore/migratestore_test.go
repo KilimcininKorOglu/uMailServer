@@ -9,6 +9,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
@@ -37,7 +38,10 @@ func openTestPostgres(t *testing.T) *postgres.DB {
 	}
 	if _, err := pg.Pool().Exec(ctx,
 		`TRUNCATE accounts, aliases, mail_groups, domains, tenants,
-			user_ui_prefs, user_signatures, user_categories, user_vacation, ews_user_config
+			user_ui_prefs, user_signatures, user_categories, user_vacation, ews_user_config,
+			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
+			semcore_mailbox_identity, semcore_folder_identity, semcore_item_identity,
+			semcore_conversation_identity
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -233,4 +237,70 @@ func TestCopyStorage(t *testing.T) {
 	if err != nil || th.ThreadID != "t-1" || th.Subject != "Hello" {
 		t.Fatalf("dst GetThread = %+v err=%v", th, err)
 	}
+}
+
+func TestCopySemcoreIdentity(t *testing.T) {
+	dst := openTestPostgres(t)
+
+	const email = "a@ex.test"
+	src, err := semcore.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("semcore.NewStore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := src.Close(); err != nil {
+			t.Errorf("close semcore source: %v", err)
+		}
+	})
+	id := src.Identity()
+
+	// Seed: a mailbox identity (random canonical id), a folder under it (keyed by
+	// email, as the pipeline does), and one item with a conversation.
+	mid, err := id.EnsureMailboxId(email)
+	if err != nil {
+		t.Fatalf("seed mailbox identity: %v", err)
+	}
+	fid, err := id.EnsureFolderId(email, "INBOX", "inbox")
+	if err != nil {
+		t.Fatalf("seed folder identity: %v", err)
+	}
+	itemID, ck := semcore.MustItemId("item-0001"), mustChangeKey(t, "1")
+	convID := semcore.MustConversationId("conv-0001")
+	if err := id.PutItemIdentity("msgkey-1", email, itemID, semcore.MustMailboxId(email), fid, ck, convID, true); err != nil {
+		t.Fatalf("seed item identity: %v", err)
+	}
+
+	var r Report
+	if err := CopySemcoreIdentity(src, dst, &r); err != nil {
+		t.Fatalf("CopySemcoreIdentity: %v", err)
+	}
+
+	want := Report{MailboxIdentities: 1, FolderIdentities: 1, ItemIdentities: 1, Conversations: 1}
+	if r != want {
+		t.Fatalf("report = %+v, want %+v", r, want)
+	}
+
+	// Canonical ids must be PRESERVED, not regenerated — that is the contract.
+	if got, err := dst.GetMailboxIDByEmail(email); err != nil || got.String() != mid.String() {
+		t.Fatalf("dst mailbox id = %v (err=%v), want %v", got, err, mid)
+	}
+	if got, err := dst.GetFolderID(email, "INBOX"); err != nil || got.String() != fid.String() {
+		t.Fatalf("dst folder id = %v (err=%v), want %v", got, err, fid)
+	}
+	it, err := dst.GetItemIdentity(itemID)
+	if err != nil || it.ItemID.String() != itemID.String() || it.FolderID.String() != fid.String() {
+		t.Fatalf("dst item identity = %+v err=%v", it, err)
+	}
+	if it.ConversationID.String() != convID.String() || !it.IsRead || it.MsgKey != "msgkey-1" {
+		t.Fatalf("dst item state = %+v, want conv=%s read=true msgkey=msgkey-1", it, convID)
+	}
+}
+
+func mustChangeKey(t *testing.T, raw string) semcore.ChangeKey {
+	t.Helper()
+	ck, err := semcore.NewChangeKey(raw)
+	if err != nil {
+		t.Fatalf("NewChangeKey: %v", err)
+	}
+	return ck
 }

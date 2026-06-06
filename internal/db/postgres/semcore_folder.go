@@ -63,6 +63,28 @@ func (d *DB) EnsureFolderId(mboxKey, folderName, role string) (semcore.FolderId,
 	return semcore.NewFolderId(raw)
 }
 
+// RestoreFolderIdentity inserts a folder identity with the exact FolderId and
+// all fields supplied, for the bbolt→Postgres migration. Unlike EnsureFolderId
+// it preserves the source's canonical id (items and collaboration records
+// reference it). StoredFolderIdentity carries no folder name, so the caller
+// resolves it from the source via FolderNameByID and passes it here.
+func (d *DB) RestoreFolderIdentity(folderName string, f semcore.StoredFolderIdentity) error {
+	_, err := d.pool.Exec(context.Background(), `
+		INSERT INTO semcore_folder_identity
+			(mbox_key, folder_name, folder_id, parent_id, role, sort_order, highest_modseq, is_subscribed)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (mbox_key, folder_name) DO UPDATE SET
+			folder_id=EXCLUDED.folder_id, parent_id=EXCLUDED.parent_id, role=EXCLUDED.role,
+			sort_order=EXCLUDED.sort_order, highest_modseq=EXCLUDED.highest_modseq,
+			is_subscribed=EXCLUDED.is_subscribed`,
+		f.MailboxID.String(), folderName, f.FolderID.String(), f.ParentID.String(),
+		f.Role, f.SortOrder, int64(f.HighestModSeq), f.IsSubscribed)
+	if err != nil {
+		return fmt.Errorf("postgres: restore folder identity %s/%s: %w", f.MailboxID.String(), folderName, err)
+	}
+	return nil
+}
+
 // GetFolderID returns the FolderId for a mailbox+folder, or ErrFolderNotFound.
 func (d *DB) GetFolderID(mboxKey, folderName string) (semcore.FolderId, error) {
 	var raw string

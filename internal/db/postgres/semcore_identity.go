@@ -57,6 +57,25 @@ func (d *DB) EnsureMailboxId(email string) (semcore.MailboxId, error) {
 	return id, nil
 }
 
+// RestoreMailboxIdentity inserts a mailbox identity with the exact MailboxId,
+// UIDVALIDITY, and highest-modseq supplied, for the bbolt→Postgres migration.
+// Unlike EnsureMailboxId it preserves the source's canonical id — folders,
+// items, policies, and delegates all reference it — instead of minting a fresh
+// one.
+func (d *DB) RestoreMailboxIdentity(email string, id semcore.MailboxId, uidValidity uint32, highestModSeq uint64) error {
+	_, err := d.pool.Exec(context.Background(), `
+		INSERT INTO semcore_mailbox_identity (email, mailbox_id, uid_validity, highest_modseq)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (email) DO UPDATE SET
+			mailbox_id=EXCLUDED.mailbox_id, uid_validity=EXCLUDED.uid_validity,
+			highest_modseq=EXCLUDED.highest_modseq`,
+		email, id.String(), int64(uidValidity), int64(highestModSeq))
+	if err != nil {
+		return fmt.Errorf("postgres: restore mailbox identity %q: %w", email, err)
+	}
+	return nil
+}
+
 // GetMailboxIDByEmail returns the MailboxId for an email, or
 // semcore.ErrMailboxNotFound when absent (bbolt parity).
 func (d *DB) GetMailboxIDByEmail(email string) (semcore.MailboxId, error) {
