@@ -28,7 +28,7 @@ type Server struct {
 // store, so CalDAV reads and writes the same calendar data as EWS and webmail
 // (one source of truth). Without this, the server uses the legacy filesystem
 // store wired in NewServer.
-func (s *Server) UseCanonicalStore(collab *semcore.BoltCollaborationStore, identity *semcore.BoltIdentityStore) {
+func (s *Server) UseCanonicalStore(collab collabBackend, identity identityBackend) {
 	if collab == nil || identity == nil {
 		return
 	}

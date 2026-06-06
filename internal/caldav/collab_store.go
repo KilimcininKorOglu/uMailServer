@@ -24,12 +24,12 @@ const (
 // mailbox maps to a single calendar folder (role "calendar"), matching the one
 // calendar EWS and the webmail calendar already present.
 type CollabStore struct {
-	collab   *semcore.BoltCollaborationStore
-	identity *semcore.BoltIdentityStore
+	collab   collabBackend
+	identity identityBackend
 }
 
 // NewCollabStore builds a semcore-backed calendar Store.
-func NewCollabStore(collab *semcore.BoltCollaborationStore, identity *semcore.BoltIdentityStore) *CollabStore {
+func NewCollabStore(collab collabBackend, identity identityBackend) *CollabStore {
 	return &CollabStore{collab: collab, identity: identity}
 }
 

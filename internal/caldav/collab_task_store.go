@@ -24,12 +24,12 @@ const (
 // visible over EWS and vice versa. It satisfies the calendar-shaped Store
 // interface by treating the task list as a single "calendar".
 type CollabTaskStore struct {
-	collab   *semcore.BoltCollaborationStore
-	identity *semcore.BoltIdentityStore
+	collab   collabBackend
+	identity identityBackend
 }
 
 // NewCollabTaskStore builds a semcore-backed task Store.
-func NewCollabTaskStore(collab *semcore.BoltCollaborationStore, identity *semcore.BoltIdentityStore) *CollabTaskStore {
+func NewCollabTaskStore(collab collabBackend, identity identityBackend) *CollabTaskStore {
 	return &CollabTaskStore{collab: collab, identity: identity}
 }
 
