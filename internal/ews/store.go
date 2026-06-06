@@ -50,3 +50,27 @@ type PolicyStore interface {
 }
 
 var _ PolicyStore = (*semcore.BoltPolicyStore)(nil)
+
+// CollabStore is the calendar/contact/task identity surface the EWS server
+// needs (CalendarItemId/ContactId/TaskId with their ChangeKey variants).
+type CollabStore interface {
+	GetCalendarItemByID(id semcore.CalendarItemId) (*semcore.StoredCalendarItemIdentity, error)
+	ListCalendarItemsByFolder(folderID semcore.FolderId) ([]semcore.StoredCalendarItemIdentity, error)
+	PutCalendarItemIdentity(msgKey string, rec *semcore.StoredCalendarItemIdentity, currentChangeKey semcore.CalendarChangeKey) error
+	PutCalendarItemIdentityUnsafe(msgKey string, rec *semcore.StoredCalendarItemIdentity) error
+	DeleteCalendarItemIdentity(msgKey string, currentChangeKey semcore.CalendarChangeKey) error
+
+	GetContactByID(id semcore.ContactId) (*semcore.StoredContactIdentity, error)
+	ListContactsByFolder(folderID semcore.FolderId) ([]semcore.StoredContactIdentity, error)
+	PutContactIdentity(msgKey string, rec *semcore.StoredContactIdentity, currentChangeKey semcore.ContactChangeKey) error
+	PutContactIdentityUnsafe(msgKey string, rec *semcore.StoredContactIdentity) error
+	DeleteContactIdentity(msgKey string, currentChangeKey semcore.ContactChangeKey) error
+
+	GetTaskByID(id semcore.TaskId) (*semcore.StoredTaskIdentity, error)
+	ListTasksByFolder(folderID semcore.FolderId) ([]semcore.StoredTaskIdentity, error)
+	PutTaskIdentity(msgKey string, rec *semcore.StoredTaskIdentity, currentChangeKey semcore.TaskChangeKey) error
+	PutTaskIdentityUnsafe(msgKey string, rec *semcore.StoredTaskIdentity) error
+	DeleteTaskIdentity(msgKey string, currentChangeKey semcore.TaskChangeKey) error
+}
+
+var _ CollabStore = (*semcore.BoltCollaborationStore)(nil)
