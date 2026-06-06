@@ -74,3 +74,35 @@ type CollabStore interface {
 }
 
 var _ CollabStore = (*semcore.BoltCollaborationStore)(nil)
+
+// IdentityStore is the canonical mailbox/folder/item identity surface the EWS
+// server needs (MailboxId/FolderId/ItemId resolution and item state).
+type IdentityStore interface {
+	EnsureMailboxId(email string) (semcore.MailboxId, error)
+	GetMailboxIDByEmail(email string) (semcore.MailboxId, error)
+	EnsureFolderId(mboxKey, folderName, role string) (semcore.FolderId, error)
+	GetFolderID(mboxKey, folderName string) (semcore.FolderId, error)
+	GetFolderByID(id semcore.FolderId) (*semcore.StoredFolderIdentity, error)
+	GetFolderByMailbox(mboxKey, role string) (*semcore.StoredFolderIdentity, error)
+	ListFolderIdentitiesForMailbox(mboxKey string) ([]semcore.StoredFolderIdentity, error)
+	FolderNameByID(mboxKey string, id semcore.FolderId) (string, error)
+	SetFolderParent(id semcore.FolderId, parentID semcore.FolderId) error
+	DeleteFolder(id semcore.FolderId) error
+	GetItemIdentity(id semcore.ItemId) (*semcore.StoredItemIdentity, error)
+	ListItemIdentitiesByFolder(folderID semcore.FolderId) ([]semcore.StoredItemIdentity, error)
+	SetItemFolder(id semcore.ItemId, folderID semcore.FolderId) error
+	SetItemMsgKey(id semcore.ItemId, msgKey string) error
+	UpdateItemState(id semcore.ItemId, isRead *bool, categories []string) error
+	DeleteItemIdentity(id semcore.ItemId) error
+}
+
+var _ IdentityStore = (*semcore.BoltIdentityStore)(nil)
+
+// SyncStore is the per-folder sync-state surface the EWS server needs.
+type SyncStore interface {
+	PutSyncState(mboxID semcore.MailboxId, folderID semcore.FolderId, clientID string, watermark string) error
+	GetSyncState(mboxID semcore.MailboxId, folderID semcore.FolderId, clientID string) (*semcore.StoredSyncState, error)
+	MarkFolderGone(folderID semcore.FolderId) error
+}
+
+var _ SyncStore = (*semcore.BoltSyncStateStore)(nil)

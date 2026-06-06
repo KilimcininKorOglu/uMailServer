@@ -53,8 +53,8 @@ var (
 // Stored types
 // ---------------------------------------------------------------------------
 
-// storedSyncState is what we persist for one sync-state record.
-type storedSyncState struct {
+// StoredSyncState is what we persist for one sync-state record.
+type StoredSyncState struct {
 	MailboxID  MailboxId `json:"mailbox_id"`
 	FolderID   FolderId  `json:"folder_id"`   // zero for mailbox-level tokens
 	ClientID   string    `json:"client_id"`   // protocol-specific client token
@@ -86,12 +86,12 @@ type SyncStateStore interface {
 
 	// GetSyncState retrieves the sync state for a (mailbox, folder, client) tuple.
 	// Returns ErrSyncStateNotFound if no record exists.
-	GetSyncState(mboxID MailboxId, folderID FolderId, clientID string) (*storedSyncState, error)
+	GetSyncState(mboxID MailboxId, folderID FolderId, clientID string) (*StoredSyncState, error)
 
 	// ListSyncStatesByMailbox returns all sync state records for one mailbox,
 	// optionally filtered to a specific folder. This is used by backfill
 	// and sync-state seeding operations.
-	ListSyncStatesByMailbox(mboxID MailboxId, folderID FolderId) ([]storedSyncState, error)
+	ListSyncStatesByMailbox(mboxID MailboxId, folderID FolderId) ([]StoredSyncState, error)
 
 	// MarkFolderGone marks the folder-scoped sync states for a folder as
 	// tombstoned (FolderGone = true). This is called when a folder is deleted
@@ -139,7 +139,7 @@ func (s *BoltSyncStateStore) PutSyncState(mboxID MailboxId, folderID FolderId, c
 		k := []byte(syncStateKey(mboxID, folderID, clientID))
 		existing := b.Get(k)
 
-		var rec storedSyncState
+		var rec StoredSyncState
 		if existing != nil {
 			if err := json.Unmarshal(existing, &rec); err != nil {
 				return fmt.Errorf("unmarshal existing sync state: %w", err)
@@ -150,7 +150,7 @@ func (s *BoltSyncStateStore) PutSyncState(mboxID MailboxId, folderID FolderId, c
 			rec.UpdatedAt = time.Now().UTC()
 			rec.FolderGone = false // new write clears tombstone flag
 		} else {
-			rec = storedSyncState{
+			rec = StoredSyncState{
 				MailboxID: mboxID,
 				FolderID:  folderID,
 				ClientID:  clientID,
@@ -169,17 +169,17 @@ func (s *BoltSyncStateStore) PutSyncState(mboxID MailboxId, folderID FolderId, c
 }
 
 // GetSyncState implements SyncStateStore.
-func (s *BoltSyncStateStore) GetSyncState(mboxID MailboxId, folderID FolderId, clientID string) (*storedSyncState, error) {
+func (s *BoltSyncStateStore) GetSyncState(mboxID MailboxId, folderID FolderId, clientID string) (*StoredSyncState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var rec *storedSyncState
+	var rec *StoredSyncState
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketSyncState))
 		data := b.Get([]byte(syncStateKey(mboxID, folderID, clientID)))
 		if data == nil {
 			return ErrSyncStateNotFound
 		}
-		var r storedSyncState
+		var r StoredSyncState
 		if err := json.Unmarshal(data, &r); err != nil {
 			return fmt.Errorf("unmarshal sync state: %w", err)
 		}
@@ -191,14 +191,14 @@ func (s *BoltSyncStateStore) GetSyncState(mboxID MailboxId, folderID FolderId, c
 }
 
 // ListSyncStatesByMailbox implements SyncStateStore.
-func (s *BoltSyncStateStore) ListSyncStatesByMailbox(mboxID MailboxId, folderID FolderId) ([]storedSyncState, error) {
+func (s *BoltSyncStateStore) ListSyncStatesByMailbox(mboxID MailboxId, folderID FolderId) ([]StoredSyncState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var result []storedSyncState
+	var result []StoredSyncState
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketSyncState))
 		return b.ForEach(func(k, v []byte) error {
-			var rec storedSyncState
+			var rec StoredSyncState
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil // skip corrupted
 			}
@@ -223,7 +223,7 @@ func (s *BoltSyncStateStore) MarkFolderGone(folderID FolderId) error {
 		b := tx.Bucket([]byte(bucketSyncState))
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var rec storedSyncState
+			var rec StoredSyncState
 			if err := json.Unmarshal(v, &rec); err != nil {
 				continue
 			}
@@ -251,7 +251,7 @@ func (s *BoltSyncStateStore) ListClientsForMailbox(mboxID MailboxId) ([]string, 
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketSyncState))
 		return b.ForEach(func(k, v []byte) error {
-			var rec storedSyncState
+			var rec StoredSyncState
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil
 			}

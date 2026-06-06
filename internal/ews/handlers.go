@@ -25,8 +25,8 @@ import (
 // Server is the EWS request handler. It receives SOAP requests, routes them
 // to the appropriate operation handler, and returns SOAP responses.
 type Server struct {
-	identity      *semcore.BoltIdentityStore
-	sync          *semcore.BoltSyncStateStore
+	identity      IdentityStore
+	sync          SyncStore
 	tombstones    *semcore.BoltTombstoneStore
 	msgStore      *storage.MessageStore
 	storageDB     *storage.Database
@@ -80,7 +80,7 @@ type FreeBusyInterval struct {
 // RemoveDelegate, GetDelegate) and shared mailbox discovery.
 // The sieveMgr is used to recompile the Sieve script after policy changes.
 // The db parameter provides account/domain lookups for GAL directory operations.
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, db *db.DB, mutationPipe *semcore.MutationPipeline, subscriptions SubscriptionStore, lifecycle LifecycleStore, collabStore CollabStore, policyStore PolicyStore, delegateStore DelegateStore, sieveMgr *sieve.Manager, submitMessage func(from string, to []string, data []byte) error) *Server {
+func NewServer(identity IdentityStore, syncState SyncStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, db *db.DB, mutationPipe *semcore.MutationPipeline, subscriptions SubscriptionStore, lifecycle LifecycleStore, collabStore CollabStore, policyStore PolicyStore, delegateStore DelegateStore, sieveMgr *sieve.Manager, submitMessage func(from string, to []string, data []byte) error) *Server {
 	return &Server{
 		identity:      identity,
 		sync:          syncState,

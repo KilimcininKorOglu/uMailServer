@@ -52,8 +52,8 @@ type storedMailboxIdentity struct {
 	HighestModSeq uint64    // mirrors current modseq for sync baseline
 }
 
-// storedFolderIdentity is what we persist for a canonical FolderId.
-type storedFolderIdentity struct {
+// StoredFolderIdentity is what we persist for a canonical FolderId.
+type StoredFolderIdentity struct {
 	FolderID      FolderId // stable canonical ID
 	MailboxID     MailboxId
 	ParentID      FolderId // zero for top-level folders
@@ -133,7 +133,7 @@ type IdentityStore interface {
 	GetFolderID(mboxKey, folderName string) (FolderId, error)
 
 	// GetFolderByID retrieves the full folder identity record by FolderId.
-	GetFolderByID(id FolderId) (*storedFolderIdentity, error)
+	GetFolderByID(id FolderId) (*StoredFolderIdentity, error)
 
 	// SetFolderParent updates the ParentID of an existing folder.
 	// This is the canonical rename/reparent operation; it does not rename
@@ -156,13 +156,13 @@ type IdentityStore interface {
 	DeleteFolder(id FolderId) error
 
 	// ListFolderIdentities returns all registered folder identities.
-	ListFolderIdentities() ([]storedFolderIdentity, error)
+	ListFolderIdentities() ([]StoredFolderIdentity, error)
 
 	// ListFolderIdentitiesForMailbox returns all folder identities for one mailbox.
-	ListFolderIdentitiesForMailbox(mboxKey string) ([]storedFolderIdentity, error)
+	ListFolderIdentitiesForMailbox(mboxKey string) ([]StoredFolderIdentity, error)
 
 	// GetFolderByMailbox retrieves a folder identity by mailbox key and role.
-	GetFolderByMailbox(mboxKey, role string) (*storedFolderIdentity, error)
+	GetFolderByMailbox(mboxKey, role string) (*StoredFolderIdentity, error)
 
 	// --- ItemId operations ---
 
@@ -497,9 +497,9 @@ func itemStorageKey(msgKey, email string) string {
 	return email + "\x00" + msgKey
 }
 
-func (s *BoltIdentityStore) getFolderByRoleLocked(mboxKey, role string) (*storedFolderIdentity, error) {
+func (s *BoltIdentityStore) getFolderByRoleLocked(mboxKey, role string) (*StoredFolderIdentity, error) {
 	prefix := mboxKey + "\x00"
-	var result *storedFolderIdentity
+	var result *StoredFolderIdentity
 	var resultName string
 	canonicalName := canonicalFolderNameForRole(role)
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -508,7 +508,7 @@ func (s *BoltIdentityStore) getFolderByRoleLocked(mboxKey, role string) (*stored
 			if !bytes.HasPrefix(k, []byte(prefix)) {
 				return nil
 			}
-			var rec storedFolderIdentity
+			var rec StoredFolderIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil
 			}
@@ -550,7 +550,7 @@ func (s *BoltIdentityStore) PutFolderIdentity(mboxKey, folderName string, id Fol
 		if b.Get([]byte(k)) != nil {
 			return ErrIdentityExists
 		}
-		rec := storedFolderIdentity{
+		rec := StoredFolderIdentity{
 			FolderID:      id,
 			MailboxID:     MailboxId{raw: mboxKey},
 			Role:          role,
@@ -579,7 +579,7 @@ func (s *BoltIdentityStore) GetFolderID(mboxKey, folderName string) (FolderId, e
 		if data == nil {
 			return ErrFolderNotFound
 		}
-		var rec storedFolderIdentity
+		var rec StoredFolderIdentity
 		if err := json.Unmarshal(data, &rec); err != nil {
 			return fmt.Errorf("unmarshal folder identity: %w", err)
 		}
@@ -590,14 +590,14 @@ func (s *BoltIdentityStore) GetFolderID(mboxKey, folderName string) (FolderId, e
 }
 
 // GetFolderByID implements IdentityStore.
-func (s *BoltIdentityStore) GetFolderByID(id FolderId) (*storedFolderIdentity, error) {
+func (s *BoltIdentityStore) GetFolderByID(id FolderId) (*StoredFolderIdentity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var rec *storedFolderIdentity
+	var rec *StoredFolderIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		c := tx.Bucket([]byte(bucketFolder)).Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var f storedFolderIdentity
+			var f StoredFolderIdentity
 			if err := json.Unmarshal(v, &f); err != nil {
 				continue
 			}
@@ -628,7 +628,7 @@ func (s *BoltIdentityStore) FolderNameByID(mboxKey string, id FolderId) (string,
 			if !bytes.HasPrefix(k, []byte(prefix)) {
 				return nil
 			}
-			var rec storedFolderIdentity
+			var rec StoredFolderIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil
 			}
@@ -697,7 +697,7 @@ func (s *BoltIdentityStore) GetFolderID_Locked(mboxKey, folderName string) (Fold
 		if data == nil {
 			return ErrFolderNotFound
 		}
-		var rec storedFolderIdentity
+		var rec StoredFolderIdentity
 		if err := json.Unmarshal(data, &rec); err != nil {
 			return fmt.Errorf("unmarshal folder: %w", err)
 		}
@@ -718,7 +718,7 @@ func (s *BoltIdentityStore) PutFolderIdentity_Locked(mboxKey, folderName string,
 		if b.Get([]byte(k)) != nil {
 			return ErrIdentityExists
 		}
-		rec := storedFolderIdentity{
+		rec := StoredFolderIdentity{
 			FolderID:      id,
 			MailboxID:     MailboxId{raw: mboxKey},
 			Role:          role,
@@ -737,7 +737,7 @@ func (s *BoltIdentityStore) PutFolderIdentity_Locked(mboxKey, folderName string,
 func (s *BoltIdentityStore) SetFolderParent(id FolderId, parentID FolderId) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.updateFolder(id, func(f *storedFolderIdentity) {
+	return s.updateFolder(id, func(f *StoredFolderIdentity) {
 		f.ParentID = parentID
 	})
 }
@@ -746,7 +746,7 @@ func (s *BoltIdentityStore) SetFolderParent(id FolderId, parentID FolderId) erro
 func (s *BoltIdentityStore) SetFolderDistinguishedRole(id FolderId, role string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.updateFolder(id, func(f *storedFolderIdentity) {
+	return s.updateFolder(id, func(f *StoredFolderIdentity) {
 		f.Role = role
 	})
 }
@@ -755,7 +755,7 @@ func (s *BoltIdentityStore) SetFolderDistinguishedRole(id FolderId, role string)
 func (s *BoltIdentityStore) SetFolderSortOrder(id FolderId, sortOrder int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.updateFolder(id, func(f *storedFolderIdentity) {
+	return s.updateFolder(id, func(f *StoredFolderIdentity) {
 		f.SortOrder = sortOrder
 	})
 }
@@ -764,7 +764,7 @@ func (s *BoltIdentityStore) SetFolderSortOrder(id FolderId, sortOrder int) error
 func (s *BoltIdentityStore) SetFolderModSeq(id FolderId, modseq uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.updateFolder(id, func(f *storedFolderIdentity) {
+	return s.updateFolder(id, func(f *StoredFolderIdentity) {
 		f.HighestModSeq = modseq
 	})
 }
@@ -773,7 +773,7 @@ func (s *BoltIdentityStore) SetFolderModSeq(id FolderId, modseq uint64) error {
 func (s *BoltIdentityStore) SetFolderSubscribed(id FolderId, subscribed bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.updateFolder(id, func(f *storedFolderIdentity) {
+	return s.updateFolder(id, func(f *StoredFolderIdentity) {
 		f.IsSubscribed = subscribed
 	})
 }
@@ -786,7 +786,7 @@ func (s *BoltIdentityStore) DeleteFolder(id FolderId) error {
 		b := tx.Bucket([]byte(bucketFolder))
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var f storedFolderIdentity
+			var f StoredFolderIdentity
 			if err := json.Unmarshal(v, &f); err != nil {
 				continue
 			}
@@ -799,11 +799,11 @@ func (s *BoltIdentityStore) DeleteFolder(id FolderId) error {
 }
 
 // updateFolder is a helper that finds a folder by ID and applies an update.
-func (s *BoltIdentityStore) updateFolder(id FolderId, fn func(*storedFolderIdentity)) error {
+func (s *BoltIdentityStore) updateFolder(id FolderId, fn func(*StoredFolderIdentity)) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		c := tx.Bucket([]byte(bucketFolder)).Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var f storedFolderIdentity
+			var f StoredFolderIdentity
 			if err := json.Unmarshal(v, &f); err != nil {
 				continue
 			}
@@ -821,14 +821,14 @@ func (s *BoltIdentityStore) updateFolder(id FolderId, fn func(*storedFolderIdent
 }
 
 // ListFolderIdentities implements IdentityStore.
-func (s *BoltIdentityStore) ListFolderIdentities() ([]storedFolderIdentity, error) {
+func (s *BoltIdentityStore) ListFolderIdentities() ([]StoredFolderIdentity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var result []storedFolderIdentity
+	var result []StoredFolderIdentity
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketFolder))
 		return b.ForEach(func(k, v []byte) error {
-			var rec storedFolderIdentity
+			var rec StoredFolderIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil // skip corrupted entries
 			}
@@ -840,10 +840,10 @@ func (s *BoltIdentityStore) ListFolderIdentities() ([]storedFolderIdentity, erro
 }
 
 // ListFolderIdentitiesForMailbox implements IdentityStore.
-func (s *BoltIdentityStore) ListFolderIdentitiesForMailbox(mboxKey string) ([]storedFolderIdentity, error) {
+func (s *BoltIdentityStore) ListFolderIdentitiesForMailbox(mboxKey string) ([]StoredFolderIdentity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var result []storedFolderIdentity
+	var result []StoredFolderIdentity
 	prefix := mboxKey + "\x00"
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketFolder))
@@ -851,7 +851,7 @@ func (s *BoltIdentityStore) ListFolderIdentitiesForMailbox(mboxKey string) ([]st
 			if !bytes.HasPrefix(k, []byte(prefix)) {
 				return nil
 			}
-			var rec storedFolderIdentity
+			var rec StoredFolderIdentity
 			if err := json.Unmarshal(v, &rec); err != nil {
 				return nil // skip corrupted entries
 			}
@@ -863,7 +863,7 @@ func (s *BoltIdentityStore) ListFolderIdentitiesForMailbox(mboxKey string) ([]st
 }
 
 // GetFolderByMailbox retrieves a folder identity by mailbox key and role.
-func (s *BoltIdentityStore) GetFolderByMailbox(mboxKey, role string) (*storedFolderIdentity, error) {
+func (s *BoltIdentityStore) GetFolderByMailbox(mboxKey, role string) (*StoredFolderIdentity, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.getFolderByRoleLocked(mboxKey, role)
