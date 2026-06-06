@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -48,7 +49,7 @@ func openTestDB(t *testing.T) *DB {
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
-			semcore_lifecycle, semcore_lifecycle_seq
+			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1169,5 +1170,49 @@ func TestSemcoreLifecycle(t *testing.T) {
 	// limit caps the result.
 	if evs, _, err := d.PollEvents(mboxA, 0, 2); err != nil || len(evs) != 2 {
 		t.Errorf("PollEvents(A,limit=2)=%d err=%v want 2", len(evs), err)
+	}
+}
+
+// TestSemcoreMailboxIdentity covers the semantic-core mailbox identity surface:
+// EnsureMailboxId is idempotent (stable id per email), GetMailboxIDByEmail
+// returns ErrMailboxNotFound when absent, and MailboxEmailsByID maps ids back to
+// emails.
+func TestSemcoreMailboxIdentity(t *testing.T) {
+	d := openTestDB(t)
+
+	// Absent mailbox.
+	if _, err := d.GetMailboxIDByEmail("ghost@x.com"); !errors.Is(err, semcore.ErrMailboxNotFound) {
+		t.Errorf("GetMailboxIDByEmail(absent) err=%v want ErrMailboxNotFound", err)
+	}
+
+	// EnsureMailboxId mints a stable id; a second call returns the same id.
+	id1, err := d.EnsureMailboxId("alice@x.com")
+	if err != nil || id1.IsZero() {
+		t.Fatalf("EnsureMailboxId: id=%v err=%v", id1, err)
+	}
+	id2, err := d.EnsureMailboxId("alice@x.com")
+	if err != nil || !id1.Equal(id2) {
+		t.Errorf("EnsureMailboxId not idempotent: %v vs %v err=%v", id1, id2, err)
+	}
+
+	// GetMailboxIDByEmail returns the same id.
+	got, err := d.GetMailboxIDByEmail("alice@x.com")
+	if err != nil || !got.Equal(id1) {
+		t.Errorf("GetMailboxIDByEmail=%v err=%v want %v", got, err, id1)
+	}
+
+	// A different email gets a distinct id.
+	idBob, err := d.EnsureMailboxId("bob@x.com")
+	if err != nil || idBob.Equal(id1) {
+		t.Errorf("distinct email shares id: bob=%v alice=%v err=%v", idBob, id1, err)
+	}
+
+	// MailboxEmailsByID maps both ids back to their emails.
+	m, err := d.MailboxEmailsByID()
+	if err != nil {
+		t.Fatalf("MailboxEmailsByID: %v", err)
+	}
+	if m[id1.String()] != "alice@x.com" || m[idBob.String()] != "bob@x.com" {
+		t.Errorf("MailboxEmailsByID mismatch: %+v", m)
 	}
 }

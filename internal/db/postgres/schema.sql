@@ -435,3 +435,13 @@ CREATE TABLE IF NOT EXISTS semcore_lifecycle (
     PRIMARY KEY (mailbox_id, seq)
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_lifecycle_at ON semcore_lifecycle (at);
+
+-- Semantic-core mailbox identities: the stable random MailboxId for each account
+-- email, plus the IMAP UIDVALIDITY / modseq baseline. The bbolt store keyed these
+-- by "e:"+email inside a shared bucket; here the dedicated table keys by email.
+CREATE TABLE IF NOT EXISTS semcore_mailbox_identity (
+    email          TEXT   NOT NULL PRIMARY KEY,
+    mailbox_id     TEXT   NOT NULL UNIQUE,
+    uid_validity   BIGINT NOT NULL DEFAULT 1,
+    highest_modseq BIGINT NOT NULL DEFAULT 0
+);
