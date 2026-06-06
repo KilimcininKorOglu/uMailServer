@@ -26,7 +26,7 @@ func newFilterTestServer(t *testing.T, tmpDir string) *Server {
 			t.Errorf("close semcore store: %v", err)
 		}
 	})
-	server.SetSemcoreStore(store)
+	server.SetSemcoreStore(BoltSemanticStore(store), nil)
 	return server
 }
 

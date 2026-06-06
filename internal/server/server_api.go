@@ -131,7 +131,7 @@ func (s *Server) startAPI() {
 	if s.semcoreStore != nil {
 		// Expose the canonical store to admin API surfaces (delegation,
 		// directory/resources, rules, jobs).
-		s.apiServer.SetSemcoreStore(s.semcoreStore)
+		s.apiServer.SetSemcoreStore(api.BoltSemanticStore(s.semcoreStore), s.mutationPipe)
 
 		// Give the API server the Sieve manager so the webmail filter endpoints
 		// can recompile and install a user's active Sieve script after they

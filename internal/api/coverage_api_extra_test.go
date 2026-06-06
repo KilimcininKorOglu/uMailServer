@@ -37,7 +37,7 @@ func attachSemStore(t *testing.T, server *Server) {
 			t.Errorf("close semcore store: %v", err)
 		}
 	})
-	server.SetSemcoreStore(store)
+	server.SetSemcoreStore(BoltSemanticStore(store), nil)
 }
 
 // --- handleGetFilters Coverage Tests ---

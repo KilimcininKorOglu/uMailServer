@@ -120,8 +120,16 @@ type Server struct {
 	mapiHandler http.Handler
 
 	// Canonical semantic-core store, used by admin surfaces (delegation,
-	// directory/resources, rules, jobs). Nil when semantic-core is disabled.
-	semStore *semcore.Store
+	// directory/resources, rules, jobs). Held as the SemanticStore interface so
+	// the API server names no concrete *semcore.Bolt*Store; a relational
+	// aggregate slots in at SetSemcoreStore. Nil when semantic-core is disabled.
+	semStore SemanticStore
+
+	// Canonical mutation pipeline, injected alongside the semantic store. The
+	// notes handler uses it so a webmail-created note round-trips across
+	// protocols through the same pipeline EWS/IMAP use. Nil when semantic-core
+	// is disabled.
+	mutationPipe *semcore.MutationPipeline
 
 	// Runtime Sieve manager, used to recompile and install a user's active
 	// Sieve script after the webmail filter endpoints mutate canonical rules.
@@ -695,10 +703,9 @@ func (s *Server) initRouter() {
 	// Notes (Outlook sticky notes): backed by the Notes folder as IPM.StickyNote
 	// messages, shared with EWS/IMAP/JMAP. Requires the semcore store to be wired
 	// (so a webmail-created note is visible to EWS too).
-	if s.notesHandler == nil && s.semStore != nil && s.msgStore != nil && s.mailDB != nil {
+	if s.notesHandler == nil && s.semStore != nil && s.mutationPipe != nil && s.msgStore != nil && s.mailDB != nil {
 		s.notesHandler = NewNotesHandler()
-		s.notesHandler.SetStores(s.msgStore, s.mailDB, s.semStore.Identity(),
-			semcore.NewMutationPipeline(s.semStore.Identity(), s.semStore.Lifecycle()))
+		s.notesHandler.SetStores(s.msgStore, s.mailDB, s.semStore.Identity(), s.mutationPipe)
 	}
 	if s.notesHandler != nil {
 		api.HandleFunc("/api/v1/notes", http.HandlerFunc(s.notesHandler.handleNotes).ServeHTTP)
@@ -898,11 +905,14 @@ func (s *Server) SetBackupManager(mgr *backup.Manager) {
 	s.backupMgr = mgr
 }
 
-// SetSemcoreStore injects the canonical semantic-core store so admin surfaces
-// (delegation, directory/resources, rules, jobs) can reach the persisted
-// domain models.
-func (s *Server) SetSemcoreStore(store *semcore.Store) {
+// SetSemcoreStore injects the canonical semantic-core store (as the SemanticStore
+// interface) and the canonical mutation pipeline so admin surfaces (delegation,
+// directory/resources, rules, jobs) and the notes handler can reach the persisted
+// domain models. The store is bridged from the bbolt-backed *semcore.Store via
+// BoltSemanticStore; a relational aggregate provides its own SemanticStore.
+func (s *Server) SetSemcoreStore(store SemanticStore, pipe *semcore.MutationPipeline) {
 	s.semStore = store
+	s.mutationPipe = pipe
 	// Build a read-only view over the durable-job bucket so the admin Jobs
 	// endpoint can list job records. This creates the bucket if absent; jobs
 	// remain empty until a scheduler populates them.
