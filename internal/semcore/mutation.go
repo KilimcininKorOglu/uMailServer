@@ -544,9 +544,17 @@ type DeleteInput struct {
 	DelegateAuditContext *DelegateAuditContext
 }
 
+// TombstoneWriter is the minimal tombstone-recording surface MutateDelete
+// needs. *BoltTombstoneStore satisfies it; accepting the interface lets callers
+// hold the store behind their own interface (and lets a relational tombstone
+// store slot in) instead of being forced to pass the concrete bbolt type.
+type TombstoneWriter interface {
+	PutTombstone(t Tombstone) error
+}
+
 // MutateDelete performs a canonical item delete: recording a tombstone
 // and emitting a lifecycle event with Kind = SoftDeleted or HardDeleted.
-func (p *MutationPipeline) MutateDelete(in *DeleteInput, tombstore *BoltTombstoneStore) error {
+func (p *MutationPipeline) MutateDelete(in *DeleteInput, tombstore TombstoneWriter) error {
 	if in.ItemID.IsZero() {
 		return fmt.Errorf("MutateDelete: ItemID is required")
 	}

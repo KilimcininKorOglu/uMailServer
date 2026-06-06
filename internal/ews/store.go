@@ -1,6 +1,10 @@
 package ews
 
-import "github.com/umailserver/umailserver/internal/semcore"
+import (
+	"time"
+
+	"github.com/umailserver/umailserver/internal/semcore"
+)
 
 // This file collects the consumer-side interfaces the EWS server depends on for
 // its semantic-core stores, decoupling the handlers from the concrete
@@ -106,3 +110,13 @@ type SyncStore interface {
 }
 
 var _ SyncStore = (*semcore.BoltSyncStateStore)(nil)
+
+// TombstoneStore is the deletion-tombstone surface the EWS server needs. It is
+// a superset of semcore.TombstoneWriter, so a value of this type can be handed
+// to mutationPipe.MutateDelete.
+type TombstoneStore interface {
+	PutTombstone(t semcore.Tombstone) error
+	ListTombstonesSince(mboxID semcore.MailboxId, folderID semcore.FolderId, since time.Time) ([]semcore.Tombstone, error)
+}
+
+var _ TombstoneStore = (*semcore.BoltTombstoneStore)(nil)
