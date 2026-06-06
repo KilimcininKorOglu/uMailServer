@@ -685,6 +685,20 @@ func (d *DB) GetPendingQueue(now time.Time) ([]*QueueEntry, error) {
 	return entries, err
 }
 
+// ForEachQueueEntry calls fn with every decoded queue entry. It decodes the
+// stored JSON internally so callers iterate typed entries without touching the
+// underlying bucket or the on-disk encoding — the seam a relational queue store
+// (which would iterate rows instead) slots into. Malformed entries are skipped.
+func (d *DB) ForEachQueueEntry(fn func(*QueueEntry) error) error {
+	return d.ForEach(BucketQueue, func(_ string, value []byte) error {
+		var entry QueueEntry
+		if err := json.Unmarshal(value, &entry); err != nil {
+			return nil // skip malformed entries, matching prior callers
+		}
+		return fn(&entry)
+	})
+}
+
 // GetAlias retrieves an alias by domain and local part
 func (d *DB) GetAlias(domain, localPart string) (*AliasData, error) {
 	key := domain + ":" + strings.ToLower(localPart)

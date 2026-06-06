@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -44,7 +43,7 @@ type WebhookTrigger interface {
 // Admin API methods (GetStats, SetMaxRetries, SetMaxQueueSize, FlushQueue, RetryEntry, DropEntry)
 // are implemented and exposed via /api/v1/admin/queue/* routes.
 type Manager struct {
-	db           *db.DB
+	db           Store
 	store        *store.MaildirStore
 	dataDir      string
 	resolver     DNSResolver
@@ -171,7 +170,7 @@ func (r *realMTASTSDNSResolver) LookupMX(ctx context.Context, domain string) ([]
 }
 
 // NewManager creates a new queue manager
-func NewManager(db *db.DB, store *store.MaildirStore, dataDir string, logger *slog.Logger) *Manager {
+func NewManager(db Store, store *store.MaildirStore, dataDir string, logger *slog.Logger) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -1037,11 +1036,7 @@ func (m *Manager) getStats() (*QueueStats, error) {
 	stats := &QueueStats{}
 
 	// Count all queue entries by status
-	err := m.db.ForEach(db.BucketQueue, func(key string, value []byte) error {
-		var entry db.QueueEntry
-		if err := json.Unmarshal(value, &entry); err != nil {
-			return nil // skip malformed entries
-		}
+	err := m.db.ForEachQueueEntry(func(entry *db.QueueEntry) error {
 		stats.Total++
 		switch entry.Status {
 		case "pending":
@@ -1165,11 +1160,7 @@ func (m *Manager) countMessageRefs(messagePath string) int {
 	// Lock must be held by caller
 
 	count := 0
-	_ = m.db.ForEach(db.BucketQueue, func(_ string, value []byte) error {
-		var entry db.QueueEntry
-		if err := json.Unmarshal(value, &entry); err != nil {
-			return nil
-		}
+	_ = m.db.ForEachQueueEntry(func(entry *db.QueueEntry) error { //nolint:errcheck
 		if entry.MessagePath == messagePath {
 			// Final-state entries (delivered/bounced) no longer need the file
 			if entry.Status != "delivered" && entry.Status != "bounced" {
@@ -1197,11 +1188,7 @@ func (m *Manager) deleteMessageFileIfUnreferenced(messagePath string) bool {
 // countMessageRefsUnsafe counts references without locking. Caller must hold mu.
 func (m *Manager) countMessageRefsUnsafe(messagePath string) int {
 	count := 0
-	_ = m.db.ForEach(db.BucketQueue, func(_ string, value []byte) error {
-		var entry db.QueueEntry
-		if err := json.Unmarshal(value, &entry); err != nil {
-			return nil
-		}
+	_ = m.db.ForEachQueueEntry(func(entry *db.QueueEntry) error { //nolint:errcheck
 		if entry.MessagePath == messagePath {
 			if entry.Status != "delivered" && entry.Status != "bounced" {
 				count++
