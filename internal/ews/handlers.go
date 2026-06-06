@@ -36,7 +36,7 @@ type Server struct {
 	lifecycle     *semcore.BoltLifecycleStore
 	collabStore   *semcore.BoltCollaborationStore
 	policyStore   *semcore.BoltPolicyStore
-	delegateStore *semcore.BoltDelegateStore
+	delegateStore DelegateStore
 	sieveMgr      *sieve.Manager
 	submitMessage func(from string, to []string, data []byte) error
 	logger        *slog.Logger
@@ -80,7 +80,7 @@ type FreeBusyInterval struct {
 // RemoveDelegate, GetDelegate) and shared mailbox discovery.
 // The sieveMgr is used to recompile the Sieve script after policy changes.
 // The db parameter provides account/domain lookups for GAL directory operations.
-func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, db *db.DB, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, delegateStore *semcore.BoltDelegateStore, sieveMgr *sieve.Manager, submitMessage func(from string, to []string, data []byte) error) *Server {
+func NewServer(identity *semcore.BoltIdentityStore, syncState *semcore.BoltSyncStateStore, tombstones *semcore.BoltTombstoneStore, msgStore *storage.MessageStore, storageDB *storage.Database, db *db.DB, mutationPipe *semcore.MutationPipeline, subscriptions *semcore.BoltSubscriptionStore, lifecycle *semcore.BoltLifecycleStore, collabStore *semcore.BoltCollaborationStore, policyStore *semcore.BoltPolicyStore, delegateStore DelegateStore, sieveMgr *sieve.Manager, submitMessage func(from string, to []string, data []byte) error) *Server {
 	return &Server{
 		identity:      identity,
 		sync:          syncState,
