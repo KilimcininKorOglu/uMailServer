@@ -485,3 +485,18 @@ CREATE TABLE IF NOT EXISTS semcore_conversation_identity (
     conversation_id TEXT NOT NULL PRIMARY KEY,
     mailbox_id      TEXT NOT NULL DEFAULT ''
 );
+
+-- Semantic-core per-client sync state (EWS SyncFolderItems watermarks). Keyed by
+-- (mailbox, folder, client); version is bumped on every write and folder_gone is
+-- set when the folder is deleted after a token was issued.
+CREATE TABLE IF NOT EXISTS semcore_sync_state (
+    mailbox_id  TEXT   NOT NULL,
+    folder_id   TEXT   NOT NULL DEFAULT '',
+    client_id   TEXT   NOT NULL,
+    watermark   TEXT   NOT NULL DEFAULT '',
+    version     BIGINT NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    folder_gone BOOLEAN NOT NULL DEFAULT false,
+    PRIMARY KEY (mailbox_id, folder_id, client_id)
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_sync_folder ON semcore_sync_state (folder_id);

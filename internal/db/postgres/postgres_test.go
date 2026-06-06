@@ -50,7 +50,8 @@ func openTestDB(t *testing.T) *DB {
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
 			semcore_lifecycle, semcore_lifecycle_seq, semcore_mailbox_identity,
-			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity
+			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity,
+			semcore_sync_state
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1402,5 +1403,51 @@ func TestSemcoreItemIdentity(t *testing.T) {
 	}
 	if _, err := d.GetItemIdentity(item); !errors.Is(err, semcore.ErrItemNotFound) {
 		t.Errorf("after delete err=%v want ErrItemNotFound", err)
+	}
+}
+
+// TestSemcoreSyncState covers per-client sync state: put creates version 1, a
+// second put bumps the version and updates the watermark, GetSyncState reads it
+// back, MarkFolderGone flags it, and absent lookups return ErrSyncStateNotFound.
+func TestSemcoreSyncState(t *testing.T) {
+	d := openTestDB(t)
+	mbox := semcore.MustMailboxId("alice@x.com")
+	folder := semcore.MustFolderId("folder:inbox")
+	const client = "ews-1"
+
+	if _, err := d.GetSyncState(mbox, folder, client); !errors.Is(err, semcore.ErrSyncStateNotFound) {
+		t.Errorf("GetSyncState(absent) err=%v want ErrSyncStateNotFound", err)
+	}
+
+	if err := d.PutSyncState(mbox, folder, client, "wm-1"); err != nil {
+		t.Fatalf("PutSyncState: %v", err)
+	}
+	rec, err := d.GetSyncState(mbox, folder, client)
+	if err != nil || rec.Watermark != "wm-1" || rec.Version != 1 || rec.FolderGone {
+		t.Fatalf("GetSyncState after first put: %+v err=%v", rec, err)
+	}
+
+	// Second put bumps version and updates watermark.
+	if err := d.PutSyncState(mbox, folder, client, "wm-2"); err != nil {
+		t.Fatalf("PutSyncState #2: %v", err)
+	}
+	rec, err = d.GetSyncState(mbox, folder, client)
+	if err != nil || rec.Watermark != "wm-2" || rec.Version != 2 {
+		t.Errorf("GetSyncState after second put: %+v err=%v", rec, err)
+	}
+
+	// MarkFolderGone flags the state.
+	if err := d.MarkFolderGone(folder); err != nil {
+		t.Fatalf("MarkFolderGone: %v", err)
+	}
+	if rec, err := d.GetSyncState(mbox, folder, client); err != nil || !rec.FolderGone {
+		t.Errorf("after MarkFolderGone: folderGone=%v err=%v want true", rec.FolderGone, err)
+	}
+	// A subsequent put clears folder_gone.
+	if err := d.PutSyncState(mbox, folder, client, "wm-3"); err != nil {
+		t.Fatalf("PutSyncState #3: %v", err)
+	}
+	if rec, err := d.GetSyncState(mbox, folder, client); err != nil || rec.FolderGone || rec.Version != 3 {
+		t.Errorf("after re-put: %+v err=%v want folderGone=false version=3", rec, err)
 	}
 }
