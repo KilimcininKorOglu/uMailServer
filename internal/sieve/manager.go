@@ -25,6 +25,19 @@ type Manager struct {
 	vacationCacheMu  sync.Mutex
 	vacationMaxSize  int
 	vacationAccessor []string // LRU tracking
+
+	// vacationDedup, when set, replaces the per-process cache with a shared
+	// (cross-node) "first within interval?" check — the server injects a
+	// Redis-backed implementation in cluster mode so a sender that hits multiple
+	// nodes still gets only one auto-reply. It returns true when an auto-reply
+	// SHOULD be sent (first occurrence in the interval).
+	vacationDedup func(sender string, interval time.Duration) bool
+}
+
+// SetVacationDedup installs a shared cross-node vacation dedup check, replacing
+// the per-process LRU cache. Nil restores the in-memory behavior.
+func (m *Manager) SetVacationDedup(fn func(sender string, interval time.Duration) bool) {
+	m.vacationDedup = fn
 }
 
 // NewManager creates a new Sieve manager
@@ -272,14 +285,20 @@ func (m *Manager) RecordVacationSent(sender string) {
 // CheckAndRecordVacation atomically checks if we should send a vacation reply and records that we will.
 // This prevents race conditions where multiple goroutines could send vacation replies for the same sender.
 func (m *Manager) CheckAndRecordVacation(sender string, days int) bool {
-	m.vacationCacheMu.Lock()
-	defer m.vacationCacheMu.Unlock()
-
 	// Minimum interval is 1 day regardless of user's preference
 	interval := time.Duration(days) * 24 * time.Hour
 	if interval < 24*time.Hour {
 		interval = 24 * time.Hour
 	}
+
+	// Shared cross-node dedup (cluster mode) takes precedence over the
+	// per-process cache, so a sender hitting different nodes is deduped once.
+	if m.vacationDedup != nil {
+		return m.vacationDedup(sender, interval)
+	}
+
+	m.vacationCacheMu.Lock()
+	defer m.vacationCacheMu.Unlock()
 
 	lastSent, ok := m.vacationCache[sender]
 	if ok && time.Since(lastSent) < interval {

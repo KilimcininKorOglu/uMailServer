@@ -79,6 +79,45 @@ func TestManager_CheckAndRecordVacation_WithinInterval(t *testing.T) {
 	}
 }
 
+// TestManager_VacationDedupHook verifies the cross-node dedup hook takes
+// precedence over the per-process cache: when installed, CheckAndRecordVacation
+// returns exactly what the shared check returns and never consults the local
+// map (the basis for one-reply-per-interval across cluster nodes). It also
+// receives the computed interval (>= 24h minimum).
+func TestManager_VacationDedupHook(t *testing.T) {
+	m := NewManager()
+	var calls int
+	var gotInterval time.Duration
+	m.SetVacationDedup(func(_ string, interval time.Duration) bool {
+		calls++
+		gotInterval = interval
+		return calls == 1 // first call sends, rest deduped
+	})
+
+	if !m.CheckAndRecordVacation("s@example.com", 3) {
+		t.Fatal("first call should send via the hook")
+	}
+	if m.CheckAndRecordVacation("s@example.com", 3) {
+		t.Fatal("second call should be deduped by the hook")
+	}
+	if calls != 2 {
+		t.Fatalf("hook called %d times, want 2 (in-memory path was used instead)", calls)
+	}
+	if gotInterval != 3*24*time.Hour {
+		t.Fatalf("hook interval = %v, want 72h", gotInterval)
+	}
+	// The per-process cache must stay untouched when the hook is active.
+	if len(m.vacationCache) != 0 {
+		t.Fatalf("in-memory vacation cache was written despite the hook: %d entries", len(m.vacationCache))
+	}
+
+	// Min-interval clamp still applies through the hook (days<1 → 24h).
+	m.CheckAndRecordVacation("s@example.com", 0)
+	if gotInterval != 24*time.Hour {
+		t.Fatalf("hook interval for 0 days = %v, want 24h (clamp)", gotInterval)
+	}
+}
+
 func TestManager_CheckAndRecordVacation_AfterInterval(t *testing.T) {
 	m := NewManager()
 	m.vacationCacheMu.Lock()

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -119,6 +120,22 @@ func (s *Server) startAPI() {
 				RedisURL:   cc.RedisURL,
 				InstanceID: instanceID,
 				Enabled:    true,
+			})
+			// Cross-node OOF dedup: replace the Sieve manager's per-process vacation
+			// cache with a Redis fixed-window counter, so a sender that lands on
+			// different nodes still gets only one auto-reply per interval. Fail-open
+			// (send) on a Redis error — dropping a legitimate reply is worse than a
+			// rare double during an outage, matching the rate limiter's posture.
+			counters := mgr.Counters()
+			s.sieveManager.SetVacationDedup(func(sender string, interval time.Duration) bool {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				n, derr := counters.IncrFixed(ctx, "vac:"+sender, interval)
+				if derr != nil {
+					s.logger.Warn("cluster: vacation dedup counter failed; sending", "sender", sender, "error", derr)
+					return true
+				}
+				return n == 1
 			})
 			s.logger.Info("HA cluster manager initialized", "instance_id", instanceID)
 		}
