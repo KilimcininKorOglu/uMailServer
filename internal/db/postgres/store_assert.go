@@ -33,4 +33,5 @@ var (
 	_ semcore.TombstoneWriter        = (*DB)(nil)
 	_ jmap.NotesIdentityStore        = (*DB)(nil)
 	_ jmap.OOFStore                  = (*DB)(nil)
+	_ semcore.JobStore               = (*pgJobStore)(nil)
 )

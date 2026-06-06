@@ -676,3 +676,24 @@ CREATE TABLE IF NOT EXISTS semcore_contact (
     raw_data   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_contact_uid ON semcore_contact (folder_id, ical_uid);
+
+-- Semantic-core background jobs (migration/backfill/rollback scheduler). Scalar
+-- fields are typed columns; the variant step list is a JSONB payload.
+CREATE TABLE IF NOT EXISTS semcore_job (
+    id            TEXT     NOT NULL PRIMARY KEY,
+    kind          TEXT     NOT NULL DEFAULT '',
+    target        TEXT     NOT NULL DEFAULT '',
+    mailbox_id    TEXT     NOT NULL DEFAULT '',
+    state         TEXT     NOT NULL DEFAULT '',
+    priority      INTEGER  NOT NULL DEFAULT 0,
+    steps         JSONB    NOT NULL DEFAULT '[]',
+    cursor        TEXT     NOT NULL DEFAULT '',
+    errors        INTEGER  NOT NULL DEFAULT 0,
+    last_error    TEXT     NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ,
+    started_at    TIMESTAMPTZ,
+    checkpoint_at TIMESTAMPTZ,
+    completed_at  TIMESTAMPTZ,
+    actor         TEXT     NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_semcore_job_kind_state ON semcore_job (kind, state);

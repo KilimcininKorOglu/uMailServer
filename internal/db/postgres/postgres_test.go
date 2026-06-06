@@ -53,7 +53,7 @@ func openTestDB(t *testing.T) *DB {
 			semcore_folder_identity, semcore_item_identity, semcore_conversation_identity,
 			semcore_sync_state, semcore_tombstone, semcore_subscription, semcore_delegate,
 			semcore_rule, semcore_oof, semcore_resource, semcore_room_list,
-			semcore_calendar_item, semcore_task, semcore_contact
+			semcore_calendar_item, semcore_task, semcore_contact, semcore_job
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -1827,5 +1827,70 @@ func TestSemcoreCollab(t *testing.T) {
 	}
 	if _, _, found, err := d.FindContactByUID(contacts, "uid-contact-1"); err != nil || found {
 		t.Errorf("contact still found after delete: found=%v err=%v", found, err)
+	}
+}
+
+// TestSemcoreJobs covers the job store via the NewJobStore handle: put/get with
+// steps round-trip, list with kind/state filters, update-in-place, and delete
+// with the ErrJobNotFound parity.
+func TestSemcoreJobs(t *testing.T) {
+	d := openTestDB(t)
+	js, err := d.NewJobStore()
+	if err != nil {
+		t.Fatalf("NewJobStore: %v", err)
+	}
+
+	// Absent job.
+	if _, err := js.Get("ghost"); !errors.Is(err, semcore.ErrJobNotFound) {
+		t.Errorf("Get(absent) err=%v want ErrJobNotFound", err)
+	}
+
+	job := semcore.Job{
+		ID: "job-1", Kind: semcore.JobKindBackfill, State: semcore.JobStatePending,
+		Target: "mailbox", Priority: 2, Actor: "admin",
+		Steps: []semcore.JobStep{{Name: "scan", Description: "scan mailbox"}},
+	}
+	if err := js.Put(job); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	got, err := js.Get("job-1")
+	if err != nil || got.Kind != semcore.JobKindBackfill || got.Priority != 2 ||
+		len(got.Steps) != 1 || got.Steps[0].Name != "scan" {
+		t.Fatalf("Get mismatch: %+v err=%v", got, err)
+	}
+
+	// Update in place (state transition).
+	job.State = semcore.JobStateRunning
+	if err := js.Put(job); err != nil {
+		t.Fatalf("Put update: %v", err)
+	}
+	if got, err := js.Get("job-1"); err != nil || got.State != semcore.JobStateRunning {
+		t.Errorf("after update state=%v err=%v want running", got.State, err)
+	}
+
+	// A second job of a different kind/state.
+	if err := js.Put(semcore.Job{ID: "job-2", Kind: semcore.JobKindMigration, State: semcore.JobStateCompleted}); err != nil {
+		t.Fatalf("Put job-2: %v", err)
+	}
+
+	// List with no filter returns both.
+	if all, err := js.List("", ""); err != nil || len(all) != 2 {
+		t.Errorf("List(all)=%d err=%v want 2", len(all), err)
+	}
+	// Filter by kind.
+	if list, err := js.List(semcore.JobKindBackfill, ""); err != nil || len(list) != 1 || list[0].ID != "job-1" {
+		t.Errorf("List(backfill)=%+v err=%v want [job-1]", list, err)
+	}
+	// Filter by state.
+	if list, err := js.List("", semcore.JobStateCompleted); err != nil || len(list) != 1 || list[0].ID != "job-2" {
+		t.Errorf("List(completed)=%+v err=%v want [job-2]", list, err)
+	}
+
+	// Delete; deleting again returns ErrJobNotFound.
+	if err := js.Delete("job-1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if err := js.Delete("job-1"); !errors.Is(err, semcore.ErrJobNotFound) {
+		t.Errorf("Delete(absent) err=%v want ErrJobNotFound", err)
 	}
 }
