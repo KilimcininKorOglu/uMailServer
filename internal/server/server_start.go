@@ -15,12 +15,21 @@ func (s *Server) Start() error {
 		"data_dir", s.cfg().Server.DataDir,
 	)
 
-	// Create PID file
-	pidFile := NewPIDFile(s.cfg().Server.DataDir)
-	if err := pidFile.Create(); err != nil {
-		return fmt.Errorf("failed to create PID file: %w", err)
+	// Create PID file. The PID file guards against a second instance owning the
+	// same data_dir on ONE host; in cluster mode the data_dir (shared Maildir) is
+	// deliberately shared across nodes, so the guard is both wrong and harmful
+	// (every node would see the first node's PID and refuse to start). Skip it
+	// when clustered — multi-node single-instance safety is the canonical store's
+	// job (Postgres), not a shared file lock.
+	if !s.cfg().Cluster.Enabled {
+		pidFile := NewPIDFile(s.cfg().Server.DataDir)
+		if err := pidFile.Create(); err != nil {
+			return fmt.Errorf("failed to create PID file: %w", err)
+		}
+		s.logger.Debug("PID file created")
+	} else {
+		s.logger.Info("cluster mode: skipping shared-data_dir PID file")
 	}
-	s.logger.Debug("PID file created")
 
 	// Initialize queue manager
 	queueDir := filepath.Join(s.cfg().Server.DataDir, "queue")
