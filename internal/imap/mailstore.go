@@ -18,8 +18,8 @@ import (
 // BboltMailstore implements the Mailstore interface using bbolt database
 type BboltMailstore struct {
 	dataDir  string
-	db       *storage.Database
-	msgStore *storage.MessageStore
+	db       MetadataStore
+	msgStore MessageStore
 
 	// Canonical mutation pipeline for semantic identity assignment.
 	// Wired by the server during initialization via SetMutationPipeline.
@@ -88,7 +88,7 @@ func NewBboltMailstore(dataDir string) (*BboltMailstore, error) {
 }
 
 // NewBboltMailstoreWithInterfaces creates a mailstore using existing storage instances
-func NewBboltMailstoreWithInterfaces(db *storage.Database, msgStore *storage.MessageStore) *BboltMailstore {
+func NewBboltMailstoreWithInterfaces(db MetadataStore, msgStore MessageStore) *BboltMailstore {
 	return &BboltMailstore{
 		dataDir:  "shared",
 		db:       db,
