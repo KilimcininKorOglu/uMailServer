@@ -7,17 +7,33 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// newRedisClient builds a Redis client from either a redis:// / rediss:// URL
-// (with optional auth and db number) or a bare host:port address. The previous
-// code passed the whole URL into Options.Addr, which only accepts host:port and
-// failed with "too many colons in address" for real redis:// URLs.
+// sentinelScheme marks a Redis Sentinel URL — a high-availability Redis where
+// the app talks to a quorum of Sentinels that track the current master, so it
+// follows a master failover automatically. Form:
+//
+//	redis-sentinel://[:password@]host1:26379,host2:26379,.../masterName[/db]
+const sentinelScheme = "redis-sentinel://"
+
+// newRedisClient builds a Redis client from a Sentinel URL (redis-sentinel://),
+// a plain redis:// / rediss:// URL (with optional auth and db number), or a bare
+// host:port address. NewFailoverClient returns the same *redis.Client type as
+// NewClient, so every caller works unchanged whether Redis is single-node or
+// Sentinel-backed.
 func newRedisClient(redisURL string) (*redis.Client, error) {
+	if strings.HasPrefix(redisURL, sentinelScheme) {
+		opt, err := parseSentinelURL(redisURL)
+		if err != nil {
+			return nil, err
+		}
+		return redis.NewFailoverClient(opt), nil
+	}
 	if strings.Contains(redisURL, "://") {
 		opt, err := redis.ParseURL(redisURL)
 		if err != nil {
@@ -26,6 +42,51 @@ func newRedisClient(redisURL string) (*redis.Client, error) {
 		return redis.NewClient(opt), nil
 	}
 	return redis.NewClient(&redis.Options{Addr: redisURL}), nil
+}
+
+// parseSentinelURL parses a redis-sentinel:// URL into FailoverOptions. The host
+// section is a comma-separated list of Sentinel addresses (url.Parse cannot
+// handle the commas, so it is parsed by hand), and the path carries the master
+// name and an optional DB number.
+func parseSentinelURL(raw string) (*redis.FailoverOptions, error) {
+	rest := strings.TrimPrefix(raw, sentinelScheme)
+
+	var password string
+	if at := strings.LastIndex(rest, "@"); at >= 0 {
+		userinfo := rest[:at]
+		rest = rest[at+1:]
+		if _, pw, ok := strings.Cut(userinfo, ":"); ok {
+			password = pw // user:password — Redis auth ignores the user
+		} else {
+			password = userinfo
+		}
+	}
+
+	addrsPart, tail, ok := strings.Cut(rest, "/") // tail = masterName[/db]
+	if !ok {
+		return nil, fmt.Errorf("redis-sentinel url missing /masterName: %q", raw)
+	}
+	addrs := strings.Split(addrsPart, ",")
+
+	master, dbStr, hasDB := strings.Cut(tail, "/")
+	db := 0
+	if hasDB && dbStr != "" {
+		n, err := strconv.Atoi(dbStr)
+		if err != nil {
+			return nil, fmt.Errorf("redis-sentinel url invalid db %q: %w", dbStr, err)
+		}
+		db = n
+	}
+	if master == "" || len(addrs) == 0 || addrs[0] == "" {
+		return nil, fmt.Errorf("redis-sentinel url needs a master name and at least one sentinel addr: %q", raw)
+	}
+	return &redis.FailoverOptions{
+		MasterName:       master,
+		SentinelAddrs:    addrs,
+		Password:         password,
+		SentinelPassword: password,
+		DB:               db,
+	}, nil
 }
 
 // RedisSessionStore implements SessionStore using Redis
