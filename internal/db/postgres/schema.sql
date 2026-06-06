@@ -351,3 +351,27 @@ CREATE TABLE IF NOT EXISTS changes (
     at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_changes_user_type_seq ON changes (user_email, type, seq);
+
+-- Bayesian spam token counts. class is the bucket name ('spam_tokens' /
+-- 'ham_tokens'); the bbolt store keyed the same data by bucket + token.
+CREATE TABLE IF NOT EXISTS spam_tokens (
+    class TEXT   NOT NULL,
+    token TEXT   NOT NULL,
+    count BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (class, token)
+);
+
+-- Singleton row holding the corpus totals the classifier reads as a fast path
+-- (mirrors the bbolt "spam_stats" bucket's total_ham / total_spam keys).
+CREATE TABLE IF NOT EXISTS spam_stats (
+    id         SMALLINT PRIMARY KEY DEFAULT 1,
+    total_ham  BIGINT NOT NULL DEFAULT 0,
+    total_spam BIGINT NOT NULL DEFAULT 0
+);
+
+-- Per-user daily-sent quota counters, persisted so they survive a restart
+-- (mirrors the bbolt "ratelimit_users" bucket's "<user>:sent_today" keys).
+CREATE TABLE IF NOT EXISTS ratelimit_quota (
+    user_email TEXT   NOT NULL PRIMARY KEY,
+    sent_today BIGINT NOT NULL DEFAULT 0
+);

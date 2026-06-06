@@ -45,7 +45,8 @@ func openTestDB(t *testing.T) *DB {
 	if _, err := d.pool.Exec(ctx,
 		`TRUNCATE accounts, aliases, mail_groups, mail_queue, domains, tenants,
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
-			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes
+			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
+			spam_tokens, spam_stats, ratelimit_quota
 			RESTART IDENTITY CASCADE`,
 	); err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -956,5 +957,77 @@ func TestACL(t *testing.T) {
 	}
 	if list, err := d.ListACL(owner, mbox); err != nil || len(list) != 0 {
 		t.Errorf("after bulk delete, ListACL=%+v err=%v want empty", list, err)
+	}
+}
+
+// TestSpamStore covers the Bayesian persistence surface (spam.Store): token
+// increments, per-token frequency, live sums, and the persisted stats override.
+func TestSpamStore(t *testing.T) {
+	d := openTestDB(t)
+	if err := d.Initialize(); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	// Increment the same token in both classes.
+	if err := d.IncrementToken("spam_tokens", "viagra", 3); err != nil {
+		t.Fatalf("IncrementToken spam: %v", err)
+	}
+	if err := d.IncrementToken("spam_tokens", "viagra", 2); err != nil { // accumulates
+		t.Fatalf("IncrementToken spam: %v", err)
+	}
+	if err := d.IncrementToken("ham_tokens", "viagra", 1); err != nil {
+		t.Fatalf("IncrementToken ham: %v", err)
+	}
+	if err := d.IncrementToken("ham_tokens", "hello", 4); err != nil {
+		t.Fatalf("IncrementToken ham: %v", err)
+	}
+
+	ham, spam, err := d.GetTokenFrequency("viagra")
+	if err != nil || ham != 1 || spam != 5 {
+		t.Errorf("GetTokenFrequency(viagra)=(%d,%d) err=%v want (1,5)", ham, spam, err)
+	}
+
+	// Live sums (no stats row yet): ham = 1+4 = 5, spam = 5.
+	th, ts, err := d.GetTotalCounts()
+	if err != nil || th != 5 || ts != 5 {
+		t.Errorf("GetTotalCounts live=(%d,%d) err=%v want (5,5)", th, ts, err)
+	}
+
+	// Persisted stats override the live sums.
+	if err := d.SetTotals(100, 200); err != nil {
+		t.Fatalf("SetTotals: %v", err)
+	}
+	th, ts, err = d.GetTotalCounts()
+	if err != nil || th != 100 || ts != 200 {
+		t.Errorf("GetTotalCounts after SetTotals=(%d,%d) err=%v want (100,200)", th, ts, err)
+	}
+
+	// Unknown token reads as (0,0) with no error.
+	if h, s, err := d.GetTokenFrequency("absent"); err != nil || h != 0 || s != 0 {
+		t.Errorf("GetTokenFrequency(absent)=(%d,%d) err=%v want (0,0)", h, s, err)
+	}
+}
+
+// TestQuotaStore covers the per-user daily-send quota surface
+// (ratelimit.QuotaStore): persist, read back, overwrite, negative clamp, and
+// the absent-user zero default.
+func TestQuotaStore(t *testing.T) {
+	d := openTestDB(t)
+	if err := d.Initialize(); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	if got := d.GetUserSentToday("nobody@x.com"); got != 0 {
+		t.Errorf("absent user count=%d want 0", got)
+	}
+	d.SetUserSentToday("a@x.com", 7)
+	if got := d.GetUserSentToday("a@x.com"); got != 7 {
+		t.Errorf("count=%d want 7", got)
+	}
+	d.SetUserSentToday("a@x.com", 12) // overwrite
+	if got := d.GetUserSentToday("a@x.com"); got != 12 {
+		t.Errorf("count=%d want 12", got)
+	}
+	d.SetUserSentToday("a@x.com", -5) // clamps to 0
+	if got := d.GetUserSentToday("a@x.com"); got != 0 {
+		t.Errorf("count after negative=%d want 0", got)
 	}
 }

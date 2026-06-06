@@ -4,7 +4,9 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/jmap"
+	"github.com/umailserver/umailserver/internal/ratelimit"
 	"github.com/umailserver/umailserver/internal/search"
+	"github.com/umailserver/umailserver/internal/spam"
 )
 
 // The relational backend must satisfy the same consumer interfaces as the bbolt
@@ -14,9 +16,13 @@ import (
 //     methods) the IMAP server holds.
 //   - search.MetadataStore: the metadata surface the search service reads.
 //   - jmap.MailStore: the mailbox/message/thread/changes surface JMAP reads.
+//   - spam.Store / ratelimit.QuotaStore: the auxiliary volatile stores that on
+//     bbolt share mail.db; here they are plain relational tables.
 var (
 	_ db.Store             = (*DB)(nil)
 	_ imap.MetadataStore   = (*DB)(nil)
 	_ search.MetadataStore = (*DB)(nil)
 	_ jmap.MailStore       = (*DB)(nil)
+	_ spam.Store           = (*DB)(nil)
+	_ ratelimit.QuotaStore = (*DB)(nil)
 )
