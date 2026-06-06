@@ -97,11 +97,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      # Serialize first boot: node1 applies the schema + bootstrap admin/domain
-      # once, then node2 just connects (avoids a concurrent CREATE TABLE / bootstrap
-      # race on a fresh database). Steady-state both are independent active nodes.
-      node1:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 10s

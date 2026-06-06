@@ -45,6 +45,9 @@ func openTestDB(t *testing.T) *DB {
 	if err := d.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
+	// Migrate holds the boot-time advisory lock on a pinned connection; release it
+	// so the test body runs against the full pool.
+	d.ReleaseInitLock(ctx)
 	if _, err := d.pool.Exec(ctx,
 		`TRUNCATE accounts, aliases, mail_groups, mail_queue, domains, tenants,
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
@@ -127,6 +130,59 @@ func TestOpenMigrate(t *testing.T) {
 	if !hasGIN {
 		t.Error("idx_messages_search (GIN) missing after Migrate")
 	}
+}
+
+// TestMigrateSerializesConcurrentBoot proves the boot-time advisory lock makes
+// concurrent fresh-DB starts mutually exclusive: while one node holds the lock
+// (Migrate done, bootstrap in progress) a second node's Migrate BLOCKS, and
+// only proceeds once the first releases. This is what lets two nodes boot at
+// once without a compose-level start ordering and without racing the schema or
+// the bootstrap admin insert.
+func TestMigrateSerializesConcurrentBoot(t *testing.T) {
+	dsn := os.Getenv("UMAIL_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("UMAIL_TEST_POSTGRES_DSN not set; skipping PostgreSQL integration test")
+	}
+	ctx := context.Background()
+
+	db1, err := Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open db1: %v", err)
+	}
+	defer db1.Close() //nolint:errcheck // test cleanup
+	db2, err := Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open db2: %v", err)
+	}
+	defer db2.Close() //nolint:errcheck // test cleanup
+
+	// Node 1 migrates and HOLDS the init lock (simulating bootstrap in progress).
+	if err := db1.Migrate(ctx); err != nil {
+		t.Fatalf("db1 Migrate: %v", err)
+	}
+
+	// Node 2's Migrate must block on the lock.
+	done := make(chan error, 1)
+	go func() { done <- db2.Migrate(ctx) }()
+
+	select {
+	case err := <-done:
+		t.Fatalf("db2 Migrate returned (%v) while db1 still holds the init lock — not serialized", err)
+	case <-time.After(500 * time.Millisecond):
+		// Expected: still blocked.
+	}
+
+	// Releasing node 1's lock unblocks node 2.
+	db1.ReleaseInitLock(ctx)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("db2 Migrate after release: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("db2 Migrate did not proceed after db1 released the init lock")
+	}
+	db2.ReleaseInitLock(ctx)
 }
 
 // TestDomainRoundTrip verifies a domain (with settings) and its accounts

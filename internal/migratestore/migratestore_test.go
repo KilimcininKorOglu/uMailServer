@@ -36,6 +36,7 @@ func openTestPostgres(t *testing.T) *postgres.DB {
 	if err := pg.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
+	pg.ReleaseInitLock(ctx) // free the pinned init-lock conn for the test body
 	if _, err := pg.Pool().Exec(ctx,
 		`TRUNCATE accounts, aliases, mail_groups, domains, tenants,
 			user_ui_prefs, user_signatures, user_categories, user_vacation, ews_user_config,

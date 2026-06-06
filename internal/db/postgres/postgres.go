@@ -14,9 +14,15 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// initAdvisoryLockKey serializes schema migration + bootstrap across nodes that
+// boot against the same fresh database. Any fixed bigint shared by all nodes
+// works; this is an arbitrary constant ("uMail init").
+const initAdvisoryLockKey int64 = 0x756D61696C696E74
 
 // schemaSQL is the relational schema applied by Migrate. It is embedded so the
 // binary carries its own schema and no external migration tool is required to
@@ -29,6 +35,13 @@ var schemaSQL string
 // every protocol surface on this node.
 type DB struct {
 	pool *pgxpool.Pool
+
+	// initMu/initConn hold the session advisory lock taken by Migrate so schema
+	// apply + bootstrap is serialized across nodes booting on a fresh database.
+	// The lock is released by ReleaseInitLock (server, after bootstrap) or by
+	// Close (CLI/shutdown), whichever comes first.
+	initMu   sync.Mutex
+	initConn *pgxpool.Conn
 }
 
 // Open creates a connection pool for dsn and verifies connectivity. The dsn is a
@@ -47,15 +60,64 @@ func Open(ctx context.Context, dsn string) (*DB, error) {
 	return &DB{pool: pool}, nil
 }
 
-// Migrate applies the embedded schema. Every statement is idempotent
-// (CREATE ... IF NOT EXISTS), so Migrate is safe to call on every start. The
-// whole file is sent in one Exec, which pgx runs over the simple query protocol
-// (no bind parameters), allowing the multiple statements in schema.sql.
+// Migrate applies the embedded schema under a session advisory lock so that two
+// nodes booting against the same fresh database cannot run concurrent DDL
+// (which Postgres can fail with duplicate-object/deadlock errors) and cannot
+// race the bootstrap inserts that follow. Every statement is idempotent
+// (CREATE ... IF NOT EXISTS), so Migrate is safe to call on every start; the
+// whole file is one Exec over the simple query protocol (multiple statements,
+// no bind params). The lock is HELD on a dedicated connection after Migrate
+// returns, spanning the caller's bootstrap, until ReleaseInitLock or Close.
 func (d *DB) Migrate(ctx context.Context) error {
-	if _, err := d.pool.Exec(ctx, schemaSQL); err != nil {
+	// Re-entrant: if this handle already holds the init lock (Migrate called
+	// again before release — e.g. an idempotency re-apply), reuse the locked
+	// connection instead of acquiring a second one, which would deadlock against
+	// our own session lock.
+	d.initMu.Lock()
+	held := d.initConn
+	d.initMu.Unlock()
+	if held != nil {
+		if _, err := held.Exec(ctx, schemaSQL); err != nil {
+			return fmt.Errorf("postgres: apply schema: %w", err)
+		}
+		return nil
+	}
+
+	conn, err := d.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: acquire init conn: %w", err)
+	}
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", initAdvisoryLockKey); err != nil {
+		conn.Release()
+		return fmt.Errorf("postgres: acquire init lock: %w", err)
+	}
+	if _, err := conn.Exec(ctx, schemaSQL); err != nil {
+		// Release the lock + conn before surfacing the failure.
+		//nolint:errcheck // best-effort unlock on the error path; conn release frees it anyway
+		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", initAdvisoryLockKey)
+		conn.Release()
 		return fmt.Errorf("postgres: apply schema: %w", err)
 	}
+	d.initMu.Lock()
+	d.initConn = conn
+	d.initMu.Unlock()
 	return nil
+}
+
+// ReleaseInitLock releases the boot-time advisory lock taken by Migrate, letting
+// the next node proceed with its own schema apply + bootstrap. The server calls
+// it once bootstrap finishes. Idempotent and safe if Migrate was never called.
+func (d *DB) ReleaseInitLock(ctx context.Context) {
+	d.initMu.Lock()
+	conn := d.initConn
+	d.initConn = nil
+	d.initMu.Unlock()
+	if conn == nil {
+		return
+	}
+	//nolint:errcheck // best-effort unlock; the conn release (and session end) frees it anyway
+	_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", initAdvisoryLockKey)
+	conn.Release()
 }
 
 // Pool exposes the underlying connection pool for the typed store methods built
@@ -66,6 +128,10 @@ func (d *DB) Pool() *pgxpool.Pool { return d.pool }
 // db.Store contract (the bbolt store's Close can fail); the pgx pool close
 // itself does not report one.
 func (d *DB) Close() error {
+	// Release the init advisory lock's connection first, else pool.Close() blocks
+	// forever waiting for that acquired conn to return (the CLI never calls
+	// ReleaseInitLock).
+	d.ReleaseInitLock(context.Background())
 	if d.pool != nil {
 		d.pool.Close()
 	}

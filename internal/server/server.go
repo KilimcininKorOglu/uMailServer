@@ -294,6 +294,13 @@ func New(cfg *config.Config) (*Server, error) {
 		_ = database.Close()
 		return nil, fmt.Errorf("failed to bootstrap admin accounts: %w", err)
 	}
+	// Schema + bootstrap are done; release the boot-time advisory lock so the next
+	// node can proceed (Postgres backend only; a no-op otherwise). Holding it from
+	// Migrate through here serializes concurrent fresh-DB boots at the DB level, so
+	// no compose-level start ordering is needed.
+	if pg, ok := database.(*postgres.DB); ok {
+		pg.ReleaseInitLock(ctx)
+	}
 
 	// Initialize message store (use same path as IMAP mailstore)
 	msgStorePath := s.cfg().Server.DataDir + "/mail/messages"
