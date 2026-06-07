@@ -288,14 +288,22 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		if !ok {
 			return s.errorResponseXML("FindFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+d.ID)
 		}
-		folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
-		if err == nil {
-			parentID = folder.FolderID
-		} else if errors.Is(err, semcore.ErrFolderNotFound) {
-			// Parent distinguished folder doesn't exist yet; enumerate root folders.
+		if role == "root" {
+			// The mailbox root has no concrete parent: its children are the
+			// top-level folders, which are stored with a zero parent. Filtering
+			// by the root folder's own id would match nothing, so enumerate the
+			// top level instead (this is what makes msgfolderroot list the tree).
 			enumerateRoot = true
 		} else {
-			return s.errorResponseXML("FindFolder", ErrErrorInternalServer, err.Error())
+			folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
+			if err == nil {
+				parentID = folder.FolderID
+			} else if errors.Is(err, semcore.ErrFolderNotFound) {
+				// Parent distinguished folder doesn't exist yet; enumerate root folders.
+				enumerateRoot = true
+			} else {
+				return s.errorResponseXML("FindFolder", ErrErrorInternalServer, err.Error())
+			}
 		}
 	} else if len(req.ParentFolderIDs.Folder) > 0 {
 		fid, err := semcore.NewFolderId(req.ParentFolderIDs.Folder[0].ID)
@@ -318,6 +326,10 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 	var matching []FolderType
 	for _, f := range allFolders {
 		// ListFolderIdentitiesForMailbox already filters by mboxKey scope.
+		// The mailbox root represents the top level; never list it as a folder.
+		if f.Role == "root" {
+			continue
+		}
 		// Filter to children of the specified parent.
 		if parentID.String() != "" && !f.ParentID.Equal(parentID) {
 			continue
