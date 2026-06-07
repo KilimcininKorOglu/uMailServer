@@ -188,7 +188,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleUpload(w, r)
 	case strings.HasPrefix(path, "/jmap/download"):
 		s.handleDownload(w, r)
-	case path == "/jmap/events":
+	case path == "/jmap/events" || strings.HasPrefix(path, "/jmap/events/"):
 		s.handleEvents(w, r)
 	default:
 		s.sendError(w, http.StatusNotFound, "notFound", nil)
