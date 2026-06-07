@@ -2,12 +2,15 @@
 package carddav
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -170,8 +173,28 @@ func (s *Server) handlePropfind(w http.ResponseWriter, r *http.Request, username
 		multistatus.Responses = append(multistatus.Responses, s.buildAddressbookHomeResponse(username))
 	}
 
-	// Query address books
-	if depth != "0" {
+	// Query address books. A PROPFIND that targets a SPECIFIC address book
+	// collection must return that collection's own properties at EVERY depth,
+	// including Depth 0 — sync clients (Apple Contacts, Thunderbird) read getctag
+	// with a Depth-0 PROPFIND on the collection, and returning an empty
+	// multistatus there left them unable to detect changes. Only the address
+	// book HOME listing is gated on depth!="0".
+	if reqAB, _ := addressbookPathIDs(r.URL.Path); reqAB != "" {
+		if ab, err := s.storage.GetAddressbook(username, reqAB); err == nil && ab != nil {
+			multistatus.Responses = append(multistatus.Responses, s.buildAddressbookResponse(username, ab))
+			if depth == "infinity" || depth == "1" {
+				contacts, err := s.storage.GetContacts(username, reqAB)
+				if err == nil {
+					for _, contact := range contacts {
+						uid := s.extractUIDFromVCard(contact)
+						if uid != "" {
+							multistatus.Responses = append(multistatus.Responses, s.buildContactResponse(username, reqAB, uid, contact))
+						}
+					}
+				}
+			}
+		}
+	} else if depth != "0" {
 		addressbooks, err := s.storage.GetAddressbooks(username)
 		if err == nil {
 			for _, ab := range addressbooks {
@@ -598,11 +621,28 @@ func (s *Server) buildAddressbookResponse(username string, ab *Addressbook) Resp
 				{XMLName: xml.Name{Space: "DAV:", Local: "resourcetype"}, Value: "\n        <collection/>\n        <addressbook xmlns=\"urn:ietf:params:xml:ns:carddav\"/>\n      "},
 				{XMLName: xml.Name{Space: "DAV:", Local: "displayname"}, Value: ab.Name},
 				{XMLName: xml.Name{Space: "CARDDAV:", Local: "addressbook-description"}, Value: ab.Description},
-				{XMLName: xml.Name{Space: "DAV:", Local: "getctag"}, Value: fmt.Sprintf("\"%d\"", ab.Modified.Unix())},
+				{XMLName: xml.Name{Space: "DAV:", Local: "getctag"}, Value: s.addressbookCTag(username, ab)},
 			},
 			Status: "HTTP/1.1 200 OK",
 		}},
 	}
+}
+
+// addressbookCTag derives the collection's CTag (calendarserver.org sync token)
+// from its CONTENT so it changes whenever a card is added, modified, or removed.
+// The previous value, ab.Modified.Unix(), never moved on the collab-backed store
+// (defaultAddressbook leaves Modified zero), so clients could not detect changes
+// and never resynced. Falls back to the modified time only if listing fails.
+func (s *Server) addressbookCTag(username string, ab *Addressbook) string {
+	cards, err := s.storage.GetContacts(username, ab.ID)
+	if err != nil {
+		return fmt.Sprintf("\"%d\"", ab.Modified.Unix())
+	}
+	sorted := make([]string, len(cards))
+	copy(sorted, cards)
+	sort.Strings(sorted)
+	sum := sha256.Sum256([]byte(strings.Join(sorted, "\x00")))
+	return "\"" + hex.EncodeToString(sum[:])[:16] + "\""
 }
 
 // buildContactResponse builds a PROPFIND/REPORT response for a contact
