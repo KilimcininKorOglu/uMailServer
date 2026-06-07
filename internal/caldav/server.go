@@ -260,6 +260,20 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request, username stri
 		uid = eventUID
 	}
 
+	// RFC 7232 conditional PUT: honor If-Match / If-None-Match so an optimistic
+	// update against a stale ETag is refused (lost-update guard) instead of
+	// silently overwriting a newer revision.
+	_, getErr := s.storage.GetEvent(username, calendarID, uid)
+	exists := getErr == nil
+	current := ""
+	if exists {
+		current = s.storage.GetETag(username, calendarID, uid)
+	}
+	if !ifMatchSatisfied(r.Header.Get("If-Match"), r.Header.Get("If-None-Match"), current, exists) {
+		s.sendError(w, http.StatusPreconditionFailed, "precondition failed")
+		return
+	}
+
 	// Create event
 	event := &CalendarEvent{
 		UID:      uid,
@@ -278,6 +292,33 @@ func (s *Server) handlePut(w http.ResponseWriter, r *http.Request, username stri
 	etag := s.storage.GetETag(username, calendarID, uid)
 	w.Header().Set("ETag", etag)
 	w.WriteHeader(http.StatusCreated)
+}
+
+// ifMatchSatisfied evaluates RFC 7232 If-Match / If-None-Match preconditions for
+// a PUT. It returns false (the caller must answer 412) when the precondition
+// fails. An empty If-Match means "no precondition". If-None-Match is only
+// meaningful as "*" (create-only). ETag comparison ignores the weak W/ prefix.
+func ifMatchSatisfied(ifMatch, ifNoneMatch, currentETag string, exists bool) bool {
+	if strings.TrimSpace(ifNoneMatch) == "*" && exists {
+		return false
+	}
+	ifMatch = strings.TrimSpace(ifMatch)
+	if ifMatch == "" {
+		return true
+	}
+	if ifMatch == "*" {
+		return exists
+	}
+	if !exists {
+		return false
+	}
+	cur := strings.TrimPrefix(currentETag, "W/")
+	for _, tag := range strings.Split(ifMatch, ",") {
+		if strings.TrimPrefix(strings.TrimSpace(tag), "W/") == cur {
+			return true
+		}
+	}
+	return false
 }
 
 // handleGet handles GET requests for retrieving events
