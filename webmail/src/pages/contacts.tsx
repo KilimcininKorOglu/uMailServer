@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import api, { Contact as ApiContact } from "@/utils/api"
+import { useI18n } from "@/hooks/useI18n"
 
 // Local contact type for the page (extends API contact with labels)
 interface Contact {
@@ -44,6 +45,7 @@ interface Contact {
 }
 
 export function ContactsPage() {
+  const { t } = useI18n()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [showAddDialog, setShowAddDialog] = useState(false)
@@ -80,7 +82,7 @@ export function ContactsPage() {
       }
     } catch (err) {
       console.error('Failed to load contacts:', err)
-      toast.error('Failed to load contacts')
+      toast.error(t("contacts.loadFailed"))
     } finally {
       setLoading(false)
     }
@@ -111,7 +113,7 @@ export function ContactsPage() {
 
   const handleSave = async () => {
     if (!formData.name || !formData.email) {
-      toast.error("Name and email are required")
+      toast.error(t("contacts.nameEmailRequired"))
       return
     }
 
@@ -130,7 +132,7 @@ export function ContactsPage() {
               ? { ...c, ...formData }
               : c
           ))
-          toast.success("Contact updated")
+          toast.success(t("contacts.contactUpdated"))
         }
       } else {
         // Create new contact
@@ -150,12 +152,12 @@ export function ContactsPage() {
             labels: [],
           }
           setContacts([...contacts, newContact])
-          toast.success("Contact added")
+          toast.success(t("contacts.contactAdded"))
         }
       }
     } catch (err) {
       console.error('Failed to save contact:', err)
-      toast.error("Failed to save contact")
+      toast.error(t("contacts.saveFailed"))
     }
     setShowAddDialog(false)
   }
@@ -165,10 +167,10 @@ export function ContactsPage() {
     try {
       await api.deleteContact(deleteTarget.id)
       setContacts(contacts.filter((c) => c.id !== deleteTarget.id))
-      toast.success("Contact deleted")
+      toast.success(t("contacts.contactDeleted"))
     } catch (err) {
       console.error('Failed to delete contact:', err)
-      toast.error("Failed to delete contact")
+      toast.error(t("contacts.deleteFailed"))
     } finally {
       setDeleteTarget(null)
     }
@@ -189,7 +191,7 @@ export function ContactsPage() {
         <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search contacts..."
+            placeholder={t("contacts.searchPlaceholder")}
             className="pl-9"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -197,7 +199,7 @@ export function ContactsPage() {
         </div>
         <Button onClick={handleAdd}>
           <Plus className="h-4 w-4 mr-1" />
-          Add Contact
+          {t("contacts.addContact")}
         </Button>
       </div>
 
@@ -206,9 +208,9 @@ export function ContactsPage() {
           <div className="rounded-full bg-muted p-4">
             <User className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h3 className="mt-4 text-lg font-semibold">No contacts</h3>
+          <h3 className="mt-4 text-lg font-semibold">{t("contacts.noContacts")}</h3>
           <p className="text-sm text-muted-foreground">
-            {searchQuery ? "No contacts match your search." : "Add your first contact to get started."}
+            {searchQuery ? t("contacts.noSearchMatch") : t("contacts.emptyHint")}
           </p>
         </div>
       ) : (
@@ -256,14 +258,14 @@ export function ContactsPage() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => handleEdit(contact)}>
                       <Edit className="h-4 w-4 mr-2" />
-                      Edit
+                      {t("common.edit")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive"
                       onClick={() => setDeleteTarget(contact)}
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
+                      {t("common.delete")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -275,7 +277,9 @@ export function ContactsPage() {
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {filteredContacts.length} contact{filteredContacts.length !== 1 ? "s" : ""}
+          {filteredContacts.length === 1
+            ? t("contacts.contactCountSingular", { count: String(filteredContacts.length) })
+            : t("contacts.contactCountPlural", { count: String(filteredContacts.length) })}
         </span>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" disabled>
@@ -291,24 +295,24 @@ export function ContactsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editingContact ? "Edit Contact" : "Add Contact"}
+              {editingContact ? t("contacts.editContact") : t("contacts.addContact")}
             </DialogTitle>
             <DialogDescription>
-              {editingContact ? "Update this contact's details." : "Add a new contact to your address book."}
+              {editingContact ? t("contacts.editDescription") : t("contacts.addDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Name</label>
+              <label className="text-sm font-medium">{t("common.name")}</label>
               <Input
                 className="mt-1"
-                placeholder="John Smith"
+                placeholder={t("contacts.namePlaceholder")}
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Email</label>
+              <label className="text-sm font-medium">{t("common.email")}</label>
               <Input
                 className="mt-1"
                 type="email"
@@ -318,7 +322,7 @@ export function ContactsPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Phone (optional)</label>
+              <label className="text-sm font-medium">{t("contacts.phoneOptional")}</label>
               <Input
                 className="mt-1"
                 placeholder="+1 555 123 4567"
@@ -327,20 +331,20 @@ export function ContactsPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Company (optional)</label>
+              <label className="text-sm font-medium">{t("contacts.companyOptional")}</label>
               <Input
                 className="mt-1"
-                placeholder="ABC Corp"
+                placeholder={t("contacts.companyPlaceholder")}
                 value={formData.company}
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
               />
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button onClick={handleSave}>
-                {editingContact ? "Update" : "Add"}
+                {editingContact ? t("common.update") : t("common.add")}
               </Button>
             </div>
           </div>
@@ -350,17 +354,17 @@ export function ContactsPage() {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Contact</DialogTitle>
+            <DialogTitle>{t("contacts.deleteContact")}</DialogTitle>
             <DialogDescription>
-              Delete {deleteTarget?.name || "this contact"}? This cannot be undone.
+              {t("contacts.deleteConfirm", { name: deleteTarget?.name || t("contacts.thisContact") })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

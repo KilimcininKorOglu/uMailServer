@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Search, Bell, Sun, Moon, Menu, User, LogOut, ChevronDown, Keyboard } from "lucide-react"
+import { Search, Bell, Sun, Moon, Menu, User, LogOut, ChevronDown, Keyboard, Languages, Check } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
+import { useI18n } from "@/hooks/useI18n"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -31,9 +32,16 @@ interface HeaderProps {
   sidebarCollapsed: boolean
 }
 
+// Human-readable names for the supported locales (shown in the language menu).
+const localeNames: Record<string, string> = {
+  en: "English",
+  tr: "Türkçe",
+}
+
 export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
   const { setTheme, resolvedTheme } = useTheme()
   const { logout, user } = useAuth()
+  const { t, locale, changeLocale, supportedLocales } = useI18n()
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
   const { inboxEmails } = useMailbox()
@@ -46,7 +54,7 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
     .map((m) => ({ id: m.id, from: m.from, subject: m.subject, date: m.date }))
 
   const email = user?.email ?? ""
-  const displayName = email ? email.split("@")[0] : "Account"
+  const displayName = email ? email.split("@")[0] : t("header.account")
   const initials = (email ? email.slice(0, 2) : "?").toUpperCase()
 
   const handleSignOut = async () => {
@@ -85,7 +93,7 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Search emails..."
+              placeholder={t("header.searchPlaceholder")}
               className="pl-10 bg-muted/50 border-0 focus:bg-background focus:ring-2 focus:ring-primary/20"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -95,6 +103,29 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
 
         {/* Right: Actions */}
         <div className="flex items-center gap-2">
+          {/* Language Selector */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative" title={t("sidebar.selectLanguage")}>
+                <Languages className="h-5 w-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel>{t("common.language")}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {supportedLocales.map((code) => (
+                <DropdownMenuItem
+                  key={code}
+                  onClick={() => changeLocale(code)}
+                  className="flex items-center justify-between cursor-pointer"
+                >
+                  <span>{localeNames[code] ?? code.toUpperCase()}</span>
+                  {locale === code && <Check className="h-4 w-4" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {/* Theme Toggle */}
           <Button
             variant="ghost"
@@ -115,7 +146,7 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
             size="icon"
             className="relative"
             onClick={() => document.dispatchEvent(new CustomEvent("toggle-shortcuts"))}
-            title="Keyboard shortcuts (?)"
+            title={t("header.keyboardShortcuts")}
           >
             <Keyboard className="h-5 w-5" />
           </Button>
@@ -133,12 +164,12 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80">
-              <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+              <DropdownMenuLabel>{t("header.notifications")}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <div className="max-h-80 overflow-y-auto">
                 {notifications.length === 0 ? (
                   <div className="p-4 text-center text-sm text-muted-foreground">
-                    No new notifications
+                    {t("header.noNotifications")}
                   </div>
                 ) : (
                   notifications.map((n) => (
@@ -147,8 +178,8 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
                       className="flex flex-col items-start gap-1 p-3 cursor-pointer"
                       onClick={() => navigate(`/email/${n.id}`)}
                     >
-                      <span className="font-medium text-sm truncate w-full">{n.subject || "(no subject)"}</span>
-                      <span className="text-xs text-muted-foreground truncate w-full">From: {n.from}</span>
+                      <span className="font-medium text-sm truncate w-full">{n.subject || t("header.noSubject")}</span>
+                      <span className="text-xs text-muted-foreground truncate w-full">{t("header.fromLabel", { from: n.from })}</span>
                       <span className="text-xs text-muted-foreground">{n.date}</span>
                     </DropdownMenuItem>
                   ))
@@ -179,16 +210,16 @@ export function Header({ onMenuToggle, sidebarCollapsed }: HeaderProps) {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate("/settings")}>
                 <User className="mr-2 h-4 w-4" />
-                Profile
+                {t("header.profile")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate("/settings")}>
                 <ChevronDown className="mr-2 h-4 w-4" />
-                Account Settings
+                {t("header.accountSettings")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive" onClick={handleSignOut}>
                 <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
+                {t("header.signOut")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

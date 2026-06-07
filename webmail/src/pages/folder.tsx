@@ -7,6 +7,7 @@ import {
   Star,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/hooks/useI18n"
 import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -44,6 +45,7 @@ function splitAddress(value: string): { name: string; email: string } {
 }
 
 export function FolderPage() {
+  const { t } = useI18n()
   const { type } = useParams()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -52,7 +54,7 @@ export function FolderPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   // The folder name comes straight from the route; it maps to a real mailbox.
-  const pageTitle = type ? type.charAt(0).toUpperCase() + type.slice(1) : "Folder"
+  const pageTitle = type ? type.charAt(0).toUpperCase() + type.slice(1) : t("folder.title")
   const pageColor = "text-muted-foreground"
 
   const loadFolder = useCallback(async (silent = false) => {
@@ -106,11 +108,11 @@ export function FolderPage() {
     const ids = Array.from(selected)
     try {
       await Promise.all(ids.map((id) => api.deleteMail(id)))
-      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} deleted`)
+      toast.success(t(ids.length !== 1 ? "folder.messagesDeletedCount" : "folder.messageDeletedCount", { count: String(ids.length) }))
       setSelected(new Set())
       await loadFolder()
     } catch {
-      toast.error("Failed to delete messages")
+      toast.error(t("folder.deleteFailed"))
     }
   }
 
@@ -131,7 +133,7 @@ export function FolderPage() {
             disabled={selected.size === 0 || loading}
           >
             <Trash2 className="h-4 w-4 mr-1" />
-            Remove
+            {t("common.remove")}
           </Button>
         </div>
       </div>
@@ -153,9 +155,9 @@ export function FolderPage() {
           <div className="rounded-full bg-muted p-4">
             <FolderOpen className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h3 className="mt-4 text-lg font-semibold">{pageTitle} is unavailable</h3>
+          <h3 className="mt-4 text-lg font-semibold">{t("folder.unavailableTitle", { name: pageTitle })}</h3>
           <p className="text-sm text-muted-foreground">
-            This folder is not available on the server.
+            {t("folder.unavailableDescription")}
           </p>
         </div>
       ) : emails.length === 0 ? (
@@ -163,9 +165,9 @@ export function FolderPage() {
           <div className="rounded-full bg-muted p-4">
             <FolderOpen className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h3 className="mt-4 text-lg font-semibold">{pageTitle} is empty</h3>
+          <h3 className="mt-4 text-lg font-semibold">{t("folder.emptyTitle", { name: pageTitle })}</h3>
           <p className="text-sm text-muted-foreground">
-            No messages in this folder yet.
+            {t("folder.emptyDescription")}
           </p>
         </div>
       ) : (
@@ -218,15 +220,15 @@ export function FolderPage() {
                       e.stopPropagation()
                       try {
                         await api.deleteMail(email.id)
-                        toast.success("Message deleted")
+                        toast.success(t("folder.messageDeleted"))
                         await loadFolder()
                       } catch {
-                        toast.error("Failed to delete message")
+                        toast.error(t("folder.deleteMessageFailed"))
                       }
                     }}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
+                    {t("common.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

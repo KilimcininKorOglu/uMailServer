@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { X } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { useI18n } from "@/hooks/useI18n"
 import api, { type DirectoryEntry } from "@/utils/api"
 
 type FBStatus = "free" | "busy" | "unknown"
@@ -23,6 +24,7 @@ function initialsOf(s: string): string {
 // as removable chips. A free-typed address can still be added with Enter so
 // external attendees and rooms keep working.
 export function AttendeePicker({ value, onChange, window: win, placeholder }: AttendeePickerProps) {
+  const { t } = useI18n()
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<DirectoryEntry[]>([])
   const [open, setOpen] = useState(false)
@@ -117,7 +119,7 @@ export function AttendeePicker({ value, onChange, window: win, placeholder }: At
         <input
           className="min-w-[140px] flex-1 bg-transparent px-1 text-sm outline-none"
           value={query}
-          placeholder={value.length === 0 ? placeholder ?? "Search by name or email" : ""}
+          placeholder={value.length === 0 ? placeholder ?? t("attendee.searchPlaceholder") : ""}
           onChange={(e) => {
             setQuery(e.target.value)
             setOpen(true)
@@ -147,7 +149,7 @@ export function AttendeePicker({ value, onChange, window: win, placeholder }: At
                       className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-popover ${
                         status === "busy" ? "bg-red-500" : status === "free" ? "bg-green-500" : "bg-muted-foreground/40"
                       }`}
-                      title={status === "busy" ? "Busy" : status === "free" ? "Free" : "Availability unknown"}
+                      title={status === "busy" ? t("attendee.busy") : status === "free" ? t("attendee.free") : t("attendee.unknown")}
                     />
                   )}
                 </div>

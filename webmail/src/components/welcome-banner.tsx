@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { Mail, ArrowRight, CheckCircle2, X, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useI18n } from "@/hooks/useI18n"
 
 interface WelcomeBannerProps {
   onDismiss?: () => void
@@ -10,15 +11,16 @@ interface WelcomeBannerProps {
 
 export function WelcomeBanner({ onDismiss }: WelcomeBannerProps) {
   const navigate = useNavigate()
+  const { t } = useI18n()
   const [dismissed, setDismissed] = useState(false)
 
   if (dismissed) return null
 
   const features = [
-    "Send and receive emails with SMTP/IMAP",
-    "Organize with folders, labels and filters",
-    "Powerful search across all messages",
-    "Keyboard shortcuts for fast navigation",
+    t("welcome.feature1"),
+    t("welcome.feature2"),
+    t("welcome.feature3"),
+    t("welcome.feature4"),
   ]
 
   return (
@@ -29,9 +31,9 @@ export function WelcomeBanner({ onDismiss }: WelcomeBannerProps) {
             <Mail className="h-6 w-6 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="text-xl font-bold">Welcome to uMail Webmail</h2>
+            <h2 className="text-xl font-bold">{t("welcome.title")}</h2>
             <p className="text-muted-foreground mt-1">
-              Your secure, self-hosted email solution
+              {t("welcome.subtitle")}
             </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {features.map((feature, index) => (
@@ -44,10 +46,10 @@ export function WelcomeBanner({ onDismiss }: WelcomeBannerProps) {
             <div className="flex gap-2 mt-4">
               <Button onClick={() => navigate("/compose")}>
                 <Mail className="h-4 w-4 mr-2" />
-                Compose Email
+                {t("welcome.composeEmail")}
               </Button>
               <Button variant="outline" onClick={() => navigate("/settings")}>
-                Customize
+                {t("welcome.customize")}
               </Button>
             </div>
           </div>
@@ -70,23 +72,24 @@ export function WelcomeBanner({ onDismiss }: WelcomeBannerProps) {
 
 export function SetupGuide() {
   const navigate = useNavigate()
+  const { t } = useI18n()
   const [dismissed, setDismissed] = useState(false)
 
   if (dismissed) return null
 
   const steps = [
-    { num: 1, title: "Configure your domain", desc: "Set up DNS records for your domain", done: true },
-    { num: 2, title: "Add email accounts", desc: "Create user accounts in the admin panel", done: true },
-    { num: 3, title: "Connect email client", desc: "Use IMAP/SMTP to connect your favorite email app", done: false },
-    { num: 4, title: "Start using email", desc: "Send and receive emails securely", done: false },
+    { num: 1, title: t("welcome.step1Title"), desc: t("welcome.step1Desc"), done: true },
+    { num: 2, title: t("welcome.step2Title"), desc: t("welcome.step2Desc"), done: true },
+    { num: 3, title: t("welcome.step3Title"), desc: t("welcome.step3Desc"), done: false },
+    { num: 4, title: t("welcome.step4Title"), desc: t("welcome.step4Desc"), done: false },
   ]
 
   return (
     <div className="rounded-lg border bg-card p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold flex items-center gap-2">
-          Quick Setup Guide
-          <Badge variant="secondary">Getting Started</Badge>
+          {t("welcome.setupTitle")}
+          <Badge variant="secondary">{t("welcome.gettingStarted")}</Badge>
         </h3>
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDismissed(true)}>
           <X className="h-4 w-4" />
@@ -112,11 +115,11 @@ export function SetupGuide() {
       </div>
       <div className="mt-4 pt-4 border-t flex gap-2">
         <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate("/settings")}>
-          Documentation
+          {t("welcome.documentation")}
           <ExternalLink className="h-3 w-3" />
         </Button>
         <Button variant="outline" size="sm" className="gap-2">
-          Admin Panel
+          {t("welcome.adminPanel")}
           <ArrowRight className="h-3 w-3" />
         </Button>
       </div>

@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
+import { useI18n } from "@/hooks/useI18n"
 import api from "@/utils/api"
 
 interface SidebarProps {
@@ -68,19 +69,20 @@ interface NavItem {
   badgeColor?: string
 }
 
+// label holds an i18n key (nav.*) resolved at render time via t().
 const mainNavItems: NavItem[] = [
-  { icon: Inbox, label: "Inbox", path: "/inbox", shortcut: "gi" },
-  { icon: MessagesSquare, label: "Conversations", path: "/threads" },
-  { icon: Search, label: "Search", path: "/search", shortcut: "/" },
-  { icon: Star, label: "Starred", path: "/starred", shortcut: "gs" },
-  { icon: Send, label: "Sent", path: "/sent", shortcut: "gt" },
-  { icon: FileText, label: "Drafts", path: "/drafts", shortcut: "gd" },
-  { icon: Trash2, label: "Trash", path: "/trash", shortcut: "gT" },
-  { icon: Users, label: "Contacts", path: "/contacts" },
-  { icon: CalendarDays, label: "Calendar", path: "/calendar" },
-  { icon: ListTodo, label: "Tasks", path: "/tasks" },
-  { icon: StickyNote, label: "Notes", path: "/notes" },
-  { icon: Filter, label: "Filters", path: "/filters" },
+  { icon: Inbox, label: "nav.inbox", path: "/inbox", shortcut: "gi" },
+  { icon: MessagesSquare, label: "nav.conversations", path: "/threads" },
+  { icon: Search, label: "nav.search", path: "/search", shortcut: "/" },
+  { icon: Star, label: "nav.starred", path: "/starred", shortcut: "gs" },
+  { icon: Send, label: "nav.sent", path: "/sent", shortcut: "gt" },
+  { icon: FileText, label: "nav.drafts", path: "/drafts", shortcut: "gd" },
+  { icon: Trash2, label: "nav.trash", path: "/trash", shortcut: "gT" },
+  { icon: Users, label: "nav.contacts", path: "/contacts" },
+  { icon: CalendarDays, label: "nav.calendar", path: "/calendar" },
+  { icon: ListTodo, label: "nav.tasks", path: "/tasks" },
+  { icon: StickyNote, label: "nav.notes", path: "/notes" },
+  { icon: Filter, label: "nav.filters", path: "/filters" },
 ]
 
 // Standard mailboxes already shown in the main nav (or as Spam below); excluded
@@ -88,7 +90,7 @@ const mainNavItems: NavItem[] = [
 const standardMailboxes = new Set(["inbox", "sent", "drafts", "trash", "junk"])
 
 const folderItems: NavItem[] = [
-  { icon: AlertCircle, label: "Spam", path: "/spam", color: "text-red-500" },
+  { icon: AlertCircle, label: "nav.spam", path: "/spam", color: "text-red-500" },
 ]
 
 // Shared mailbox item for display
@@ -100,7 +102,11 @@ interface SharedMailboxItem {
 
 const NavItemComponent = ({ item, isExpanded }: { item: NavItem; isExpanded: boolean }) => {
   const location = useLocation()
+  const { t } = useI18n()
   const isActive = location.pathname === item.path
+  // nav.* labels resolve to translations; custom folder names fall through t()
+  // unchanged (t returns the key when no translation exists).
+  const label = t(item.label)
 
   const content = (
     <NavLink
@@ -120,7 +126,7 @@ const NavItemComponent = ({ item, isExpanded }: { item: NavItem; isExpanded: boo
       />
       {isExpanded && (
         <>
-          <span className="flex-1">{item.label}</span>
+          <span className="flex-1">{label}</span>
           {item.shortcut && (
             <kbd className="hidden group-hover:inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground bg-muted">
               <span>⌘</span>{item.shortcut}
@@ -154,7 +160,7 @@ const NavItemComponent = ({ item, isExpanded }: { item: NavItem; isExpanded: boo
           {content}
         </TooltipTrigger>
         <TooltipContent side="right" className="flex items-center gap-3">
-          {item.label}
+          {label}
           {item.shortcut && (
             <kbd className="rounded border px-1.5 py-0.5 text-xs font-mono bg-muted">
               ⌘{item.shortcut}
@@ -180,6 +186,7 @@ const SharedMailboxItemComponent = ({
   isActive: boolean
   onClick: () => void
 }) => {
+  const { t } = useI18n()
   const content = (
     <button
       onClick={onClick}
@@ -215,7 +222,7 @@ const SharedMailboxItemComponent = ({
         </TooltipTrigger>
         <TooltipContent side="right" className="flex flex-col gap-1">
           <span className="font-medium">{item.mailbox}</span>
-          <span className="text-xs text-muted-foreground">Shared: {item.owner}</span>
+          <span className="text-xs text-muted-foreground">{t("sidebar.shared", { owner: item.owner })}</span>
         </TooltipContent>
       </Tooltip>
     )
@@ -227,6 +234,7 @@ const SharedMailboxItemComponent = ({
 export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useI18n()
   const [hovered, setHovered] = useState(false)
   const { user } = useAuth()
   const { currentMailbox, switchMailbox, loadSharedMailboxes, sharedMailboxes, inboxUnread } = useMailbox()
@@ -302,22 +310,22 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
   const submitFolderDialog = async () => {
     const value = folderDialogValue.trim()
     if (!value) {
-      toast.error("Folder name is required")
+      toast.error(t("sidebar.folderNameRequired"))
       return
     }
     setFolderBusy(true)
     try {
       if (folderDialogMode === "create") {
         await api.createFolder(value)
-        toast.success("Folder created")
+        toast.success(t("sidebar.folderCreated"))
       } else {
         await api.renameFolder(folderDialogCurrent, value)
-        toast.success("Folder renamed")
+        toast.success(t("sidebar.folderRenamed"))
       }
       setFolderDialogOpen(false)
       await loadCustomFolders()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save folder")
+      toast.error(err instanceof Error ? err.message : t("sidebar.folderSaveFailed"))
     } finally {
       setFolderBusy(false)
     }
@@ -328,14 +336,14 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
     setFolderBusy(true)
     try {
       await api.deleteFolder(folderDeleteTarget)
-      toast.success("Folder deleted")
+      toast.success(t("sidebar.folderDeleted"))
       if (location.pathname === `/folder/${encodeURIComponent(folderDeleteTarget)}`) {
         navigate("/inbox")
       }
       setFolderDeleteTarget(null)
       await loadCustomFolders()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete folder")
+      toast.error(err instanceof Error ? err.message : t("sidebar.folderDeleteFailed"))
     } finally {
       setFolderBusy(false)
     }
@@ -423,7 +431,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
           onClick={() => navigate("/compose")}
         >
           <PenSquare className="h-4 w-4" />
-          {isExpanded && <span className="ml-2">Compose</span>}
+          {isExpanded && <span className="ml-2">{t("nav.compose")}</span>}
         </Button>
       </div>
 
@@ -443,7 +451,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
             >
               <span className="flex items-center gap-2">
                 <Mail className="h-4 w-4 text-purple-500" />
-                Shared Mailboxes
+                {t("sidebar.sharedMailboxes")}
               </span>
               {sharedExpanded ? (
                 <ChevronUp className="h-4 w-4" />
@@ -461,8 +469,8 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                     className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 group bg-primary/5 hover:bg-primary/10 text-primary"
                   >
                     <Users className="h-5 w-5 shrink-0 text-primary" />
-                    <span className="flex-1 text-left">My Mailbox</span>
-                    <Badge variant="secondary" className="text-xs">Personal</Badge>
+                    <span className="flex-1 text-left">{t("sidebar.myMailbox")}</span>
+                    <Badge variant="secondary" className="text-xs">{t("nav.personal")}</Badge>
                   </button>
                 )}
                 
@@ -493,7 +501,11 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">
-                <span>{sharedMailboxes.length} shared mailbox{sharedMailboxes.length > 1 ? 'es' : ''}</span>
+                <span>
+                  {sharedMailboxes.length > 1
+                    ? t("sidebar.sharedCountPlural", { count: String(sharedMailboxes.length) })
+                    : t("sidebar.sharedCount", { count: String(sharedMailboxes.length) })}
+                </span>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -504,19 +516,19 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
         {isExpanded && (
           <div className="flex items-center justify-between px-3 pb-2">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Folders
+              {t("nav.folders")}
             </p>
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <button
                   onClick={openCreateFolder}
                   className="text-muted-foreground hover:text-foreground"
-                  aria-label="New folder"
+                  aria-label={t("nav.newFolder")}
                 >
                   <FolderPlus className="h-4 w-4" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">New folder</TooltipContent>
+              <TooltipContent side="right">{t("nav.newFolder")}</TooltipContent>
             </Tooltip>
           </div>
         )}
@@ -559,7 +571,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                 <DropdownMenuTrigger asChild>
                   <button
                     className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground px-1"
-                    aria-label={`Folder actions for ${name}`}
+                    aria-label={t("sidebar.folderActions", { name })}
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
@@ -567,14 +579,14 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={() => openRenameFolder(name)}>
                     <Pencil className="mr-2 h-4 w-4" />
-                    Rename
+                    {t("sidebar.rename")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive"
                     onClick={() => setFolderDeleteTarget(name)}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
+                    {t("common.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -587,28 +599,28 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{folderDialogMode === "create" ? "New Folder" : "Rename Folder"}</DialogTitle>
+            <DialogTitle>{folderDialogMode === "create" ? t("sidebar.newFolderTitle") : t("sidebar.renameFolderTitle")}</DialogTitle>
             <DialogDescription>
               {folderDialogMode === "create"
-                ? "Create a folder to organize your mail."
-                : `Rename "${folderDialogCurrent}".`}
+                ? t("sidebar.createFolderDescription")
+                : t("sidebar.renameFolderDescription", { name: folderDialogCurrent })}
             </DialogDescription>
           </DialogHeader>
           <Input
             autoFocus
             value={folderDialogValue}
             onChange={(e) => setFolderDialogValue(e.target.value)}
-            placeholder="Folder name"
+            placeholder={t("sidebar.folderNamePlaceholder")}
             onKeyDown={(e) => {
               if (e.key === "Enter") void submitFolderDialog()
             }}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setFolderDialogOpen(false)} disabled={folderBusy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={submitFolderDialog} disabled={folderBusy}>
-              {folderDialogMode === "create" ? "Create" : "Rename"}
+              {folderDialogMode === "create" ? t("common.create") : t("sidebar.rename")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -618,18 +630,18 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       <Dialog open={folderDeleteTarget !== null} onOpenChange={(open) => { if (!open) setFolderDeleteTarget(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Folder</DialogTitle>
+            <DialogTitle>{t("sidebar.deleteFolderTitle")}</DialogTitle>
             <DialogDescription>
-              Delete "{folderDeleteTarget}"? Messages in this folder will be removed.
+              {t("sidebar.deleteFolderConfirm", { name: folderDeleteTarget ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFolderDeleteTarget(null)} disabled={folderBusy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={confirmDeleteFolder} disabled={folderBusy}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -649,7 +661,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
           }
         >
           <Settings className="h-5 w-5 shrink-0" />
-          {isExpanded && <span>Settings</span>}
+          {isExpanded && <span>{t("nav.settings")}</span>}
         </NavLink>
       </div>
 

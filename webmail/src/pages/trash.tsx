@@ -8,6 +8,7 @@ import {
   RotateCcw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/hooks/useI18n"
 import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -27,6 +28,7 @@ interface TrashEmail {
 
 export function TrashPage() {
   const navigate = useNavigate()
+  const { t } = useI18n()
   const [emails, setEmails] = useState<TrashEmail[]>([])
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -86,11 +88,11 @@ export function TrashPage() {
     e.stopPropagation()
     try {
       await api.moveMail(id, "inbox")
-      toast.success("Message restored")
+      toast.success(t("trash.restored"))
       setEmails(emails.filter((email) => email.id !== id))
     } catch (err) {
       console.error("Failed to restore message:", err)
-      toast.error("Failed to restore message")
+      toast.error(t("trash.restoreFailed"))
     }
   }
 
@@ -98,10 +100,10 @@ export function TrashPage() {
     e.stopPropagation()
     try {
       await api.delete(`/mail/delete?id=${id}`)
-      toast.success("Message permanently deleted")
+      toast.success(t("trash.deletedPermanently"))
       setEmails(emails.filter((email) => email.id !== id))
     } catch (err) {
-      toast.error("Failed to delete message")
+      toast.error(t("trash.deleteFailed"))
     }
   }
 
@@ -111,10 +113,10 @@ export function TrashPage() {
       for (const email of emails) {
         await api.delete(`/mail/delete?id=${email.id}`)
       }
-      toast.success("Trash emptied")
+      toast.success(t("trash.emptied"))
       setEmails([])
     } catch (err) {
-      toast.error("Failed to empty trash")
+      toast.error(t("trash.emptyFailed"))
     }
   }
 
@@ -129,7 +131,7 @@ export function TrashPage() {
           {selectedEmails.size > 0 ? (
             <>
               <span className="text-sm text-muted-foreground">
-                {selectedEmails.size} selected
+                {t("trash.selectedCount", { count: String(selectedEmails.size) })}
               </span>
               <Separator orientation="vertical" className="h-4" />
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleEmptyTrash}>
@@ -169,9 +171,9 @@ export function TrashPage() {
             <div className="rounded-full bg-muted p-4">
               <Trash2 className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="mt-4 text-lg font-semibold">Trash is empty</h3>
+            <h3 className="mt-4 text-lg font-semibold">{t("trash.emptyTitle")}</h3>
             <p className="text-sm text-muted-foreground">
-              Deleted messages will appear here. Messages are permanently deleted after 30 days.
+              {t("trash.emptyDescription")}
             </p>
           </div>
         ) : (
@@ -202,7 +204,7 @@ export function TrashPage() {
                     size="icon"
                     className="h-8 w-8 opacity-0 group-hover:opacity-100"
                     onClick={(e) => handleRestore(email.id, e)}
-                    title="Restore"
+                    title={t("trash.restore")}
                   >
                     <RotateCcw className="h-4 w-4" />
                   </Button>
@@ -211,7 +213,7 @@ export function TrashPage() {
                     size="icon"
                     className="h-8 w-8 opacity-0 group-hover:opacity-100 text-destructive"
                     onClick={(e) => handleDelete(email.id, e)}
-                    title="Delete permanently"
+                    title={t("trash.deletePermanently")}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -227,7 +229,9 @@ export function TrashPage() {
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {emails.length} message{emails.length !== 1 ? "s" : ""}
+          {emails.length === 1
+            ? t("trash.messageCount", { count: String(emails.length) })
+            : t("trash.messageCountPlural", { count: String(emails.length) })}
         </span>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" disabled>

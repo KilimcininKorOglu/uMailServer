@@ -9,6 +9,7 @@ import {
   Edit,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/hooks/useI18n"
 import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -27,6 +28,7 @@ interface Draft {
 }
 
 export function DraftsPage() {
+  const { t } = useI18n()
   const navigate = useNavigate()
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [selectedDrafts, setSelectedDrafts] = useState<Set<string>>(new Set())
@@ -82,11 +84,11 @@ export function DraftsPage() {
     const ids = Array.from(selectedDrafts)
     try {
       await Promise.all(ids.map((id) => api.deleteMail(id)))
-      toast.success(`${ids.length} draft${ids.length !== 1 ? "s" : ""} deleted`)
+      toast.success(t(ids.length !== 1 ? "drafts.draftsDeleted" : "drafts.draftDeleted", { count: String(ids.length) }))
       setSelectedDrafts(new Set())
       await loadDrafts()
     } catch {
-      toast.error("Failed to delete drafts")
+      toast.error(t("drafts.deleteFailed"))
     }
   }
 
@@ -105,7 +107,7 @@ export function DraftsPage() {
           {selectedDrafts.size > 0 ? (
             <>
               <span className="text-sm text-muted-foreground">
-                {selectedDrafts.size} selected
+                {t("drafts.selectedCount", { count: String(selectedDrafts.size) })}
               </span>
               <Separator orientation="vertical" className="h-4" />
               <Button
@@ -147,9 +149,9 @@ export function DraftsPage() {
             <div className="rounded-full bg-muted p-4">
               <FileText className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="mt-4 text-lg font-semibold">No drafts</h3>
+            <h3 className="mt-4 text-lg font-semibold">{t("drafts.noDrafts")}</h3>
             <p className="text-sm text-muted-foreground">
-              Drafts you save will appear here.
+              {t("drafts.noDraftsHint")}
             </p>
           </div>
         ) : (
@@ -169,11 +171,11 @@ export function DraftsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate font-medium">
-                      {draft.subject || "No subject"}
+                      {draft.subject || t("drafts.noSubject")}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span className="truncate">To: {draft.to || "No recipient"}</span>
+                    <span className="truncate">{t("common.to")}: {draft.to || t("drafts.noRecipient")}</span>
                     <span className="truncate">— {draft.preview}</span>
                   </div>
                 </div>
@@ -199,7 +201,7 @@ export function DraftsPage() {
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {drafts.length} draft{drafts.length !== 1 ? "s" : ""}
+          {t(drafts.length !== 1 ? "drafts.draftsCount" : "drafts.draftCount", { count: String(drafts.length) })}
         </span>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" disabled>

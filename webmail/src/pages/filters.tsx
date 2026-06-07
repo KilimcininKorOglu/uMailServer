@@ -22,46 +22,49 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "sonner"
+import { useI18n } from "@/hooks/useI18n"
 import api from "@/utils/api"
 import type { Filter, FilterCondition, FilterAction, FilterInput } from "@/utils/api"
 
-const CONDITION_FIELDS: { value: FilterCondition["field"]; label: string }[] = [
-  { value: "from", label: "From" },
-  { value: "to", label: "To" },
-  { value: "subject", label: "Subject" },
-  { value: "body", label: "Body" },
-  { value: "header", label: "Header" },
-  { value: "size", label: "Size" },
-  { value: "flag", label: "Flag" },
-  { value: "address", label: "Address" },
+type TFunc = (key: string, params?: Record<string, string>) => string
+
+const conditionFields = (t: TFunc): { value: FilterCondition["field"]; label: string }[] => [
+  { value: "from", label: t("common.from") },
+  { value: "to", label: t("common.to") },
+  { value: "subject", label: t("common.subject") },
+  { value: "body", label: t("filters.field.body") },
+  { value: "header", label: t("filters.field.header") },
+  { value: "size", label: t("filters.field.size") },
+  { value: "flag", label: t("filters.field.flag") },
+  { value: "address", label: t("filters.field.address") },
 ]
 
-const CONDITION_OPERATORS: { value: FilterCondition["operator"]; label: string }[] = [
-  { value: "contains", label: "contains" },
-  { value: "equals", label: "equals" },
-  { value: "startsWith", label: "starts with" },
-  { value: "endsWith", label: "ends with" },
-  { value: "matches", label: "matches" },
+const conditionOperators = (t: TFunc): { value: FilterCondition["operator"]; label: string }[] => [
+  { value: "contains", label: t("filters.operator.contains") },
+  { value: "equals", label: t("filters.operator.equals") },
+  { value: "startsWith", label: t("filters.operator.startsWith") },
+  { value: "endsWith", label: t("filters.operator.endsWith") },
+  { value: "matches", label: t("filters.operator.matches") },
 ]
 
 // The full canonical action vocabulary (semcore RuleActionKind). Every kind is
 // editable so a rule created in Outlook/admin can be edited here without losing
 // actions the editor does not recognize.
-const ACTION_TYPES: { value: FilterAction["type"]; label: string }[] = [
-  { value: "moveToFolder", label: "Move to folder" },
-  { value: "copyToFolder", label: "Copy to folder" },
-  { value: "markRead", label: "Mark as read" },
-  { value: "markImportant", label: "Mark as important" },
-  { value: "flag", label: "Set/clear flag" },
-  { value: "forward", label: "Forward to" },
-  { value: "forwardAsAttachment", label: "Forward as attachment" },
-  { value: "redirect", label: "Redirect to" },
-  { value: "reject", label: "Reject with message" },
-  { value: "addHeader", label: "Add header" },
-  { value: "deleteHeader", label: "Delete header" },
-  { value: "delete", label: "Delete message" },
-  { value: "stop", label: "Stop processing" },
-  { value: "vacation", label: "Vacation reply" },
+const actionTypes = (t: TFunc): { value: FilterAction["type"]; label: string }[] => [
+  { value: "moveToFolder", label: t("filters.action.moveToFolder") },
+  { value: "copyToFolder", label: t("filters.action.copyToFolder") },
+  { value: "markRead", label: t("filters.action.markRead") },
+  { value: "markImportant", label: t("filters.action.markImportant") },
+  { value: "flag", label: t("filters.action.flag") },
+  { value: "forward", label: t("filters.action.forward") },
+  { value: "forwardAsAttachment", label: t("filters.action.forwardAsAttachment") },
+  { value: "redirect", label: t("filters.action.redirect") },
+  { value: "reject", label: t("filters.action.reject") },
+  { value: "addHeader", label: t("filters.action.addHeader") },
+  { value: "deleteHeader", label: t("filters.action.deleteHeader") },
+  { value: "delete", label: t("filters.action.delete") },
+  { value: "stop", label: t("filters.action.stop") },
+  { value: "vacation", label: t("filters.action.vacation") },
 ]
 
 // Action types whose forward/redirect address lives in forwardTo.
@@ -86,6 +89,7 @@ function emptyDraft(): FilterInput {
 }
 
 export function FiltersPage() {
+  const { t } = useI18n()
   const [filters, setFilters] = useState<Filter[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -122,7 +126,7 @@ export function FiltersPage() {
       await api.reorderFilters(reordered.map((f) => f.id))
     } catch (err) {
       console.error("Failed to reorder filters:", err)
-      toast.error("Failed to reorder filters")
+      toast.error(t("filters.toast.reorderFailed"))
       loadFilters()
     }
   }
@@ -160,33 +164,33 @@ export function FiltersPage() {
   }
 
   const validate = (): string | null => {
-    if (!draft.name.trim()) return "Filter name is required"
-    if (draft.conditions.length === 0) return "At least one condition is required"
+    if (!draft.name.trim()) return t("filters.validation.nameRequired")
+    if (draft.conditions.length === 0) return t("filters.validation.conditionRequired")
     for (const c of draft.conditions) {
-      if (!c.value.trim()) return "Each condition needs a value"
+      if (!c.value.trim()) return t("filters.validation.conditionValue")
       if (c.field === "header" && !c.headerName?.trim()) {
-        return "Header conditions need a header name"
+        return t("filters.validation.headerName")
       }
     }
-    if (draft.actions.length === 0) return "At least one action is required"
+    if (draft.actions.length === 0) return t("filters.validation.actionRequired")
     for (const a of draft.actions) {
       if ((a.type === "moveToFolder" || a.type === "copyToFolder") && !a.target?.trim()) {
-        return "Move/Copy actions need a target folder"
+        return t("filters.validation.targetFolder")
       }
       if (FORWARD_TYPES.has(a.type) && !a.forwardTo?.trim()) {
-        return "Forward/Redirect actions need a destination address"
+        return t("filters.validation.destinationAddress")
       }
       if (a.type === "reject" && !a.message?.trim()) {
-        return "Reject actions need a message"
+        return t("filters.validation.rejectMessage")
       }
       if (a.type === "addHeader" && (!a.headerName?.trim() || !a.headerValue?.trim())) {
-        return "Add header actions need a header name and value"
+        return t("filters.validation.addHeaderFields")
       }
       if (a.type === "deleteHeader" && !a.headerName?.trim()) {
-        return "Delete header actions need a header name"
+        return t("filters.validation.deleteHeaderName")
       }
       if (a.type === "flag" && !a.flagName?.trim()) {
-        return "Flag actions need a flag name"
+        return t("filters.validation.flagName")
       }
     }
     return null
@@ -202,7 +206,7 @@ export function FiltersPage() {
     try {
       if (editingId) {
         await api.updateFilter(editingId, draft)
-        toast.success("Filter updated")
+        toast.success(t("filters.toast.updated"))
       } else {
         // Create does not accept `enabled` (new filters are enabled by
         // default) and the backend rejects unknown JSON fields.
@@ -212,12 +216,12 @@ export function FiltersPage() {
           conditions: draft.conditions,
           actions: draft.actions,
         })
-        toast.success("Filter created")
+        toast.success(t("filters.toast.created"))
       }
       setDialogOpen(false)
       await loadFilters()
     } catch {
-      toast.error("Failed to save filter")
+      toast.error(t("filters.toast.saveFailed"))
     } finally {
       setSaving(false)
     }
@@ -236,7 +240,7 @@ export function FiltersPage() {
       })
       await loadFilters()
     } catch {
-      toast.error("Failed to update filter")
+      toast.error(t("filters.toast.updateFailed"))
     }
   }
 
@@ -244,10 +248,10 @@ export function FiltersPage() {
     if (!deleteTarget) return
     try {
       await api.deleteFilter(deleteTarget.id)
-      toast.success("Filter deleted")
+      toast.success(t("filters.toast.deleted"))
       await loadFilters()
     } catch {
-      toast.error("Failed to delete filter")
+      toast.error(t("filters.toast.deleteFailed"))
     } finally {
       setDeleteTarget(null)
     }
@@ -261,15 +265,15 @@ export function FiltersPage() {
             <FilterIcon className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-2xl font-bold">Filters</h2>
+            <h2 className="text-2xl font-bold">{t("nav.filters")}</h2>
             <p className="text-sm text-muted-foreground">
-              Sort and act on incoming mail automatically
+              {t("filters.description")}
             </p>
           </div>
         </div>
         <Button onClick={openCreate}>
           <Plus className="h-4 w-4 mr-1" />
-          New Filter
+          {t("filters.newFilter")}
         </Button>
       </div>
 
@@ -287,9 +291,9 @@ export function FiltersPage() {
           <div className="rounded-full bg-muted p-4">
             <FilterIcon className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h3 className="mt-4 text-lg font-semibold">No filters yet</h3>
+          <h3 className="mt-4 text-lg font-semibold">{t("filters.empty.title")}</h3>
           <p className="text-sm text-muted-foreground">
-            Create a filter to automatically organize incoming mail.
+            {t("filters.empty.description")}
           </p>
         </div>
       ) : (
@@ -304,7 +308,7 @@ export function FiltersPage() {
                     className="h-6 w-6"
                     disabled={index === 0}
                     onClick={() => moveFilter(index, -1)}
-                    title="Move up"
+                    title={t("filters.moveUp")}
                   >
                     <ArrowUp className="h-4 w-4" />
                   </Button>
@@ -314,7 +318,7 @@ export function FiltersPage() {
                     className="h-6 w-6"
                     disabled={index === filters.length - 1}
                     onClick={() => moveFilter(index, 1)}
-                    title="Move down"
+                    title={t("filters.moveDown")}
                   >
                     <ArrowDown className="h-4 w-4" />
                   </Button>
@@ -324,16 +328,25 @@ export function FiltersPage() {
                     <span className="font-medium">{filter.name}</span>
                     {!filter.enabled && (
                       <Badge variant="secondary" className="text-[10px]">
-                        Disabled
+                        {t("filters.disabled")}
                       </Badge>
                     )}
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {filter.matchAll ? "Match all" : "Match any"} of{" "}
-                    {filter.conditions.length} condition
-                    {filter.conditions.length !== 1 ? "s" : ""} →{" "}
-                    {filter.actions.length} action
-                    {filter.actions.length !== 1 ? "s" : ""}
+                    {t(filter.matchAll ? "filters.summaryAll" : "filters.summaryAny", {
+                      conditionCount: String(filter.conditions.length),
+                      conditionWord: t(
+                        filter.conditions.length !== 1
+                          ? "filters.conditionPlural"
+                          : "filters.conditionSingular"
+                      ),
+                      actionCount: String(filter.actions.length),
+                      actionWord: t(
+                        filter.actions.length !== 1
+                          ? "filters.actionPlural"
+                          : "filters.actionSingular"
+                      ),
+                    })}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -367,28 +380,28 @@ export function FiltersPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingId ? "Edit Filter" : "New Filter"}</DialogTitle>
+            <DialogTitle>{editingId ? t("filters.editTitle") : t("filters.newFilter")}</DialogTitle>
             <DialogDescription>
-              Define conditions and the actions to apply to matching messages.
+              {t("filters.dialogDescription")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="filter-name">Name</Label>
+              <Label htmlFor="filter-name">{t("common.name")}</Label>
               <Input
                 id="filter-name"
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder="e.g. Newsletters to Archive"
+                placeholder={t("filters.namePlaceholder")}
               />
             </div>
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Match all conditions</p>
+                <p className="font-medium">{t("filters.matchAllConditions")}</p>
                 <p className="text-sm text-muted-foreground">
-                  On: every condition must match. Off: any condition matches.
+                  {t("filters.matchAllHint")}
                 </p>
               </div>
               <Switch
@@ -400,7 +413,7 @@ export function FiltersPage() {
             {/* Conditions */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Conditions</Label>
+                <Label>{t("filters.conditions")}</Label>
                 <Button
                   variant="outline"
                   size="sm"
@@ -409,7 +422,7 @@ export function FiltersPage() {
                   }
                 >
                   <Plus className="h-4 w-4 mr-1" />
-                  Add
+                  {t("common.add")}
                 </Button>
               </div>
               {draft.conditions.map((cond, i) => (
@@ -424,7 +437,7 @@ export function FiltersPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {CONDITION_FIELDS.map((f) => (
+                      {conditionFields(t).map((f) => (
                         <SelectItem key={f.value} value={f.value}>
                           {f.label}
                         </SelectItem>
@@ -441,7 +454,7 @@ export function FiltersPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {CONDITION_OPERATORS.map((o) => (
+                      {conditionOperators(t).map((o) => (
                         <SelectItem key={o.value} value={o.value}>
                           {o.label}
                         </SelectItem>
@@ -451,14 +464,14 @@ export function FiltersPage() {
                   {cond.field === "header" && (
                     <Input
                       className="w-[140px]"
-                      placeholder="Header name"
+                      placeholder={t("filters.headerNamePlaceholder")}
                       value={cond.headerName ?? ""}
                       onChange={(e) => updateCondition(i, { headerName: e.target.value })}
                     />
                   )}
                   <Input
                     className="min-w-[140px] flex-1"
-                    placeholder="Value"
+                    placeholder={t("filters.valuePlaceholder")}
                     value={cond.value}
                     onChange={(e) => updateCondition(i, { value: e.target.value })}
                   />
@@ -484,7 +497,7 @@ export function FiltersPage() {
             {/* Actions */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Actions</Label>
+                <Label>{t("common.actions")}</Label>
                 <Button
                   variant="outline"
                   size="sm"
@@ -493,7 +506,7 @@ export function FiltersPage() {
                   }
                 >
                   <Plus className="h-4 w-4 mr-1" />
-                  Add
+                  {t("common.add")}
                 </Button>
               </div>
               {draft.actions.map((action, i) => (
@@ -508,7 +521,7 @@ export function FiltersPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {ACTION_TYPES.map((a) => (
+                      {actionTypes(t).map((a) => (
                         <SelectItem key={a.value} value={a.value}>
                           {a.label}
                         </SelectItem>
@@ -518,7 +531,7 @@ export function FiltersPage() {
                   {(action.type === "moveToFolder" || action.type === "copyToFolder") && (
                     <Input
                       className="min-w-[140px] flex-1"
-                      placeholder="Target folder"
+                      placeholder={t("filters.targetFolderPlaceholder")}
                       value={action.target ?? ""}
                       onChange={(e) => updateAction(i, { target: e.target.value })}
                     />
@@ -526,7 +539,7 @@ export function FiltersPage() {
                   {FORWARD_TYPES.has(action.type) && (
                     <Input
                       className="min-w-[140px] flex-1"
-                      placeholder="Destination address"
+                      placeholder={t("filters.destinationPlaceholder")}
                       value={action.forwardTo ?? ""}
                       onChange={(e) => updateAction(i, { forwardTo: e.target.value })}
                     />
@@ -534,7 +547,7 @@ export function FiltersPage() {
                   {action.type === "reject" && (
                     <Input
                       className="min-w-[140px] flex-1"
-                      placeholder="Rejection message"
+                      placeholder={t("filters.rejectionPlaceholder")}
                       value={action.message ?? ""}
                       onChange={(e) => updateAction(i, { message: e.target.value })}
                     />
@@ -542,7 +555,7 @@ export function FiltersPage() {
                   {action.type === "vacation" && (
                     <Input
                       className="min-w-[140px] flex-1"
-                      placeholder="Auto-reply message"
+                      placeholder={t("filters.autoReplyPlaceholder")}
                       value={action.message ?? ""}
                       onChange={(e) => updateAction(i, { message: e.target.value })}
                     />
@@ -550,7 +563,7 @@ export function FiltersPage() {
                   {(action.type === "addHeader" || action.type === "deleteHeader") && (
                     <Input
                       className="w-[150px]"
-                      placeholder="Header name"
+                      placeholder={t("filters.headerNamePlaceholder")}
                       value={action.headerName ?? ""}
                       onChange={(e) => updateAction(i, { headerName: e.target.value })}
                     />
@@ -558,7 +571,7 @@ export function FiltersPage() {
                   {action.type === "addHeader" && (
                     <Input
                       className="min-w-[120px] flex-1"
-                      placeholder="Header value"
+                      placeholder={t("filters.headerValuePlaceholder")}
                       value={action.headerValue ?? ""}
                       onChange={(e) => updateAction(i, { headerValue: e.target.value })}
                     />
@@ -567,7 +580,7 @@ export function FiltersPage() {
                     <>
                       <Input
                         className="w-[150px]"
-                        placeholder="Flag name"
+                        placeholder={t("filters.flagNamePlaceholder")}
                         value={action.flagName ?? ""}
                         onChange={(e) => updateAction(i, { flagName: e.target.value })}
                       />
@@ -576,7 +589,7 @@ export function FiltersPage() {
                           checked={action.clearFlag ?? false}
                           onCheckedChange={(v) => updateAction(i, { clearFlag: v })}
                         />
-                        Clear
+                        {t("filters.clear")}
                       </label>
                     </>
                   )}
@@ -602,10 +615,10 @@ export function FiltersPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
-              {editingId ? "Save" : "Create"}
+              {editingId ? t("common.save") : t("common.create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -614,17 +627,17 @@ export function FiltersPage() {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Filter</DialogTitle>
+            <DialogTitle>{t("filters.deleteTitle")}</DialogTitle>
             <DialogDescription>
-              Delete the filter "{deleteTarget?.name || ""}"? This cannot be undone.
+              {t("filters.deleteConfirm", { name: deleteTarget?.name || "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

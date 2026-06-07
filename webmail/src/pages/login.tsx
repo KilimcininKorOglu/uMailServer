@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useI18n } from '@/hooks/useI18n'
 
 interface Branding {
   app_name: string
@@ -15,6 +16,7 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [branding, setBranding] = useState<Branding | null>(null)
   const { login, isAuthenticated } = useAuth()
+  const { t } = useI18n()
 
   // Resolve per-tenant branding from the domain the user is typing, so the
   // login screen reflects the tenant before authentication.
@@ -38,8 +40,8 @@ export function LoginPage() {
 
   const appName = branding?.app_name || 'uMailServer'
   useEffect(() => {
-    document.title = `${appName} Webmail`
-  }, [appName])
+    document.title = `${appName} ${t('login.webmail')}`
+  }, [appName, t])
 
   if (isAuthenticated) {
     return <Navigate to="/inbox" replace />
@@ -53,10 +55,10 @@ export function LoginPage() {
     try {
       const success = await login(email, password)
       if (!success) {
-        setError('Invalid email or password')
+        setError(t('login.invalidCredentials'))
       }
     } catch {
-      setError('Connection error. Please try again.')
+      setError(t('login.connectionError'))
     } finally {
       setLoading(false)
     }
@@ -84,7 +86,7 @@ export function LoginPage() {
               </div>
             )}
             <h1 className="text-2xl font-bold text-gray-900">{appName}</h1>
-            <p className="text-gray-500 mt-1">Sign in to your mailbox</p>
+            <p className="text-gray-500 mt-1">{t('login.subtitle')}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -96,7 +98,7 @@ export function LoginPage() {
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
+                {t('login.emailAddress')}
               </label>
               <input
                 id="email"
@@ -111,14 +113,14 @@ export function LoginPage() {
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
+                {t('login.password')}
               </label>
               <input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
+                placeholder={t('login.passwordPlaceholder')}
                 required
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
               />
@@ -130,19 +132,19 @@ export function LoginPage() {
               style={branding?.primary_color ? { backgroundColor: branding.primary_color } : undefined}
               className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? t('login.signingIn') : t('login.signIn')}
             </button>
           </form>
 
           <div className="mt-8 pt-6 border-t border-gray-200">
             <p className="text-center text-sm text-gray-500">
-              Demo accounts: <span className="font-mono text-xs">demo@localhost / demo1234</span>
+              {t('login.demoAccounts')} <span className="font-mono text-xs">demo@localhost / demo1234</span>
             </p>
           </div>
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-4">
-          uMailServer v1.0 - Open Source Email Server
+          {`uMailServer v1.0 - ${t('login.tagline')}`}
         </p>
       </div>
     </div>

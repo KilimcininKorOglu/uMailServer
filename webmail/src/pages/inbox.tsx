@@ -17,6 +17,7 @@ import {
   ArrowUpDown,
 } from "lucide-react"
 import { WelcomeBanner } from "@/components/welcome-banner"
+import { useI18n } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -59,6 +60,7 @@ interface InboxPageProps {
 
 export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   const navigate = useNavigate()
+  const { t } = useI18n()
   // Inbox data comes from the shared MailboxContext so the sidebar unread
   // badge and header notifications stay in sync with actions taken here.
   const { inboxEmails, inboxLoading, refreshInbox, patchInbox, removeFromInbox } = useMailbox()
@@ -130,7 +132,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
       patchInbox([id], { starred: next })
     } catch (err) {
       console.error("Failed to update star:", err)
-      toast.error("Failed to update star")
+      toast.error(t("inbox.failedToUpdateStar"))
     }
   }
 
@@ -141,13 +143,13 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
       patchInbox([id], { read: true })
     } catch (err) {
       console.error("Failed to mark message as read:", err)
-      toast.error("Failed to mark as read")
+      toast.error(t("inbox.failedToMarkAsRead"))
     }
   }
 
   const handleRefresh = async () => {
     await refreshInbox()
-    toast.success("Inbox refreshed")
+    toast.success(t("inbox.inboxRefreshed"))
   }
 
   const archiveEmails = async (ids: string[]) => {
@@ -156,10 +158,10 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
       await Promise.all(ids.map((id) => api.moveMail(id, "archive")))
       removeFromInbox(ids)
       setSelectedEmails(new Set())
-      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} archived`)
+      toast.success(t(ids.length !== 1 ? "inbox.messagesArchived" : "inbox.messageArchived", { count: String(ids.length) }))
     } catch (err) {
       console.error("Failed to archive messages:", err)
-      toast.error("Failed to archive messages")
+      toast.error(t("inbox.failedToArchive"))
     }
   }
 
@@ -171,10 +173,10 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
       await Promise.all(ids.map((id) => api.deleteMail(id)))
       removeFromInbox(ids)
       setSelectedEmails(new Set())
-      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} moved to trash`)
+      toast.success(t(ids.length !== 1 ? "inbox.messagesMovedToTrash" : "inbox.messageMovedToTrash", { count: String(ids.length) }))
     } catch (err) {
       console.error("Failed to delete messages:", err)
-      toast.error("Failed to delete messages")
+      toast.error(t("inbox.failedToDelete"))
     }
   }
 
@@ -187,10 +189,10 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
       await Promise.all(ids.map((id) => api.setFlag(id, "\\Seen", true)))
       patchInbox(ids, { read: true })
       setSelectedEmails(new Set())
-      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} marked as read`)
+      toast.success(t(ids.length !== 1 ? "inbox.messagesMarkedAsRead" : "inbox.messageMarkedAsRead", { count: String(ids.length) }))
     } catch (err) {
       console.error("Failed to mark messages as read:", err)
-      toast.error("Failed to mark as read")
+      toast.error(t("inbox.failedToMarkAsRead"))
     }
   }
 
@@ -294,11 +296,11 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={(e) => markAsRead(email.id, e)}>
               <MailOpen className="mr-2 h-4 w-4" />
-              Mark as read
+              {t("common.markRead")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={(e) => toggleStar(email.id, e)}>
               <Star className={cn("mr-2 h-4 w-4", email.starred && "fill-current")} />
-              {email.starred ? "Remove star" : "Add star"}
+              {email.starred ? t("inbox.removeStar") : t("inbox.addStar")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={(e) => {
@@ -307,7 +309,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
               }}
             >
               <Archive className="mr-2 h-4 w-4" />
-              Archive
+              {t("common.archive")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -318,7 +320,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
               }}
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("common.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -341,16 +343,16 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
           {selectedEmails.size > 0 ? (
             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2">
               <span className="text-sm text-muted-foreground">
-                {selectedEmails.size} selected
+                {t("inbox.selectedCount", { count: String(selectedEmails.size) })}
               </span>
               <Separator orientation="vertical" className="h-4" />
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleArchive} title="Archive">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleArchive} title={t("common.archive")}>
                 <Archive className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={handleDelete} title="Delete">
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={handleDelete} title={t("common.delete")}>
                 <Trash2 className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleMarkRead} title="Mark as read">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleMarkRead} title={t("common.markRead")}>
                 <MailOpen className="h-4 w-4" />
               </Button>
             </div>
@@ -362,7 +364,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
 
           {unreadCount > 0 && activeFilter === "all" && (
             <Badge variant="secondary" className="ml-2">
-              {unreadCount} unread
+              {t("inbox.unreadCount", { count: String(unreadCount) })}
             </Badge>
           )}
         </div>
@@ -370,9 +372,9 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
         <div className="flex items-center gap-2">
           <Tabs value={activeFilter} onValueChange={setActiveFilter}>
             <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="unread">Unread</TabsTrigger>
-              <TabsTrigger value="starred">Starred</TabsTrigger>
+              <TabsTrigger value="all">{t("common.all")}</TabsTrigger>
+              <TabsTrigger value="unread">{t("inbox.unread")}</TabsTrigger>
+              <TabsTrigger value="starred">{t("nav.starred")}</TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -380,23 +382,23 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" title="Sort">
+              <Button variant="ghost" size="icon" className="h-8 w-8" title={t("inbox.sort")}>
                 <ArrowUpDown className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => setSortBy("date")}>
-                Date {sortBy === "date" && "✓"}
+                {t("common.date")} {sortBy === "date" && "✓"}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSortBy("from")}>
-                Sender {sortBy === "from" && "✓"}
+                {t("inbox.sender")} {sortBy === "from" && "✓"}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSortBy("subject")}>
-                Subject {sortBy === "subject" && "✓"}
+                {t("common.subject")} {sortBy === "subject" && "✓"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}>
-                {sortDir === "asc" ? "Ascending" : "Descending"}
+                {sortDir === "asc" ? t("inbox.ascending") : t("inbox.descending")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -444,13 +446,13 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
             <div className="rounded-full bg-muted p-4">
               <Filter className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="mt-4 text-lg font-semibold">No emails</h3>
+            <h3 className="mt-4 text-lg font-semibold">{t("inbox.noEmails")}</h3>
             <p className="text-sm text-muted-foreground">
               {folder === "starred" || activeFilter === "starred"
-                ? "No starred messages."
+                ? t("inbox.noStarredMessages")
                 : activeFilter === "unread"
-                ? "No unread messages."
-                : "Your inbox is empty."}
+                ? t("inbox.noUnreadMessages")
+                : t("inbox.inboxEmpty")}
             </p>
           </div>
         ) : (
@@ -464,8 +466,8 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {filteredEmails.length} message{filteredEmails.length !== 1 ? "s" : ""}
-          {totalPages > 1 && ` · Page ${currentPage + 1} of ${totalPages}`}
+          {t(filteredEmails.length !== 1 ? "inbox.messagesCount" : "inbox.messageCount", { count: String(filteredEmails.length) })}
+          {totalPages > 1 && ` · ${t("inbox.pageOf", { current: String(currentPage + 1), total: String(totalPages) })}`}
         </span>
         <div className="flex items-center gap-2">
           <Button

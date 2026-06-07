@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { useAuth } from "@/contexts/AuthContext"
+import { useI18n } from "@/hooks/useI18n"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -43,6 +44,7 @@ const emptyVacation: VacationAutoReply = {
 export function SettingsPage() {
   const { theme, setTheme, resolvedTheme } = useTheme()
   const { user } = useAuth()
+  const { t } = useI18n()
 
   // Profile photo (self-service avatar). avatarVersion cache-busts the <img>
   // after an upload/removal so the new photo shows immediately.
@@ -57,11 +59,11 @@ export function SettingsPage() {
 
   const handlePickAvatar = async (file: File) => {
     if (!file.type.startsWith("image/")) {
-      toast.error("Please choose an image file")
+      toast.error(t("settings.profilePhoto.invalidType"))
       return
     }
     if (file.size > 1024 * 1024) {
-      toast.error("Image must be 1 MB or smaller")
+      toast.error(t("settings.profilePhoto.tooLarge"))
       return
     }
     const dataURL = await new Promise<string>((resolve, reject) => {
@@ -75,9 +77,9 @@ export function SettingsPage() {
       await api.updateAvatar(dataURL)
       setHasAvatar(true)
       setAvatarVersion((v) => v + 1)
-      toast.success("Profile photo updated")
+      toast.success(t("settings.profilePhoto.updated"))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update photo")
+      toast.error(err instanceof Error ? err.message : t("settings.profilePhoto.updateFailed"))
     } finally {
       setAvatarBusy(false)
     }
@@ -89,9 +91,9 @@ export function SettingsPage() {
       await api.removeAvatar()
       setHasAvatar(false)
       setAvatarVersion((v) => v + 1)
-      toast.success("Profile photo removed")
+      toast.success(t("settings.profilePhoto.removed"))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove photo")
+      toast.error(err instanceof Error ? err.message : t("settings.profilePhoto.removeFailed"))
     } finally {
       setAvatarBusy(false)
     }
@@ -119,9 +121,9 @@ export function SettingsPage() {
     setProfileBusy(true)
     try {
       await api.updateProfile(profile)
-      toast.success("Profile updated")
+      toast.success(t("settings.profile.updated"))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update profile")
+      toast.error(err instanceof Error ? err.message : t("settings.profile.updateFailed"))
     } finally {
       setProfileBusy(false)
     }
@@ -154,11 +156,11 @@ export function SettingsPage() {
   const handleRevokeSession = async (id: string) => {
     try {
       await api.revokeSession(id)
-      toast.success("Session revoked")
+      toast.success(t("settings.sessions.revoked"))
       setSessions((prev) => prev.filter((s) => s.id !== id))
     } catch (err) {
       console.error("Failed to revoke session:", err)
-      toast.error("Failed to revoke session")
+      toast.error(t("settings.sessions.revokeFailed"))
     }
   }
 
@@ -168,9 +170,9 @@ export function SettingsPage() {
     setPushBusy(true)
     try {
       await enablePushNotifications()
-      toast.success("Push notifications enabled")
+      toast.success(t("settings.push.enabled"))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to enable push notifications")
+      toast.error(err instanceof Error ? err.message : t("settings.push.enableFailed"))
     } finally {
       setPushBusy(false)
     }
@@ -180,9 +182,9 @@ export function SettingsPage() {
     setPushBusy(true)
     try {
       await disablePushNotifications()
-      toast.success("Push notifications disabled")
+      toast.success(t("settings.push.disabled"))
     } catch {
-      toast.error("Failed to disable push notifications")
+      toast.error(t("settings.push.disableFailed"))
     } finally {
       setPushBusy(false)
     }
@@ -190,24 +192,24 @@ export function SettingsPage() {
 
   const handleChangePassword = async () => {
     if (pwNew.length < 8) {
-      toast.error("New password must be at least 8 characters")
+      toast.error(t("settings.password.tooShort"))
       return
     }
     if (pwNew !== pwConfirm) {
-      toast.error("Passwords do not match")
+      toast.error(t("settings.password.mismatch"))
       return
     }
     setPwSaving(true)
     try {
       await api.changePassword(pwCurrent, pwNew)
-      toast.success("Password updated")
+      toast.success(t("settings.password.updated"))
       setPwOpen(false)
       setPwCurrent("")
       setPwNew("")
       setPwConfirm("")
     } catch (err) {
       console.error("Failed to change password:", err)
-      toast.error("Failed to change password. Check your current password.")
+      toast.error(t("settings.password.changeFailed"))
     } finally {
       setPwSaving(false)
     }
@@ -252,10 +254,10 @@ export function SettingsPage() {
     setSettings(next)
     try {
       await api.setPreferences(next)
-      toast.success("Setting updated")
+      toast.success(t("settings.settingUpdated"))
     } catch (err) {
       console.error("Failed to save setting:", err)
-      toast.error("Failed to save setting")
+      toast.error(t("settings.settingSaveFailed"))
       setSettings(settings) // revert
     }
   }
@@ -283,20 +285,20 @@ export function SettingsPage() {
 
   const handleVacationSave = async () => {
     if (vacation.enabled && !vacation.subject.trim()) {
-      toast.error("Subject is required when auto-reply is enabled")
+      toast.error(t("settings.autoReply.subjectRequired"))
       return
     }
     if (vacation.enabled && !vacation.message.trim()) {
-      toast.error("Message is required when auto-reply is enabled")
+      toast.error(t("settings.autoReply.messageRequired"))
       return
     }
     setVacationSaving(true)
     try {
       await api.setVacation(vacation)
-      toast.success("Auto-reply saved")
+      toast.success(t("settings.autoReply.saved"))
       await loadVacation()
     } catch {
-      toast.error("Failed to save auto-reply")
+      toast.error(t("settings.autoReply.saveFailed"))
     } finally {
       setVacationSaving(false)
     }
@@ -306,10 +308,10 @@ export function SettingsPage() {
     setVacationSaving(true)
     try {
       await api.deleteVacation()
-      toast.success("Auto-reply disabled")
+      toast.success(t("settings.autoReply.disabled"))
       await loadVacation()
     } catch {
-      toast.error("Failed to disable auto-reply")
+      toast.error(t("settings.autoReply.disableFailed"))
     } finally {
       setVacationSaving(false)
     }
@@ -356,7 +358,7 @@ export function SettingsPage() {
       setCategories(res.categories ?? next)
     } catch {
       setCategories(prev)
-      toast.error("Failed to save categories")
+      toast.error(t("settings.categories.saveFailed"))
     } finally {
       setCatBusy(false)
     }
@@ -366,7 +368,7 @@ export function SettingsPage() {
     const name = catName.trim()
     if (!name) return
     if (categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
-      toast.error("That category already exists")
+      toast.error(t("settings.categories.exists"))
       return
     }
     setCatName("")
@@ -379,9 +381,9 @@ export function SettingsPage() {
     setSignatureSaving(true)
     try {
       await api.setSignature(signature)
-      toast.success("Signature saved")
+      toast.success(t("settings.signature.saved"))
     } catch {
-      toast.error("Failed to save signature")
+      toast.error(t("settings.signature.saveFailed"))
     } finally {
       setSignatureSaving(false)
     }
@@ -410,7 +412,7 @@ export function SettingsPage() {
   const handleAddDelegate = async () => {
     const grantee = delEmail.trim().toLowerCase()
     if (!grantee) {
-      toast.error("Delegate email is required")
+      toast.error(t("settings.delegates.emailRequired"))
       return
     }
     setDelBusy(true)
@@ -420,13 +422,13 @@ export function SettingsPage() {
         rights: delWrite ? ["read", "write"] : ["read"],
         canSendOnBehalf: delSendOnBehalf,
       })
-      toast.success("Delegate added")
+      toast.success(t("settings.delegates.added"))
       setDelEmail("")
       setDelWrite(false)
       setDelSendOnBehalf(false)
       await loadDelegations()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add delegate")
+      toast.error(err instanceof Error ? err.message : t("settings.delegates.addFailed"))
     } finally {
       setDelBusy(false)
     }
@@ -436,10 +438,10 @@ export function SettingsPage() {
     setDelBusy(true)
     try {
       await api.deleteDelegation(id)
-      toast.success("Delegate removed")
+      toast.success(t("settings.delegates.removed"))
       await loadDelegations()
     } catch {
-      toast.error("Failed to remove delegate")
+      toast.error(t("settings.delegates.removeFailed"))
     } finally {
       setDelBusy(false)
     }
@@ -495,17 +497,17 @@ export function SettingsPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h2 className="text-2xl font-bold">Settings</h2>
+        <h2 className="text-2xl font-bold">{t("nav.settings")}</h2>
         <p className="text-muted-foreground">
-          Manage your email preferences and account settings.
+          {t("settings.description")}
         </p>
       </div>
 
       {/* Profile photo */}
       <SettingSection
         icon={Camera}
-        title="Profile photo"
-        description="Set the photo shown across uMail and the directory"
+        title={t("settings.profilePhoto.title")}
+        description={t("settings.profilePhoto.description")}
       >
         <div className="flex items-center gap-4">
           <Avatar className="h-16 w-16 ring-2 ring-primary/20">
@@ -528,64 +530,64 @@ export function SettingsPage() {
             />
             <Button variant="outline" disabled={avatarBusy} onClick={() => fileInputRef.current?.click()}>
               <Camera className="mr-2 h-4 w-4" />
-              {avatarBusy ? "Saving…" : "Upload photo"}
+              {avatarBusy ? t("common.saving") : t("settings.profilePhoto.upload")}
             </Button>
             <Button variant="ghost" disabled={avatarBusy} onClick={handleRemoveAvatar}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Remove
+              {t("common.remove")}
             </Button>
           </div>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">PNG, JPG, GIF or WebP up to 1 MB.</p>
+        <p className="mt-3 text-xs text-muted-foreground">{t("settings.profilePhoto.hint")}</p>
       </SettingSection>
 
       {/* Directory profile */}
       <SettingSection
         icon={UserCog}
-        title="Profile"
-        description="Your name and contact details shown in the directory and to Outlook"
+        title={t("settings.profile.title")}
+        description={t("settings.profile.description")}
       >
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="profile-display-name">Display name</Label>
+              <Label htmlFor="profile-display-name">{t("settings.profile.displayName")}</Label>
               <Input
                 id="profile-display-name"
                 value={profile.display_name}
                 onChange={(e) => setProfile({ ...profile, display_name: e.target.value })}
-                placeholder="Jane Doe"
+                placeholder={t("settings.profile.displayNamePlaceholder")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-title">Title</Label>
+              <Label htmlFor="profile-title">{t("settings.profile.jobTitle")}</Label>
               <Input
                 id="profile-title"
                 value={profile.title}
                 onChange={(e) => setProfile({ ...profile, title: e.target.value })}
-                placeholder="Engineer"
+                placeholder={t("settings.profile.titlePlaceholder")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-department">Department</Label>
+              <Label htmlFor="profile-department">{t("settings.profile.department")}</Label>
               <Input
                 id="profile-department"
                 value={profile.department}
                 onChange={(e) => setProfile({ ...profile, department: e.target.value })}
-                placeholder="Sales"
+                placeholder={t("settings.profile.departmentPlaceholder")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-phone">Phone</Label>
+              <Label htmlFor="profile-phone">{t("settings.profile.phone")}</Label>
               <Input
                 id="profile-phone"
                 value={profile.phone}
                 onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-                placeholder="+1 555 0100"
+                placeholder={t("settings.profile.phonePlaceholder")}
               />
             </div>
           </div>
           <Button onClick={handleSaveProfile} disabled={profileBusy}>
-            {profileBusy ? "Saving…" : "Save profile"}
+            {profileBusy ? t("common.saving") : t("settings.profile.save")}
           </Button>
         </div>
       </SettingSection>
@@ -593,21 +595,21 @@ export function SettingsPage() {
       {/* Appearance */}
       <SettingSection
         icon={Palette}
-        title="Appearance"
-        description="Customize how uMail looks on your device"
+        title={t("settings.appearance.title")}
+        description={t("settings.appearance.description")}
       >
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-medium">Theme</p>
-              <p className="text-sm text-muted-foreground">Choose your preferred color scheme</p>
+              <p className="font-medium">{t("settings.appearance.theme")}</p>
+              <p className="text-sm text-muted-foreground">{t("settings.appearance.themeDescription")}</p>
             </div>
             <div className="flex gap-2">
               <Button
                 variant={theme === "light" ? "default" : "outline"}
                 size="icon"
                 onClick={() => setTheme("light")}
-                title="Light mode"
+                title={t("settings.appearance.lightMode")}
               >
                 <Sun className="h-4 w-4" />
               </Button>
@@ -615,7 +617,7 @@ export function SettingsPage() {
                 variant={theme === "dark" ? "default" : "outline"}
                 size="icon"
                 onClick={() => setTheme("dark")}
-                title="Dark mode"
+                title={t("settings.appearance.darkMode")}
               >
                 <Moon className="h-4 w-4" />
               </Button>
@@ -623,7 +625,7 @@ export function SettingsPage() {
                 variant={theme === "system" ? "default" : "outline"}
                 size="icon"
                 onClick={() => setTheme("system")}
-                title="System default"
+                title={t("settings.appearance.systemDefault")}
               >
                 <Globe className="h-4 w-4" />
               </Button>
@@ -631,8 +633,8 @@ export function SettingsPage() {
           </div>
           <Separator />
           <SettingRow
-            title="Dark mode"
-            description="Use dark theme"
+            title={t("settings.appearance.darkMode")}
+            description={t("settings.appearance.darkModeDescription")}
             checked={theme === "dark"}
             onChange={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
           />
@@ -642,34 +644,34 @@ export function SettingsPage() {
       {/* Notifications */}
       <SettingSection
         icon={Bell}
-        title="Notifications"
-        description="Configure how you receive alerts for new messages"
+        title={t("settings.notifications.title")}
+        description={t("settings.notifications.description")}
       >
         <div className="space-y-1">
           <SettingRow
-            title="Email notifications"
-            description="Receive notifications for new emails"
+            title={t("settings.notifications.email")}
+            description={t("settings.notifications.emailDescription")}
             checked={settings.emailNotifications}
             onChange={() => handleToggle("emailNotifications")}
           />
           <Separator />
           <SettingRow
-            title="Browser notifications"
-            description="Show notifications in your browser"
+            title={t("settings.notifications.browser")}
+            description={t("settings.notifications.browserDescription")}
             checked={settings.browserNotifications}
             onChange={() => handleToggle("browserNotifications")}
           />
           <Separator />
           <SettingRow
-            title="Sound notifications"
-            description="Play a sound for new messages"
+            title={t("settings.notifications.sound")}
+            description={t("settings.notifications.soundDescription")}
             checked={settings.soundNotifications}
             onChange={() => handleToggle("soundNotifications")}
           />
           <Separator />
           <SettingRow
-            title="Desktop notifications"
-            description="Show desktop notifications when app is in background"
+            title={t("settings.notifications.desktop")}
+            description={t("settings.notifications.desktopDescription")}
             checked={settings.desktopNotifications}
             onChange={() => handleToggle("desktopNotifications")}
           />
@@ -679,34 +681,34 @@ export function SettingsPage() {
       {/* Email Settings */}
       <SettingSection
         icon={Mail}
-        title="Email Composition"
-        description="Settings for composing and sending emails"
+        title={t("settings.composition.title")}
+        description={t("settings.composition.description")}
       >
         <div className="space-y-1">
           <SettingRow
-            title="Auto-save drafts"
-            description="Automatically save drafts while composing"
+            title={t("settings.composition.autoSaveDrafts")}
+            description={t("settings.composition.autoSaveDraftsDescription")}
             checked={settings.autoSaveDraft}
             onChange={() => handleToggle("autoSaveDraft")}
           />
           <Separator />
           <SettingRow
-            title="Rich text mode"
-            description="Use rich text editor with formatting"
+            title={t("settings.composition.richText")}
+            description={t("settings.composition.richTextDescription")}
             checked={settings.richTextMode}
             onChange={() => handleToggle("richTextMode")}
           />
           <Separator />
           <SettingRow
-            title="Auto-correct"
-            description="Automatically correct spelling"
+            title={t("settings.composition.autoCorrect")}
+            description={t("settings.composition.autoCorrectDescription")}
             checked={settings.autoCorrect}
             onChange={() => handleToggle("autoCorrect")}
           />
           <Separator />
           <SettingRow
-            title="Spell check"
-            description="Check spelling while typing"
+            title={t("settings.composition.spellCheck")}
+            description={t("settings.composition.spellCheckDescription")}
             checked={settings.spellCheck}
             onChange={() => handleToggle("spellCheck")}
           />
@@ -716,44 +718,44 @@ export function SettingsPage() {
       {/* Auto-Reply (Out of Office) */}
       <SettingSection
         icon={Plane}
-        title="Auto-Reply (Out of Office)"
-        description="Automatically reply to incoming mail while you are away"
+        title={t("settings.autoReply.title")}
+        description={t("settings.autoReply.description")}
       >
         {vacationLoading ? (
-          <p className="text-sm text-muted-foreground py-3">Loading…</p>
+          <p className="text-sm text-muted-foreground py-3">{t("common.loading")}</p>
         ) : (
           <div className="space-y-4">
             <SettingRow
-              title="Enable auto-reply"
-              description="Send an automatic reply to people who email you"
+              title={t("settings.autoReply.enable")}
+              description={t("settings.autoReply.enableDescription")}
               checked={vacation.enabled}
               onChange={() => setVacation({ ...vacation, enabled: !vacation.enabled })}
             />
             <Separator />
             <div className="space-y-2">
-              <Label htmlFor="vacation-subject">Subject</Label>
+              <Label htmlFor="vacation-subject">{t("common.subject")}</Label>
               <Input
                 id="vacation-subject"
                 value={vacation.subject}
                 onChange={(e) => setVacation({ ...vacation, subject: e.target.value })}
-                placeholder="Out of Office"
+                placeholder={t("settings.autoReply.subjectPlaceholder")}
                 disabled={!vacation.enabled}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="vacation-message">Message</Label>
+              <Label htmlFor="vacation-message">{t("settings.autoReply.message")}</Label>
               <Textarea
                 id="vacation-message"
                 value={vacation.message}
                 onChange={(e) => setVacation({ ...vacation, message: e.target.value })}
-                placeholder="I am currently out of office and will respond when I return."
+                placeholder={t("settings.autoReply.messagePlaceholder")}
                 rows={4}
                 disabled={!vacation.enabled}
               />
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="vacation-start">Start date (optional)</Label>
+                <Label htmlFor="vacation-start">{t("settings.autoReply.startDate")}</Label>
                 <Input
                   id="vacation-start"
                   type="date"
@@ -765,7 +767,7 @@ export function SettingsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="vacation-end">End date (optional)</Label>
+                <Label htmlFor="vacation-end">{t("settings.autoReply.endDate")}</Label>
                 <Input
                   id="vacation-end"
                   type="date"
@@ -779,14 +781,14 @@ export function SettingsPage() {
             </div>
             <div className="flex items-center gap-2">
               <Button onClick={handleVacationSave} disabled={vacationSaving}>
-                Save
+                {t("common.save")}
               </Button>
               <Button
                 variant="outline"
                 onClick={handleVacationDisable}
                 disabled={vacationSaving}
               >
-                Disable
+                {t("settings.disable")}
               </Button>
             </div>
           </div>
@@ -796,19 +798,19 @@ export function SettingsPage() {
       {/* Signature */}
       <SettingSection
         icon={Mail}
-        title="Signature"
-        description="Appended to new messages you compose"
+        title={t("settings.signature.title")}
+        description={t("settings.signature.description")}
       >
         <div className="space-y-3">
           <Textarea
             id="signature"
             value={signature}
             onChange={(e) => setSignature(e.target.value)}
-            placeholder={"Best regards,\nYour Name"}
+            placeholder={t("settings.signature.placeholder")}
             rows={4}
           />
           <Button onClick={handleSignatureSave} disabled={signatureSaving}>
-            Save
+            {t("common.save")}
           </Button>
         </div>
       </SettingSection>
@@ -816,13 +818,13 @@ export function SettingsPage() {
       {/* Categories */}
       <SettingSection
         icon={Tag}
-        title="Categories"
-        description="Color-coded labels you can apply to messages"
+        title={t("settings.categories.title")}
+        description={t("settings.categories.description")}
       >
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             {categories.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No categories yet.</p>
+              <p className="text-sm text-muted-foreground">{t("settings.categories.empty")}</p>
             ) : (
               categories.map((c) => (
                 <span
@@ -833,7 +835,7 @@ export function SettingsPage() {
                   {c.name}
                   <button
                     onClick={() => removeCategory(c.name)}
-                    aria-label={`Remove ${c.name}`}
+                    aria-label={t("settings.categories.removeAria", { name: c.name })}
                     className="opacity-80 hover:opacity-100"
                   >
                     <X className="h-3 w-3" />
@@ -848,17 +850,17 @@ export function SettingsPage() {
               value={catColor}
               onChange={(e) => setCatColor(e.target.value)}
               className="h-9 w-12 cursor-pointer rounded border bg-transparent"
-              aria-label="Category color"
+              aria-label={t("settings.categories.colorAria")}
             />
             <Input
               value={catName}
               onChange={(e) => setCatName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") addCategory() }}
-              placeholder="Category name"
+              placeholder={t("settings.categories.namePlaceholder")}
             />
             <Button onClick={addCategory} disabled={catBusy || !catName.trim()}>
               <Plus className="mr-1 h-4 w-4" />
-              Add
+              {t("common.add")}
             </Button>
           </div>
         </div>
@@ -867,8 +869,8 @@ export function SettingsPage() {
       {/* Delegates */}
       <SettingSection
         icon={UserCog}
-        title="Delegates"
-        description="Let other people access your mailbox and send on your behalf"
+        title={t("settings.delegates.title")}
+        description={t("settings.delegates.description")}
       >
         <div className="space-y-4">
           {delegations.length > 0 && (
@@ -878,9 +880,9 @@ export function SettingsPage() {
                   <div className="min-w-0">
                     <p className="font-medium truncate">{d.grantee}</p>
                     <p className="text-xs text-muted-foreground">
-                      {d.rights || "no access"}
-                      {d.canSendOnBehalf ? " · send on behalf" : ""}
-                      {d.canSendAs ? " · send as" : ""}
+                      {d.rights || t("settings.delegates.noAccess")}
+                      {d.canSendOnBehalf ? ` · ${t("settings.delegates.sendOnBehalfTag")}` : ""}
+                      {d.canSendAs ? ` · ${t("settings.delegates.sendAsTag")}` : ""}
                     </p>
                   </div>
                   <Button
@@ -898,30 +900,30 @@ export function SettingsPage() {
           )}
           <div className="space-y-3 rounded-lg border p-3">
             <div className="space-y-2">
-              <Label htmlFor="delegate-email">Add a delegate</Label>
+              <Label htmlFor="delegate-email">{t("settings.delegates.add")}</Label>
               <Input
                 id="delegate-email"
                 type="email"
                 value={delEmail}
                 onChange={(e) => setDelEmail(e.target.value)}
-                placeholder="colleague@example.com"
+                placeholder={t("settings.delegates.emailPlaceholder")}
               />
             </div>
             <SettingRow
-              title="Allow editing"
-              description="Delegate can change items, not just read them"
+              title={t("settings.delegates.allowEditing")}
+              description={t("settings.delegates.allowEditingDescription")}
               checked={delWrite}
               onChange={() => setDelWrite((v) => !v)}
             />
             <SettingRow
-              title="Send on behalf"
-              description="Delegate can send mail on your behalf"
+              title={t("settings.delegates.sendOnBehalf")}
+              description={t("settings.delegates.sendOnBehalfDescription")}
               checked={delSendOnBehalf}
               onChange={() => setDelSendOnBehalf((v) => !v)}
             />
             <Button onClick={handleAddDelegate} disabled={delBusy || !delEmail.trim()}>
               <Plus className="mr-2 h-4 w-4" />
-              Add delegate
+              {t("settings.delegates.addDelegate")}
             </Button>
           </div>
         </div>
@@ -930,34 +932,34 @@ export function SettingsPage() {
       {/* Privacy & Security */}
       <SettingSection
         icon={Shield}
-        title="Privacy & Security"
-        description="Control your privacy and security settings"
+        title={t("settings.privacy.title")}
+        description={t("settings.privacy.description")}
       >
         <div className="space-y-1">
           <SettingRow
-            title="Read receipts"
-            description="Request read receipts for sent emails"
+            title={t("settings.privacy.readReceipts")}
+            description={t("settings.privacy.readReceiptsDescription")}
             checked={settings.readReceipts}
             onChange={() => handleToggle("readReceipts")}
           />
           <Separator />
           <SettingRow
-            title="Delivery receipts"
-            description="Request delivery confirmations for sent emails"
+            title={t("settings.privacy.deliveryReceipts")}
+            description={t("settings.privacy.deliveryReceiptsDescription")}
             checked={settings.deliveryReceipts}
             onChange={() => handleToggle("deliveryReceipts")}
           />
           <Separator />
           <SettingRow
-            title="Show online status"
-            description="Let others see when you're online"
+            title={t("settings.privacy.showOnlineStatus")}
+            description={t("settings.privacy.showOnlineStatusDescription")}
             checked={settings.showOnlineStatus}
             onChange={() => handleToggle("showOnlineStatus")}
           />
           <Separator />
           <SettingRow
-            title="Allow read receipts"
-            description="Send read receipts when others request them"
+            title={t("settings.privacy.allowReadReceipts")}
+            description={t("settings.privacy.allowReadReceiptsDescription")}
             checked={settings.allowReadReceipts}
             onChange={() => handleToggle("allowReadReceipts")}
           />
@@ -967,18 +969,18 @@ export function SettingsPage() {
       {/* Keyboard Shortcuts */}
       <SettingSection
         icon={Keyboard}
-        title="Keyboard Shortcuts"
-        description="View and manage keyboard shortcuts"
+        title={t("settings.shortcuts.title")}
+        description={t("settings.shortcuts.description")}
       >
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Keyboard shortcuts help you navigate and perform actions faster.
+            {t("settings.shortcuts.help")}
           </p>
           <Button
             variant="outline"
             onClick={() => document.dispatchEvent(new CustomEvent("toggle-shortcuts"))}
           >
-            View Keyboard Shortcuts
+            {t("settings.shortcuts.view")}
           </Button>
         </div>
       </SettingSection>
@@ -986,19 +988,19 @@ export function SettingsPage() {
       {/* Push Notifications */}
       <SettingSection
         icon={Bell}
-        title="Push Notifications"
-        description="Get desktop push notifications for new mail"
+        title={t("settings.push.title")}
+        description={t("settings.push.description")}
       >
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={handleEnablePush} disabled={pushBusy || !pushSupported()}>
-            {pushBusy ? "Working..." : "Enable push notifications"}
+            {pushBusy ? t("settings.push.working") : t("settings.push.enable")}
           </Button>
           <Button variant="outline" onClick={handleDisablePush} disabled={pushBusy || !pushSupported()}>
-            Disable
+            {t("settings.disable")}
           </Button>
           {!pushSupported() && (
             <span className="text-sm text-muted-foreground">
-              Not supported in this browser.
+              {t("settings.push.notSupported")}
             </span>
           )}
         </div>
@@ -1007,26 +1009,26 @@ export function SettingsPage() {
       {/* Active Sessions */}
       <SettingSection
         icon={Monitor}
-        title="Active Sessions"
-        description="Devices currently signed in to your account"
+        title={t("settings.sessions.title")}
+        description={t("settings.sessions.description")}
       >
         {sessions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No active sessions found.</p>
+          <p className="text-sm text-muted-foreground">{t("settings.sessions.empty")}</p>
         ) : (
           <div className="space-y-2">
             {sessions.map((s) => (
               <div key={s.id} className="flex items-center justify-between gap-4 rounded-lg border p-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">
-                    {s.device_type || "Unknown device"} · {s.client_ip || "unknown IP"}
+                    {s.device_type || t("settings.sessions.unknownDevice")} · {s.client_ip || t("settings.sessions.unknownIp")}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">
                     {s.user_agent || "—"}
                   </p>
-                  <p className="text-xs text-muted-foreground">Last active: {s.last_active}</p>
+                  <p className="text-xs text-muted-foreground">{t("settings.sessions.lastActive", { time: s.last_active })}</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => handleRevokeSession(s.id)}>
-                  Revoke
+                  {t("settings.sessions.revoke")}
                 </Button>
               </div>
             ))}
@@ -1042,27 +1044,27 @@ export function SettingsPage() {
               <Lock className="h-5 w-5 text-destructive" />
             </div>
             <div>
-              <h3 className="font-semibold">Account Security</h3>
+              <h3 className="font-semibold">{t("settings.account.title")}</h3>
               <p className="text-sm text-muted-foreground">
-                Manage your password and security settings
+                {t("settings.account.description")}
               </p>
             </div>
           </div>
-          <Button variant="outline" onClick={() => setPwOpen(true)}>Manage Account</Button>
+          <Button variant="outline" onClick={() => setPwOpen(true)}>{t("settings.account.manage")}</Button>
         </div>
       </div>
 
       <Dialog open={pwOpen} onOpenChange={setPwOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Change password</DialogTitle>
+            <DialogTitle>{t("settings.password.title")}</DialogTitle>
             <DialogDescription>
-              Update the password for your mailbox account.
+              {t("settings.password.description")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label htmlFor="pw-current">Current password</Label>
+              <Label htmlFor="pw-current">{t("settings.password.current")}</Label>
               <Input
                 id="pw-current"
                 type="password"
@@ -1072,7 +1074,7 @@ export function SettingsPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="pw-new">New password</Label>
+              <Label htmlFor="pw-new">{t("settings.password.new")}</Label>
               <Input
                 id="pw-new"
                 type="password"
@@ -1082,7 +1084,7 @@ export function SettingsPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="pw-confirm">Confirm new password</Label>
+              <Label htmlFor="pw-confirm">{t("settings.password.confirm")}</Label>
               <Input
                 id="pw-confirm"
                 type="password"
@@ -1094,10 +1096,10 @@ export function SettingsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPwOpen(false)} disabled={pwSaving}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleChangePassword} disabled={pwSaving}>
-              {pwSaving ? "Saving..." : "Update password"}
+              {pwSaving ? t("common.saving") : t("settings.password.update")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1105,7 +1107,7 @@ export function SettingsPage() {
 
       <div className="text-center text-sm text-muted-foreground pb-8">
         <p>uMail Server v1.0.0</p>
-        <p className="mt-1">Built with care for your privacy</p>
+        <p className="mt-1">{t("settings.footer.tagline")}</p>
       </div>
     </div>
   )

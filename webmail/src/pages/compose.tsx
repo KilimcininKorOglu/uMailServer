@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils"
 import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType, MailAttachment } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
+import { useI18n } from "@/hooks/useI18n"
 
 interface Attachment {
   id: string
@@ -70,7 +71,8 @@ export function ComposePage() {
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const { currentMailbox, isInSharedMailbox } = useMailbox()
-  
+  const { t } = useI18n()
+
   const [to, setTo] = useState<Recipient[]>([])
   const [cc, setCc] = useState<Recipient[]>([])
   const [bcc, setBcc] = useState<Recipient[]>([])
@@ -367,7 +369,7 @@ export function ComposePage() {
     setRecipientInput((prev) => ({ ...prev, [field]: "" }))
     if (!email) return
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      toast.error("Enter a valid email address")
+      toast.error(t("compose.invalidEmail"))
       return
     }
     addRecipient({ id: `typed-${field}-${email}`, name: email, email }, field)
@@ -393,7 +395,11 @@ export function ComposePage() {
         file,
       }))
       setAttachments([...attachments, ...newAttachments])
-      toast.success(`${files.length} file${files.length > 1 ? "s" : ""} attached`)
+      toast.success(
+        files.length > 1
+          ? t("compose.filesAttached", { count: String(files.length) })
+          : t("compose.fileAttached", { count: String(files.length) })
+      )
     }
   }
 
@@ -411,22 +417,22 @@ export function ComposePage() {
     let insert = selected
     switch (kind) {
       case "bold":
-        insert = `**${selected || "bold text"}**`
+        insert = `**${selected || t("compose.boldText")}**`
         break
       case "italic":
-        insert = `*${selected || "italic text"}*`
+        insert = `*${selected || t("compose.italicText")}*`
         break
       case "underline":
-        insert = `__${selected || "underlined text"}__`
+        insert = `__${selected || t("compose.underlinedText")}__`
         break
       case "link":
-        insert = `[${selected || "link text"}](https://)`
+        insert = `[${selected || t("compose.linkText")}](https://)`
         break
       case "image":
-        insert = `![${selected || "image"}](https://)`
+        insert = `![${selected || t("compose.imageText")}](https://)`
         break
       case "list":
-        insert = (selected || "item")
+        insert = (selected || t("compose.listItem"))
           .split("\n")
           .map((line) => `- ${line}`)
           .join("\n")
@@ -484,35 +490,35 @@ export function ComposePage() {
   // Check if selected sender can send
   const canSendAsSelected = selectedSender?.canSend ?? true
   const sendError = !canSendAsSelected && selectedSender
-    ? `You don't have permission to send as ${selectedSender.email}. Contact the mailbox owner for send-as or send-on-behalf access.`
+    ? t("compose.noSendPermission", { email: selectedSender.email })
     : null
   
   const handleSend = async () => {
     if (to.length === 0) {
-      toast.error("Please select a recipient")
+      toast.error(t("compose.selectRecipient"))
       return
     }
     if (!subject.trim()) {
-      toast.error("Please enter a subject")
+      toast.error(t("compose.enterSubject"))
       return
     }
-    
+
     // Check if sender is allowed
     if (!canSendAsSelected) {
-      toast.error(sendError || "Cannot send with selected identity")
+      toast.error(sendError || t("compose.cannotSendIdentity"))
       return
     }
-    
+
     // Check for policy errors from diagnostics
     const policyErrors = diagnostics.filter(d => d.category === 'policy' && d.severity === 'error')
     if (policyErrors.length > 0) {
       setShowDiagnostics(true)
-      toast.error("Please resolve the issues before sending")
+      toast.error(t("compose.resolveIssues"))
       return
     }
-    
+
     setSending(true)
-    toast.success("Sending email...")
+    toast.success(t("compose.sendingEmail"))
     
     try {
       // Use the actual API with sender identity
@@ -541,18 +547,18 @@ export function ComposePage() {
         requestReadReceipt: requestReadReceipt || undefined,
       })
 
-      toast.success("Email sent successfully")
+      toast.success(t("compose.emailSent"))
       navigate("/sent")
     } catch (err) {
       console.error('Failed to send email:', err)
-      toast.error("Failed to send email. Please try again.")
+      toast.error(t("compose.sendFailed"))
       setSending(false)
     }
   }
 
   const handleSaveDraft = async () => {
     if (!(subject || body || to.length > 0 || cc.length > 0 || bcc.length > 0)) {
-      toast.error("Nothing to save")
+      toast.error(t("compose.nothingToSave"))
       return
     }
     try {
@@ -567,17 +573,17 @@ export function ComposePage() {
         from: senderEmail,
       })
       if (res?.id) setDraftId(res.id)
-      toast.success("Draft saved")
+      toast.success(t("compose.draftSaved"))
       navigate("/drafts")
     } catch (err) {
       console.error('Failed to save draft:', err)
-      toast.error("Failed to save draft")
+      toast.error(t("compose.draftSaveFailed"))
     }
   }
 
   const handleDiscard = () => {
     if (subject || body || to.length > 0) {
-      if (confirm("Discard this email? Your draft will be saved.")) {
+      if (confirm(t("compose.discardConfirm"))) {
         handleSaveDraft()
       }
     } else {
@@ -589,8 +595,8 @@ export function ComposePage() {
     if (!lastSaved) return null
     const now = new Date()
     const diff = Math.floor((now.getTime() - lastSaved.getTime()) / 1000)
-    if (diff < 60) return "Just now"
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+    if (diff < 60) return t("compose.justNow")
+    if (diff < 3600) return t("compose.minutesAgo", { minutes: String(Math.floor(diff / 60)) })
     return lastSaved.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
 
@@ -605,18 +611,18 @@ export function ComposePage() {
           <Button variant="ghost" size="icon" onClick={handleDiscard}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <span className="font-medium">New Message</span>
+          <span className="font-medium">{t("compose.newMessage")}</span>
           {lastSaved && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground ml-2">
               {isSaving ? (
                 <>
                   <Clock className="h-3 w-3 animate-pulse" />
-                  Saving...
+                  {t("common.saving")}
                 </>
               ) : (
                 <>
                   <Check className="h-3 w-3" />
-                  Saved {formatLastSaved()}
+                  {t("compose.saved", { time: formatLastSaved() ?? "" })}
                 </>
               )}
             </span>
@@ -627,7 +633,7 @@ export function ComposePage() {
             variant="ghost"
             size="icon"
             onClick={() => setIsFullscreen(!isFullscreen)}
-            title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            title={isFullscreen ? t("compose.exitFullscreen") : t("compose.fullscreen")}
           >
             {isFullscreen ? (
               <Minimize2 className="h-4 w-4" />
@@ -635,7 +641,7 @@ export function ComposePage() {
               <Maximize2 className="h-4 w-4" />
             )}
           </Button>
-          <Button variant="ghost" size="icon" onClick={handleSaveDraft} title="Save draft (⌘S)">
+          <Button variant="ghost" size="icon" onClick={handleSaveDraft} title={t("compose.saveDraftTooltip")}>
             <Save className="h-4 w-4" />
           </Button>
           <Button
@@ -644,7 +650,7 @@ export function ComposePage() {
             disabled={sending || to.length === 0}
           >
             <Send className="h-4 w-4" />
-            {sending ? "Sending..." : "Send"}
+            {sending ? t("common.sending") : t("common.send")}
           </Button>
         </div>
       </div>
@@ -652,7 +658,7 @@ export function ComposePage() {
       {/* Recipients */}
       <div className="border-b px-4 py-2 space-y-2">
         <div className="flex items-center gap-2">
-          <span className="w-12 text-sm text-muted-foreground">To:</span>
+          <span className="w-12 text-sm text-muted-foreground">{t("common.to")}:</span>
           <div className="relative flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
             {to.map((r) => (
               <Badge key={r.id} variant="secondary" className="gap-1 pr-1.5 py-1">
@@ -667,14 +673,14 @@ export function ComposePage() {
             ))}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6" title="Search address book" aria-label="Search address book">
+                <Button variant="ghost" size="icon" className="h-6 w-6" title={t("compose.searchAddressBook")} aria-label={t("compose.searchAddressBook")}>
                   <Plus className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-72">
                 <div className="p-2">
                   <Input
-                    placeholder="Search people..."
+                    placeholder={t("compose.searchPeople")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -698,7 +704,7 @@ export function ComposePage() {
             </DropdownMenu>
             <input
               className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder="Search address book or type an email"
+              placeholder={t("compose.searchOrType")}
               value={recipientInput.to}
               onChange={(e) => {
                 setRecipientInput((p) => ({ ...p, to: e.target.value }))
@@ -722,7 +728,7 @@ export function ComposePage() {
             className="text-xs h-7"
             onClick={() => setShowCc(!showCc)}
           >
-            Cc
+            {t("common.cc")}
           </Button>
           <Button
             variant="ghost"
@@ -730,13 +736,13 @@ export function ComposePage() {
             className="text-xs h-7"
             onClick={() => setShowBcc(!showBcc)}
           >
-            Bcc
+            {t("common.bcc")}
           </Button>
         </div>
 
         {showCc && (
           <div className="flex items-center gap-2">
-            <span className="w-12 text-sm text-muted-foreground">Cc:</span>
+            <span className="w-12 text-sm text-muted-foreground">{t("common.cc")}:</span>
             <div className="relative flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
               {cc.map((r) => (
                 <Badge key={r.id} variant="secondary" className="gap-1 pr-1.5 py-1">
@@ -758,7 +764,7 @@ export function ComposePage() {
                 <DropdownMenuContent align="start" className="w-72">
                   <div className="p-2">
                     <Input
-                      placeholder="Search people..."
+                      placeholder={t("compose.searchPeople")}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -782,7 +788,7 @@ export function ComposePage() {
               </DropdownMenu>
               <input
                 className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                placeholder="Search address book or type an email"
+                placeholder={t("compose.searchOrType")}
                 value={recipientInput.cc}
                 onChange={(e) => {
                   setRecipientInput((p) => ({ ...p, cc: e.target.value }))
@@ -805,7 +811,7 @@ export function ComposePage() {
 
         {showBcc && (
           <div className="flex items-center gap-2">
-            <span className="w-12 text-sm text-muted-foreground">Bcc:</span>
+            <span className="w-12 text-sm text-muted-foreground">{t("common.bcc")}:</span>
             <div className="relative flex flex-1 flex-wrap items-center gap-1 min-h-[32px]">
               {bcc.map((r) => (
                 <Badge key={r.id} variant="secondary" className="gap-1 pr-1.5 py-1">
@@ -827,7 +833,7 @@ export function ComposePage() {
                 <DropdownMenuContent align="start" className="w-72">
                   <div className="p-2">
                     <Input
-                      placeholder="Search people..."
+                      placeholder={t("compose.searchPeople")}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -851,7 +857,7 @@ export function ComposePage() {
               </DropdownMenu>
               <input
                 className="flex-1 min-w-[160px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                placeholder="Search address book or type an email"
+                placeholder={t("compose.searchOrType")}
                 value={recipientInput.bcc}
                 onChange={(e) => {
                   setRecipientInput((p) => ({ ...p, bcc: e.target.value }))
@@ -876,7 +882,7 @@ export function ComposePage() {
         <div className="flex items-center gap-2">
           <span className="w-12 text-sm text-muted-foreground flex items-center gap-1">
             <Mail className="h-3 w-3" />
-            From:
+            {t("common.from")}:
           </span>
           <div className="flex-1 flex items-center gap-2">
             <DropdownMenu open={showSenderDropdown} onOpenChange={setShowSenderDropdown}>
@@ -896,19 +902,19 @@ export function ComposePage() {
                       </span>
                       {selectedSender.type !== 'personal' && (
                         <Badge variant="secondary" className="text-[10px] h-4 ml-1">
-                          {selectedSender.type === 'send-on-behalf' ? 'On behalf' : 'Send as'}
+                          {selectedSender.type === 'send-on-behalf' ? t("compose.onBehalf") : t("compose.sendAs")}
                         </Badge>
                       )}
                     </>
                   ) : (
-                    <span>Select sender</span>
+                    <span>{t("compose.selectSender")}</span>
                   )}
                   <ChevronDown className="h-3 w-3 ml-1" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-80">
                 <div className="p-2 text-xs text-muted-foreground">
-                  Select the sender identity for this message
+                  {t("compose.selectSenderIdentity")}
                 </div>
                 <Separator />
                 <div className="max-h-60 overflow-auto">
@@ -928,24 +934,24 @@ export function ComposePage() {
                       <div className="flex items-center gap-2 w-full">
                         <span className="font-medium text-sm">{identity.displayName || identity.email}</span>
                         {identity.type === 'personal' && (
-                          <Badge variant="default" className="text-[10px] h-4">Personal</Badge>
+                          <Badge variant="default" className="text-[10px] h-4">{t("nav.personal")}</Badge>
                         )}
                         {identity.type === 'send-on-behalf' && (
-                          <Badge variant="secondary" className="text-[10px] h-4">On behalf</Badge>
+                          <Badge variant="secondary" className="text-[10px] h-4">{t("compose.onBehalf")}</Badge>
                         )}
                         {identity.type === 'send-as' && (
-                          <Badge variant="outline" className="text-[10px] h-4">Send as</Badge>
+                          <Badge variant="outline" className="text-[10px] h-4">{t("compose.sendAs")}</Badge>
                         )}
                       </div>
                       {identity.mailboxOwner && (
                         <span className="text-xs text-muted-foreground">
-                          Shared mailbox: {identity.mailboxOwner}
+                          {t("compose.sharedMailbox", { owner: identity.mailboxOwner })}
                         </span>
                       )}
                       {!identity.canSend && (
                         <span className="text-xs text-red-500 flex items-center gap-1 mt-1">
                           <AlertTriangle className="h-3 w-3" />
-                          No send permission
+                          {t("compose.noSendPermissionShort")}
                         </span>
                       )}
                     </DropdownMenuItem>
@@ -969,7 +975,7 @@ export function ComposePage() {
                 size="icon"
                 className="h-6 w-6"
                 onClick={() => setShowDiagnostics(!showDiagnostics)}
-                title="View mail diagnostics"
+                title={t("compose.viewDiagnostics")}
               >
                 <AlertTriangle className={cn(
                   "h-4 w-4",
@@ -984,7 +990,7 @@ export function ComposePage() {
         {showDiagnostics && diagnostics.length > 0 && (
           <div className="border rounded-md bg-muted/30 p-3 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Mailbox Diagnostics</span>
+              <span className="text-sm font-medium">{t("compose.mailboxDiagnostics")}</span>
               <Button
                 variant="ghost"
                 size="icon"
@@ -1009,11 +1015,11 @@ export function ComposePage() {
                   <div className="flex-1">
                     <div className="font-medium">{entry.message}</div>
                     {entry.mailbox && (
-                      <div className="text-muted-foreground mt-0.5">Mailbox: {entry.mailbox}</div>
+                      <div className="text-muted-foreground mt-0.5">{t("compose.mailboxLabel", { mailbox: entry.mailbox })}</div>
                     )}
                     {entry.nextStep && (
                       <div className="text-muted-foreground mt-1 flex items-center gap-1">
-                        <span>Next step:</span>
+                        <span>{t("compose.nextStep")}</span>
                         <span className="font-medium">{entry.nextStep}</span>
                       </div>
                     )}
@@ -1028,10 +1034,10 @@ export function ComposePage() {
         )}
 
         <div className="flex items-center gap-2">
-          <span className="w-12 text-sm text-muted-foreground">Sub:</span>
+          <span className="w-12 text-sm text-muted-foreground">{t("compose.subjectShort")}:</span>
           <Input
             className="flex-1 border-0 shadow-none focus-visible:ring-0 px-0 py-1 h-8"
-            placeholder="Subject"
+            placeholder={t("common.subject")}
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
           />
@@ -1043,27 +1049,27 @@ export function ComposePage() {
         {/* onMouseDown preventDefault keeps focus (and the selection) in the
             body textarea so applyFormat wraps the selected text instead of
             inserting a placeholder. */}
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("bold")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title={t("compose.bold")} onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("bold")}>
           <Bold className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("italic")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title={t("compose.italic")} onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("italic")}>
           <Italic className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Underline" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("underline")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title={t("compose.underline")} onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("underline")}>
           <Underline className="h-4 w-4" />
         </Button>
         <Separator orientation="vertical" className="h-6" />
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert link" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("link")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title={t("compose.insertLink")} onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("link")}>
           <Link className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Bullet list" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("list")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title={t("compose.bulletList")} onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("list")}>
           <List className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Insert image link" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("image")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title={t("compose.insertImageLink")} onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormat("image")}>
           <Image className="h-4 w-4" />
         </Button>
         <span className="text-xs text-muted-foreground ml-2">
-          Tip: Press ⌘+Enter to send
+          {t("compose.sendTip")}
         </span>
       </div>
 
@@ -1072,7 +1078,7 @@ export function ComposePage() {
         <Textarea
           ref={bodyRef}
           className="h-full resize-none border-0 shadow-none focus-visible:ring-0 p-4"
-          placeholder="Write your message..."
+          placeholder={t("compose.writeMessage")}
           value={body}
           onChange={(e) => setBody(e.target.value)}
         />
@@ -1121,18 +1127,18 @@ export function ComposePage() {
             variant={requestReadReceipt ? "secondary" : "outline"}
             size="sm"
             onClick={() => setRequestReadReceipt((v) => !v)}
-            title="Request a read receipt"
+            title={t("compose.requestReadReceipt")}
             aria-pressed={requestReadReceipt}
           >
             <Check className={requestReadReceipt ? "mr-1.5 h-4 w-4" : "mr-1.5 h-4 w-4 opacity-40"} />
-            Read receipt
+            {t("compose.readReceipt")}
           </Button>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <kbd className="rounded border px-1.5 py-0.5 text-xs bg-muted">⌘</kbd>
           <span>+</span>
           <kbd className="rounded border px-1.5 py-0.5 text-xs bg-muted">Enter</kbd>
-          <span>to send</span>
+          <span>{t("compose.toSend")}</span>
         </div>
       </div>
     </div>

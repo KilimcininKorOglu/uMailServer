@@ -8,6 +8,7 @@ import {
   ArrowRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/hooks/useI18n"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -30,6 +31,7 @@ const RECENT_SEARCHES_KEY = 'umail_recent_searches'
 const MAX_RECENT_SEARCHES = 5
 
 export function SearchPage() {
+  const { t } = useI18n()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [query, setQuery] = useState(searchParams.get("q") || "")
@@ -100,13 +102,13 @@ export function SearchPage() {
       }
     } catch (err) {
       console.error('Search error:', err)
-      setError('Search failed. Please try again.')
+      setError(t('search.searchFailed'))
       setResults([])
       setTotalResults(0)
     } finally {
       setLoading(false)
     }
-  }, [saveRecentSearch])
+  }, [saveRecentSearch, t])
 
   // Handle search from URL params (initial load)
   useEffect(() => {
@@ -150,7 +152,7 @@ export function SearchPage() {
             <Input
               ref={inputRef}
               className="pl-9 pr-20"
-              placeholder="Search emails by subject, sender, or content..."
+              placeholder={t("search.placeholder")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -167,7 +169,7 @@ export function SearchPage() {
             )}
           </div>
           <Button type="submit" disabled={loading || !query.trim()}>
-            {loading ? "Searching..." : "Search"}
+            {loading ? t("search.searching") : t("common.search")}
           </Button>
         </form>
       </div>
@@ -197,9 +199,9 @@ export function SearchPage() {
             <div className="rounded-full bg-primary/10 p-6">
               <Search className="h-12 w-12 text-primary" />
             </div>
-            <h3 className="mt-6 text-xl font-semibold">Search your mail</h3>
+            <h3 className="mt-6 text-xl font-semibold">{t("search.title")}</h3>
             <p className="mt-2 text-muted-foreground max-w-md">
-              Search by sender, subject, or keywords in your messages.
+              {t("search.subtitle")}
             </p>
           </div>
 
@@ -209,7 +211,7 @@ export function SearchPage() {
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                   <Clock className="h-4 w-4" />
-                  Recent searches
+                  {t("search.recentSearches")}
                 </h4>
                 <Button
                   variant="ghost"
@@ -217,7 +219,7 @@ export function SearchPage() {
                   onClick={clearRecentSearches}
                   className="text-xs"
                 >
-                  Clear
+                  {t("search.clear")}
                 </Button>
               </div>
               <div className="space-y-1">
@@ -241,20 +243,22 @@ export function SearchPage() {
           <div className="rounded-full bg-muted p-4">
             <Mail className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h3 className="mt-4 text-lg font-semibold">No results found</h3>
+          <h3 className="mt-4 text-lg font-semibold">{t("common.noResults")}</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            No results for "<span className="font-medium">{query}</span>".
+            {t("search.noResultsFor", { query })}
             <br />
-            Try different keywords or check your spelling.
+            {t("search.tryDifferentKeywords")}
           </p>
           <Button variant="link" className="mt-4" onClick={handleClear}>
-            Clear search
+            {t("search.clearSearch")}
           </Button>
         </div>
       ) : (
         <div className="space-y-2">
           <div className="text-sm text-muted-foreground px-2">
-            {totalResults} result{totalResults !== 1 ? "s" : ""} for "<span className="font-medium">{query}</span>"
+            {totalResults === 1
+              ? t("search.resultCount", { count: String(totalResults), query })
+              : t("search.resultCountPlural", { count: String(totalResults), query })}
           </div>
           <div className="rounded-lg border bg-card divide-y">
             {results.map((email) => (

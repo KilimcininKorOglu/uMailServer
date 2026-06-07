@@ -9,8 +9,10 @@ import {
 } from "@/components/ui/dialog"
 import { shortcuts } from "@/hooks/useKeyboardShortcuts"
 import { Separator } from "@/components/ui/separator"
+import { useI18n } from "@/hooks/useI18n"
 
 export function ShortcutsDialog() {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -32,10 +34,10 @@ export function ShortcutsDialog() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Keyboard className="h-5 w-5" />
-            Keyboard Shortcuts
+            {t("shortcuts.title")}
           </DialogTitle>
           <DialogDescription>
-            Speed up your workflow with these keyboard shortcuts.
+            {t("shortcuts.subtitle")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex-1 overflow-y-auto">
@@ -43,7 +45,7 @@ export function ShortcutsDialog() {
             {shortcuts.map((section) => (
               <div key={section.category}>
                 <h3 className="text-sm font-semibold text-muted-foreground mb-3">
-                  {section.category}
+                  {t(section.category)}
                 </h3>
                 <div className="space-y-2">
                   {section.items.map((item, index) => (
@@ -51,7 +53,7 @@ export function ShortcutsDialog() {
                       key={index}
                       className="flex items-center justify-between py-1"
                     >
-                      <span className="text-sm">{item.description}</span>
+                      <span className="text-sm">{t(item.description)}</span>
                       <div className="flex items-center gap-1">
                         {item.keys.map((key, keyIndex) => (
                           <span key={keyIndex}>
@@ -73,7 +75,7 @@ export function ShortcutsDialog() {
         </div>
         <Separator className="my-4" />
         <div className="text-xs text-muted-foreground text-center">
-          Press <kbd className="inline-flex items-center justify-center rounded border bg-muted px-1.5 py-0.5 text-xs font-mono">?</kbd> to toggle this dialog
+          {t("shortcuts.pressBefore")} <kbd className="inline-flex items-center justify-center rounded border bg-muted px-1.5 py-0.5 text-xs font-mono">?</kbd> {t("shortcuts.pressAfter")}
         </div>
       </DialogContent>
     </Dialog>

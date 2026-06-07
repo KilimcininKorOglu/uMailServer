@@ -35,6 +35,7 @@ import api from "@/utils/api"
 import type { MeetingInvite, AttachmentInfo } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
+import { useI18n } from "@/hooks/useI18n"
 
 // formatFileSize renders a byte count as a human-readable size.
 function formatFileSize(bytes: number): string {
@@ -60,6 +61,7 @@ interface EmailDetail {
 export function EmailDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { t } = useI18n()
   const { user } = useAuth()
   // Keep the shared inbox state (sidebar badge, header notifications) in sync
   // with read/flag/label/delete actions taken in the reading view.
@@ -132,29 +134,29 @@ export function EmailDetailPage() {
             setInvite(null)
           }
         } else {
-          toast.error("Email not found")
+          toast.error(t("emailDetail.notFound"))
           navigate("/inbox")
         }
       } catch (err) {
         console.error("Failed to load email:", err)
-        toast.error("Failed to load email")
+        toast.error(t("emailDetail.failedToLoad"))
         navigate("/inbox")
       } finally {
         setLoading(false)
       }
     }
     loadEmail()
-  }, [id, navigate, patchInbox])
+  }, [id, navigate, patchInbox, t])
 
   const handleDelete = async () => {
     if (!email) return
     try {
       await api.deleteMail(email.id)
       removeFromInbox([email.id])
-      toast.success("Email moved to trash")
+      toast.success(t("emailDetail.movedToTrash"))
       navigate("/inbox")
     } catch {
-      toast.error("Failed to delete email")
+      toast.error(t("emailDetail.failedToDelete"))
     }
   }
 
@@ -192,7 +194,7 @@ export function EmailDetailPage() {
 
   const handleForward = () => {
     if (!email) return
-    const quoted = `\n\n---------- Forwarded message ----------\nFrom: ${email.from} <${email.fromEmail}>\nDate: ${email.date}\nSubject: ${email.subject}\nTo: ${email.to.join(", ")}\n\n${email.content}`
+    const quoted = `\n\n---------- ${t("emailDetail.forwardedMessage")} ----------\n${t("common.from")}: ${email.from} <${email.fromEmail}>\n${t("common.date")}: ${email.date}\n${t("common.subject")}: ${email.subject}\n${t("common.to")}: ${email.to.join(", ")}\n\n${email.content}`
     const params = new URLSearchParams({
       subject: email.subject.startsWith("Fwd: ") ? email.subject : `Fwd: ${email.subject}`,
       body: quoted,
@@ -205,10 +207,10 @@ export function EmailDetailPage() {
     try {
       await api.setFlag(email.id, "\\Seen", false)
       patchInbox([email.id], { read: false })
-      toast.success("Marked as unread")
+      toast.success(t("emailDetail.markedUnread"))
       navigate("/inbox")
     } catch {
-      toast.error("Failed to mark as unread")
+      toast.error(t("emailDetail.failedToMarkUnread"))
     }
   }
 
@@ -222,10 +224,10 @@ export function EmailDetailPage() {
     try {
       await api.setFlag(email.id, "\\Flagged", next)
       patchInbox([email.id], { starred: next })
-      toast.success(next ? "Flagged for follow-up" : "Follow-up flag cleared")
+      toast.success(next ? t("emailDetail.flaggedForFollowUp") : t("emailDetail.followUpCleared"))
     } catch {
       setEmail({ ...email, flagged: !next })
-      toast.error("Failed to update follow-up flag")
+      toast.error(t("emailDetail.failedToUpdateFollowUp"))
     }
   }
 
@@ -239,7 +241,7 @@ export function EmailDetailPage() {
       patchInbox([email.id], { labels: next })
     } catch {
       setEmail({ ...email, labels: prev })
-      toast.error("Failed to update labels")
+      toast.error(t("emailDetail.failedToUpdateLabels"))
     }
   }
 
@@ -269,13 +271,13 @@ export function EmailDetailPage() {
       await api.rsvp(email.id, response)
       setRsvpStatus(response)
       const messages: Record<string, string> = {
-        accept: "Added to your calendar",
-        tentative: "Marked tentative on your calendar",
-        decline: "Removed from your calendar",
+        accept: t("emailDetail.addedToCalendar"),
+        tentative: t("emailDetail.markedTentative"),
+        decline: t("emailDetail.removedFromCalendar"),
       }
       toast.success(messages[response])
     } catch {
-      toast.error("Failed to respond to the invitation")
+      toast.error(t("emailDetail.failedToRsvp"))
     } finally {
       setRsvpBusy(false)
     }
@@ -286,7 +288,7 @@ export function EmailDetailPage() {
     try {
       await api.downloadAttachment(email.id, att.index, att.filename)
     } catch {
-      toast.error("Failed to download attachment")
+      toast.error(t("emailDetail.failedToDownload"))
     }
   }
 
@@ -294,10 +296,10 @@ export function EmailDetailPage() {
     if (!email) return
     try {
       await api.moveMail(email.id, folder)
-      toast.success(`Moved to ${label}`)
+      toast.success(t("emailDetail.movedTo", { folder: label }))
       navigate("/inbox")
     } catch {
-      toast.error("Failed to move message")
+      toast.error(t("emailDetail.failedToMove"))
     }
   }
 
@@ -309,29 +311,29 @@ export function EmailDetailPage() {
         </div>
       ) : !email ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <h3 className="mt-4 text-lg font-semibold">Email not found</h3>
-          <p className="text-sm text-muted-foreground">This email may have been deleted or moved.</p>
-          <Button className="mt-4" onClick={() => navigate("/inbox")}>Back to Inbox</Button>
+          <h3 className="mt-4 text-lg font-semibold">{t("emailDetail.notFound")}</h3>
+          <p className="text-sm text-muted-foreground">{t("emailDetail.notFoundDescription")}</p>
+          <Button className="mt-4" onClick={() => navigate("/inbox")}>{t("emailDetail.backToInbox")}</Button>
         </div>
       ) : (
         <>
           {/* Toolbar */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" onClick={() => navigate(-1)} title="Back">
+              <Button variant="ghost" size="icon" onClick={() => navigate(-1)} title={t("common.back")}>
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={handleReply} title="Reply">
+              <Button variant="ghost" size="sm" onClick={handleReply} title={t("common.reply")}>
                 <Reply className="h-4 w-4 mr-1" />
-                Reply
+                {t("common.reply")}
               </Button>
-              <Button variant="ghost" size="sm" onClick={handleReplyAll} title="Reply all">
+              <Button variant="ghost" size="sm" onClick={handleReplyAll} title={t("common.replyAll")}>
                 <ReplyAll className="h-4 w-4 mr-1" />
-                Reply all
+                {t("common.replyAll")}
               </Button>
-              <Button variant="ghost" size="sm" onClick={handleForward} title="Forward">
+              <Button variant="ghost" size="sm" onClick={handleForward} title={t("common.forward")}>
                 <Forward className="h-4 w-4 mr-1" />
-                Forward
+                {t("common.forward")}
               </Button>
             </div>
             <div className="flex items-center gap-1">
@@ -339,25 +341,25 @@ export function EmailDetailPage() {
                 variant="ghost"
                 size="icon"
                 onClick={handleToggleFollowUp}
-                title={email.flagged ? "Clear follow-up flag" : "Flag for follow-up"}
+                title={email.flagged ? t("emailDetail.clearFollowUp") : t("emailDetail.flagFollowUp")}
                 aria-pressed={email.flagged}
               >
                 <Flag className={email.flagged ? "h-5 w-5 fill-amber-500 text-amber-500" : "h-5 w-5"} />
               </Button>
-              <Button variant="ghost" size="icon" onClick={handleMarkUnread} title="Mark as unread">
+              <Button variant="ghost" size="icon" onClick={handleMarkUnread} title={t("common.markUnread")}>
                 <Mail className="h-5 w-5" />
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" title="Move to folder">
+                  <Button variant="ghost" size="icon" title={t("emailDetail.moveToFolder")}>
                     <FolderInput className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => handleMove("inbox", "Inbox")}>Inbox</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleMove("archive", "Archive")}>Archive</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleMove("spam", "Spam")}>Spam</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleMove("trash", "Trash")}>Trash</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleMove("inbox", t("nav.inbox"))}>{t("nav.inbox")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleMove("archive", t("common.archive"))}>{t("common.archive")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleMove("spam", t("nav.spam"))}>{t("nav.spam")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleMove("trash", t("nav.trash"))}>{t("nav.trash")}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button
@@ -365,7 +367,7 @@ export function EmailDetailPage() {
                 size="icon"
                 className="text-destructive"
                 onClick={handleDelete}
-                title="Delete"
+                title={t("common.delete")}
               >
                 <Trash2 className="h-5 w-5" />
               </Button>
@@ -394,7 +396,7 @@ export function EmailDetailPage() {
                   </div>
 
                   <div className="mt-1 text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">To:</span>{" "}
+                    <span className="font-medium text-foreground">{t("common.to")}:</span>{" "}
                     {email.to
                       .map((addr, i) => {
                         const nm = email.toNames?.[i]
@@ -421,7 +423,7 @@ export function EmailDetailPage() {
                           <button
                             onClick={() => handleRemoveLabel(label)}
                             className={color ? "opacity-80 hover:opacity-100" : "text-muted-foreground hover:text-destructive"}
-                            aria-label={`Remove ${label}`}
+                            aria-label={t("emailDetail.removeLabel", { label })}
                           >
                             <X className="h-3 w-3" />
                           </button>
@@ -438,7 +440,7 @@ export function EmailDetailPage() {
                           if (e.key === "Enter") { handleAddLabel(); setLabelEditing(false) }
                           if (e.key === "Escape") { setNewLabel(""); setLabelEditing(false) }
                         }}
-                        placeholder="Label"
+                        placeholder={t("emailDetail.labelPlaceholder")}
                         className="h-6 w-28 text-xs"
                       />
                     ) : (
@@ -447,7 +449,7 @@ export function EmailDetailPage() {
                         className="flex items-center gap-1 rounded border border-dashed px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
                       >
                         <Plus className="h-3 w-3" />
-                        Add label
+                        {t("emailDetail.addLabel")}
                       </button>
                     )}
                   </div>
@@ -460,7 +462,7 @@ export function EmailDetailPage() {
               <div className="mx-6 mt-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <CalendarCheck className="h-4 w-4 text-primary" />
-                  Meeting invitation
+                  {t("emailDetail.meetingInvitation")}
                 </div>
                 <div className="mt-2 space-y-1 text-sm">
                   {invite.summary && <div className="font-medium">{invite.summary}</div>}
@@ -476,7 +478,7 @@ export function EmailDetailPage() {
                     <div className="text-muted-foreground">{invite.location}</div>
                   )}
                   {invite.organizer && (
-                    <div className="text-muted-foreground">Organizer: {invite.organizer}</div>
+                    <div className="text-muted-foreground">{t("emailDetail.organizer", { name: invite.organizer })}</div>
                   )}
                 </div>
                 <div className="mt-3 flex items-center gap-2">
@@ -487,7 +489,7 @@ export function EmailDetailPage() {
                     disabled={rsvpBusy}
                   >
                     <Check className="mr-1 h-4 w-4" />
-                    Accept
+                    {t("emailDetail.accept")}
                   </Button>
                   <Button
                     size="sm"
@@ -496,7 +498,7 @@ export function EmailDetailPage() {
                     disabled={rsvpBusy}
                   >
                     <HelpCircle className="mr-1 h-4 w-4" />
-                    Tentative
+                    {t("emailDetail.tentative")}
                   </Button>
                   <Button
                     size="sm"
@@ -505,7 +507,7 @@ export function EmailDetailPage() {
                     disabled={rsvpBusy}
                   >
                     <X className="mr-1 h-4 w-4" />
-                    Decline
+                    {t("emailDetail.decline")}
                   </Button>
                 </div>
               </div>
@@ -526,7 +528,9 @@ export function EmailDetailPage() {
               <div className="border-t px-6 py-4">
                 <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
                   <Paperclip className="h-4 w-4" />
-                  {email.attachments.length} attachment{email.attachments.length > 1 ? "s" : ""}
+                  {email.attachments.length > 1
+                    ? t("emailDetail.attachments", { count: String(email.attachments.length) })
+                    : t("emailDetail.attachment", { count: String(email.attachments.length) })}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {email.attachments.map((att) => (
@@ -534,7 +538,7 @@ export function EmailDetailPage() {
                       key={att.index}
                       onClick={() => handleDownloadAttachment(att)}
                       className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left text-sm hover:bg-accent/50 transition-colors"
-                      title={`Download ${att.filename}`}
+                      title={t("emailDetail.downloadAttachment", { filename: att.filename })}
                     >
                       <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="min-w-0">

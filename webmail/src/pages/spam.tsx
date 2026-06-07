@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/hooks/useI18n"
 import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -42,6 +43,7 @@ function splitAddress(value: string): { name: string; email: string } {
 
 export function SpamPage() {
   const navigate = useNavigate()
+  const { t } = useI18n()
   const [loading, setLoading] = useState(true)
   const [emails, setEmails] = useState<SpamEmail[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -93,11 +95,15 @@ export function SpamPage() {
     const ids = Array.from(selected)
     try {
       await Promise.all(ids.map((id) => api.deleteMail(id)))
-      toast.success(`${ids.length} message${ids.length !== 1 ? "s" : ""} permanently deleted`)
+      toast.success(
+        ids.length === 1
+          ? t("spam.deletedOne", { count: String(ids.length) })
+          : t("spam.deletedMany", { count: String(ids.length) })
+      )
       setSelected(new Set())
       await loadSpam()
     } catch {
-      toast.error("Failed to delete messages")
+      toast.error(t("spam.deleteFailed"))
     }
   }
 
@@ -106,7 +112,7 @@ export function SpamPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <AlertCircle className="h-5 w-5 text-red-500" />
-          <h1 className="text-xl font-semibold">Spam</h1>
+          <h1 className="text-xl font-semibold">{t("nav.spam")}</h1>
           <Badge variant="destructive">{emails.length}</Badge>
         </div>
         <div className="flex items-center gap-2">
@@ -118,14 +124,14 @@ export function SpamPage() {
             disabled={selected.size === 0 || loading}
           >
             <Trash2 className="h-4 w-4 mr-1" />
-            Delete
+            {t("common.delete")}
           </Button>
         </div>
       </div>
 
       <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
         <p className="text-sm text-destructive">
-          Messages flagged as spam appear here. Delete removes them permanently.
+          {t("spam.description")}
         </p>
       </div>
 
@@ -146,9 +152,9 @@ export function SpamPage() {
           <div className="rounded-full bg-muted p-4">
             <AlertCircle className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h3 className="mt-4 text-lg font-semibold">No spam</h3>
+          <h3 className="mt-4 text-lg font-semibold">{t("spam.noSpam")}</h3>
           <p className="text-sm text-muted-foreground">
-            Your spam folder is empty. All spam messages appear here.
+            {t("spam.emptyDescription")}
           </p>
         </div>
       ) : (
@@ -196,7 +202,7 @@ export function SpamPage() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={handleDelete} className="text-destructive">
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
+                    {t("common.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

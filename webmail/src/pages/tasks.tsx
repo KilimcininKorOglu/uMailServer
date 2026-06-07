@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import api, { type Task, type TaskInput } from "@/utils/api"
+import { useI18n } from "@/hooks/useI18n"
 
 function dueLabel(due?: string): string {
   if (!due) return ""
@@ -32,6 +33,7 @@ interface TaskForm {
 const emptyForm: TaskForm = { summary: "", due: "", description: "" }
 
 export function TasksPage() {
+  const { t } = useI18n()
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [quickAdd, setQuickAdd] = useState("")
@@ -69,7 +71,7 @@ export function TasksPage() {
       setQuickAdd("")
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add task")
+      toast.error(err instanceof Error ? err.message : t("tasks.addFailed"))
     } finally {
       setBusy(false)
     }
@@ -88,7 +90,7 @@ export function TasksPage() {
       await api.updateTask(task.uid, payload)
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update task")
+      toast.error(err instanceof Error ? err.message : t("tasks.updateFailed"))
       await load()
     }
   }
@@ -101,7 +103,7 @@ export function TasksPage() {
   const submitEdit = async () => {
     if (!editing) return
     if (!form.summary.trim()) {
-      toast.error("Title is required")
+      toast.error(t("tasks.titleRequired"))
       return
     }
     setBusy(true)
@@ -112,11 +114,11 @@ export function TasksPage() {
         description: form.description || undefined,
         completed: editing.completed,
       })
-      toast.success("Task updated")
+      toast.success(t("tasks.taskUpdated"))
       setEditing(null)
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save task")
+      toast.error(err instanceof Error ? err.message : t("tasks.saveFailed"))
     } finally {
       setBusy(false)
     }
@@ -127,11 +129,11 @@ export function TasksPage() {
     setBusy(true)
     try {
       await api.deleteTask(deleteTarget.uid)
-      toast.success("Task deleted")
+      toast.success(t("tasks.taskDeleted"))
       setDeleteTarget(null)
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete task")
+      toast.error(err instanceof Error ? err.message : t("tasks.deleteFailed"))
     } finally {
       setBusy(false)
     }
@@ -141,7 +143,7 @@ export function TasksPage() {
     <div className="space-y-4 max-w-2xl">
       <div className="flex items-center gap-2">
         <ListTodo className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">Tasks</h1>
+        <h1 className="text-2xl font-bold">{t("nav.tasks")}</h1>
       </div>
 
       <div className="flex items-center gap-2">
@@ -151,23 +153,23 @@ export function TasksPage() {
           onKeyDown={(e) => {
             if (e.key === "Enter") void handleQuickAdd()
           }}
-          placeholder="Add a task and press Enter"
+          placeholder={t("tasks.quickAddPlaceholder")}
         />
         <Button onClick={handleQuickAdd} disabled={busy}>
           <Plus className="mr-2 h-4 w-4" />
-          Add
+          {t("common.add")}
         </Button>
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+        <p className="text-sm text-muted-foreground py-8 text-center">{t("common.loading")}</p>
       ) : tasks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="rounded-full bg-muted p-4">
             <ListTodo className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h3 className="mt-4 text-lg font-medium">No tasks</h3>
-          <p className="text-muted-foreground mt-1">Add a task above to get started.</p>
+          <h3 className="mt-4 text-lg font-medium">{t("tasks.noTasks")}</h3>
+          <p className="text-muted-foreground mt-1">{t("tasks.emptyHint")}</p>
         </div>
       ) : (
         <div className="rounded-lg border bg-card divide-y">
@@ -212,12 +214,12 @@ export function TasksPage() {
       <Dialog open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Task</DialogTitle>
-            <DialogDescription>Tasks are shared with CalDAV clients.</DialogDescription>
+            <DialogTitle>{t("tasks.editTask")}</DialogTitle>
+            <DialogDescription>{t("tasks.caldavNote")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="task-summary">Title</Label>
+              <Label htmlFor="task-summary">{t("tasks.title")}</Label>
               <Input
                 id="task-summary"
                 value={form.summary}
@@ -225,7 +227,7 @@ export function TasksPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="task-due">Due date</Label>
+              <Label htmlFor="task-due">{t("tasks.dueDate")}</Label>
               <Input
                 id="task-due"
                 type="date"
@@ -234,22 +236,22 @@ export function TasksPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="task-desc">Description</Label>
+              <Label htmlFor="task-desc">{t("tasks.description")}</Label>
               <Textarea
                 id="task-desc"
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 rows={3}
-                placeholder="Optional"
+                placeholder={t("common.optional")}
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={submitEdit} disabled={busy}>
-              Save
+              {t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -259,16 +261,16 @@ export function TasksPage() {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Task</DialogTitle>
-            <DialogDescription>Delete "{deleteTarget?.summary}"? This cannot be undone.</DialogDescription>
+            <DialogTitle>{t("tasks.deleteTask")}</DialogTitle>
+            <DialogDescription>{t("tasks.deleteConfirm", { summary: deleteTarget?.summary ?? "" })}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

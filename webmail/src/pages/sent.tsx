@@ -8,6 +8,7 @@ import {
   Paperclip,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/hooks/useI18n"
 import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -37,6 +38,7 @@ function splitAddress(value: string): { name: string; email: string } {
 }
 
 export function SentPage() {
+  const { t } = useI18n()
   const navigate = useNavigate()
   const [emails, setEmails] = useState<Email[]>([])
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set())
@@ -105,7 +107,7 @@ export function SentPage() {
           />
           {selectedEmails.size > 0 && (
             <span className="text-sm text-muted-foreground">
-              {selectedEmails.size} selected
+              {t("sent.selectedCount", { count: String(selectedEmails.size) })}
             </span>
           )}
         </div>
@@ -114,6 +116,8 @@ export function SentPage() {
           size="icon"
           className="h-8 w-8"
           onClick={() => loadSent()}
+          aria-label={t("common.refresh")}
+          title={t("common.refresh")}
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </Button>
@@ -137,9 +141,9 @@ export function SentPage() {
             <div className="rounded-full bg-muted p-4">
               <MailOpen className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="mt-4 text-lg font-semibold">No sent emails</h3>
+            <h3 className="mt-4 text-lg font-semibold">{t("sent.noSentEmails")}</h3>
             <p className="text-sm text-muted-foreground">
-              Emails you send will appear here.
+              {t("sent.emptyDescription")}
             </p>
           </div>
         ) : (
@@ -157,7 +161,7 @@ export function SentPage() {
                 />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">To: {email.to}</span>
+                    <span className="font-medium">{t("common.to")}: {email.to}</span>
                     {email.hasAttachments && (
                       <Paperclip className="h-3 w-3 text-muted-foreground" />
                     )}
@@ -178,13 +182,13 @@ export function SentPage() {
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {emails.length} message{emails.length !== 1 ? "s" : ""}
+          {t(emails.length !== 1 ? "sent.messagesCount" : "sent.messageCount", { count: String(emails.length) })}
         </span>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" disabled>
+          <Button variant="outline" size="icon" disabled aria-label={t("common.previous")}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" disabled>
+          <Button variant="outline" size="icon" disabled aria-label={t("common.next")}>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>

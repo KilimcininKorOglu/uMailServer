@@ -91,39 +91,41 @@ export function useKeyboardShortcuts() {
   }, [handleKeyDown])
 }
 
+// category/description hold i18n keys (shortcuts.*) resolved at render time in
+// ShortcutsDialog via t(); keys are literal keyboard glyphs and stay as-is.
 export const shortcuts = [
-  { category: "Navigation", items: [
-    { keys: ["⌘", "1"], description: "Go to Inbox" },
-    { keys: ["⌘", "2"], description: "Go to Sent" },
-    { keys: ["⌘", "3"], description: "Go to Drafts" },
-    { keys: ["⌘", "4"], description: "Go to Trash" },
-    { keys: ["⌘", "K"], description: "Search" },
-    { keys: ["/"], description: "Search (when not in input)" },
-    { keys: ["?"], description: "Show keyboard shortcuts" },
-    { keys: ["Esc"], description: "Close dialog" },
+  { category: "shortcuts.cat.navigation", items: [
+    { keys: ["⌘", "1"], description: "shortcuts.desc.goToInbox" },
+    { keys: ["⌘", "2"], description: "shortcuts.desc.goToSent" },
+    { keys: ["⌘", "3"], description: "shortcuts.desc.goToDrafts" },
+    { keys: ["⌘", "4"], description: "shortcuts.desc.goToTrash" },
+    { keys: ["⌘", "K"], description: "shortcuts.desc.search" },
+    { keys: ["/"], description: "shortcuts.desc.searchNotInput" },
+    { keys: ["?"], description: "shortcuts.desc.showShortcuts" },
+    { keys: ["Esc"], description: "shortcuts.desc.closeDialog" },
   ]},
-  { category: "Actions", items: [
-    { keys: ["⌘", "N"], description: "Compose new email" },
-    { keys: ["⌘", "Shift", "I"], description: "Go to Inbox" },
-    { keys: ["R"], description: "Reply to email" },
-    { keys: ["A"], description: "Reply all" },
-    { keys: ["F"], description: "Forward email" },
-    { keys: ["E"], description: "Archive email" },
-    { keys: ["#"], description: "Delete email" },
-    { keys: ["S"], description: "Toggle star" },
-    { keys: ["U"], description: "Mark as unread" },
+  { category: "shortcuts.cat.actions", items: [
+    { keys: ["⌘", "N"], description: "shortcuts.desc.composeNew" },
+    { keys: ["⌘", "Shift", "I"], description: "shortcuts.desc.goToInbox" },
+    { keys: ["R"], description: "shortcuts.desc.replyEmail" },
+    { keys: ["A"], description: "shortcuts.desc.replyAll" },
+    { keys: ["F"], description: "shortcuts.desc.forwardEmail" },
+    { keys: ["E"], description: "shortcuts.desc.archiveEmail" },
+    { keys: ["#"], description: "shortcuts.desc.deleteEmail" },
+    { keys: ["S"], description: "shortcuts.desc.toggleStar" },
+    { keys: ["U"], description: "shortcuts.desc.markUnread" },
   ]},
-  { category: "Selection", items: [
-    { keys: ["X"], description: "Select email" },
-    { keys: ["Shift", "↓"], description: "Select next email" },
-    { keys: ["Shift", "↑"], description: "Select previous email" },
-    { keys: ["*", "A"], description: "Select all" },
-    { keys: ["*", "N"], description: "Deselect all" },
+  { category: "shortcuts.cat.selection", items: [
+    { keys: ["X"], description: "shortcuts.desc.selectEmail" },
+    { keys: ["Shift", "↓"], description: "shortcuts.desc.selectNext" },
+    { keys: ["Shift", "↑"], description: "shortcuts.desc.selectPrev" },
+    { keys: ["*", "A"], description: "shortcuts.desc.selectAll" },
+    { keys: ["*", "N"], description: "shortcuts.desc.deselectAll" },
   ]},
-  { category: "Navigation in list", items: [
-    { keys: ["J"], description: "Next email" },
-    { keys: ["K"], description: "Previous email" },
-    { keys: ["Enter"], description: "Open email" },
-    { keys: ["←"], description: "Go back" },
+  { category: "shortcuts.cat.navigationInList", items: [
+    { keys: ["J"], description: "shortcuts.desc.nextEmail" },
+    { keys: ["K"], description: "shortcuts.desc.prevEmail" },
+    { keys: ["Enter"], description: "shortcuts.desc.openEmail" },
+    { keys: ["←"], description: "shortcuts.desc.goBack" },
   ]},
 ]

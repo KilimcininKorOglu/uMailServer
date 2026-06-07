@@ -29,6 +29,9 @@ import {
 import { toast } from "sonner"
 import { AttendeePicker } from "@/components/attendee-picker"
 import api, { type CalendarEvent, type UserFreeBusy, type Room } from "@/utils/api"
+import { useI18n } from "@/hooks/useI18n"
+
+type TFunc = (key: string, params?: Record<string, string>) => string
 
 // parseAttendees splits the stored comma/space-separated attendee string into a
 // clean list of addresses.
@@ -74,12 +77,16 @@ function recurrenceToForm(rrule?: string): string {
   return m ? m[1] : ""
 }
 
-const RECURRENCE_LABELS: Record<string, string> = {
-  "": "Does not repeat",
-  DAILY: "Daily",
-  WEEKLY: "Weekly",
-  MONTHLY: "Monthly",
-  YEARLY: "Yearly",
+// recurrenceLabel maps a frequency value to its localized label.
+function recurrenceLabel(t: TFunc, freq: string): string {
+  switch (freq) {
+    case "DAILY": return t("calendar.recurrence.daily")
+    case "WEEKLY": return t("calendar.recurrence.weekly")
+    case "MONTHLY": return t("calendar.recurrence.monthly")
+    case "YEARLY": return t("calendar.recurrence.yearly")
+    case "": return t("calendar.recurrence.none")
+    default: return t("calendar.recurrence.repeats")
+  }
 }
 
 function dayKey(value: string): string {
@@ -87,8 +94,8 @@ function dayKey(value: string): string {
   return isNaN(d.getTime()) ? value : d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })
 }
 
-function timeLabel(ev: CalendarEvent): string {
-  if (ev.allDay) return "All day"
+function timeLabel(t: TFunc, ev: CalendarEvent): string {
+  if (ev.allDay) return t("calendar.allDay")
   const start = new Date(ev.start)
   const opts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" }
   const s = isNaN(start.getTime()) ? "" : start.toLocaleTimeString(undefined, opts)
@@ -126,9 +133,17 @@ function monthMatrix(cursor: Date): Date[] {
   return days
 }
 
-const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
 export function CalendarPage() {
+  const { t } = useI18n()
+  const weekdayLabels = [
+    t("calendar.weekdays.mon"),
+    t("calendar.weekdays.tue"),
+    t("calendar.weekdays.wed"),
+    t("calendar.weekdays.thu"),
+    t("calendar.weekdays.fri"),
+    t("calendar.weekdays.sat"),
+    t("calendar.weekdays.sun"),
+  ]
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -209,11 +224,11 @@ export function CalendarPage() {
 
   const submit = async () => {
     if (!form.summary.trim()) {
-      toast.error("Title is required")
+      toast.error(t("calendar.titleRequired"))
       return
     }
     if (!form.start) {
-      toast.error("Start is required")
+      toast.error(t("calendar.startRequired"))
       return
     }
     const attendees = form.attendees
@@ -234,20 +249,20 @@ export function CalendarPage() {
     try {
       if (editingUID) {
         await api.updateCalendarEvent(editingUID, payload)
-        toast.success("Event updated")
+        toast.success(t("calendar.eventUpdated"))
       } else {
         const created = await api.createCalendarEvent(payload)
         const unbooked = (created as { unbookedRooms?: string[] }).unbookedRooms
         if (unbooked && unbooked.length > 0) {
-          toast.warning(`Event created, but these rooms are busy: ${unbooked.join(", ")}`)
+          toast.warning(t("calendar.eventCreatedRoomsBusy", { rooms: unbooked.join(", ") }))
         } else {
-          toast.success("Event created")
+          toast.success(t("calendar.eventCreated"))
         }
       }
       setDialogOpen(false)
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save event")
+      toast.error(err instanceof Error ? err.message : t("calendar.saveFailed"))
     } finally {
       setBusy(false)
     }
@@ -258,11 +273,11 @@ export function CalendarPage() {
     setBusy(true)
     try {
       await api.deleteCalendarEvent(deleteTarget.uid)
-      toast.success("Event deleted")
+      toast.success(t("calendar.eventDeleted"))
       setDeleteTarget(null)
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete event")
+      toast.error(err instanceof Error ? err.message : t("calendar.deleteFailed"))
     } finally {
       setBusy(false)
     }
@@ -274,11 +289,11 @@ export function CalendarPage() {
       .map((e) => e.trim())
       .filter(Boolean)
     if (emails.length === 0) {
-      toast.error("Enter at least one email address")
+      toast.error(t("calendar.enterEmail"))
       return
     }
     if (!fbDate) {
-      toast.error("Pick a date")
+      toast.error(t("calendar.pickDate"))
       return
     }
     // Query the whole local day.
@@ -290,7 +305,7 @@ export function CalendarPage() {
       const res = await api.getFreeBusy(emails, dayStart.toISOString(), dayEnd.toISOString())
       setFbResults(res.freeBusy ?? [])
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to check availability")
+      toast.error(err instanceof Error ? err.message : t("calendar.availabilityFailed"))
     } finally {
       setFbLoading(false)
     }
@@ -324,7 +339,7 @@ export function CalendarPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">Calendar</h1>
+          <h1 className="text-2xl font-bold">{t("nav.calendar")}</h1>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-md border">
@@ -335,7 +350,7 @@ export function CalendarPage() {
               onClick={() => setView("list")}
             >
               <List className="mr-2 h-4 w-4" />
-              List
+              {t("calendar.list")}
             </Button>
             <Button
               variant={view === "month" ? "secondary" : "ghost"}
@@ -344,35 +359,35 @@ export function CalendarPage() {
               onClick={() => setView("month")}
             >
               <LayoutGrid className="mr-2 h-4 w-4" />
-              Month
+              {t("calendar.month")}
             </Button>
           </div>
           <Button variant="outline" onClick={() => { setFbResults(null); setFbOpen(true) }}>
             <Users className="mr-2 h-4 w-4" />
-            Availability
+            {t("calendar.availability")}
           </Button>
           <Button onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" />
-            New Event
+            {t("calendar.newEvent")}
           </Button>
         </div>
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+        <p className="text-sm text-muted-foreground py-8 text-center">{t("common.loading")}</p>
       ) : view === "month" ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">{monthLabel}</h2>
             <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" onClick={() => setCursor(new Date())}>
-                Today
+                {t("common.today")}
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                aria-label="Previous month"
+                aria-label={t("calendar.previousMonth")}
                 onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -381,7 +396,7 @@ export function CalendarPage() {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                aria-label="Next month"
+                aria-label={t("calendar.nextMonth")}
                 onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}
               >
                 <ChevronRight className="h-4 w-4" />
@@ -390,7 +405,7 @@ export function CalendarPage() {
           </div>
           <div className="overflow-hidden rounded-lg border bg-card">
             <div className="grid grid-cols-7 border-b bg-muted/30 text-center text-xs font-medium text-muted-foreground">
-              {WEEKDAY_LABELS.map((label) => (
+              {weekdayLabels.map((label) => (
                 <div key={label} className="py-2">{label}</div>
               ))}
             </div>
@@ -430,7 +445,7 @@ export function CalendarPage() {
                         </button>
                       ))}
                       {dayEvents.length > 3 && (
-                        <p className="px-1 text-xs text-muted-foreground">+{dayEvents.length - 3} more</p>
+                        <p className="px-1 text-xs text-muted-foreground">{t("calendar.moreEvents", { count: String(dayEvents.length - 3) })}</p>
                       )}
                     </div>
                   </div>
@@ -444,11 +459,11 @@ export function CalendarPage() {
           <div className="rounded-full bg-muted p-4">
             <CalendarDays className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h3 className="mt-4 text-lg font-medium">No events</h3>
-          <p className="text-muted-foreground mt-1">Create an event to get started.</p>
+          <h3 className="mt-4 text-lg font-medium">{t("calendar.noEvents")}</h3>
+          <p className="text-muted-foreground mt-1">{t("calendar.noEventsHint")}</p>
           <Button className="mt-4" onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" />
-            New Event
+            {t("calendar.newEvent")}
           </Button>
         </div>
       ) : (
@@ -461,7 +476,7 @@ export function CalendarPage() {
                   <div key={ev.uid} className="flex items-start gap-4 p-4 hover:bg-accent/50 transition-colors">
                     <div className="flex w-24 shrink-0 items-center gap-1 text-sm text-muted-foreground">
                       <Clock className="h-3.5 w-3.5" />
-                      {timeLabel(ev)}
+                      {timeLabel(t, ev)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{ev.summary}</p>
@@ -474,7 +489,7 @@ export function CalendarPage() {
                       {ev.recurrence && (
                         <p className="flex items-center gap-1 text-sm text-muted-foreground">
                           <Repeat className="h-3.5 w-3.5" />
-                          {RECURRENCE_LABELS[recurrenceToForm(ev.recurrence)] ?? "Repeats"}
+                          {recurrenceLabel(t, recurrenceToForm(ev.recurrence))}
                         </p>
                       )}
                       {ev.description && (
@@ -490,11 +505,11 @@ export function CalendarPage() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => openEdit(ev)}>
                           <Edit className="mr-2 h-4 w-4" />
-                          Edit
+                          {t("common.edit")}
                         </DropdownMenuItem>
                         <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(ev)}>
                           <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
+                          {t("common.delete")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -510,21 +525,21 @@ export function CalendarPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingUID ? "Edit Event" : "New Event"}</DialogTitle>
-            <DialogDescription>Events are shared with CalDAV clients.</DialogDescription>
+            <DialogTitle>{editingUID ? t("calendar.editEvent") : t("calendar.newEvent")}</DialogTitle>
+            <DialogDescription>{t("calendar.dialogDescription")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="ev-summary">Title</Label>
+              <Label htmlFor="ev-summary">{t("calendar.title")}</Label>
               <Input
                 id="ev-summary"
                 value={form.summary}
                 onChange={(e) => setForm({ ...form, summary: e.target.value })}
-                placeholder="Event title"
+                placeholder={t("calendar.titlePlaceholder")}
               />
             </div>
             <div className="flex items-center justify-between">
-              <Label htmlFor="ev-allday">All day</Label>
+              <Label htmlFor="ev-allday">{t("calendar.allDay")}</Label>
               <Switch
                 id="ev-allday"
                 checked={form.allDay}
@@ -532,26 +547,26 @@ export function CalendarPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ev-recurrence">Repeat</Label>
+              <Label htmlFor="ev-recurrence">{t("calendar.repeat")}</Label>
               <Select
                 value={form.recurrence}
                 onValueChange={(value) => setForm({ ...form, recurrence: value === "none" ? "" : value })}
               >
                 <SelectTrigger id="ev-recurrence">
-                  <SelectValue placeholder="Does not repeat" />
+                  <SelectValue placeholder={t("calendar.recurrence.none")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">{RECURRENCE_LABELS[""]}</SelectItem>
-                  <SelectItem value="DAILY">{RECURRENCE_LABELS.DAILY}</SelectItem>
-                  <SelectItem value="WEEKLY">{RECURRENCE_LABELS.WEEKLY}</SelectItem>
-                  <SelectItem value="MONTHLY">{RECURRENCE_LABELS.MONTHLY}</SelectItem>
-                  <SelectItem value="YEARLY">{RECURRENCE_LABELS.YEARLY}</SelectItem>
+                  <SelectItem value="none">{recurrenceLabel(t, "")}</SelectItem>
+                  <SelectItem value="DAILY">{recurrenceLabel(t, "DAILY")}</SelectItem>
+                  <SelectItem value="WEEKLY">{recurrenceLabel(t, "WEEKLY")}</SelectItem>
+                  <SelectItem value="MONTHLY">{recurrenceLabel(t, "MONTHLY")}</SelectItem>
+                  <SelectItem value="YEARLY">{recurrenceLabel(t, "YEARLY")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="ev-start">Start</Label>
+                <Label htmlFor="ev-start">{t("calendar.start")}</Label>
                 <Input
                   id="ev-start"
                   type={form.allDay ? "date" : "datetime-local"}
@@ -560,7 +575,7 @@ export function CalendarPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="ev-end">End</Label>
+                <Label htmlFor="ev-end">{t("calendar.end")}</Label>
                 <Input
                   id="ev-end"
                   type={form.allDay ? "date" : "datetime-local"}
@@ -570,26 +585,26 @@ export function CalendarPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ev-location">Location</Label>
+              <Label htmlFor="ev-location">{t("calendar.location")}</Label>
               <Input
                 id="ev-location"
                 value={form.location}
                 onChange={(e) => setForm({ ...form, location: e.target.value })}
-                placeholder="Optional"
+                placeholder={t("common.optional")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ev-desc">Description</Label>
+              <Label htmlFor="ev-desc">{t("calendar.description")}</Label>
               <Textarea
                 id="ev-desc"
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 rows={3}
-                placeholder="Optional"
+                placeholder={t("common.optional")}
               />
             </div>
             <div className="space-y-2">
-              <Label>Attendees</Label>
+              <Label>{t("calendar.attendees")}</Label>
               <AttendeePicker
                 value={parseAttendees(form.attendees)}
                 onChange={(emails) => setForm({ ...form, attendees: emails.join(", ") })}
@@ -605,12 +620,12 @@ export function CalendarPage() {
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Search by name or email. Attendees receive an invitation they can accept or decline.
+                {t("calendar.attendeesHint")}
               </p>
             </div>
             {rooms.length > 0 && (
               <div className="space-y-2">
-                <Label htmlFor="ev-room">Room</Label>
+                <Label htmlFor="ev-room">{t("calendar.room")}</Label>
                 <Select
                   value=""
                   onValueChange={(email) => {
@@ -627,29 +642,29 @@ export function CalendarPage() {
                   }}
                 >
                   <SelectTrigger id="ev-room">
-                    <SelectValue placeholder="Add a room…" />
+                    <SelectValue placeholder={t("calendar.addRoom")} />
                   </SelectTrigger>
                   <SelectContent>
                     {rooms.map((room) => (
                       <SelectItem key={room.email} value={room.email}>
                         {room.name}
-                        {room.capacity ? ` (seats ${room.capacity})` : ""}
+                        {room.capacity ? ` ${t("calendar.roomSeats", { count: String(room.capacity) })}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Booking a free room reserves it automatically.
+                  {t("calendar.roomHint")}
                 </p>
               </div>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={submit} disabled={busy}>
-              {editingUID ? "Save" : "Create"}
+              {editingUID ? t("common.save") : t("common.create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -659,22 +674,22 @@ export function CalendarPage() {
       <Dialog open={fbOpen} onOpenChange={setFbOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Check Availability</DialogTitle>
+            <DialogTitle>{t("calendar.checkAvailability")}</DialogTitle>
             <DialogDescription>
-              See when people are busy on a given day. Only busy time ranges are shown, never event details.
+              {t("calendar.availabilityDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>People</Label>
+              <Label>{t("calendar.people")}</Label>
               <AttendeePicker
                 value={parseAttendees(fbEmails)}
                 onChange={(emails) => setFbEmails(emails.join(", "))}
-                placeholder="Search by name or email"
+                placeholder={t("calendar.searchNameEmail")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="fb-date">Date</Label>
+              <Label htmlFor="fb-date">{t("common.date")}</Label>
               <Input
                 id="fb-date"
                 type="date"
@@ -685,13 +700,13 @@ export function CalendarPage() {
             {fbResults && (
               <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
                 {fbResults.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No results.</p>
+                  <p className="text-sm text-muted-foreground">{t("common.noResults")}</p>
                 ) : (
                   fbResults.map((r) => (
                     <div key={r.user}>
                       <p className="text-sm font-medium">{r.user}</p>
                       {r.busy.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Free all day</p>
+                        <p className="text-sm text-muted-foreground">{t("calendar.freeAllDay")}</p>
                       ) : (
                         <ul className="mt-1 space-y-0.5">
                           {r.busy.map((b, i) => (
@@ -712,10 +727,10 @@ export function CalendarPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFbOpen(false)} disabled={fbLoading}>
-              Close
+              {t("common.close")}
             </Button>
             <Button onClick={checkAvailability} disabled={fbLoading}>
-              {fbLoading ? "Checking…" : "Check"}
+              {fbLoading ? t("calendar.checking") : t("calendar.check")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -725,16 +740,16 @@ export function CalendarPage() {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Event</DialogTitle>
-            <DialogDescription>Delete "{deleteTarget?.summary}"? This cannot be undone.</DialogDescription>
+            <DialogTitle>{t("calendar.deleteEvent")}</DialogTitle>
+            <DialogDescription>{t("calendar.deleteConfirm", { name: deleteTarget?.summary ?? "" })}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
