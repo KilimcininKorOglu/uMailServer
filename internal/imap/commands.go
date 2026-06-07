@@ -1497,11 +1497,44 @@ func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 		return nil
 	}
 
+	// RFC 4731 ESEARCH: SEARCH RETURN (opts) criteria. The ESEARCH capability is
+	// advertised, so honor RETURN here (previously it was ignored and a plain
+	// SEARCH response was returned, which is not a valid ESEARCH reply).
+	esearch := false
+	var retCount, retMin, retMax, retAll bool
+	searchArgs := args
+	if len(args) > 0 && strings.ToUpper(args[0]) == "RETURN" {
+		esearch = true
+		joined := strings.Join(args[1:], " ")
+		open := strings.Index(joined, "(")
+		closeIdx := strings.Index(joined, ")")
+		if open == 0 && closeIdx > open {
+			for _, opt := range strings.Fields(joined[open+1 : closeIdx]) {
+				switch strings.ToUpper(opt) {
+				case "COUNT":
+					retCount = true
+				case "MIN":
+					retMin = true
+				case "MAX":
+					retMax = true
+				case "ALL":
+					retAll = true
+				}
+			}
+			searchArgs = strings.Fields(joined[closeIdx+1:])
+		} else {
+			searchArgs = args[1:]
+		}
+		if !retCount && !retMin && !retMax && !retAll {
+			retAll = true // RFC 4731: RETURN () defaults to ALL
+		}
+	}
+
 	// Parse search criteria
-	criteria := parseSearchCriteria(args)
+	criteria := parseSearchCriteria(searchArgs)
 
 	if span != nil {
-		tracing.SetIntAttribute(span, "search.criteria_count", len(args))
+		tracing.SetIntAttribute(span, "search.criteria_count", len(searchArgs))
 	}
 
 	uids, err := s.server.mailstore.SearchMessages(s.user, s.selected.Name, criteria)
@@ -1536,6 +1569,45 @@ func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 		tracing.SetStatus(span, tracing.StatusOk, "")
 	}
 
+	if esearch {
+		// RFC 4731 ESEARCH reply: * ESEARCH (TAG "<tag>") [UID] COUNT n MIN x MAX y ALL set
+		var parts []string
+		if retCount {
+			parts = append(parts, fmt.Sprintf("COUNT %d", len(uids)))
+		}
+		if len(uids) > 0 {
+			lo, hi := uids[0], uids[0]
+			for _, u := range uids {
+				if u < lo {
+					lo = u
+				}
+				if u > hi {
+					hi = u
+				}
+			}
+			if retMin {
+				parts = append(parts, fmt.Sprintf("MIN %d", lo))
+			}
+			if retMax {
+				parts = append(parts, fmt.Sprintf("MAX %d", hi))
+			}
+			if retAll {
+				nums := make([]string, len(uids))
+				for i, u := range uids {
+					nums[i] = fmt.Sprintf("%d", u)
+				}
+				parts = append(parts, "ALL "+strings.Join(nums, ","))
+			}
+		}
+		uidTag := ""
+		if byUID {
+			uidTag = "UID "
+		}
+		s.WriteData(fmt.Sprintf("ESEARCH (TAG \"%s\") %s%s", s.tag, uidTag, strings.Join(parts, " ")))
+		s.WriteResponse(s.tag, "OK SEARCH completed")
+		return nil
+	}
+
 	// Convert UIDs to sequence numbers and output
 	// For simplicity, just output as SEARCH result
 	result := "SEARCH"
@@ -1555,23 +1627,42 @@ func (s *Session) handleSort(args []string, line string) error {
 		return nil
 	}
 
-	// Parse sort criteria - args[0] is the charset, then criteria
-	var criteriaArgs []string
-	if len(args) > 0 && strings.ToUpper(args[0]) != "CHARSET" {
-		// No charset specified, use args as criteria
-		criteriaArgs = args
-	} else {
-		// Skip charset if specified
-		if len(args) > 1 {
-			criteriaArgs = args[1:]
-		}
+	// RFC 5256 SORT: SORT (sort-keys) charset search-keys. Extract the
+	// parenthesized sort-key list, the positional charset (ignored), and the
+	// trailing search keys (applied as a filter below). The old parser fed the
+	// whole arg list — including "(SUBJECT)", the charset and the search keys —
+	// to parseSortCriteria, so every RFC-conformant SORT failed with BAD.
+	joined := strings.Join(args, " ")
+	open := strings.Index(joined, "(")
+	closeIdx := strings.Index(joined, ")")
+	if open < 0 || closeIdx < open {
+		s.WriteResponse(s.tag, "BAD SORT requires a parenthesized sort-key list")
+		return nil
+	}
+	sortKeyArgs := strings.Fields(joined[open+1 : closeIdx])
+	rest := strings.Fields(joined[closeIdx+1:]) // [charset, search-keys...]
+	var searchArgs []string
+	if len(rest) > 1 {
+		searchArgs = rest[1:] // drop the positional charset token
 	}
 
-	criteria, err := parseSortCriteria(criteriaArgs)
+	criteria, err := parseSortCriteria(sortKeyArgs)
 	if err != nil {
 		s.server.logger.Error("imap sort criteria parse error", "error", err)
 		s.WriteResponse(s.tag, "BAD invalid sort criteria")
 		return nil
+	}
+
+	// Apply the search filter (default ALL = no filter).
+	sortFilter := map[uint32]bool(nil)
+	if len(searchArgs) > 0 && strings.ToUpper(strings.Join(searchArgs, " ")) != "ALL" {
+		sc := parseSearchCriteria(searchArgs)
+		if matched, serr := s.server.mailstore.SearchMessages(s.user, s.selected.Name, sc); serr == nil {
+			sortFilter = make(map[uint32]bool, len(matched))
+			for _, sn := range matched {
+				sortFilter[sn] = true
+			}
+		}
 	}
 
 	// Get all messages in mailbox with metadata
@@ -1589,26 +1680,29 @@ func (s *Session) handleSort(args []string, line string) error {
 	for _, msg := range messages {
 		seqNum++
 		seqNums = append(seqNums, seqNum)
-		// Build a minimal MessageMetadata from the Message
-		meta := &storage.MessageMetadata{
-			MessageID:    msg.Envelope.MessageID,
-			UID:          msg.UID,
-			Subject:      msg.Envelope.Subject,
-			From:         addressToString(msg.Envelope.From),
-			Date:         msg.Envelope.Date,
-			InternalDate: msg.InternalDate,
-			Size:         msg.Size,
+		// Build a minimal MessageMetadata from the Message. Envelope may be nil
+		// (parse failure / partial fetch) — guard every field, else SORT panics
+		// with a nil dereference and the client hangs with no response.
+		meta := &storage.MessageMetadata{UID: msg.UID, InternalDate: msg.InternalDate, Size: msg.Size}
+		if msg.Envelope != nil {
+			meta.MessageID = msg.Envelope.MessageID
+			meta.Subject = msg.Envelope.Subject
+			meta.From = addressToString(msg.Envelope.From)
+			meta.Date = msg.Envelope.Date
+			meta.InReplyTo = msg.Envelope.InReplyTo
 		}
-		meta.InReplyTo = msg.Envelope.InReplyTo
 		metas = append(metas, meta)
 	}
 
 	// Sort
 	sortedSeqNums := sortMessagesByCriteria(metas, criteria, seqNums)
 
-	// Output result
+	// Output result (honoring the search filter when present)
 	result := "SORT"
 	for _, seq := range sortedSeqNums {
+		if sortFilter != nil && !sortFilter[seq] {
+			continue
+		}
 		result += fmt.Sprintf(" %d", seq)
 	}
 	s.WriteData(result)
@@ -1656,15 +1750,15 @@ func (s *Session) handleThread(args []string, line string) error {
 	for _, msg := range messages {
 		seqNum++
 		seqNums = append(seqNums, seqNum)
-		meta := &storage.MessageMetadata{
-			MessageID:    msg.Envelope.MessageID,
-			UID:          msg.UID,
-			Subject:      msg.Envelope.Subject,
-			From:         addressToString(msg.Envelope.From),
-			Date:         msg.Envelope.Date,
-			InternalDate: msg.InternalDate,
+		// Envelope may be nil — guard every field (see handleSort).
+		meta := &storage.MessageMetadata{UID: msg.UID, InternalDate: msg.InternalDate}
+		if msg.Envelope != nil {
+			meta.MessageID = msg.Envelope.MessageID
+			meta.Subject = msg.Envelope.Subject
+			meta.From = addressToString(msg.Envelope.From)
+			meta.Date = msg.Envelope.Date
+			meta.InReplyTo = msg.Envelope.InReplyTo
 		}
-		meta.InReplyTo = msg.Envelope.InReplyTo
 		metas = append(metas, meta)
 	}
 
@@ -1690,21 +1784,25 @@ func (s *Session) handleThread(args []string, line string) error {
 		}
 	}
 
-	// Output threads
+	// Output threads as a single untagged THREAD response (RFC 5256):
+	//   * THREAD (1)(2 3)(4)
+	// Each parenthesized group is one thread; nesting is flattened to a member
+	// list. (Previously each group was written on its own line without the
+	// THREAD keyword, which no RFC 5256 client recognizes.)
 	visited := make(map[uint32]bool)
+	result := "THREAD "
 	for _, root := range roots {
 		threadSeqNums := flattenThread(root, children, visited)
-		// Output as space-separated sequence numbers in parentheses
-		threadStr := "("
+		result += "("
 		for i, seq := range threadSeqNums {
 			if i > 0 {
-				threadStr += " "
+				result += " "
 			}
-			threadStr += fmt.Sprintf("%d", seq)
+			result += fmt.Sprintf("%d", seq)
 		}
-		threadStr += ")"
-		s.WriteData(threadStr)
+		result += ")"
 	}
+	s.WriteData(result)
 
 	s.WriteResponse(s.tag, "OK THREAD completed")
 	return nil
