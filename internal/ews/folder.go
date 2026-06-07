@@ -588,7 +588,7 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
-		if !rec.MailboxID.IsZero() && rec.MailboxID.String() != "" && rec.MailboxID.String() != mboxKey {
+		if !rec.MailboxID.IsZero() && rec.MailboxID.String() != "" && strings.TrimPrefix(rec.MailboxID.String(), "e:") != strings.TrimPrefix(mboxKey, "e:") {
 			msgs = append(msgs, errorMsg("UpdateFolder", ErrErrorAccessDenied, "folder belongs to a different mailbox"))
 			continue
 		}
@@ -728,7 +728,7 @@ func (s *Server) handleDeleteFolder(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
-		if !rec.MailboxID.IsZero() && rec.MailboxID.String() != "" && rec.MailboxID.String() != mboxKey {
+		if !rec.MailboxID.IsZero() && rec.MailboxID.String() != "" && strings.TrimPrefix(rec.MailboxID.String(), "e:") != strings.TrimPrefix(mboxKey, "e:") {
 			msgs = append(msgs, struct {
 				XMLName       xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages DeleteFolderResponseMessage"`
 				ResponseClass string   `xml:"ResponseClass,attr"`
