@@ -726,8 +726,15 @@ func (s *Session) handleBDAT(arg string) error {
 			}
 		}
 
-		// Deliver message
-		if s.server.onDeliver != nil {
+		// Deliver message. Prefer the Sieve-aware handler (the server registers
+		// SetDeliveryHandlerWithSieve, leaving onDeliver nil) — otherwise a
+		// BDAT-delivered message is silently dropped while BDAT still replies 250.
+		if s.server.onDeliverWithSieve != nil {
+			if err := s.server.onDeliverWithSieve(s.mailFrom, s.rcptTo, s.data, s.sieveActions); err != nil {
+				s.resetTransaction()
+				return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
+			}
+		} else if s.server.onDeliver != nil {
 			if err := s.server.onDeliver(s.mailFrom, s.rcptTo, s.data); err != nil {
 				s.resetTransaction()
 				return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
