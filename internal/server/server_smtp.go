@@ -131,7 +131,7 @@ func (s *Server) buildSubmissionSMTPPipeline() *smtp.Pipeline {
 func (s *Server) buildSubmissionSMTPConfig() *smtp.Config {
 	allowInsecure := !s.cfg().SMTP.Submission.RequireTLS
 
-	return &smtp.Config{
+	cfg := &smtp.Config{
 		Hostname:       s.cfg().Server.Hostname,
 		MaxMessageSize: int64(s.cfg().SMTP.Inbound.MaxMessageSize),
 		MaxRecipients:  s.cfg().SMTP.Inbound.MaxRecipients,
@@ -139,11 +139,16 @@ func (s *Server) buildSubmissionSMTPConfig() *smtp.Config {
 		ReadTimeout:    s.cfg().SMTP.Inbound.ReadTimeout.ToDuration(),
 		WriteTimeout:   s.cfg().SMTP.Inbound.WriteTimeout.ToDuration(),
 		AllowInsecure:  allowInsecure,
-		TLSConfig:      s.tlsManager.GetTLSConfig(),
 		RequireAuth:    s.cfg().SMTP.Submission.RequireAuth,
 		RequireTLS:     s.cfg().SMTP.Submission.RequireTLS,
 		IsSubmission:   true,
 	}
+	// Only advertise STARTTLS when a usable certificate is configured; otherwise
+	// STARTTLS-requiring clients fail the handshake instead of falling back.
+	if s.tlsManager.IsEnabled() {
+		cfg.TLSConfig = s.tlsManager.GetTLSConfig()
+	}
+	return cfg
 }
 
 func (s *Server) startSMTP() {
@@ -156,7 +161,11 @@ func (s *Server) startSMTP() {
 			MaxConnections: s.cfg().SMTP.Inbound.MaxConnections,
 			ReadTimeout:    s.cfg().SMTP.Inbound.ReadTimeout.ToDuration(),
 			WriteTimeout:   s.cfg().SMTP.Inbound.WriteTimeout.ToDuration(),
-			TLSConfig:      s.tlsManager.GetTLSConfig(),
+		}
+		// Only advertise STARTTLS when a usable certificate is configured;
+		// otherwise STARTTLS-requiring clients fail the handshake.
+		if s.tlsManager.IsEnabled() {
+			smtpCfg.TLSConfig = s.tlsManager.GetTLSConfig()
 		}
 
 		smtpServer := smtp.NewServer(smtpCfg, s.logger)
