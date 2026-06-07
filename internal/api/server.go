@@ -679,6 +679,7 @@ func (s *Server) initRouter() {
 	}
 	s.mailHandler.SetDisplayNameResolver(s.resolveDisplayName)
 	s.mailHandler.SetFromNameBuilder(s.buildOutboundFromName)
+	s.mailHandler.SetTimezoneResolver(s.resolveTimezone)
 
 	api.HandleFunc("/api/v1/mail/inbox", s.mailHandler.handleMailList)
 	api.HandleFunc("/api/v1/mail/sent", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
@@ -1608,6 +1609,25 @@ func (s *Server) resolveDisplayName(email string) string {
 		return ""
 	}
 	return account.DisplayName
+}
+
+// resolveTimezone returns the IANA timezone the account chose for time
+// rendering, or "" when the address is non-local/unknown or the user has not
+// set one (caller then falls back to server/UTC time). It backs the outgoing
+// mail Date header so a sent message carries the sender's local offset.
+func (s *Server) resolveTimezone(email string) string {
+	if s.db == nil {
+		return ""
+	}
+	localPart, domain, ok := strings.Cut(strings.TrimSpace(email), "@")
+	if !ok || localPart == "" || domain == "" {
+		return ""
+	}
+	account, err := s.db.GetAccount(domain, localPart)
+	if err != nil || account == nil {
+		return ""
+	}
+	return account.Timezone
 }
 
 // ewsBasicAuth performs HTTP Basic Auth validation against the database.

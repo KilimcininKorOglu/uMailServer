@@ -13,6 +13,12 @@ import (
 	"strings"
 	"time"
 
+	// Embed the IANA timezone database in the binary so time.LoadLocation works
+	// regardless of the (minimal alpine) runtime image, which ships no tzdata.
+	// Required by per-user timezone rendering (outbound Date header, profile
+	// timezone validation) — without it LoadLocation fails for every non-UTC zone.
+	_ "time/tzdata"
+
 	"github.com/umailserver/umailserver/internal/auth"
 	"github.com/umailserver/umailserver/internal/cli"
 	"github.com/umailserver/umailserver/internal/config"

@@ -33,6 +33,7 @@ import { toast } from "sonner"
 import { sanitizeHTML } from "@/utils/sanitize"
 import api from "@/utils/api"
 import type { MeetingInvite, AttachmentInfo } from "@/utils/api"
+import { formatAbsolute, withTz } from "@/utils/date"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import { useI18n } from "@/hooks/useI18n"
@@ -405,7 +406,7 @@ export function EmailDetailPage() {
                       .join(", ")}
                   </div>
 
-                  <div className="mt-1 text-sm text-muted-foreground">{email.date}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{formatAbsolute(email.date)}</div>
 
                   {/* Category labels */}
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -470,7 +471,7 @@ export function EmailDetailPage() {
                     <div className="text-muted-foreground">
                       {(() => {
                         const d = new Date(invite.start)
-                        return isNaN(d.getTime()) ? invite.start : d.toLocaleString()
+                        return isNaN(d.getTime()) ? invite.start : d.toLocaleString([], withTz())
                       })()}
                     </div>
                   )}

@@ -72,6 +72,10 @@ type AccountData struct {
 	Title              string    `json:"title,omitempty"`        // job title
 	Department         string    `json:"department,omitempty"`   // department / team
 	Phone              string    `json:"phone,omitempty"`        // business phone number
+	Timezone           string    `json:"timezone,omitempty"`     // IANA tz (e.g. "Europe/Istanbul") for user-facing time rendering; empty = follow device/UTC
+	Locale             string    `json:"locale,omitempty"`       // preferred UI language (e.g. "tr", "en")
+	Theme              string    `json:"theme,omitempty"`        // preferred UI theme ("light", "dark", "system")
+	Onboarded          bool      `json:"onboarded"`              // true once the user finished first-run onboarding
 }
 
 // ClientSession holds HTTP/API client session information for the account portal.

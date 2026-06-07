@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/hooks/useI18n"
+import { formatAbsolute } from "@/utils/date"
 import api from "@/utils/api"
 import type { Mail } from "@/utils/api"
 
@@ -147,7 +148,7 @@ export function ThreadsPage() {
                     >
                       <span className={cn("truncate", !m.read && "font-medium")}>{m.from}</span>
                       <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                        {m.date}
+                        {formatAbsolute(m.date)}
                       </span>
                     </button>
                   ))}

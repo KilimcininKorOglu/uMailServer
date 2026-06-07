@@ -908,11 +908,19 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 
 	// Report whether the user has a profile photo so the client only requests
 	// the avatar endpoint when one exists (avoids a 404 on every page load for
-	// users without a photo).
+	// users without a photo). The same account read carries the onboarding/
+	// presentation prefs so the webmail can gate first-run and apply the chosen
+	// timezone/locale/theme without a second round-trip.
 	hasAvatar := false
+	onboarded := false
+	timezone, locale, theme := "", "", ""
 	localPart, domain := parseEmail(res.user)
 	if account, err := s.db.GetAccount(domain, localPart); err == nil && account != nil {
 		hasAvatar = len(account.Avatar) > 0
+		onboarded = account.Onboarded
+		timezone = account.Timezone
+		locale = account.Locale
+		theme = account.Theme
 	}
 
 	s.sendJSON(w, http.StatusOK, map[string]interface{}{
@@ -922,5 +930,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"tenant":        res.tenantID,
 		"tenant_admin":  res.isTenantAdmin,
 		"has_avatar":    hasAvatar,
+		"onboarded":     onboarded,
+		"timezone":      timezone,
+		"locale":        locale,
+		"theme":         theme,
 	})
 }

@@ -18,10 +18,10 @@ import (
 
 // Mail represents an email message
 type Mail struct {
-	ID             string   `json:"id"`
-	From           string   `json:"from"`
-	FromName       string   `json:"fromName"`
-	To             []string `json:"to"`
+	ID       string   `json:"id"`
+	From     string   `json:"from"`
+	FromName string   `json:"fromName"`
+	To       []string `json:"to"`
 	// ToNames carries the display name for each entry in To (same index, empty
 	// string when unknown), so the client can show names without re-parsing.
 	ToNames        []string `json:"toNames,omitempty"`
@@ -129,6 +129,9 @@ type MailHandler struct {
 	// domain's From templates (internal vs external by recipient), or "" when no
 	// template applies. Injected by the server; nil falls back to displayName.
 	buildFromName func(sender string, recipients []string) string
+	// timezone resolves an address to the account's chosen IANA timezone, or ""
+	// to fall back to server/UTC time. Injected by the server; nil disables it.
+	timezone func(email string) string
 }
 
 // NewMailHandler creates a new mail handler
@@ -159,6 +162,29 @@ func (h *MailHandler) SetDisplayNameResolver(fn func(email string) string) {
 // display name (formatFromHeader).
 func (h *MailHandler) SetFromNameBuilder(fn func(sender string, recipients []string) string) {
 	h.buildFromName = fn
+}
+
+// SetTimezoneResolver wires the address→IANA-timezone lookup so the outbound
+// Date header can be stamped in the sender's chosen local time instead of the
+// server's. When it returns "" (or is nil), the send path keeps server time.
+func (h *MailHandler) SetTimezoneResolver(fn func(email string) string) {
+	h.timezone = fn
+}
+
+// outboundDate formats now in the sender's chosen timezone for the Date header,
+// falling back to the server's local time when no (or an invalid) timezone is
+// set. The offset in the formatted value keeps the instant unambiguous either
+// way.
+func (h *MailHandler) outboundDate(sender string, now time.Time) string {
+	const layout = "Mon, 02 Jan 2006 15:04:05 -0700"
+	if h.timezone != nil {
+		if tz := h.timezone(sender); tz != "" {
+			if loc, err := time.LoadLocation(tz); err == nil {
+				return now.In(loc).Format(layout)
+			}
+		}
+	}
+	return now.Format(layout)
 }
 
 // outboundFromHeader builds the From header value for an outbound message: it
@@ -632,9 +658,10 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 		senderEmail = req.From
 	}
 
-	// Build RFC 2822 email
+	// Build RFC 2822 email. Stamp the Date in the composer's chosen timezone so
+	// a US and a Japan user each see their own local offset on sent mail.
 	now := time.Now()
-	dateStr := now.Format("Mon, 02 Jan 2006 15:04:05 -0700")
+	dateStr := h.outboundDate(userEmail, now)
 
 	// Sanitize header values to prevent CRLF injection
 	safeSubject := sanitizeHeaderValue(req.Subject)
@@ -1172,7 +1199,7 @@ func (h *MailHandler) handleMailDraft(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	dateStr := now.Format("Mon, 02 Jan 2006 15:04:05 -0700")
+	dateStr := h.outboundDate(userEmail, now)
 	safeSubject := sanitizeHeaderValue(req.Subject)
 	safeTo := sanitizeHeaderValues(req.To)
 	safeCC := sanitizeHeaderValues(req.CC)

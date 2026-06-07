@@ -1,14 +1,32 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import api from '../utils/api'
+import { setDisplayTimeZone } from '../utils/date'
+
+interface UserPrefs {
+  onboarded?: boolean
+  timezone?: string
+  locale?: string
+  theme?: string
+}
+
+interface AuthUser extends UserPrefs {
+  email: string
+  hasAvatar?: boolean
+  isAdmin?: boolean
+}
 
 interface AuthContextType {
-  user: { email: string; hasAvatar?: boolean } | null
+  user: AuthUser | null
   isAuthenticated: boolean
   isLoading: boolean
   loading: boolean
   error: string | null
   login: (email: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
+  // updatePrefs merges presentation prefs into the live user (after onboarding or
+  // a settings change) and re-applies the display timezone immediately so dates
+  // re-render in the chosen zone without a reload.
+  updatePrefs: (prefs: UserPrefs) => void
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -20,12 +38,28 @@ const AuthContext = createContext<AuthContextType | null>(null)
 const sessionMarkerKey = 'umail-webmail-authed'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<{ email: string; hasAvatar?: boolean } | null>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   // hydrating gates routing until we know whether a valid session cookie exists.
   const [hydrating, setHydrating] = useState(true)
+
+  // applyMe maps a /auth/me payload into the user state and applies the chosen
+  // display timezone so every date formatter renders in the user's zone.
+  const applyMe = useCallback((me: Awaited<ReturnType<typeof api.me>>) => {
+    setUser({
+      email: me.email ?? '',
+      hasAvatar: me.has_avatar,
+      isAdmin: me.isAdmin,
+      onboarded: me.onboarded,
+      timezone: me.timezone,
+      locale: me.locale,
+      theme: me.theme,
+    })
+    setIsAuthenticated(true)
+    setDisplayTimeZone(me.timezone || '')
+  }, [])
 
   // On mount, ask the server who we are. The JWT lives in an HttpOnly cookie the
   // client cannot read, so this is the only way to restore the session after a
@@ -42,8 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then((me) => {
         if (!active) return
         if (me?.authenticated && me.email) {
-          setUser({ email: me.email, hasAvatar: me.has_avatar })
-          setIsAuthenticated(true)
+          applyMe(me)
         } else {
           // Soft 200 with authenticated:false — the stored session is no longer
           // valid. Clear the marker so we stop probing on future loads.
@@ -61,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       active = false
     }
-  }, [])
+  }, [applyMe])
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setLoading(true)
@@ -70,8 +103,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Token is now in HttpOnly cookie - no need to store in memory
       await api.post<{ expiresIn?: number }>('/auth/login', { email, password })
       localStorage.setItem(sessionMarkerKey, '1')
-      setUser({ email })
-      setIsAuthenticated(true)
+      // Pull the full identity + presentation prefs so the onboarding gate and
+      // chosen timezone are known immediately after login.
+      try {
+        const me = await api.me()
+        if (me?.authenticated && me.email) {
+          applyMe(me)
+        } else {
+          setUser({ email })
+          setIsAuthenticated(true)
+        }
+      } catch {
+        setUser({ email })
+        setIsAuthenticated(true)
+      }
       return true
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed')
@@ -79,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [applyMe])
 
   const logout = useCallback(async () => {
     // Invalidate the HttpOnly session cookie server-side; clear local state
@@ -95,6 +140,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(sessionMarkerKey)
   }, [])
 
+  const updatePrefs = useCallback((prefs: UserPrefs) => {
+    setUser((prev) => (prev ? { ...prev, ...prefs } : prev))
+    if (prefs.timezone !== undefined) {
+      setDisplayTimeZone(prefs.timezone || '')
+    }
+  }, [])
+
   const value: AuthContextType = {
     user,
     isAuthenticated,
@@ -102,7 +154,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     error,
     login,
-    logout
+    logout,
+    updatePrefs,
   }
 
   return (

@@ -89,9 +89,19 @@ CREATE TABLE IF NOT EXISTS accounts (
     display_name         TEXT        NOT NULL DEFAULT '',
     title                TEXT        NOT NULL DEFAULT '',
     department           TEXT        NOT NULL DEFAULT '',
-    phone                TEXT        NOT NULL DEFAULT ''
+    phone                TEXT        NOT NULL DEFAULT '',
+    timezone             TEXT        NOT NULL DEFAULT '',
+    locale               TEXT        NOT NULL DEFAULT '',
+    theme                TEXT        NOT NULL DEFAULT '',
+    onboarded            BOOLEAN     NOT NULL DEFAULT FALSE
 );
 CREATE INDEX IF NOT EXISTS idx_accounts_domain ON accounts (domain);
+-- Additive column migrations for accounts (idempotent; CREATE TABLE IF NOT EXISTS
+-- above is a no-op on an already-created table, so new columns are added here).
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS timezone  TEXT    NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS locale    TEXT    NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS theme     TEXT    NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS onboarded BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Aliases. The alias column holds the local part (e.g. "info"); identity is
 -- (domain, local part). Matching the bbolt store, the key is case-insensitive

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { useAuth } from "@/contexts/AuthContext"
@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner"
 import api from "@/utils/api"
 import type { VacationAutoReply, ClientSession, Delegation, Category } from "@/utils/api"
+import { detectTimeZone, listTimeZones } from "@/utils/timezone"
 import { enablePushNotifications, disablePushNotifications, pushSupported } from "@/utils/push"
 
 // rfc3339ToDate extracts the YYYY-MM-DD part from an RFC3339 string for <input type="date">.
@@ -43,7 +44,7 @@ const emptyVacation: VacationAutoReply = {
 
 export function SettingsPage() {
   const { theme, setTheme, resolvedTheme } = useTheme()
-  const { user } = useAuth()
+  const { user, updatePrefs } = useAuth()
   const { t } = useI18n()
 
   // Profile photo (self-service avatar). avatarVersion cache-busts the <img>
@@ -104,18 +105,36 @@ export function SettingsPage() {
   const [profile, setProfile] = useState({ display_name: "", title: "", department: "", phone: "" })
   const [profileBusy, setProfileBusy] = useState(false)
 
+  // Display timezone — the IANA zone every date is rendered in. Empty means
+  // "follow this device". Saved on change (like the theme buttons) and applied
+  // live across the app via updatePrefs.
+  const timeZones = useMemo(listTimeZones, [])
+  const [timezone, setTimezone] = useState("")
+
   useEffect(() => {
     api.getProfile()
-      .then((p) =>
+      .then((p) => {
         setProfile({
           display_name: p.display_name ?? "",
           title: p.title ?? "",
           department: p.department ?? "",
           phone: p.phone ?? "",
         })
-      )
+        setTimezone(p.timezone ?? "")
+      })
       .catch(() => undefined)
   }, [])
+
+  const handleTimezoneChange = async (tz: string) => {
+    setTimezone(tz)
+    try {
+      await api.updateProfile({ timezone: tz })
+      updatePrefs({ timezone: tz })
+      toast.success(t("settings.appearance.timezoneSaved"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("settings.appearance.timezoneSaveFailed"))
+    }
+  }
 
   const handleSaveProfile = async () => {
     setProfileBusy(true)
@@ -638,6 +657,25 @@ export function SettingsPage() {
             checked={theme === "dark"}
             onChange={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
           />
+          <Separator />
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium">{t("settings.appearance.timezone")}</p>
+              <p className="text-sm text-muted-foreground">{t("settings.appearance.timezoneDescription")}</p>
+            </div>
+            <select
+              value={timezone}
+              onChange={(e) => void handleTimezoneChange(e.target.value)}
+              className="max-w-[16rem] rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="">{t("settings.appearance.timezoneAuto", { zone: detectTimeZone() })}</option>
+              {timeZones.map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </SettingSection>
 

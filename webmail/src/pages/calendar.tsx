@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "sonner"
 import { AttendeePicker } from "@/components/attendee-picker"
+import { withTz } from "@/utils/date"
 import api, { type CalendarEvent, type UserFreeBusy, type Room } from "@/utils/api"
 import { useI18n } from "@/hooks/useI18n"
 
@@ -91,13 +92,13 @@ function recurrenceLabel(t: TFunc, freq: string): string {
 
 function dayKey(value: string): string {
   const d = new Date(value)
-  return isNaN(d.getTime()) ? value : d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+  return isNaN(d.getTime()) ? value : d.toLocaleDateString(undefined, withTz({ weekday: "long", year: "numeric", month: "long", day: "numeric" }))
 }
 
 function timeLabel(t: TFunc, ev: CalendarEvent): string {
   if (ev.allDay) return t("calendar.allDay")
   const start = new Date(ev.start)
-  const opts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" }
+  const opts = withTz({ hour: "2-digit", minute: "2-digit" })
   const s = isNaN(start.getTime()) ? "" : start.toLocaleTimeString(undefined, opts)
   if (!ev.end) return s
   const end = new Date(ev.end)
@@ -438,7 +439,7 @@ export function CalendarPage() {
                         >
                           {!ev.allDay && (
                             <span className="mr-1 text-muted-foreground">
-                              {new Date(ev.start).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                              {new Date(ev.start).toLocaleTimeString(undefined, withTz({ hour: "2-digit", minute: "2-digit" }))}
                             </span>
                           )}
                           {ev.summary}
@@ -712,9 +713,9 @@ export function CalendarPage() {
                           {r.busy.map((b, i) => (
                             <li key={i} className="flex items-center gap-1.5 text-sm text-muted-foreground">
                               <Clock className="h-3.5 w-3.5" />
-                              {new Date(b.start).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                              {new Date(b.start).toLocaleTimeString(undefined, withTz({ hour: "2-digit", minute: "2-digit" }))}
                               {" – "}
-                              {new Date(b.end).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                              {new Date(b.end).toLocaleTimeString(undefined, withTz({ hour: "2-digit", minute: "2-digit" }))}
                             </li>
                           ))}
                         </ul>

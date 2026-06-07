@@ -8,6 +8,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/hooks/useI18n"
+import { formatAbsolute } from "@/utils/date"
 import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -199,7 +200,7 @@ export function FolderPage() {
                   <span className="text-muted-foreground"> — {email.preview}</span>
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  {email.date}
+                  {formatAbsolute(email.date)}
                 </div>
               </div>
               <DropdownMenu>

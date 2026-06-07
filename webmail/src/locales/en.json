@@ -241,7 +241,12 @@
       "lightMode": "Light mode",
       "darkMode": "Dark mode",
       "systemDefault": "System default",
-      "darkModeDescription": "Use dark theme"
+      "darkModeDescription": "Use dark theme",
+      "timezone": "Timezone",
+      "timezoneDescription": "Show all dates and times in this zone",
+      "timezoneAuto": "Automatic ({{zone}})",
+      "timezoneSaved": "Timezone updated",
+      "timezoneSaveFailed": "Failed to update timezone"
     },
     "notifications": {
       "title": "Notifications",
@@ -788,5 +793,18 @@
     "busy": "Busy",
     "free": "Free",
     "unknown": "Availability unknown"
+  },
+  "onboarding": {
+    "title": "Welcome — let's set you up",
+    "subtitle": "Choose how uMail shows times and looks. You can change these anytime in Settings.",
+    "timezone": "Timezone",
+    "timezoneHint": "Detected from your device — pick another zone if you prefer.",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
+    "continue": "Continue",
+    "skip": "Skip",
+    "saveFailed": "Failed to save your preferences"
   }
 }

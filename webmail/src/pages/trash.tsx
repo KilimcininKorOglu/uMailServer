@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/hooks/useI18n"
+import { formatAbsolute } from "@/utils/date"
 import { useMailEvents } from "@/utils/mailEvents"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -219,7 +220,7 @@ export function TrashPage() {
                   </Button>
                 </div>
                 <span className="whitespace-nowrap text-sm text-muted-foreground">
-                  {email.date}
+                  {formatAbsolute(email.date)}
                 </span>
               </div>
             ))}

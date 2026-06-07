@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { WelcomeBanner } from "@/components/welcome-banner"
 import { useI18n } from "@/hooks/useI18n"
+import { formatAbsolute } from "@/utils/date"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -280,7 +281,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
           "text-xs text-muted-foreground whitespace-nowrap",
           viewMode === "compact" && "w-12 text-right"
         )}>
-          {email.date}
+          {formatAbsolute(email.date)}
         </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

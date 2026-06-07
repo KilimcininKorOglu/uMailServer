@@ -241,7 +241,12 @@
       "lightMode": "Açık mod",
       "darkMode": "Koyu mod",
       "systemDefault": "Sistem varsayılanı",
-      "darkModeDescription": "Koyu temayı kullan"
+      "darkModeDescription": "Koyu temayı kullan",
+      "timezone": "Saat dilimi",
+      "timezoneDescription": "Tüm tarih ve saatleri bu dilimde göster",
+      "timezoneAuto": "Otomatik ({{zone}})",
+      "timezoneSaved": "Saat dilimi güncellendi",
+      "timezoneSaveFailed": "Saat dilimi güncellenemedi"
     },
     "notifications": {
       "title": "Bildirimler",
@@ -788,5 +793,18 @@
     "busy": "Meşgul",
     "free": "Boş",
     "unknown": "Uygunluk bilinmiyor"
+  },
+  "onboarding": {
+    "title": "Hoş geldiniz — kurulumu yapalım",
+    "subtitle": "uMail'in saatleri nasıl göstereceğini ve görünümünü seçin. Bunları istediğiniz zaman Ayarlar'dan değiştirebilirsiniz.",
+    "timezone": "Saat dilimi",
+    "timezoneHint": "Cihazınızdan algılandı — isterseniz başka bir dilim seçin.",
+    "theme": "Tema",
+    "themeLight": "Açık",
+    "themeDark": "Koyu",
+    "themeSystem": "Sistem",
+    "continue": "Devam et",
+    "skip": "Atla",
+    "saveFailed": "Tercihleriniz kaydedilemedi"
   }
 }

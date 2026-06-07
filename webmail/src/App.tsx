@@ -19,6 +19,7 @@ import { SpamPage } from "@/pages/spam"
 import { FolderPage } from "@/pages/folder"
 import { FiltersPage } from "@/pages/filters"
 import { ThreadsPage } from "@/pages/threads"
+import { OnboardingPage } from "@/pages/onboarding"
 import { ShortcutsDialog } from "@/components/shortcuts-dialog"
 import { Toaster } from "@/components/ui/sonner"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
@@ -42,6 +43,28 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return children
 }
 
+// RequireOnboarded sends a signed-in user who has not finished first-run
+// onboarding to /onboarding. It fires ONLY when the flag is explicitly false
+// (a fresh/unmigrated account); when it is undefined — e.g. a login fallback
+// that could not read /auth/me — the user is not trapped.
+function RequireOnboarded({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  if (user && user.onboarded === false) {
+    return <Navigate to="/onboarding" replace />
+  }
+  return children
+}
+
+// OnboardingGate renders the onboarding screen, but bounces an already-onboarded
+// user back to the inbox so the route cannot be revisited to redo first-run.
+function OnboardingGate() {
+  const { user } = useAuth()
+  if (user && user.onboarded) {
+    return <Navigate to="/inbox" replace />
+  }
+  return <OnboardingPage />
+}
+
 function AppContent() {
   const { user } = useAuth()
   useKeyboardShortcuts()
@@ -51,12 +74,22 @@ function AppContent() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
+          path="/onboarding"
+          element={
+            <ProtectedRoute>
+              <OnboardingGate />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/"
           element={
             <ProtectedRoute>
-              <MailboxProvider personalEmail={user?.email || ""}>
-                <Layout />
-              </MailboxProvider>
+              <RequireOnboarded>
+                <MailboxProvider personalEmail={user?.email || ""}>
+                  <Layout />
+                </MailboxProvider>
+              </RequireOnboarded>
             </ProtectedRoute>
           }
         >

@@ -38,6 +38,7 @@ import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType, MailAttac
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import { useI18n } from "@/hooks/useI18n"
+import { withTz } from "@/utils/date"
 
 interface Attachment {
   id: string
@@ -597,7 +598,7 @@ export function ComposePage() {
     const diff = Math.floor((now.getTime() - lastSaved.getTime()) / 1000)
     if (diff < 60) return t("compose.justNow")
     if (diff < 3600) return t("compose.minutesAgo", { minutes: String(Math.floor(diff / 60)) })
-    return lastSaved.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    return lastSaved.toLocaleTimeString([], withTz({ hour: "2-digit", minute: "2-digit" }))
   }
 
   return (
@@ -1024,7 +1025,7 @@ export function ComposePage() {
                       </div>
                     )}
                     <div className="text-muted-foreground mt-1">
-                      {new Date(entry.timestamp).toLocaleString()}
+                      {new Date(entry.timestamp).toLocaleString([], withTz())}
                     </div>
                   </div>
                 </div>

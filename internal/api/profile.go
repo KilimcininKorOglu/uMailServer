@@ -32,6 +32,10 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 			"title":        account.Title,
 			"department":   account.Department,
 			"phone":        account.Phone,
+			"timezone":     account.Timezone,
+			"locale":       account.Locale,
+			"theme":        account.Theme,
+			"onboarded":    account.Onboarded,
 			"has_avatar":   len(account.Avatar) > 0,
 		})
 	case http.MethodPut:
@@ -40,6 +44,10 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 			Title       *string `json:"title"`
 			Department  *string `json:"department"`
 			Phone       *string `json:"phone"`
+			Timezone    *string `json:"timezone"`
+			Locale      *string `json:"locale"`
+			Theme       *string `json:"theme"`
+			Onboarded   *bool   `json:"onboarded"`
 		}
 		if err := decodeJSON(r, &req); err != nil {
 			s.sendError(w, http.StatusBadRequest, "invalid request body")
@@ -57,6 +65,27 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 		if req.Phone != nil {
 			account.Phone = *req.Phone
 		}
+		if req.Timezone != nil {
+			// Reject anything that is not a loadable IANA zone (empty means
+			// "follow the device"); a bad value would break server-side date
+			// rendering that does time.LoadLocation(account.Timezone).
+			if *req.Timezone != "" {
+				if _, err := time.LoadLocation(*req.Timezone); err != nil {
+					s.sendError(w, http.StatusBadRequest, "invalid timezone")
+					return
+				}
+			}
+			account.Timezone = *req.Timezone
+		}
+		if req.Locale != nil {
+			account.Locale = *req.Locale
+		}
+		if req.Theme != nil {
+			account.Theme = *req.Theme
+		}
+		if req.Onboarded != nil {
+			account.Onboarded = *req.Onboarded
+		}
 		account.UpdatedAt = time.Now()
 		if err := s.db.UpdateAccount(account); err != nil {
 			s.sendError(w, http.StatusInternalServerError, "failed to update profile")
@@ -68,6 +97,10 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 			"title":        account.Title,
 			"department":   account.Department,
 			"phone":        account.Phone,
+			"timezone":     account.Timezone,
+			"locale":       account.Locale,
+			"theme":        account.Theme,
+			"onboarded":    account.Onboarded,
 		})
 	default:
 		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
