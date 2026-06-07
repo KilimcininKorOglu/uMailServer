@@ -539,6 +539,10 @@ func (s *Server) processMethodCall(user string, call MethodCall, createdIDs map[
 // processing.
 func (s *Server) dispatchMethodCall(user string, call MethodCall, createdIDs map[string]string) Response {
 	switch call.Name {
+	// Core methods (RFC 8620 §4) — Core/echo returns its arguments verbatim.
+	case "Core/echo":
+		return Response{Name: "Core/echo", Args: call.Args, ID: call.ID}
+
 	// Mailbox methods
 	case "Mailbox/get":
 		return s.handleMailboxGet(user, call)
