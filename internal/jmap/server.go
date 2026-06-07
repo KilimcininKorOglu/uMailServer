@@ -184,7 +184,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleSession(w, r)
 	case path == "/jmap/api":
 		s.handleAPI(w, r)
-	case path == "/jmap/upload":
+	case path == "/jmap/upload" || strings.HasPrefix(path, "/jmap/upload/"):
 		s.handleUpload(w, r)
 	case strings.HasPrefix(path, "/jmap/download"):
 		s.handleDownload(w, r)
