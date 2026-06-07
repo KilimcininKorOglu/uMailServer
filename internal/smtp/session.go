@@ -539,6 +539,14 @@ func (s *Session) handleDATA() error {
 		}
 	}
 
+	// Count inbound messages accepted on port 25 (smtp_messages_received is
+	// inbound-only; submission/relay is not "received").
+	if !s.server.config.IsSubmission {
+		if m := metrics.Get(); m != nil {
+			m.SMTPMessageReceived()
+		}
+	}
+
 	s.resetTransaction()
 	return s.WriteResponse(250, "OK")
 }
@@ -738,6 +746,14 @@ func (s *Session) handleBDAT(arg string) error {
 			if err := s.server.onDeliver(s.mailFrom, s.rcptTo, s.data); err != nil {
 				s.resetTransaction()
 				return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
+			}
+		}
+
+		// Count inbound messages accepted on port 25 (smtp_messages_received is
+		// inbound-only; submission/relay is not "received").
+		if !s.server.config.IsSubmission {
+			if m := metrics.Get(); m != nil {
+				m.SMTPMessageReceived()
 			}
 		}
 
