@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
+import { useI18n } from "@/hooks/useI18n";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,20 +15,31 @@ interface HeaderProps {
   isConnected: boolean;
 }
 
-const breadcrumbMap: Record<string, string> = {
-  "/": "Dashboard",
-  "/domains": "Domains",
-  "/accounts": "Accounts",
-  "/queue": "Queue",
-  "/tenants": "Tenants",
-  "/settings": "Settings",
+// Each route maps to a nav translation key so the page title follows the
+// selected language (the sidebar uses the same nav.* keys).
+const routeNavKey: Record<string, string> = {
+  "/": "dashboard",
+  "/domains": "domains",
+  "/accounts": "accounts",
+  "/aliases": "aliases",
+  "/groups": "groups",
+  "/queue": "queue",
+  "/policies": "policies",
+  "/delegation": "delegation",
+  "/diagnostics": "diagnostics",
+  "/directory": "directory",
+  "/jobs": "jobs",
+  "/tenants": "tenants",
+  "/cluster": "cluster",
+  "/settings": "settings",
 };
 
 export function Header({ isConnected }: HeaderProps) {
   const { setTheme, resolvedTheme } = useTheme();
+  const { t } = useI18n();
   const location = useLocation();
 
-  const pageTitle = breadcrumbMap[location.pathname] || "Dashboard";
+  const pageTitle = t(`nav.${routeNavKey[location.pathname] || "dashboard"}`);
 
   return (
     <header className="sticky top-0 z-30 h-16 bg-card border-b border-border px-6 flex items-center justify-between">
@@ -47,7 +59,7 @@ export function Header({ isConnected }: HeaderProps) {
             )}
           />
           <span className="text-xs font-medium text-muted-foreground">
-            {isConnected ? "Live" : "Offline"}
+            {isConnected ? t("common.live") : t("common.offline")}
           </span>
         </div>
 
@@ -61,21 +73,21 @@ export function Header({ isConnected }: HeaderProps) {
               ) : (
                 <Sun className="h-4 w-4" />
               )}
-              <span className="sr-only">Toggle theme</span>
+              <span className="sr-only">{t("common.toggleTheme")}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => setTheme("light")}>
               <Sun className="mr-2 h-4 w-4" />
-              Light
+              {t("common.themeLight")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setTheme("dark")}>
               <Moon className="mr-2 h-4 w-4" />
-              Dark
+              {t("common.themeDark")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setTheme("system")}>
               <Monitor className="mr-2 h-4 w-4" />
-              System
+              {t("common.themeSystem")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

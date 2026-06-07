@@ -25,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMailGroups } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import type { MailGroup, MailGroupInput } from "@/types";
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -44,15 +45,25 @@ function parseMembers(text: string): string[] {
 }
 
 // summary describes a group's membership for the list row.
-function membershipSummary(g: MailGroup): string {
+function membershipSummary(
+  g: MailGroup,
+  t: (key: string, params?: Record<string, string>) => string
+): string {
   if (!g.dynamic) {
-    return `${g.members.length} member${g.members.length === 1 ? "" : "s"}`;
+    return g.members.length === 1
+      ? t("groups.memberSingular", { count: String(g.members.length) })
+      : t("groups.memberPlural", { count: String(g.members.length) });
   }
   const parts: string[] = [];
-  parts.push(g.dynamic_domain ? `domain ${g.dynamic_domain}` : "this domain");
-  if (g.dynamic_admin_only === true) parts.push("admins only");
-  if (g.dynamic_admin_only === false) parts.push("non-admins only");
-  if (g.dynamic_local_pattern) parts.push(`matching "${g.dynamic_local_pattern}"`);
+  parts.push(
+    g.dynamic_domain
+      ? t("groups.summaryDomain", { domain: g.dynamic_domain })
+      : t("groups.summaryThisDomain")
+  );
+  if (g.dynamic_admin_only === true) parts.push(t("groups.summaryAdminsOnly"));
+  if (g.dynamic_admin_only === false) parts.push(t("groups.summaryNonAdminsOnly"));
+  if (g.dynamic_local_pattern)
+    parts.push(t("groups.summaryMatching", { pattern: g.dynamic_local_pattern }));
   return parts.join(", ");
 }
 
@@ -68,6 +79,7 @@ const emptyForm = {
 };
 
 export function Groups() {
+  const { t } = useI18n();
   const { groups, loading, fetchGroups, createGroup, updateGroup, deleteGroup } = useMailGroups();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -88,7 +100,7 @@ export function Groups() {
   const handleCreate = async () => {
     setFormError("");
     if (!form.email) {
-      setFormError("Group address is required");
+      setFormError(t("groups.addressRequired"));
       return;
     }
     const input: MailGroupInput = {
@@ -111,7 +123,7 @@ export function Groups() {
       setIsAddDialogOpen(false);
       setForm(emptyForm);
     } catch (err) {
-      setFormError(errorMessage(err, "Failed to create group"));
+      setFormError(errorMessage(err, t("groups.createFailed")));
     } finally {
       setBusy(false);
     }
@@ -121,7 +133,7 @@ export function Groups() {
     try {
       await updateGroup(g.email, { is_active: !g.is_active });
     } catch (err) {
-      toast.error(errorMessage(err, "Failed to update group"));
+      toast.error(errorMessage(err, t("groups.updateFailed")));
     }
   };
 
@@ -132,7 +144,7 @@ export function Groups() {
       await deleteGroup(deleteTarget.email);
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(errorMessage(err, "Failed to delete group"));
+      toast.error(errorMessage(err, t("groups.deleteFailed")));
     } finally {
       setBusy(false);
     }
@@ -142,14 +154,14 @@ export function Groups() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Mail Groups</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("groups.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Distribution lists that fan mail out to a static member list or a dynamic rule
+            {t("groups.description")}
           </p>
         </div>
         <Button onClick={() => setIsAddDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          Add Group
+          {t("groups.addGroup")}
         </Button>
       </div>
 
@@ -157,7 +169,7 @@ export function Groups() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search groups..."
+            placeholder={t("groups.searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -165,7 +177,7 @@ export function Groups() {
         </div>
         <Button variant="outline" onClick={() => fetchGroups().catch(() => {})} disabled={loading}>
           <RefreshCw className={loading ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
-          Refresh
+          {t("common.refresh")}
         </Button>
       </div>
 
@@ -178,13 +190,13 @@ export function Groups() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <UsersRound className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">No mail groups</h3>
+            <h3 className="text-lg font-medium">{t("groups.emptyTitle")}</h3>
             <p className="text-muted-foreground mt-1">
-              Create a group to deliver one address to many recipients.
+              {t("groups.emptyDescription")}
             </p>
             <Button className="mt-4" onClick={() => setIsAddDialogOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              Add Group
+              {t("groups.addGroup")}
             </Button>
           </CardContent>
         </Card>
@@ -204,19 +216,19 @@ export function Groups() {
                   <div className="flex items-center gap-2">
                     <span className="font-medium truncate">{g.email}</span>
                     <Badge variant="outline" className="text-[10px]">
-                      {g.dynamic ? "Dynamic" : "Static"}
+                      {g.dynamic ? t("groups.dynamic") : t("groups.static")}
                     </Badge>
                   </div>
-                  <div className="text-sm text-muted-foreground truncate">{membershipSummary(g)}</div>
+                  <div className="text-sm text-muted-foreground truncate">{membershipSummary(g, t)}</div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <Badge variant="secondary" className="text-[10px]">
-                  {g.sender_policy === "anyone" ? "Anyone" : "Internal only"}
+                  {g.sender_policy === "anyone" ? t("groups.anyone") : t("groups.internalOnly")}
                 </Badge>
                 {!g.is_active && (
                   <Badge variant="secondary" className="text-[10px]">
-                    Disabled
+                    {t("common.disabled")}
                   </Badge>
                 )}
                 <Switch checked={g.is_active} onCheckedChange={() => handleToggle(g)} />
@@ -238,9 +250,9 @@ export function Groups() {
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add Mail Group</DialogTitle>
+            <DialogTitle>{t("groups.addDialogTitle")}</DialogTitle>
             <DialogDescription>
-              Mail sent to the group address is delivered to every member.
+              {t("groups.addDialogDescription")}
             </DialogDescription>
           </DialogHeader>
           {formError && (
@@ -251,7 +263,7 @@ export function Groups() {
           )}
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="group-email">Group Address</Label>
+              <Label htmlFor="group-email">{t("groups.groupAddress")}</Label>
               <Input
                 id="group-email"
                 placeholder="team@example.com"
@@ -260,10 +272,10 @@ export function Groups() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="group-desc">Description</Label>
+              <Label htmlFor="group-desc">{t("common.description")}</Label>
               <Input
                 id="group-desc"
-                placeholder="Optional"
+                placeholder={t("common.optional")}
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
@@ -271,9 +283,9 @@ export function Groups() {
 
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div>
-                <p className="text-sm font-medium">Dynamic membership</p>
+                <p className="text-sm font-medium">{t("groups.dynamicMembership")}</p>
                 <p className="text-xs text-muted-foreground">
-                  Resolve members from a rule instead of a fixed list
+                  {t("groups.dynamicMembershipHint")}
                 </p>
               </div>
               <Switch
@@ -285,16 +297,16 @@ export function Groups() {
             {form.dynamic ? (
               <div className="space-y-4 rounded-lg border border-dashed p-3">
                 <div className="space-y-2">
-                  <Label htmlFor="group-dyndomain">Scan domain</Label>
+                  <Label htmlFor="group-dyndomain">{t("groups.scanDomain")}</Label>
                   <Input
                     id="group-dyndomain"
-                    placeholder="Defaults to the group's domain"
+                    placeholder={t("groups.scanDomainPlaceholder")}
                     value={form.dynamicDomain}
                     onChange={(e) => setForm({ ...form, dynamicDomain: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Admin filter</Label>
+                  <Label>{t("groups.adminFilter")}</Label>
                   <Select
                     value={form.adminFilter}
                     onValueChange={(v) =>
@@ -302,31 +314,31 @@ export function Groups() {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Any account" />
+                      <SelectValue placeholder={t("groups.anyAccount")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="any">Any account</SelectItem>
-                      <SelectItem value="admins">Admins only</SelectItem>
-                      <SelectItem value="nonadmins">Non-admins only</SelectItem>
+                      <SelectItem value="any">{t("groups.anyAccount")}</SelectItem>
+                      <SelectItem value="admins">{t("groups.adminsOnly")}</SelectItem>
+                      <SelectItem value="nonadmins">{t("groups.nonAdminsOnly")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="group-pattern">Local-part pattern</Label>
+                  <Label htmlFor="group-pattern">{t("groups.localPattern")}</Label>
                   <Input
                     id="group-pattern"
-                    placeholder="e.g. sales-*"
+                    placeholder={t("groups.localPatternPlaceholder")}
                     value={form.localPattern}
                     onChange={(e) => setForm({ ...form, localPattern: e.target.value })}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Glob match on the part before @ (leave blank to match all).
+                    {t("groups.localPatternHint")}
                   </p>
                 </div>
               </div>
             ) : (
               <div className="space-y-2">
-                <Label htmlFor="group-members">Members</Label>
+                <Label htmlFor="group-members">{t("groups.members")}</Label>
                 <textarea
                   id="group-members"
                   className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -335,13 +347,13 @@ export function Groups() {
                   onChange={(e) => setForm({ ...form, membersText: e.target.value })}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Separate addresses with commas, spaces or new lines.
+                  {t("groups.membersHint")}
                 </p>
               </div>
             )}
 
             <div className="space-y-2">
-              <Label>Who can send to this group</Label>
+              <Label>{t("groups.senderPolicyLabel")}</Label>
               <Select
                 value={form.senderPolicy}
                 onValueChange={(v) =>
@@ -349,21 +361,21 @@ export function Groups() {
                 }
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Internal senders only" />
+                  <SelectValue placeholder={t("groups.internalSendersOnly")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="internal">Internal senders only</SelectItem>
-                  <SelectItem value="anyone">Anyone</SelectItem>
+                  <SelectItem value="internal">{t("groups.internalSendersOnly")}</SelectItem>
+                  <SelectItem value="anyone">{t("groups.anyone")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleCreate} disabled={busy}>
-              Add Group
+              {t("groups.addGroup")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -373,19 +385,18 @@ export function Groups() {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Mail Group</DialogTitle>
+            <DialogTitle>{t("groups.deleteDialogTitle")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {deleteTarget?.email}? Mail to this address
-              will no longer be delivered to its members.
+              {t("groups.deleteDialogDescription", { email: deleteTarget?.email ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={busy}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

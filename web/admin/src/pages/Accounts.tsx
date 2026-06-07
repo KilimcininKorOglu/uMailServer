@@ -39,6 +39,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { useAccounts } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 import type { Account } from "@/types";
 
@@ -54,6 +55,7 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 export function Accounts() {
+  const { t } = useI18n();
   const {
     accounts,
     loading,
@@ -92,7 +94,7 @@ export function Accounts() {
   const handleCreateAccount = async () => {
     setFormError("");
     if (!newAccountEmail || !newAccountPassword) {
-      setFormError("Email and password are required");
+      setFormError(t("accounts.emailPasswordRequired"));
       return;
     }
 
@@ -115,7 +117,7 @@ export function Accounts() {
       setNewAccountAvatar("");
       setNewAccountProfile({ display_name: "", title: "", department: "", phone: "" });
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create account");
+      setFormError(err instanceof Error ? err.message : t("accounts.createFailed"));
     }
   };
 
@@ -123,16 +125,16 @@ export function Accounts() {
   // enforcing the same type/size limits the server applies.
   const handleAvatarFile = (file: File) => {
     if (!file.type.startsWith("image/")) {
-      setFormError("Profile photo must be an image");
+      setFormError(t("accounts.photoMustBeImage"));
       return;
     }
     if (file.size > 1024 * 1024) {
-      setFormError("Profile photo must be 1 MB or smaller");
+      setFormError(t("accounts.photoTooLarge"));
       return;
     }
     const reader = new FileReader();
     reader.onload = () => setNewAccountAvatar(String(reader.result));
-    reader.onerror = () => setFormError("Failed to read the image");
+    reader.onerror = () => setFormError(t("accounts.photoReadFailed"));
     reader.readAsDataURL(file);
   };
 
@@ -159,7 +161,7 @@ export function Accounts() {
 
     const adminChanged = selectedAccount.is_admin !== originalIsAdmin;
     if (adminChanged && !currentAdminPassword) {
-      setFormError("Enter your admin password to change admin privileges.");
+      setFormError(t("accounts.enterAdminPasswordPrompt"));
       return;
     }
 
@@ -192,7 +194,7 @@ export function Accounts() {
       setRequirePasswordChangeOnReset(true);
       setCurrentAdminPassword("");
     } catch (err) {
-      setFormError(errorMessage(err, "Failed to update account"));
+      setFormError(errorMessage(err, t("accounts.updateFailed")));
     }
   };
 
@@ -209,9 +211,9 @@ export function Accounts() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Accounts</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("accounts.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Manage email accounts and permissions
+            {t("accounts.subtitle")}
           </p>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -219,14 +221,14 @@ export function Accounts() {
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              Add Account
+              {t("accounts.add")}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Create New Account</DialogTitle>
+              <DialogTitle>{t("accounts.createTitle")}</DialogTitle>
               <DialogDescription>
-                Create a new email account on your server.
+                {t("accounts.createDescription")}
               </DialogDescription>
             </DialogHeader>
             {formError && (
@@ -237,7 +239,7 @@ export function Accounts() {
             )}
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
+                <Label htmlFor="email">{t("accounts.emailAddress")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -247,7 +249,7 @@ export function Accounts() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t("accounts.password")}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -257,24 +259,24 @@ export function Accounts() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="quota">Quota (MB)</Label>
+                <Label htmlFor="quota">{t("accounts.quotaMB")}</Label>
                 <Input
                   id="quota"
                   type="number"
                   min={0}
-                  placeholder="0 = unlimited"
+                  placeholder={t("accounts.quotaPlaceholder")}
                   value={newAccountQuotaMB}
                   onChange={(e) => setNewAccountQuotaMB(Math.max(0, Number(e.target.value) || 0))}
                 />
-                <p className="text-sm text-muted-foreground">0 means unlimited storage.</p>
+                <p className="text-sm text-muted-foreground">{t("accounts.quotaUnlimitedHint")}</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="avatar">Profile Photo</Label>
+                <Label htmlFor="avatar">{t("accounts.profilePhoto")}</Label>
                 <div className="flex items-center gap-3">
                   {newAccountAvatar ? (
                     <img
                       src={newAccountAvatar}
-                      alt="Preview"
+                      alt={t("accounts.preview")}
                       className="h-12 w-12 rounded-full object-cover ring-2 ring-border"
                     />
                   ) : (
@@ -298,48 +300,48 @@ export function Accounts() {
                     </Button>
                   )}
                 </div>
-                <p className="text-sm text-muted-foreground">Optional. PNG, JPG, GIF or WebP up to 1 MB.</p>
+                <p className="text-sm text-muted-foreground">{t("accounts.photoHint")}</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label htmlFor="display-name">Display Name</Label>
+                  <Label htmlFor="display-name">{t("accounts.displayName")}</Label>
                   <Input
                     id="display-name"
-                    placeholder="Jane Doe"
+                    placeholder={t("accounts.displayNamePlaceholder")}
                     value={newAccountProfile.display_name}
                     onChange={(e) => setNewAccountProfile({ ...newAccountProfile, display_name: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="title">Title</Label>
+                  <Label htmlFor="title">{t("accounts.jobTitle")}</Label>
                   <Input
                     id="title"
-                    placeholder="Engineer"
+                    placeholder={t("accounts.titlePlaceholder")}
                     value={newAccountProfile.title}
                     onChange={(e) => setNewAccountProfile({ ...newAccountProfile, title: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="department">Department</Label>
+                  <Label htmlFor="department">{t("accounts.department")}</Label>
                   <Input
                     id="department"
-                    placeholder="Sales"
+                    placeholder={t("accounts.departmentPlaceholder")}
                     value={newAccountProfile.department}
                     onChange={(e) => setNewAccountProfile({ ...newAccountProfile, department: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
+                  <Label htmlFor="phone">{t("accounts.phone")}</Label>
                   <Input
                     id="phone"
-                    placeholder="+1 555 0100"
+                    placeholder={t("accounts.phonePlaceholder")}
                     value={newAccountProfile.phone}
                     onChange={(e) => setNewAccountProfile({ ...newAccountProfile, phone: e.target.value })}
                   />
                 </div>
               </div>
               <div className="flex items-center justify-between pt-2">
-                <Label htmlFor="is-admin">Admin Account</Label>
+                <Label htmlFor="is-admin">{t("accounts.adminAccount")}</Label>
                 <Switch
                   id="is-admin"
                   checked={newAccountIsAdmin}
@@ -349,9 +351,9 @@ export function Accounts() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
-              <Button onClick={handleCreateAccount}>Create Account</Button>
+              <Button onClick={handleCreateAccount}>{t("accounts.createAccount")}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -362,7 +364,7 @@ export function Accounts() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search accounts..."
+            placeholder={t("accounts.searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -394,16 +396,16 @@ export function Accounts() {
         <Card className="text-center py-12">
           <CardContent>
             <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">No accounts found</h3>
+            <h3 className="text-lg font-medium">{t("accounts.noAccounts")}</h3>
             <p className="text-muted-foreground mt-1">
               {searchQuery
-                ? "No accounts match your search"
-                : "Get started by adding your first account"}
+                ? t("accounts.noMatchSearch")
+                : t("accounts.getStarted")}
             </p>
             {!searchQuery && (
               <Button className="mt-4" onClick={() => setIsAddDialogOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                Add Account
+                {t("accounts.add")}
               </Button>
             )}
           </CardContent>
@@ -437,9 +439,9 @@ export function Accounts() {
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit Account</DialogTitle>
+            <DialogTitle>{t("accounts.edit")}</DialogTitle>
             <DialogDescription>
-              Update account settings for {selectedAccount?.email}
+              {t("accounts.editDescription", { email: selectedAccount?.email ?? "" })}
             </DialogDescription>
           </DialogHeader>
           {formError && (
@@ -451,7 +453,7 @@ export function Accounts() {
           {selectedAccount && (
             <div className="space-y-4 py-4">
               <div className="flex items-center justify-between">
-                <Label htmlFor="edit-is-admin">Admin Account</Label>
+                <Label htmlFor="edit-is-admin">{t("accounts.adminAccount")}</Label>
                 <Switch
                   id="edit-is-admin"
                   checked={selectedAccount.is_admin}
@@ -462,22 +464,21 @@ export function Accounts() {
               </div>
               {selectedAccount.is_admin !== originalIsAdmin && (
                 <div className="space-y-2">
-                  <Label htmlFor="current-admin-password">Your admin password</Label>
+                  <Label htmlFor="current-admin-password">{t("accounts.yourAdminPassword")}</Label>
                   <Input
                     id="current-admin-password"
                     type="password"
-                    placeholder="Confirm to change admin privileges"
+                    placeholder={t("accounts.confirmAdminPlaceholder")}
                     value={currentAdminPassword}
                     onChange={(e) => setCurrentAdminPassword(e.target.value)}
                   />
                   <p className="text-sm text-muted-foreground">
-                    Granting or revoking admin access requires re-entering your own
-                    password.
+                    {t("accounts.adminPasswordHint")}
                   </p>
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <Label htmlFor="edit-is-active">Active</Label>
+                <Label htmlFor="edit-is-active">{t("common.active")}</Label>
                 <Switch
                   id="edit-is-active"
                   checked={selectedAccount.is_active}
@@ -487,12 +488,12 @@ export function Accounts() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-quota">Quota (MB)</Label>
+                <Label htmlFor="edit-quota">{t("accounts.quotaMB")}</Label>
                 <Input
                   id="edit-quota"
                   type="number"
                   min={0}
-                  placeholder="0 = unlimited"
+                  placeholder={t("accounts.quotaPlaceholder")}
                   value={Math.round(selectedAccount.quota_limit / (1024 * 1024))}
                   onChange={(e) =>
                     setSelectedAccount({
@@ -501,11 +502,11 @@ export function Accounts() {
                     })
                   }
                 />
-                <p className="text-sm text-muted-foreground">0 means unlimited storage.</p>
+                <p className="text-sm text-muted-foreground">{t("accounts.quotaUnlimitedHint")}</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-display-name">Display Name</Label>
+                  <Label htmlFor="edit-display-name">{t("accounts.displayName")}</Label>
                   <Input
                     id="edit-display-name"
                     value={selectedAccount.display_name ?? ""}
@@ -513,7 +514,7 @@ export function Accounts() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-title">Title</Label>
+                  <Label htmlFor="edit-title">{t("accounts.jobTitle")}</Label>
                   <Input
                     id="edit-title"
                     value={selectedAccount.title ?? ""}
@@ -521,7 +522,7 @@ export function Accounts() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-department">Department</Label>
+                  <Label htmlFor="edit-department">{t("accounts.department")}</Label>
                   <Input
                     id="edit-department"
                     value={selectedAccount.department ?? ""}
@@ -529,7 +530,7 @@ export function Accounts() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-phone">Phone</Label>
+                  <Label htmlFor="edit-phone">{t("accounts.phone")}</Label>
                   <Input
                     id="edit-phone"
                     value={selectedAccount.phone ?? ""}
@@ -538,11 +539,11 @@ export function Accounts() {
                 </div>
               </div>
               <div className="space-y-2 pt-4 border-t">
-                <Label htmlFor="new-password">New Password (optional)</Label>
+                <Label htmlFor="new-password">{t("accounts.newPassword")}</Label>
                 <Input
                   id="new-password"
                   type="password"
-                  placeholder="Leave empty to keep current"
+                  placeholder={t("accounts.newPasswordPlaceholder")}
                   value={newAccountPassword}
                   onChange={(e) => setNewAccountPassword(e.target.value)}
                 />
@@ -553,9 +554,9 @@ export function Accounts() {
               {newAccountPassword && (
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label htmlFor="require-password-change">Require password change on next login</Label>
+                    <Label htmlFor="require-password-change">{t("accounts.requirePasswordChange")}</Label>
                     <p className="text-sm text-muted-foreground">
-                      The user must set a new password the next time they sign in.
+                      {t("accounts.requirePasswordChangeHint")}
                     </p>
                   </div>
                   <Switch
@@ -578,9 +579,9 @@ export function Accounts() {
                 setFormError("");
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
-            <Button onClick={handleUpdateAccount}>Save Changes</Button>
+            <Button onClick={handleUpdateAccount}>{t("common.saveChanges")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -589,19 +590,18 @@ export function Accounts() {
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Account</DialogTitle>
+            <DialogTitle>{t("accounts.delete")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {selectedAccount?.email}? This action
-              cannot be undone.
+              {t("accounts.deleteConfirm", { email: selectedAccount?.email ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDeleteAccount} disabled={isDeleting}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -618,6 +618,7 @@ interface AccountCardProps {
 }
 
 function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProps) {
+  const { t } = useI18n();
   // A quota_limit of 0 means unlimited storage; a percentage and progress bar
   // are meaningless in that case, so show the usage without them.
   const isUnlimited = account.quota_limit <= 0;
@@ -646,10 +647,10 @@ function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProp
               <CardTitle className="text-base truncate">{account.email}</CardTitle>
               <CardDescription className="flex items-center gap-1">
                 {account.is_admin && (
-                  <Badge variant="secondary" className="text-xs">Admin</Badge>
+                  <Badge variant="secondary" className="text-xs">{t("accounts.admin")}</Badge>
                 )}
                 {!account.is_active && (
-                  <Badge variant="destructive" className="text-xs">Inactive</Badge>
+                  <Badge variant="destructive" className="text-xs">{t("common.inactive")}</Badge>
                 )}
               </CardDescription>
             </div>
@@ -664,18 +665,18 @@ function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProp
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={onEdit}>
                 <Edit className="mr-2 h-4 w-4" />
-                Edit
+                {t("common.edit")}
               </DropdownMenuItem>
               {account.totp_enabled && (
                 <DropdownMenuItem disabled>
                   <Key className="mr-2 h-4 w-4" />
-                  2FA Enabled
+                  {t("accounts.twoFactorEnabled")}
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={onDelete} className="text-red-600">
                 <Trash2 className="mr-2 h-4 w-4" />
-                Delete
+                {t("common.delete")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -688,10 +689,10 @@ function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProp
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground flex items-center gap-1">
                 <HardDrive className="h-4 w-4" />
-                Storage
+                {t("accounts.storage")}
               </span>
               <span className="font-medium">
-                {formatBytes(account.quota_used)} / {isUnlimited ? "Unlimited" : formatBytes(account.quota_limit)}
+                {formatBytes(account.quota_used)} / {isUnlimited ? t("accounts.unlimited") : formatBytes(account.quota_limit)}
               </span>
             </div>
             {!isUnlimited && (
@@ -701,16 +702,16 @@ function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProp
               />
             )}
             <p className="text-xs text-muted-foreground text-right">
-              {isUnlimited ? "No quota limit" : `${quotaPercent}% used`}
+              {isUnlimited ? t("accounts.noQuotaLimit") : t("accounts.percentUsed", { percent: String(quotaPercent) })}
             </p>
           </div>
 
           {/* Last Login */}
           <div className="text-xs text-muted-foreground pt-2 border-t">
-            Last login:{" "}
+            {t("accounts.lastLogin")}:{" "}
             {account.last_login && new Date(account.last_login).getFullYear() > 1
               ? new Date(account.last_login).toLocaleString()
-              : "Never"}
+              : t("common.never")}
           </div>
         </div>
       </CardContent>

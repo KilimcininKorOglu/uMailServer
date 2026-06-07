@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { useAdminRules, useConfig } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import type { PolicyRule, ServerConfig } from "@/types";
 
 interface OOFSettings {
@@ -40,14 +41,18 @@ interface OOFSettings {
 // rateLimitFields reads the throttling values shown here from the same
 // /admin/config source the Settings page edits, so the two screens stay
 // consistent. Read-only here (edit them under Settings → Security).
-function rateLimitFields(cfg: ServerConfig): { label: string; description: string; value: number }[] {
+function rateLimitFields(
+  cfg: ServerConfig,
+  t: (key: string, params?: Record<string, string>) => string,
+): { label: string; description: string; value: number }[] {
   return [
-    { label: "Max emails per user", description: "per hour", value: cfg.security.rate_limit.user_per_hour },
-    { label: "Max auth attempts", description: "before lockout", value: cfg.security.max_login_attempts },
+    { label: t("policies.maxEmailsPerUser"), description: t("policies.perHour"), value: cfg.security.rate_limit.user_per_hour },
+    { label: t("policies.maxAuthAttempts"), description: t("policies.beforeLockout"), value: cfg.security.max_login_attempts },
   ];
 }
 
 export function Policies() {
+  const { t } = useI18n();
   const { rules, loading: rulesLoading, fetchRules, toggleRule, deleteRule } = useAdminRules();
   const { config: rateLimitConfig, loading: rateLoading, fetchConfig: fetchRateLimitConfig, updateConfig } = useConfig();
 
@@ -101,7 +106,7 @@ export function Policies() {
       await fetchRateLimitConfig().catch(() => {});
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to save OOF defaults");
+      setFormError((err as { message?: string }).message || t("policies.failedToSaveOofDefaults"));
     } finally {
       setSavingOOF(false);
     }
@@ -129,7 +134,7 @@ export function Policies() {
       await toggleRule(rule.id, !rule.enabled);
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to update rule");
+      setFormError((err as { message?: string }).message || t("policies.failedToUpdateRule"));
     }
   };
 
@@ -138,7 +143,7 @@ export function Policies() {
       await deleteRule(id);
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to delete rule");
+      setFormError((err as { message?: string }).message || t("policies.failedToDeleteRule"));
     }
   };
 
@@ -155,14 +160,14 @@ export function Policies() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Policies</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("policies.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Manage OOF, inbox rules, and Exchange protocol settings
+            {t("policies.description")}
           </p>
         </div>
         <Button variant="outline" onClick={refreshAll} disabled={loading}>
           <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-          Refresh
+          {t("common.refresh")}
         </Button>
       </div>
 
@@ -178,10 +183,10 @@ export function Policies() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
-            Out of Office Summary
+            {t("policies.outOfOfficeSummary")}
           </CardTitle>
           <CardDescription>
-            Active OOF configurations across mailboxes
+            {t("policies.activeOofConfigurations")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -194,13 +199,13 @@ export function Policies() {
               <Alert className="bg-blue-500/10 border-blue-500/20">
                 <Bell className="h-4 w-4" />
                 <AlertDescription>
-                  Click into a specific mailbox to view or edit its OOF settings
+                  {t("policies.clickMailboxToEditOof")}
                 </AlertDescription>
               </Alert>
               <div className="grid gap-4 md:grid-cols-1 max-w-xs">
                 <div className="p-4 rounded-lg bg-muted">
                   <div className="text-2xl font-bold">{activeOOFCount}</div>
-                  <div className="text-sm text-muted-foreground">Active OOF</div>
+                  <div className="text-sm text-muted-foreground">{t("policies.activeOof")}</div>
                 </div>
               </div>
             </div>
@@ -213,33 +218,32 @@ export function Policies() {
         <TabsList>
           <TabsTrigger value="oof">
             <Mail className="h-4 w-4 mr-2" />
-            Out of Office
+            {t("policies.outOfOffice")}
           </TabsTrigger>
           <TabsTrigger value="rules">
             <Shield className="h-4 w-4 mr-2" />
-            Inbox Rules
+            {t("policies.inboxRules")}
           </TabsTrigger>
           <TabsTrigger value="rate-limits">
             <Clock className="h-4 w-4 mr-2" />
-            Rate Limits
+            {t("policies.rateLimits")}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="oof" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>OOF Defaults</CardTitle>
+              <CardTitle>{t("policies.oofDefaults")}</CardTitle>
               <CardDescription>
-                Server-wide default out-of-office template. Per-mailbox OOF is
-                managed by each user; these defaults are persisted server-side.
+                {t("policies.oofDefaultsDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>OOF Enabled</Label>
+                  <Label>{t("policies.oofEnabled")}</Label>
                   <p className="text-xs text-muted-foreground">
-                    Allow users to configure out-of-office replies
+                    {t("policies.oofEnabledHelp")}
                   </p>
                 </div>
                 <Switch
@@ -249,9 +253,9 @@ export function Policies() {
               </div>
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Internal Only</Label>
+                  <Label>{t("policies.internalOnly")}</Label>
                   <p className="text-xs text-muted-foreground">
-                    Only send OOF replies to internal senders
+                    {t("policies.internalOnlyHelp")}
                   </p>
                 </div>
                 <Switch
@@ -260,26 +264,26 @@ export function Policies() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="oof-subject">Default Subject</Label>
+                <Label htmlFor="oof-subject">{t("policies.defaultSubject")}</Label>
                 <Input
                   id="oof-subject"
-                  placeholder="Out of Office"
+                  placeholder={t("policies.defaultSubjectPlaceholder")}
                   value={oofSettings.subject}
                   onChange={(e) => setOofSettings((prev) => ({ ...prev, subject: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="oof-message">Default Message</Label>
+                <Label htmlFor="oof-message">{t("policies.defaultMessage")}</Label>
                 <Input
                   id="oof-message"
-                  placeholder="I am currently out of office..."
+                  placeholder={t("policies.defaultMessagePlaceholder")}
                   value={oofSettings.message}
                   onChange={(e) => setOofSettings((prev) => ({ ...prev, message: e.target.value }))}
                 />
               </div>
               <div className="flex justify-end">
                 <Button onClick={saveOOFDefaults} disabled={savingOOF || !rateLimitConfig}>
-                  Save Defaults
+                  {t("policies.saveDefaults")}
                 </Button>
               </div>
             </CardContent>
@@ -289,9 +293,9 @@ export function Policies() {
         <TabsContent value="rules" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Inbox Rules Policy</CardTitle>
+              <CardTitle>{t("policies.inboxRulesPolicy")}</CardTitle>
               <CardDescription>
-                All inbox rules across mailboxes. Toggle to enable/disable or remove a rule.
+                {t("policies.inboxRulesPolicyDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -303,9 +307,9 @@ export function Policies() {
               ) : rules.length === 0 ? (
                 <div className="text-center py-8">
                   <Shield className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium">No rules configured</h3>
+                  <h3 className="text-lg font-medium">{t("policies.noRulesConfigured")}</h3>
                   <p className="text-muted-foreground mt-1">
-                    Inbox rules created by users will appear here
+                    {t("policies.noRulesHelp")}
                   </p>
                 </div>
               ) : (
@@ -320,7 +324,7 @@ export function Policies() {
                           <Shield className={cn("h-4 w-4", rule.enabled ? "text-emerald-500" : "text-muted-foreground")} />
                         </div>
                         <div>
-                          <div className="font-medium">{rule.name || "(unnamed rule)"}</div>
+                          <div className="font-medium">{rule.name || t("policies.unnamedRule")}</div>
                           <div className="text-sm text-muted-foreground">
                             {rule.mailbox} &middot; {rule.conditions} &rarr; {rule.actions}
                           </div>
@@ -342,7 +346,7 @@ export function Policies() {
                               onClick={() => handleDeleteRule(rule.id)}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
+                              {t("common.delete")}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -358,9 +362,9 @@ export function Policies() {
         <TabsContent value="rate-limits" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Rate Limiting Policy</CardTitle>
+              <CardTitle>{t("policies.rateLimitingPolicy")}</CardTitle>
               <CardDescription>
-                Current global throttling configuration (read-only here; edit under Settings)
+                {t("policies.rateLimitingPolicyDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -372,11 +376,11 @@ export function Policies() {
               ) : !rateLimitConfig ? (
                 <div className="text-center py-8">
                   <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium">Rate limiting not available</h3>
+                  <h3 className="text-lg font-medium">{t("policies.rateLimitingNotAvailable")}</h3>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {rateLimitFields(rateLimitConfig).map((field) => (
+                  {rateLimitFields(rateLimitConfig, t).map((field) => (
                     <div
                       key={field.label}
                       className="flex items-center justify-between p-4 rounded-lg border"

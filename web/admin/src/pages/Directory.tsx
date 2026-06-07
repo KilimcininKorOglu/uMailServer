@@ -41,9 +41,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { useDirectory } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import type { DirectoryObject } from "@/types";
 
 export function Directory() {
+  const { t } = useI18n();
   const {
     resources,
     bookingPolicies,
@@ -99,7 +101,7 @@ export function Directory() {
       setNewResourceType("room");
       setNewResourceCapacity(10);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to add resource");
+      setFormError((err as { message?: string }).message || t("directory.addFailed"));
     }
   };
 
@@ -108,7 +110,7 @@ export function Directory() {
       await updateResource(obj.id, { isHidden: !obj.isHidden });
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to update visibility");
+      setFormError((err as { message?: string }).message || t("directory.updateVisibilityFailed"));
     }
   };
 
@@ -117,7 +119,7 @@ export function Directory() {
       await updateResource(obj.id, { isBookable: !obj.isBookable });
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to update bookable state");
+      setFormError((err as { message?: string }).message || t("directory.updateBookableFailed"));
     }
   };
 
@@ -128,7 +130,7 @@ export function Directory() {
       setDeleteResourceTarget(null);
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to remove resource");
+      setFormError((err as { message?: string }).message || t("directory.removeFailed"));
     }
   };
 
@@ -140,7 +142,7 @@ export function Directory() {
       await updateResource(id, patch);
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to update booking policy");
+      setFormError((err as { message?: string }).message || t("directory.updateBookingFailed"));
     }
   };
 
@@ -159,7 +161,7 @@ export function Directory() {
       setEditResourceTarget(null);
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to update resource");
+      setFormError((err as { message?: string }).message || t("directory.updateFailed"));
     }
   };
 
@@ -172,7 +174,7 @@ export function Directory() {
       setNewRoomListName("");
       setNewRoomListRooms([]);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to create room list");
+      setFormError((err as { message?: string }).message || t("directory.createRoomListFailed"));
     }
   };
 
@@ -181,7 +183,7 @@ export function Directory() {
       await deleteRoomList(id);
       setFormError(null);
     } catch (err) {
-      setFormError((err as { message?: string }).message || "Failed to delete room list");
+      setFormError((err as { message?: string }).message || t("directory.deleteRoomListFailed"));
     }
   };
 
@@ -214,34 +216,49 @@ export function Directory() {
     }
   };
 
+  const objectTypeLabel = (type: string) => {
+    switch (type) {
+      case "room":
+        return t("directory.typeRoom");
+      case "equipment":
+        return t("directory.typeEquipment");
+      case "user":
+        return t("directory.typeUser");
+      case "distribution-group":
+        return t("directory.typeDistributionGroup");
+      default:
+        return type;
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Directory</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("directory.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Manage GAL visibility, rooms, resources, room lists, and booking policy
+            {t("directory.description")}
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => fetchDirectory().catch(() => {})} disabled={loading}>
             <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-            Refresh
+            {t("common.refresh")}
           </Button>
           <Dialog open={isAddResourceDialogOpen} onOpenChange={setIsAddResourceDialogOpen}>
             {/* @ts-expect-error asChild prop not typed in Base UI but works at runtime */}
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
-                Add Resource
+                {t("directory.addResource")}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Add Directory Resource</DialogTitle>
+                <DialogTitle>{t("directory.addDialogTitle")}</DialogTitle>
                 <DialogDescription>
-                  Add a room or equipment resource to the directory
+                  {t("directory.addDialogDescription")}
                 </DialogDescription>
               </DialogHeader>
               {formError && (
@@ -252,29 +269,29 @@ export function Directory() {
               )}
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="resource-name">Resource Name</Label>
+                  <Label htmlFor="resource-name">{t("directory.resourceName")}</Label>
                   <Input
                     id="resource-name"
-                    placeholder="Conference Room A"
+                    placeholder={t("directory.resourceNamePlaceholder")}
                     value={newResourceName}
                     onChange={(e) => setNewResourceName(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="resource-type">Type</Label>
+                  <Label htmlFor="resource-type">{t("common.type")}</Label>
                   <select
                     id="resource-type"
                     className="w-full p-2 border rounded-md bg-background"
                     value={newResourceType}
                     onChange={(e) => setNewResourceType(e.target.value as "room" | "equipment")}
                   >
-                    <option value="room">Room</option>
-                    <option value="equipment">Equipment</option>
+                    <option value="room">{t("directory.typeRoom")}</option>
+                    <option value="equipment">{t("directory.typeEquipment")}</option>
                   </select>
                 </div>
                 {newResourceType === "room" && (
                   <div className="space-y-2">
-                    <Label htmlFor="resource-capacity">Capacity</Label>
+                    <Label htmlFor="resource-capacity">{t("directory.capacity")}</Label>
                     <Input
                       id="resource-capacity"
                       type="number"
@@ -286,10 +303,10 @@ export function Directory() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsAddResourceDialogOpen(false)}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button onClick={handleAddResource} disabled={!newResourceName}>
-                  Add Resource
+                  {t("directory.addResource")}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -301,10 +318,9 @@ export function Directory() {
       <Dialog open={editResourceTarget !== null} onOpenChange={(open) => { if (!open) setEditResourceTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Resource</DialogTitle>
+            <DialogTitle>{t("directory.editResourceTitle")}</DialogTitle>
             <DialogDescription>
-              Update {editResourceTarget?.name}. Name and type are fixed at
-              creation; booking rules are on the Booking Policy tab.
+              {t("directory.editResourceDescription", { name: editResourceTarget?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           {formError && (
@@ -315,7 +331,7 @@ export function Directory() {
           )}
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-resource-capacity">Capacity</Label>
+              <Label htmlFor="edit-resource-capacity">{t("directory.capacity")}</Label>
               <Input
                 id="edit-resource-capacity"
                 type="number"
@@ -327,9 +343,9 @@ export function Directory() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditResourceTarget(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
-            <Button onClick={handleEditResource}>Save Changes</Button>
+            <Button onClick={handleEditResource}>{t("common.saveChanges")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -338,10 +354,9 @@ export function Directory() {
       <Dialog open={deleteResourceTarget !== null} onOpenChange={(open) => { if (!open) setDeleteResourceTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove Resource</DialogTitle>
+            <DialogTitle>{t("directory.removeResourceTitle")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to remove {deleteResourceTarget?.name}? This
-              action cannot be undone.
+              {t("directory.removeResourceDescription", { name: deleteResourceTarget?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           {formError && (
@@ -352,10 +367,10 @@ export function Directory() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteResourceTarget(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDeleteResource}>
-              Remove
+              {t("common.remove")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -373,28 +388,28 @@ export function Directory() {
         <TabsList>
           <TabsTrigger value="gal">
             <Users className="h-4 w-4 mr-2" />
-            Global Address List
+            {t("directory.globalAddressList")}
           </TabsTrigger>
           <TabsTrigger value="rooms">
             <Building className="h-4 w-4 mr-2" />
-            Rooms
+            {t("directory.rooms")}
           </TabsTrigger>
           <TabsTrigger value="room-lists">
             <List className="h-4 w-4 mr-2" />
-            Room Lists
+            {t("directory.roomLists")}
           </TabsTrigger>
           <TabsTrigger value="booking">
             <CheckCircle className="h-4 w-4 mr-2" />
-            Booking Policy
+            {t("directory.bookingPolicy")}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="gal" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Global Address List</CardTitle>
+              <CardTitle>{t("directory.globalAddressList")}</CardTitle>
               <CardDescription>
-                Room and equipment resources visible in GAL lookup
+                {t("directory.galDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -402,7 +417,7 @@ export function Directory() {
                 <div className="relative max-w-sm">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search directory..."
+                    placeholder={t("directory.searchPlaceholder")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
@@ -418,9 +433,9 @@ export function Directory() {
               ) : filteredObjects.length === 0 ? (
                 <div className="text-center py-8">
                   <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium">No directory objects</h3>
+                  <h3 className="text-lg font-medium">{t("directory.emptyGalTitle")}</h3>
                   <p className="text-muted-foreground mt-1">
-                    Add room or equipment resources to populate the directory
+                    {t("directory.emptyGalDescription")}
                   </p>
                 </div>
               ) : (
@@ -443,9 +458,9 @@ export function Directory() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-xs capitalize">{obj.type}</Badge>
+                        <Badge variant="secondary" className="text-xs capitalize">{objectTypeLabel(obj.type)}</Badge>
                         {obj.capacity ? (
-                          <Badge variant="outline" className="text-xs">{obj.capacity} seats</Badge>
+                          <Badge variant="outline" className="text-xs">{t("directory.seatsCount", { count: String(obj.capacity) })}</Badge>
                         ) : null}
                         <Switch checked={!obj.isHidden} onCheckedChange={() => handleToggleHidden(obj)} />
                         <DropdownMenu>
@@ -458,7 +473,7 @@ export function Directory() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => openEditResource(obj)}>
                               <Edit className="mr-2 h-4 w-4" />
-                              Edit
+                              {t("common.edit")}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
@@ -466,7 +481,7 @@ export function Directory() {
                               onClick={() => setDeleteResourceTarget(obj)}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
-                              Remove
+                              {t("common.remove")}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -482,9 +497,9 @@ export function Directory() {
         <TabsContent value="rooms" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Room Resources</CardTitle>
+              <CardTitle>{t("directory.roomResources")}</CardTitle>
               <CardDescription>
-                Bookable room resources
+                {t("directory.roomResourcesDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -507,16 +522,16 @@ export function Directory() {
                         <div>
                           <div className="font-medium">{room.name}</div>
                           <div className="text-sm text-muted-foreground">
-                            {room.capacity ? `${room.capacity} seats | ` : ""}{room.email}
+                            {room.capacity ? `${t("directory.seatsCount", { count: String(room.capacity) })} | ` : ""}{room.email}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Switch checked={room.isBookable} onCheckedChange={() => handleToggleBookable(room)} />
                         {room.isBookable ? (
-                          <Badge variant="default" className="bg-emerald-500">Bookable</Badge>
+                          <Badge variant="default" className="bg-emerald-500">{t("directory.bookable")}</Badge>
                         ) : (
-                          <Badge variant="secondary">Not bookable</Badge>
+                          <Badge variant="secondary">{t("directory.notBookable")}</Badge>
                         )}
                       </div>
                     </div>
@@ -525,9 +540,9 @@ export function Directory() {
                   {rooms.length === 0 && (
                     <div className="text-center py-8">
                       <Building className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                      <h3 className="text-lg font-medium">No room resources</h3>
+                      <h3 className="text-lg font-medium">{t("directory.emptyRoomsTitle")}</h3>
                       <p className="text-muted-foreground mt-1">
-                        Add room resources to make them bookable
+                        {t("directory.emptyRoomsDescription")}
                       </p>
                     </div>
                   )}
@@ -542,9 +557,9 @@ export function Directory() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Room Lists</CardTitle>
+                  <CardTitle>{t("directory.roomLists")}</CardTitle>
                   <CardDescription>
-                    Group rooms into lists for Outlook's Room Finder
+                    {t("directory.roomListsDescription")}
                   </CardDescription>
                 </div>
                 <Dialog open={isAddRoomListDialogOpen} onOpenChange={setIsAddRoomListDialogOpen}>
@@ -552,14 +567,14 @@ export function Directory() {
                   <DialogTrigger asChild>
                     <Button size="sm">
                       <Plus className="mr-2 h-4 w-4" />
-                      Add Room List
+                      {t("directory.addRoomList")}
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                      <DialogTitle>Add Room List</DialogTitle>
+                      <DialogTitle>{t("directory.addRoomList")}</DialogTitle>
                       <DialogDescription>
-                        Name the list and select which rooms belong to it
+                        {t("directory.addRoomListDescription")}
                       </DialogDescription>
                     </DialogHeader>
                     {formError && (
@@ -570,19 +585,19 @@ export function Directory() {
                     )}
                     <div className="space-y-4 py-4">
                       <div className="space-y-2">
-                        <Label htmlFor="room-list-name">List Name</Label>
+                        <Label htmlFor="room-list-name">{t("directory.listName")}</Label>
                         <Input
                           id="room-list-name"
-                          placeholder="Floor 1 Rooms"
+                          placeholder={t("directory.listNamePlaceholder")}
                           value={newRoomListName}
                           onChange={(e) => setNewRoomListName(e.target.value)}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Rooms</Label>
+                        <Label>{t("directory.rooms")}</Label>
                         {rooms.length === 0 ? (
                           <p className="text-sm text-muted-foreground">
-                            No rooms available. Add room resources first.
+                            {t("directory.noRoomsAvailable")}
                           </p>
                         ) : (
                           <div className="space-y-2 max-h-48 overflow-y-auto rounded-md border p-2">
@@ -605,10 +620,10 @@ export function Directory() {
                     </div>
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setIsAddRoomListDialogOpen(false)}>
-                        Cancel
+                        {t("common.cancel")}
                       </Button>
                       <Button onClick={handleAddRoomList} disabled={!newRoomListName}>
-                        Create List
+                        {t("directory.createList")}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -623,9 +638,9 @@ export function Directory() {
               ) : roomLists.length === 0 ? (
                 <div className="text-center py-8">
                   <List className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium">No room lists</h3>
+                  <h3 className="text-lg font-medium">{t("directory.emptyRoomListsTitle")}</h3>
                   <p className="text-muted-foreground mt-1">
-                    Create a room list to group bookable rooms
+                    {t("directory.emptyRoomListsDescription")}
                   </p>
                 </div>
               ) : (
@@ -642,7 +657,9 @@ export function Directory() {
                         <div>
                           <div className="font-medium">{list.name}</div>
                           <div className="text-sm text-muted-foreground">
-                            {list.rooms.length} room{list.rooms.length === 1 ? "" : "s"}
+                            {list.rooms.length === 1
+                              ? t("directory.roomCountSingular", { count: String(list.rooms.length) })
+                              : t("directory.roomCountPlural", { count: String(list.rooms.length) })}
                             {list.rooms.length > 0 ? `: ${list.rooms.join(", ")}` : ""}
                           </div>
                         </div>
@@ -661,9 +678,9 @@ export function Directory() {
         <TabsContent value="booking" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Resource Booking Policy</CardTitle>
+              <CardTitle>{t("directory.bookingPolicyTitle")}</CardTitle>
               <CardDescription>
-                Auto-accept, recurring, and approval settings per room resource
+                {t("directory.bookingPolicyDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -675,9 +692,9 @@ export function Directory() {
               ) : bookingPolicies.length === 0 ? (
                 <div className="text-center py-8">
                   <CheckCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium">No booking policies</h3>
+                  <h3 className="text-lg font-medium">{t("directory.emptyBookingTitle")}</h3>
                   <p className="text-muted-foreground mt-1">
-                    Room resources and their booking policies will appear here
+                    {t("directory.emptyBookingDescription")}
                   </p>
                 </div>
               ) : (
@@ -695,14 +712,14 @@ export function Directory() {
                           <div>
                             <div className="font-medium">{policy.resourceName}</div>
                             <div className="text-sm text-muted-foreground">
-                              Max duration: {policy.maxDuration} minutes
+                              {t("directory.maxDurationMinutes", { count: String(policy.maxDuration) })}
                             </div>
                           </div>
                         </div>
                       </div>
                       <div className="grid gap-4 md:grid-cols-4">
                         <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
-                          <Label className="text-xs">Auto-Accept</Label>
+                          <Label className="text-xs">{t("directory.autoAccept")}</Label>
                           {/* Auto-accept is the inverse of requires-approval. */}
                           <Switch
                             checked={policy.autoAccept}
@@ -712,7 +729,7 @@ export function Directory() {
                           />
                         </div>
                         <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
-                          <Label className="text-xs">Allow Recurring</Label>
+                          <Label className="text-xs">{t("directory.allowRecurring")}</Label>
                           <Switch
                             checked={policy.allowRecurring}
                             onCheckedChange={(v) =>
@@ -721,7 +738,7 @@ export function Directory() {
                           />
                         </div>
                         <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
-                          <Label className="text-xs">Requires Approval</Label>
+                          <Label className="text-xs">{t("directory.requiresApproval")}</Label>
                           <Switch
                             checked={policy.requiresApproval}
                             onCheckedChange={(v) =>
@@ -731,7 +748,7 @@ export function Directory() {
                         </div>
                         <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-muted">
                           <Label className="text-xs" htmlFor={`maxdur-${policy.id}`}>
-                            Max Duration (min)
+                            {t("directory.maxDurationLabel")}
                           </Label>
                           <Input
                             id={`maxdur-${policy.id}`}

@@ -6,12 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useI18n } from "@/hooks/useI18n";
 
 interface LoginProps {
   onLogin: (user: { email: string; mustChangePassword: boolean }) => void;
 }
 
 export function Login({ onLogin }: LoginProps) {
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -35,13 +37,13 @@ export function Login({ onLogin }: LoginProps) {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Login failed");
+        throw new Error(data.error || t("auth.loginFailed"));
       }
 
       onLogin({ email, mustChangePassword: Boolean(data.must_change_password) });
       navigate("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error ? err.message : t("auth.loginFailed"));
     } finally {
       setLoading(false);
     }
@@ -61,9 +63,9 @@ export function Login({ onLogin }: LoginProps) {
             <Server className="w-8 h-8 text-primary-foreground" />
           </div>
           <div className="space-y-2">
-            <CardTitle className="text-2xl font-bold">uMail Admin</CardTitle>
+            <CardTitle className="text-2xl font-bold">{t("auth.adminTitle")}</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Sign in to manage your email server
+              {t("auth.subtitle")}
             </CardDescription>
           </div>
         </CardHeader>
@@ -78,7 +80,7 @@ export function Login({ onLogin }: LoginProps) {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email" className="text-sm font-medium">
-                Email Address
+                {t("auth.emailAddress")}
               </Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -96,7 +98,7 @@ export function Login({ onLogin }: LoginProps) {
 
             <div className="space-y-2">
               <Label htmlFor="password" className="text-sm font-medium">
-                Password
+                {t("auth.password")}
               </Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -131,10 +133,10 @@ export function Login({ onLogin }: LoginProps) {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
+                  {t("auth.signingIn")}
                 </>
               ) : (
-                "Sign In"
+                t("auth.submit")
               )}
             </Button>
           </form>
@@ -142,7 +144,7 @@ export function Login({ onLogin }: LoginProps) {
 
         <CardFooter className="text-center text-sm text-muted-foreground">
           <p className="w-full">
-            uMailServer • Modern Email Infrastructure
+            {t("auth.footer")}
           </p>
         </CardFooter>
       </Card>

@@ -33,10 +33,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useQueue } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 import type { QueueEntry } from "@/types";
 
+type TFunc = (key: string, params?: Record<string, string>) => string;
+
+function getStatusLabel(status: string, t: TFunc): string {
+  switch (status) {
+    case "delivered":
+      return t("queue.delivered");
+    case "failed":
+      return t("queue.failed");
+    case "sending":
+      return t("queue.sending");
+    case "pending":
+      return t("queue.pending");
+    default:
+      return status;
+  }
+}
+
 export function Queue() {
+  const { t } = useI18n();
   const { entries, loading, fetchQueue, retryEntry, dropEntry } = useQueue();
   const [filter, setFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -115,24 +134,24 @@ export function Queue() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Email Queue</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("queue.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Monitor and manage outgoing email queue
+            {t("queue.pageDescription")}
           </p>
         </div>
         <Button variant="outline" onClick={fetchQueue} disabled={loading}>
           <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-          Refresh
+          {t("common.refresh")}
         </Button>
       </div>
 
       {/* Stats Cards */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
-        <StatCard title="Total" value={stats.total} icon={Mail} color="from-gray-500 to-gray-600" />
-        <StatCard title="Pending" value={stats.pending} icon={Clock} color="from-amber-500 to-amber-600" />
-        <StatCard title="Sending" value={stats.sending} icon={Send} color="from-blue-500 to-blue-600" />
-        <StatCard title="Failed" value={stats.failed} icon={AlertCircle} color="from-red-500 to-red-600" />
-        <StatCard title="Delivered" value={stats.delivered} icon={CheckCircle} color="from-emerald-500 to-emerald-600" />
+        <StatCard title={t("queue.total")} value={stats.total} icon={Mail} color="from-gray-500 to-gray-600" />
+        <StatCard title={t("queue.pending")} value={stats.pending} icon={Clock} color="from-amber-500 to-amber-600" />
+        <StatCard title={t("queue.sending")} value={stats.sending} icon={Send} color="from-blue-500 to-blue-600" />
+        <StatCard title={t("queue.failed")} value={stats.failed} icon={AlertCircle} color="from-red-500 to-red-600" />
+        <StatCard title={t("queue.delivered")} value={stats.delivered} icon={CheckCircle} color="from-emerald-500 to-emerald-600" />
       </div>
 
       {/* Filter and List */}
@@ -140,22 +159,22 @@ export function Queue() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Queue Entries</CardTitle>
+              <CardTitle>{t("queue.entriesTitle")}</CardTitle>
               <CardDescription>
-                {filteredEntries?.length || 0} messages in queue
+                {t("queue.messagesInQueue", { count: String(filteredEntries?.length || 0) })}
               </CardDescription>
             </div>
             <Select value={filter} onValueChange={(value) => setFilter(value ?? "all")}>
               <SelectTrigger className="w-40">
                 <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Filter by status" />
+                <SelectValue placeholder={t("queue.filterByStatus")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="sending">Sending</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
-                <SelectItem value="delivered">Delivered</SelectItem>
+                <SelectItem value="all">{t("queue.allStatus")}</SelectItem>
+                <SelectItem value="pending">{t("queue.pending")}</SelectItem>
+                <SelectItem value="sending">{t("queue.sending")}</SelectItem>
+                <SelectItem value="failed">{t("queue.failed")}</SelectItem>
+                <SelectItem value="delivered">{t("queue.delivered")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -170,9 +189,9 @@ export function Queue() {
           ) : paginatedEntries?.length === 0 ? (
             <div className="text-center py-12">
               <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium">No queue entries</h3>
+              <h3 className="text-lg font-medium">{t("queue.empty")}</h3>
               <p className="text-muted-foreground mt-1">
-                The email queue is currently empty
+                {t("queue.emptyDescription")}
               </p>
             </div>
           ) : (
@@ -192,6 +211,7 @@ export function Queue() {
                     }}
                     getStatusIcon={getStatusIcon}
                     getStatusBadge={getStatusBadge}
+                    t={t}
                   />
                 ))}
               </div>
@@ -200,7 +220,7 @@ export function Queue() {
               {totalPages > 1 && (
                 <div className="flex items-center justify-between mt-6 pt-4 border-t">
                   <p className="text-sm text-muted-foreground">
-                    Page {currentPage} of {totalPages}
+                    {t("common.page")} {currentPage} {t("common.of")} {totalPages}
                   </p>
                   <div className="flex items-center gap-2">
                     <Button
@@ -231,25 +251,25 @@ export function Queue() {
       <Dialog open={isRetryDialogOpen} onOpenChange={setIsRetryDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Retry Email</DialogTitle>
+            <DialogTitle>{t("queue.retryDialogTitle")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to retry sending this email?
+              {t("queue.retryConfirm")}
             </DialogDescription>
           </DialogHeader>
           {selectedEntry && (
             <div className="bg-muted p-4 rounded-lg text-sm">
-              <p><strong>To:</strong> {selectedEntry.to}</p>
-              <p><strong>From:</strong> {selectedEntry.from}</p>
-              <p><strong>Status:</strong> {selectedEntry.status}</p>
+              <p><strong>{t("queue.to")}:</strong> {selectedEntry.to}</p>
+              <p><strong>{t("queue.from")}:</strong> {selectedEntry.from}</p>
+              <p><strong>{t("common.status")}:</strong> {getStatusLabel(selectedEntry.status, t)}</p>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsRetryDialogOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleRetry}>
               <RotateCcw className="mr-2 h-4 w-4" />
-              Retry
+              {t("common.retry")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -259,25 +279,25 @@ export function Queue() {
       <Dialog open={isDropDialogOpen} onOpenChange={setIsDropDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove from Queue</DialogTitle>
+            <DialogTitle>{t("queue.removeDialogTitle")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to permanently remove this email from the queue?
+              {t("queue.removeConfirm")}
             </DialogDescription>
           </DialogHeader>
           {selectedEntry && (
             <div className="bg-muted p-4 rounded-lg text-sm">
-              <p><strong>To:</strong> {selectedEntry.to}</p>
-              <p><strong>From:</strong> {selectedEntry.from}</p>
-              <p><strong>Status:</strong> {selectedEntry.status}</p>
+              <p><strong>{t("queue.to")}:</strong> {selectedEntry.to}</p>
+              <p><strong>{t("queue.from")}:</strong> {selectedEntry.from}</p>
+              <p><strong>{t("common.status")}:</strong> {getStatusLabel(selectedEntry.status, t)}</p>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDropDialogOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDrop}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Remove
+              {t("common.remove")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -317,9 +337,10 @@ interface QueueItemProps {
   onDrop: () => void;
   getStatusIcon: (status: string) => React.ReactNode;
   getStatusBadge: (status: string) => string;
+  t: TFunc;
 }
 
-function QueueItem({ entry, onRetry, onDrop, getStatusIcon, getStatusBadge }: QueueItemProps) {
+function QueueItem({ entry, onRetry, onDrop, getStatusIcon, getStatusBadge, t }: QueueItemProps) {
   return (
     <div className="flex items-center gap-4 p-4 rounded-lg border hover:bg-muted/50 transition-colors">
       <div className="flex-shrink-0">{getStatusIcon(entry.status)}</div>
@@ -328,22 +349,22 @@ function QueueItem({ entry, onRetry, onDrop, getStatusIcon, getStatusBadge }: Qu
         <div className="flex items-center gap-2">
           <span className="font-medium truncate">{entry.to}</span>
           <Badge variant="secondary" className={cn("text-xs", getStatusBadge(entry.status))}>
-            {entry.status}
+            {getStatusLabel(entry.status, t)}
           </Badge>
         </div>
         <div className="text-sm text-muted-foreground">
-          From: {entry.from}
+          {t("queue.from")}: {entry.from}
         </div>
         {entry.last_error && (
           <div className="text-xs text-red-500 mt-1 truncate">
-            Error: {entry.last_error}
+            {t("common.error")}: {entry.last_error}
           </div>
         )}
       </div>
 
       <div className="text-xs text-muted-foreground hidden sm:block">
         {entry.retry_count > 0 && (
-          <span className="block text-right">{entry.retry_count} retries</span>
+          <span className="block text-right">{t("queue.retriesCount", { count: String(entry.retry_count) })}</span>
         )}
         <span className="block text-right">
           {new Date(entry.created_at).toLocaleString()}
@@ -355,11 +376,11 @@ function QueueItem({ entry, onRetry, onDrop, getStatusIcon, getStatusBadge }: Qu
             also needs a manual retry: the backend resets its schedule to run
             now. Only "sending" (in progress) and "delivered" are excluded. */}
         {(entry.status === "pending" || entry.status === "failed") && (
-          <Button variant="ghost" size="sm" onClick={onRetry} aria-label="Retry sending" title="Retry sending">
+          <Button variant="ghost" size="sm" onClick={onRetry} aria-label={t("queue.retrySending")} title={t("queue.retrySending")}>
             <RotateCcw className="h-4 w-4" />
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={onDrop} aria-label="Remove from queue" title="Remove from queue">
+        <Button variant="ghost" size="sm" onClick={onDrop} aria-label={t("queue.removeFromQueue")} title={t("queue.removeFromQueue")}>
           <Trash2 className="h-4 w-4 text-red-500" />
         </Button>
       </div>

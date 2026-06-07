@@ -54,6 +54,7 @@ import { cn } from "@/lib/utils";
 import { useJobs, useBackups } from "@/hooks/useApi";
 import type { BackupManifest } from "@/types";
 import type { BackupCreateInput, BackupRestoreInput } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes < 0) return "0 B";
@@ -63,6 +64,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function Jobs() {
+  const { t } = useI18n();
   const { jobs, loading, fetchJobs } = useJobs();
   const {
     backups,
@@ -106,18 +108,18 @@ export function Jobs() {
 
   const handleCreate = async () => {
     if (needsTarget && !createForm.target?.trim()) {
-      toast.error("Target is required for per-user / per-mailbox backups");
+      toast.error(t("jobs.targetRequired"));
       return;
     }
     setCreating(true);
     try {
       await createBackup({ ...createForm, target: createForm.target?.trim() });
-      toast.success("Backup created");
+      toast.success(t("jobs.backupCreated"));
       setCreateOpen(false);
       setCreateForm({ type: "full", target: "" });
       refreshBackups();
     } catch (err) {
-      toast.error((err as { message?: string }).message || "Backup failed");
+      toast.error((err as { message?: string }).message || t("jobs.backupFailed"));
     } finally {
       setCreating(false);
     }
@@ -128,12 +130,12 @@ export function Jobs() {
     try {
       const result = await verifyBackup(b.id);
       if (result.verified) {
-        toast.success("Backup verified — archive is intact");
+        toast.success(t("jobs.backupVerified"));
       } else {
-        toast.error(result.message || "Verification failed");
+        toast.error(result.message || t("jobs.verificationFailed"));
       }
     } catch (err) {
-      toast.error((err as { message?: string }).message || "Verification failed");
+      toast.error((err as { message?: string }).message || t("jobs.verificationFailed"));
     } finally {
       setVerifyingId(null);
     }
@@ -142,7 +144,7 @@ export function Jobs() {
   const handleRestore = async () => {
     if (!restoreTarget) return;
     if (restoreForm.mode === "different-user" && !restoreForm.target_user?.trim()) {
-      toast.error("Target user is required for a different-user restore");
+      toast.error(t("jobs.targetUserRequired"));
       return;
     }
     setRestoring(true);
@@ -152,13 +154,13 @@ export function Jobs() {
         target_user: restoreForm.target_user?.trim(),
       });
       if (result.status === "completed") {
-        toast.success("Restore completed");
+        toast.success(t("jobs.restoreCompleted"));
       } else {
-        toast.error(result.message || "Restore failed");
+        toast.error(result.message || t("jobs.restoreFailed"));
       }
       setRestoreTarget(null);
     } catch (err) {
-      toast.error((err as { message?: string }).message || "Restore failed");
+      toast.error((err as { message?: string }).message || t("jobs.restoreFailed"));
     } finally {
       setRestoring(false);
     }
@@ -169,11 +171,11 @@ export function Jobs() {
     setDeleting(true);
     try {
       await deleteBackup(deleteTarget.id);
-      toast.success("Backup deleted");
+      toast.success(t("jobs.backupDeleted"));
       setDeleteTarget(null);
       refreshBackups();
     } catch (err) {
-      toast.error((err as { message?: string }).message || "Delete failed");
+      toast.error((err as { message?: string }).message || t("jobs.deleteFailed"));
     } finally {
       setDeleting(false);
     }
@@ -182,15 +184,15 @@ export function Jobs() {
   const getJobTypeLabel = (type: string) => {
     switch (type) {
       case "backfill":
-        return "Mailbox Backfill";
+        return t("jobs.jobTypeBackfill");
       case "migration":
-        return "Data Migration";
+        return t("jobs.jobTypeMigration");
       case "oab-generation":
-        return "OAB Generation";
+        return t("jobs.jobTypeOabGeneration");
       case "backup":
-        return "Backup";
+        return t("jobs.jobTypeBackup");
       case "restore":
-        return "Restore";
+        return t("jobs.jobTypeRestore");
       default:
         return type;
     }
@@ -243,6 +245,21 @@ export function Jobs() {
     }
   };
 
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case "pending":
+        return t("jobs.statusPending");
+      case "running":
+        return t("jobs.statusRunning");
+      case "completed":
+        return t("jobs.statusCompleted");
+      case "failed":
+        return t("jobs.statusFailed");
+      default:
+        return status;
+    }
+  };
+
   const activeJobs = jobs.filter((j) => j.status === "pending" || j.status === "running");
   const completedJobs = jobs.filter((j) => j.status === "completed" || j.status === "failed");
 
@@ -251,10 +268,8 @@ export function Jobs() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Jobs &amp; Backups</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage backups and monitor backfill, migration, and OAB jobs
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("jobs.title")}</h1>
+          <p className="text-muted-foreground mt-1">{t("jobs.description")}</p>
         </div>
       </div>
 
@@ -262,11 +277,11 @@ export function Jobs() {
         <TabsList>
           <TabsTrigger value="backups">
             <Archive className="mr-2 h-4 w-4" />
-            Backups
+            {t("jobs.backups")}
           </TabsTrigger>
           <TabsTrigger value="jobs">
             <Briefcase className="mr-2 h-4 w-4" />
-            Jobs
+            {t("jobs.jobs")}
           </TabsTrigger>
         </TabsList>
 
@@ -278,20 +293,18 @@ export function Jobs() {
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <HardDrive className="h-5 w-5" />
-                    Backups
+                    {t("jobs.backups")}
                   </CardTitle>
-                  <CardDescription>
-                    Full, per-user, and per-mailbox archives of the canonical store
-                  </CardDescription>
+                  <CardDescription>{t("jobs.backupsCardDescription")}</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button onClick={() => setCreateOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" />
-                    New Backup
+                    {t("jobs.newBackup")}
                   </Button>
                   <Button variant="outline" onClick={refreshBackups} disabled={backupsLoading}>
                     <RefreshCw className={cn("mr-2 h-4 w-4", backupsLoading && "animate-spin")} />
-                    Refresh
+                    {t("common.refresh")}
                   </Button>
                 </div>
               </div>
@@ -305,20 +318,18 @@ export function Jobs() {
               ) : backups.length === 0 ? (
                 <div className="text-center py-8">
                   <Archive className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium">No backups yet</h3>
-                  <p className="text-muted-foreground mt-1">
-                    Create a backup to capture mailbox data you can later verify or restore
-                  </p>
+                  <h3 className="text-lg font-medium">{t("jobs.noBackups")}</h3>
+                  <p className="text-muted-foreground mt-1">{t("jobs.noBackupsDescription")}</p>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Target</TableHead>
-                      <TableHead className="text-right">Size</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead>{t("common.type")}</TableHead>
+                      <TableHead>{t("common.target")}</TableHead>
+                      <TableHead className="text-right">{t("common.size")}</TableHead>
+                      <TableHead>{t("common.created")}</TableHead>
+                      <TableHead className="text-right">{t("common.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -339,7 +350,7 @@ export function Jobs() {
                               size="sm"
                               onClick={() => handleVerify(b)}
                               disabled={verifyingId === b.id}
-                              title="Verify archive integrity"
+                              title={t("jobs.verifyTooltip")}
                             >
                               {verifyingId === b.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -358,7 +369,7 @@ export function Jobs() {
                                 });
                                 setRestoreTarget(b);
                               }}
-                              title="Restore"
+                              title={t("jobs.restore")}
                             >
                               <RotateCcw className="h-4 w-4" />
                             </Button>
@@ -366,7 +377,7 @@ export function Jobs() {
                               variant="ghost"
                               size="sm"
                               onClick={() => setDeleteTarget(b)}
-                              title="Delete"
+                              title={t("common.delete")}
                               className="text-red-500 hover:text-red-500"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -387,7 +398,7 @@ export function Jobs() {
           <div className="flex justify-end">
             <Button variant="outline" onClick={() => fetchJobs().catch(() => {})} disabled={loading}>
               <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-              Refresh
+              {t("common.refresh")}
             </Button>
           </div>
 
@@ -396,9 +407,9 @@ export function Jobs() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Briefcase className="h-5 w-5" />
-                Active Jobs
+                {t("jobs.activeJobs")}
               </CardTitle>
-              <CardDescription>Currently running or pending jobs</CardDescription>
+              <CardDescription>{t("jobs.activeJobsDescription")}</CardDescription>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -409,10 +420,8 @@ export function Jobs() {
               ) : activeJobs.length === 0 ? (
                 <div className="text-center py-8">
                   <CheckCircle className="h-12 w-12 mx-auto text-emerald-500 mb-4" />
-                  <h3 className="text-lg font-medium">No active jobs</h3>
-                  <p className="text-muted-foreground mt-1">
-                    All jobs have completed or there are no pending jobs
-                  </p>
+                  <h3 className="text-lg font-medium">{t("jobs.noActiveJobs")}</h3>
+                  <p className="text-muted-foreground mt-1">{t("jobs.noActiveJobsDescription")}</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -429,9 +438,11 @@ export function Jobs() {
                           <div>
                             <div className="font-medium">{getJobTypeLabel(job.type)}</div>
                             <div className="text-sm text-muted-foreground">
-                              {job.mailbox ? `Mailbox: ${job.mailbox}` : "System job"}
+                              {job.mailbox
+                                ? t("jobs.mailboxLabel", { mailbox: job.mailbox })
+                                : t("jobs.systemJob")}
                               {job.startedAt && (
-                                <span> | Started: {new Date(job.startedAt).toLocaleString()}</span>
+                                <span> | {t("jobs.started")}: {new Date(job.startedAt).toLocaleString()}</span>
                               )}
                             </div>
                           </div>
@@ -445,13 +456,13 @@ export function Jobs() {
                               job.status === "pending" && "bg-muted text-muted-foreground"
                             )}
                           >
-                            {job.status}
+                            {getStatusLabel(job.status)}
                           </Badge>
                         </div>
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
-                          <span>Progress</span>
+                          <span>{t("jobs.progress")}</span>
                           <span>{job.progress}%</span>
                         </div>
                         <Progress value={job.progress} className="h-2" />
@@ -468,9 +479,9 @@ export function Jobs() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
-                Job History
+                {t("jobs.jobHistory")}
               </CardTitle>
-              <CardDescription>Completed and failed jobs</CardDescription>
+              <CardDescription>{t("jobs.jobHistoryDescription")}</CardDescription>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -481,10 +492,8 @@ export function Jobs() {
               ) : completedJobs.length === 0 ? (
                 <div className="text-center py-8">
                   <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium">No job history</h3>
-                  <p className="text-muted-foreground mt-1">
-                    Completed and failed jobs will appear here
-                  </p>
+                  <h3 className="text-lg font-medium">{t("jobs.noJobHistory")}</h3>
+                  <p className="text-muted-foreground mt-1">{t("jobs.noJobHistoryDescription")}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -504,13 +513,17 @@ export function Jobs() {
                         <div>
                           <div className="font-medium">{getJobTypeLabel(job.type)}</div>
                           <div className="text-sm text-muted-foreground">
-                            {job.mailbox ? `Mailbox: ${job.mailbox}` : "System job"}
+                            {job.mailbox
+                              ? t("jobs.mailboxLabel", { mailbox: job.mailbox })
+                              : t("jobs.systemJob")}
                             {job.completedAt && (
-                              <span> | Completed: {new Date(job.completedAt).toLocaleString()}</span>
+                              <span> | {t("jobs.completed")}: {new Date(job.completedAt).toLocaleString()}</span>
                             )}
                           </div>
                           {job.error && (
-                            <div className="text-xs text-red-500 mt-1">Error: {job.error}</div>
+                            <div className="text-xs text-red-500 mt-1">
+                              {t("common.error")}: {job.error}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -523,7 +536,7 @@ export function Jobs() {
                             job.status === "failed" && "bg-red-500/10 text-red-500"
                           )}
                         >
-                          {job.status}
+                          {getStatusLabel(job.status)}
                         </Badge>
                       </div>
                     </div>
@@ -539,14 +552,12 @@ export function Jobs() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New backup</DialogTitle>
-            <DialogDescription>
-              Create a backup of the whole store or a single user / mailbox.
-            </DialogDescription>
+            <DialogTitle>{t("jobs.newBackupTitle")}</DialogTitle>
+            <DialogDescription>{t("jobs.newBackupDescription")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Type</Label>
+              <Label>{t("common.type")}</Label>
               <Select
                 value={createForm.type}
                 onValueChange={(v) =>
@@ -557,16 +568,18 @@ export function Jobs() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="full">Full (entire store)</SelectItem>
-                  <SelectItem value="per-user">Per user</SelectItem>
-                  <SelectItem value="per-mailbox">Per mailbox</SelectItem>
+                  <SelectItem value="full">{t("jobs.typeFull")}</SelectItem>
+                  <SelectItem value="per-user">{t("jobs.typePerUser")}</SelectItem>
+                  <SelectItem value="per-mailbox">{t("jobs.typePerMailbox")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {needsTarget && (
               <div className="space-y-2">
                 <Label>
-                  {createForm.type === "per-mailbox" ? "Target (user/mailbox)" : "Target user"}
+                  {createForm.type === "per-mailbox"
+                    ? t("jobs.targetUserMailbox")
+                    : t("jobs.targetUser")}
                 </Label>
                 <Input
                   placeholder={
@@ -582,11 +595,11 @@ export function Jobs() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleCreate} disabled={creating}>
               {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create
+              {t("common.create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -596,14 +609,14 @@ export function Jobs() {
       <Dialog open={!!restoreTarget} onOpenChange={(open) => !open && setRestoreTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Restore backup</DialogTitle>
+            <DialogTitle>{t("jobs.restoreBackupTitle")}</DialogTitle>
             <DialogDescription className="break-all">
               {restoreTarget?.filename}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Mode</Label>
+              <Label>{t("jobs.mode")}</Label>
               <Select
                 value={restoreForm.mode}
                 onValueChange={(v) =>
@@ -617,15 +630,15 @@ export function Jobs() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="different-user">Different user (safe)</SelectItem>
-                  <SelectItem value="merge">Merge into original</SelectItem>
-                  <SelectItem value="overwrite">Overwrite original</SelectItem>
+                  <SelectItem value="different-user">{t("jobs.modeDifferentUser")}</SelectItem>
+                  <SelectItem value="merge">{t("jobs.modeMerge")}</SelectItem>
+                  <SelectItem value="overwrite">{t("jobs.modeOverwrite")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {restoreForm.mode === "different-user" && (
               <div className="space-y-2">
-                <Label>Target user</Label>
+                <Label>{t("jobs.targetUser")}</Label>
                 <Input
                   placeholder="qa.restore@local.test"
                   value={restoreForm.target_user ?? ""}
@@ -638,10 +651,8 @@ export function Jobs() {
             {restoreForm.mode !== "different-user" && (
               <div className="flex items-center justify-between rounded-lg border p-3">
                 <div>
-                  <Label>Overwrite existing files</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Replace messages that already exist in the target
-                  </p>
+                  <Label>{t("jobs.overwriteExisting")}</Label>
+                  <p className="text-xs text-muted-foreground">{t("jobs.overwriteExistingHelp")}</p>
                 </div>
                 <Switch
                   checked={!!restoreForm.overwrite}
@@ -650,19 +661,16 @@ export function Jobs() {
               </div>
             )}
             {restoreForm.mode === "overwrite" && (
-              <p className="text-xs text-amber-500">
-                Overwrite mode replaces the original mailbox contents. Prefer a
-                different-user restore to inspect data safely first.
-              </p>
+              <p className="text-xs text-amber-500">{t("jobs.overwriteWarning")}</p>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRestoreTarget(null)} disabled={restoring}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleRestore} disabled={restoring}>
               {restoring && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Restore
+              {t("jobs.restore")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -672,18 +680,18 @@ export function Jobs() {
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete backup?</DialogTitle>
+            <DialogTitle>{t("jobs.deleteBackupTitle")}</DialogTitle>
             <DialogDescription className="break-all">
-              This removes the backup record {deleteTarget?.filename}. This cannot be undone.
+              {t("jobs.deleteBackupDescription", { filename: deleteTarget?.filename ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

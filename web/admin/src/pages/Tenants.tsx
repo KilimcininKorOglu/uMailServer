@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTenants } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import type { Tenant, TenantBranding } from "@/types";
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -29,6 +30,7 @@ const emptyBranding: TenantBranding = {
 };
 
 export function Tenants() {
+  const { t } = useI18n();
   const { tenants, loading, error, fetchTenants, fetchBranding, updateBranding } = useTenants();
   const [selected, setSelected] = useState<Tenant | null>(null);
   const [branding, setBranding] = useState<TenantBranding>(emptyBranding);
@@ -40,13 +42,13 @@ export function Tenants() {
   }, [fetchTenants]);
 
   const selectTenant = useCallback(
-    async (t: Tenant) => {
-      setSelected(t);
+    async (tenant: Tenant) => {
+      setSelected(tenant);
       try {
-        const b = await fetchBranding(t.id);
+        const b = await fetchBranding(tenant.id);
         setBranding({ ...emptyBranding, ...b, features: b.features ?? {} });
       } catch (err) {
-        toast.error(errorMessage(err, "Failed to load branding"));
+        toast.error(errorMessage(err, t("tenants.loadBrandingFailed")));
       }
     },
     [fetchBranding]
@@ -58,9 +60,9 @@ export function Tenants() {
     try {
       const saved = await updateBranding(selected.id, branding);
       setBranding({ ...emptyBranding, ...saved, features: saved.features ?? {} });
-      toast.success(`Branding saved for ${selected.id}`);
+      toast.success(t("tenants.brandingSaved", { id: selected.id }));
     } catch (err) {
-      toast.error(errorMessage(err, "Failed to save branding"));
+      toast.error(errorMessage(err, t("tenants.saveBrandingFailed")));
     } finally {
       setSaving(false);
     }
@@ -80,18 +82,18 @@ export function Tenants() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Building2 className="h-6 w-6 text-indigo-600" />
-          <h1 className="text-2xl font-semibold">Tenants</h1>
+          <h1 className="text-2xl font-semibold">{t("tenants.title")}</h1>
         </div>
         <Button variant="outline" size="sm" onClick={() => fetchTenants().catch(() => {})}>
           <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
+          {t("common.refresh")}
         </Button>
       </div>
 
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{errorMessage(error, "Failed to load tenants")}</AlertDescription>
+          <AlertDescription>{errorMessage(error, t("tenants.loadTenantsFailed"))}</AlertDescription>
         </Alert>
       )}
 
@@ -102,26 +104,26 @@ export function Tenants() {
             {loading && !tenants ? (
               <Skeleton className="h-24 w-full" />
             ) : (
-              (tenants ?? []).map((t) => (
+              (tenants ?? []).map((tenant) => (
                 <button
-                  key={t.id}
-                  onClick={() => selectTenant(t)}
+                  key={tenant.id}
+                  onClick={() => selectTenant(tenant)}
                   className={`w-full text-left rounded-lg border p-3 transition-colors ${
-                    selected?.id === t.id ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:bg-gray-50"
+                    selected?.id === tenant.id ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:bg-gray-50"
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">{t.name}</span>
-                    <Badge variant={t.is_active ? "default" : "secondary"}>
-                      {t.is_active ? "Active" : "Suspended"}
+                    <span className="font-medium">{tenant.name}</span>
+                    <Badge variant={tenant.is_active ? "default" : "secondary"}>
+                      {tenant.is_active ? t("common.active") : t("tenants.suspended")}
                     </Badge>
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">{t.id}</div>
+                  <div className="text-xs text-gray-500 mt-1">{tenant.id}</div>
                 </button>
               ))
             )}
             {tenants && tenants.length === 0 && (
-              <p className="text-sm text-gray-500">No tenants.</p>
+              <p className="text-sm text-gray-500">{t("tenants.noTenants")}</p>
             )}
           </CardContent>
         </Card>
@@ -130,13 +132,13 @@ export function Tenants() {
         <Card className="lg:col-span-2">
           <CardContent className="p-6">
             {!selected ? (
-              <p className="text-sm text-gray-500">Select a tenant to edit its branding.</p>
+              <p className="text-sm text-gray-500">{t("tenants.selectTenantPrompt")}</p>
             ) : (
               <div className="space-y-5">
-                <h2 className="text-lg font-medium">Branding — {selected.id}</h2>
+                <h2 className="text-lg font-medium">{t("tenants.brandingHeading", { id: selected.id })}</h2>
 
                 <div className="space-y-2">
-                  <Label htmlFor="app_name">Application name</Label>
+                  <Label htmlFor="app_name">{t("tenants.applicationName")}</Label>
                   <Input
                     id="app_name"
                     value={branding.app_name}
@@ -146,7 +148,7 @@ export function Tenants() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="logo_url">Logo URL</Label>
+                  <Label htmlFor="logo_url">{t("tenants.logoUrl")}</Label>
                   <Input
                     id="logo_url"
                     value={branding.logo_url}
@@ -156,7 +158,7 @@ export function Tenants() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="primary_color">Primary color</Label>
+                  <Label htmlFor="primary_color">{t("tenants.primaryColor")}</Label>
                   <div className="flex items-center gap-3">
                     <input
                       id="primary_color"
@@ -175,7 +177,7 @@ export function Tenants() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Feature flags</Label>
+                  <Label>{t("tenants.featureFlags")}</Label>
                   <div className="space-y-2">
                     {featureNames.map((name) => (
                       <div key={name} className="flex items-center justify-between rounded border border-gray-200 px-3 py-2">
@@ -196,7 +198,7 @@ export function Tenants() {
                               })
                             }
                             className="text-gray-400 hover:text-red-600"
-                            aria-label={`Remove ${name}`}
+                            aria-label={t("tenants.removeFeature", { name })}
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -204,13 +206,13 @@ export function Tenants() {
                       </div>
                     ))}
                     {featureNames.length === 0 && (
-                      <p className="text-sm text-gray-500">No feature flags.</p>
+                      <p className="text-sm text-gray-500">{t("tenants.noFeatureFlags")}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2 pt-1">
                     <Input
                       value={newFeature}
-                      placeholder="feature name (e.g. calendar)"
+                      placeholder={t("tenants.featureNamePlaceholder")}
                       onChange={(e) => setNewFeature(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
@@ -222,7 +224,7 @@ export function Tenants() {
                     />
                     <Button variant="outline" size="sm" onClick={addFeature}>
                       <Plus className="h-4 w-4 mr-1" />
-                      Add
+                      {t("common.add")}
                     </Button>
                   </div>
                 </div>
@@ -230,7 +232,7 @@ export function Tenants() {
                 <div className="pt-2">
                   <Button onClick={save} disabled={saving}>
                     <Save className="h-4 w-4 mr-2" />
-                    {saving ? "Saving…" : "Save branding"}
+                    {saving ? t("common.saving") : t("tenants.saveBranding")}
                   </Button>
                 </div>
               </div>

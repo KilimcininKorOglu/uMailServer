@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAliases } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import type { Alias } from "@/types";
 
 // useApi rejects with a plain { message, status } object rather than an Error,
@@ -32,6 +33,7 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 export function Aliases() {
+  const { t } = useI18n();
   const { aliases, loading, fetchAliases, createAlias, updateAlias, deleteAlias } = useAliases();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -55,7 +57,7 @@ export function Aliases() {
   const handleCreate = async () => {
     setFormError("");
     if (!newAlias || !newTarget) {
-      setFormError("Alias and target addresses are required");
+      setFormError(t("aliases.aliasAndTargetRequired"));
       return;
     }
     try {
@@ -64,7 +66,7 @@ export function Aliases() {
       setNewAlias("");
       setNewTarget("");
     } catch (err) {
-      setFormError(errorMessage(err, "Failed to create alias"));
+      setFormError(errorMessage(err, t("aliases.createFailed")));
     }
   };
 
@@ -72,7 +74,7 @@ export function Aliases() {
     try {
       await updateAlias(alias.alias, { target: alias.target, is_active: !alias.is_active });
     } catch (err) {
-      toast.error(errorMessage(err, "Failed to update alias"));
+      toast.error(errorMessage(err, t("aliases.updateFailed")));
     }
   };
 
@@ -83,7 +85,7 @@ export function Aliases() {
       await deleteAlias(deleteTarget.alias);
       setDeleteTarget(null);
     } catch (err) {
-      toast.error(errorMessage(err, "Failed to delete alias"));
+      toast.error(errorMessage(err, t("aliases.deleteFailed")));
     } finally {
       setBusy(false);
     }
@@ -93,14 +95,14 @@ export function Aliases() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Aliases</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("aliases.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Forward mail from an alias address to a real account
+            {t("aliases.subtitle")}
           </p>
         </div>
         <Button onClick={() => setIsAddDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          Add Alias
+          {t("aliases.addAlias")}
         </Button>
       </div>
 
@@ -108,7 +110,7 @@ export function Aliases() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search aliases..."
+            placeholder={t("aliases.searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -116,7 +118,7 @@ export function Aliases() {
         </div>
         <Button variant="outline" onClick={() => fetchAliases().catch(() => {})} disabled={loading}>
           <RefreshCw className={loading ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
-          Refresh
+          {t("common.refresh")}
         </Button>
       </div>
 
@@ -129,13 +131,13 @@ export function Aliases() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <AtSign className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">No aliases</h3>
+            <h3 className="text-lg font-medium">{t("aliases.emptyTitle")}</h3>
             <p className="text-muted-foreground mt-1">
-              Create an alias to forward mail to an existing account.
+              {t("aliases.emptyDescription")}
             </p>
             <Button className="mt-4" onClick={() => setIsAddDialogOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              Add Alias
+              {t("aliases.addAlias")}
             </Button>
           </CardContent>
         </Card>
@@ -158,7 +160,7 @@ export function Aliases() {
               <div className="flex items-center gap-3">
                 {!alias.is_active && (
                   <Badge variant="secondary" className="text-[10px]">
-                    Disabled
+                    {t("common.disabled")}
                   </Badge>
                 )}
                 <Switch checked={alias.is_active} onCheckedChange={() => handleToggle(alias)} />
@@ -180,9 +182,9 @@ export function Aliases() {
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Alias</DialogTitle>
+            <DialogTitle>{t("aliases.addAlias")}</DialogTitle>
             <DialogDescription>
-              Mail sent to the alias address is delivered to the target account.
+              {t("aliases.addDialogDescription")}
             </DialogDescription>
           </DialogHeader>
           {formError && (
@@ -193,7 +195,7 @@ export function Aliases() {
           )}
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="alias-address">Alias Address</Label>
+              <Label htmlFor="alias-address">{t("aliases.aliasAddress")}</Label>
               <Input
                 id="alias-address"
                 placeholder="sales@example.com"
@@ -202,7 +204,7 @@ export function Aliases() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="alias-target">Target Account</Label>
+              <Label htmlFor="alias-target">{t("aliases.targetAccount")}</Label>
               <Input
                 id="alias-target"
                 placeholder="user@example.com"
@@ -213,9 +215,9 @@ export function Aliases() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
-            <Button onClick={handleCreate}>Add Alias</Button>
+            <Button onClick={handleCreate}>{t("aliases.addAlias")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -224,19 +226,18 @@ export function Aliases() {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Alias</DialogTitle>
+            <DialogTitle>{t("aliases.deleteAlias")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {deleteTarget?.alias}? Mail to this
-              address will no longer be forwarded.
+              {t("aliases.deleteConfirm", { alias: deleteTarget?.alias ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={busy}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

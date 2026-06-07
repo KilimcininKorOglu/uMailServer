@@ -18,7 +18,10 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useStats, useHealth, useMetrics } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import type { Activity as ActivityType, ServiceStatus } from "@/types";
+
+type TranslateFn = (key: string, params?: Record<string, string>) => string;
 
 interface DashboardProps {
   isConnected: boolean;
@@ -33,6 +36,7 @@ function subsystemStatus(value?: string): ServiceStatus["status"] {
 }
 
 export function Dashboard({ isConnected, activities }: DashboardProps) {
+  const { t } = useI18n();
   const { stats, loading, fetchStats } = useStats();
   const { health, fetchHealth } = useHealth();
   const { metrics, fetchMetrics } = useMetrics();
@@ -53,39 +57,39 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
   // always-"operational" array. If the health request failed entirely, health
   // is null and every subsystem reads as down.
   const serviceStatuses: ServiceStatus[] = [
-    { name: "Database", status: health ? subsystemStatus(health.database) : "down" },
-    { name: "Queue", status: health ? subsystemStatus(health.queue) : "down" },
-    { name: "Storage", status: health ? subsystemStatus(health.storage) : "down" },
+    { name: t("dashboard.database"), status: health ? subsystemStatus(health.database) : "down" },
+    { name: t("dashboard.queue"), status: health ? subsystemStatus(health.queue) : "down" },
+    { name: t("dashboard.storage"), status: health ? subsystemStatus(health.storage) : "down" },
   ];
 
   const statCards = [
     {
-      title: "Total Domains",
+      title: t("dashboard.totalDomains"),
       value: stats?.domains || 0,
       icon: Globe,
       color: "from-blue-500 to-blue-600",
-      description: "Active email domains",
+      description: t("dashboard.activeEmailDomains"),
     },
     {
-      title: "Total Accounts",
+      title: t("dashboard.totalAccounts"),
       value: stats?.accounts || 0,
       icon: Users,
       color: "from-emerald-500 to-emerald-600",
-      description: "Registered users",
+      description: t("dashboard.registeredUsers"),
     },
     {
-      title: "Messages Today",
+      title: t("dashboard.messagesToday"),
       value: stats?.messages || 0,
       icon: Mail,
       color: "from-violet-500 to-violet-600",
-      description: "Processed messages",
+      description: t("dashboard.processedMessages"),
     },
     {
-      title: "Queue Size",
+      title: t("dashboard.queueSize"),
       value: stats?.queue_size || 0,
       icon: Server,
       color: "from-orange-500 to-orange-600",
-      description: "Pending emails",
+      description: t("dashboard.pendingEmails"),
     },
   ];
 
@@ -94,9 +98,9 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("dashboard.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Overview of your email server performance and activity
+            {t("dashboard.overviewSubtitle")}
           </p>
         </div>
         <Button
@@ -106,7 +110,7 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
           disabled={loading}
         >
           <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-          Refresh
+          {t("common.refresh")}
         </Button>
       </div>
 
@@ -124,16 +128,16 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
-              System Status
+              {t("dashboard.systemStatus")}
             </CardTitle>
             <CardDescription>
-              Real-time health of your email services
+              {t("dashboard.systemStatusSubtitle")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-3">
               {serviceStatuses.map((service) => (
-                <ServiceCard key={service.name} {...service} />
+                <ServiceCard key={service.name} {...service} t={t} />
               ))}
             </div>
 
@@ -141,24 +145,24 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
               <>
                 <Separator className="my-6" />
                 <div className="space-y-4">
-                  <h4 className="text-sm font-medium">Server Metrics</h4>
+                  <h4 className="text-sm font-medium">{t("dashboard.serverMetrics")}</h4>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <MetricStat
-                      label="SMTP Connections"
+                      label={t("dashboard.smtpConnections")}
                       value={metrics.smtp?.connections ?? 0}
                     />
                     <MetricStat
-                      label="IMAP Connections"
+                      label={t("dashboard.imapConnections")}
                       value={metrics.imap?.connections ?? 0}
                     />
                     <MetricStat
-                      label="Messages Received"
+                      label={t("dashboard.messagesReceived")}
                       value={metrics.smtp?.messages ?? 0}
                     />
                     <MetricStat
-                      label="Deliveries"
+                      label={t("dashboard.deliveries")}
                       value={metrics.delivery?.success ?? 0}
-                      sub={`${metrics.delivery?.failed ?? 0} failed`}
+                      sub={t("dashboard.failedCount", { count: String(metrics.delivery?.failed ?? 0) })}
                     />
                   </div>
                 </div>
@@ -172,21 +176,21 @@ export function Dashboard({ isConnected, activities }: DashboardProps) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="h-5 w-5" />
-              Recent Activity
+              {t("dashboard.recentActivity")}
               {isConnected && (
                 <Badge variant="secondary" className="text-xs">
-                  Live
+                  {t("common.live")}
                 </Badge>
               )}
             </CardTitle>
-            <CardDescription>Latest events from your server</CardDescription>
+            <CardDescription>{t("dashboard.recentActivitySubtitle")}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {activities.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No recent activity</p>
+                  <p>{t("dashboard.noRecentActivity")}</p>
                 </div>
               ) : (
                 activities.slice(0, 10).map((activity) => (
@@ -242,11 +246,17 @@ function StatCard({ title, value, icon: Icon, color, description, loading }: Sta
   );
 }
 
-function ServiceCard({ name, status, port }: ServiceStatus) {
+function ServiceCard({ name, status, port, t }: ServiceStatus & { t: TranslateFn }) {
   const statusConfig = {
     operational: { icon: CheckCircle, color: "text-emerald-500", bg: "bg-emerald-500/10" },
     degraded: { icon: AlertTriangle, color: "text-amber-500", bg: "bg-amber-500/10" },
     down: { icon: XCircle, color: "text-red-500", bg: "bg-red-500/10" },
+  };
+
+  const statusLabels = {
+    operational: t("dashboard.statusOperational"),
+    degraded: t("dashboard.statusDegraded"),
+    down: t("dashboard.statusDown"),
   };
 
   const config = statusConfig[status];
@@ -261,7 +271,7 @@ function ServiceCard({ name, status, port }: ServiceStatus) {
         <div className="min-w-0">
           <div className="font-medium truncate">{name}</div>
           {port !== undefined && (
-            <div className="text-xs text-muted-foreground">Port {port}</div>
+            <div className="text-xs text-muted-foreground">{t("dashboard.port", { port: String(port) })}</div>
           )}
         </div>
       </div>
@@ -272,7 +282,7 @@ function ServiceCard({ name, status, port }: ServiceStatus) {
           status === "operational" && "bg-emerald-500 hover:bg-emerald-600"
         )}
       >
-        {status}
+        {statusLabels[status]}
       </Badge>
     </div>
   );

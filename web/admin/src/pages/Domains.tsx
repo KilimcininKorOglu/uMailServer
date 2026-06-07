@@ -39,6 +39,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { useDomains } from "@/hooks/useApi";
+import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 import type { Domain } from "@/types";
 
@@ -63,6 +64,8 @@ export function Domains() {
     updateDomain,
     deleteDomain,
   } = useDomains();
+
+  const { t } = useI18n();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -90,7 +93,7 @@ export function Domains() {
   const handleCreateDomain = async () => {
     setFormError("");
     if (!newDomainName) {
-      setFormError("Domain name is required");
+      setFormError(t("domains.nameRequired"));
       return;
     }
 
@@ -100,7 +103,7 @@ export function Domains() {
       setNewDomainName("");
       setNewDomainMaxAccounts(100);
     } catch (err) {
-      setFormError(errorMessage(err, "Failed to create domain"));
+      setFormError(errorMessage(err, t("domains.createFailed")));
     }
   };
 
@@ -116,7 +119,7 @@ export function Domains() {
       setIsDeleteDialogOpen(false);
       setSelectedDomain(null);
     } catch (err) {
-      toast.error(errorMessage(err, "Failed to delete domain"));
+      toast.error(errorMessage(err, t("domains.deleteFailed")));
     } finally {
       setIsDeleting(false);
     }
@@ -132,7 +135,7 @@ export function Domains() {
         max_accounts: domain.max_accounts,
       });
     } catch (err) {
-      toast.error(errorMessage(err, "Failed to update domain"));
+      toast.error(errorMessage(err, t("domains.updateFailed")));
     }
   };
 
@@ -151,7 +154,7 @@ export function Domains() {
       setIsEditDialogOpen(false);
       setSelectedDomain(null);
     } catch (err) {
-      setFormError(errorMessage(err, "Failed to update domain"));
+      setFormError(errorMessage(err, t("domains.updateFailed")));
     }
   };
 
@@ -180,9 +183,9 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Domains</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("domains.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Manage your email domains and DNS configuration
+            {t("domains.pageDescription")}
           </p>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -190,14 +193,14 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              Add Domain
+              {t("domains.add")}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Add New Domain</DialogTitle>
+              <DialogTitle>{t("domains.addNew")}</DialogTitle>
               <DialogDescription>
-                Enter the domain name you want to add to your email server.
+                {t("domains.addDescription")}
               </DialogDescription>
             </DialogHeader>
             {formError && (
@@ -208,7 +211,7 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
             )}
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="domain">Domain Name</Label>
+                <Label htmlFor="domain">{t("domains.name")}</Label>
                 <Input
                   id="domain"
                   placeholder="example.com"
@@ -217,7 +220,7 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="max-accounts">Max Accounts</Label>
+                <Label htmlFor="max-accounts">{t("domains.maxAccounts")}</Label>
                 <Input
                   id="max-accounts"
                   type="number"
@@ -228,9 +231,9 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
-              <Button onClick={handleCreateDomain}>Add Domain</Button>
+              <Button onClick={handleCreateDomain}>{t("domains.add")}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -241,7 +244,7 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search domains..."
+            placeholder={t("domains.searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -273,16 +276,16 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
         <Card className="text-center py-12">
           <CardContent>
             <Globe className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">No domains found</h3>
+            <h3 className="text-lg font-medium">{t("domains.noDomainsFound")}</h3>
             <p className="text-muted-foreground mt-1">
               {searchQuery
-                ? "No domains match your search"
-                : "Get started by adding your first domain"}
+                ? t("domains.noMatch")
+                : t("domains.getStarted")}
             </p>
             {!searchQuery && (
               <Button className="mt-4" onClick={() => setIsAddDialogOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                Add Domain
+                {t("domains.add")}
               </Button>
             )}
           </CardContent>
@@ -318,9 +321,9 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Domain</DialogTitle>
+            <DialogTitle>{t("domains.edit")}</DialogTitle>
             <DialogDescription>
-              Update settings for {selectedDomain?.name}.
+              {t("domains.editDescription", { name: selectedDomain?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           {formError && (
@@ -331,7 +334,7 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
           )}
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-max-accounts">Max Accounts</Label>
+              <Label htmlFor="edit-max-accounts">{t("domains.maxAccounts")}</Label>
               <Input
                 id="edit-max-accounts"
                 type="number"
@@ -341,7 +344,7 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-company-name">Company name</Label>
+              <Label htmlFor="edit-company-name">{t("domains.companyName")}</Label>
               <Input
                 id="edit-company-name"
                 value={editCompanyName}
@@ -349,11 +352,11 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
                 onChange={(e) => setEditCompanyName(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Used by the {"{company}"} placeholder in the From templates below.
+                {t("domains.companyNameHelp")}
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-from-internal">Internal From template</Label>
+              <Label htmlFor="edit-from-internal">{t("domains.internalFromTemplate")}</Label>
               <Input
                 id="edit-from-internal"
                 value={editFromInternal}
@@ -362,7 +365,7 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-from-external">External From template</Label>
+              <Label htmlFor="edit-from-external">{t("domains.externalFromTemplate")}</Label>
               <Input
                 id="edit-from-external"
                 value={editFromExternal}
@@ -370,18 +373,15 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
                 onChange={(e) => setEditFromExternal(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                From display name for outgoing mail. Placeholders: {"{name}"} {"{title}"}{" "}
-                {"{department}"} {"{company}"} {"{email}"}. Internal applies when all
-                recipients are local; external when any recipient is outside. Leave empty
-                to use the sender&apos;s display name.
+                {t("domains.fromTemplateHelp")}
               </p>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
-            <Button onClick={handleEditDomain}>Save Changes</Button>
+            <Button onClick={handleEditDomain}>{t("common.saveChanges")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -390,19 +390,18 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Domain</DialogTitle>
+            <DialogTitle>{t("domains.delete")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {selectedDomain?.name}? This action cannot be
-              undone and all associated accounts will be removed.
+              {t("domains.confirmDeleteNamed", { name: selectedDomain?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDeleteDomain} disabled={isDeleting}>
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -421,6 +420,7 @@ interface DomainCardProps {
 }
 
 function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }: DomainCardProps) {
+  const { t } = useI18n();
   const [showDNS, setShowDNS] = useState(false);
 
   return (
@@ -437,10 +437,10 @@ function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }
                 {domain.is_active ? (
                   <span className="flex items-center gap-1 text-emerald-500">
                     <Shield className="h-3 w-3" />
-                    Active
+                    {t("common.active")}
                   </span>
                 ) : (
-                  <span className="text-muted-foreground">Inactive</span>
+                  <span className="text-muted-foreground">{t("common.inactive")}</span>
                 )}
               </CardDescription>
             </div>
@@ -455,11 +455,11 @@ function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={onEdit}>
                 <Pencil className="mr-2 h-4 w-4" />
-                Edit
+                {t("common.edit")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setShowDNS(true)}>
                 <Mail className="mr-2 h-4 w-4" />
-                View DNS Records
+                {t("domains.viewDnsRecords")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onCopyDNS}>
                 {copiedDNS ? (
@@ -467,12 +467,12 @@ function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }
                 ) : (
                   <Copy className="mr-2 h-4 w-4" />
                 )}
-                {copiedDNS ? "Copied!" : "Copy DNS Records"}
+                {copiedDNS ? t("common.copied") : t("domains.copyDnsRecords")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={onDelete} className="text-red-600">
                 <Trash2 className="mr-2 h-4 w-4" />
-                Delete
+                {t("common.delete")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -481,11 +481,11 @@ function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }
       <CardContent>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Max Accounts</span>
+            <span className="text-sm text-muted-foreground">{t("domains.maxAccounts")}</span>
             <Badge variant="secondary">{domain.max_accounts}</Badge>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Status</span>
+            <span className="text-sm text-muted-foreground">{t("common.status")}</span>
             <div className="flex items-center gap-2">
               <Switch checked={domain.is_active} onCheckedChange={onToggle} />
             </div>
@@ -493,10 +493,10 @@ function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }
           {domain.dkim_selector && (
             <div
               className="flex items-center gap-2 pt-2"
-              title="A DKIM key exists for this domain. Outgoing mail is only signed when DKIM Signing is enabled in Settings > Security."
+              title={t("domains.dkimKeyTooltip")}
             >
               <Shield className="h-4 w-4 text-emerald-500" />
-              <span className="text-sm text-muted-foreground">DKIM key configured</span>
+              <span className="text-sm text-muted-foreground">{t("domains.dkimKeyConfigured")}</span>
             </div>
           )}
         </div>
@@ -506,9 +506,9 @@ function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }
       <Dialog open={showDNS} onOpenChange={setShowDNS}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>DNS Records for {domain.name}</DialogTitle>
+            <DialogTitle>{t("domains.dnsRecordsFor", { name: domain.name })}</DialogTitle>
             <DialogDescription>
-              Add these records to your DNS provider to enable email delivery
+              {t("domains.dnsRecordsDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="bg-muted rounded-lg p-4 font-mono text-sm overflow-x-auto">
@@ -529,12 +529,12 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
               {copiedDNS ? (
                 <>
                   <Check className="mr-2 h-4 w-4" />
-                  Copied!
+                  {t("common.copied")}
                 </>
               ) : (
                 <>
                   <Copy className="mr-2 h-4 w-4" />
-                  Copy Records
+                  {t("domains.copyRecords")}
                 </>
               )}
             </Button>
