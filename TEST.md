@@ -9,19 +9,28 @@
   - `helper-projects/exchangelib_end_user_rules.py`
   - `helper-projects/exchangelib_end_user_collab.py`
 - Protokol probe scriptleri (saf protokol istemcileri, `urllib`/`imaplib`/`poplib`/`smtplib` ile):
-  - `helper-projects/proto_imap.py` (IMAP)
-  - `helper-projects/proto_pop3.py` (POP3)
-  - `helper-projects/proto_smtp.py` (SMTP submission + inbound)
-  - `helper-projects/proto_managesieve.py` (ManageSieve)
-  - `helper-projects/proto_caldav.py` (CalDAV)
-  - `helper-projects/proto_carddav.py` (CardDAV)
-  - `helper-projects/proto_mapi.py` (MAPI/HTTP — NSPI + OAB)
-  - `helper-projects/proto_notes.py` (Outlook Notes — IPM.StickyNote)
-  - `helper-projects/proto_jmap.py` (JMAP)
-  - `helper-projects/proto_autodiscover.py` (Autodiscover + Autoconfig)
+  - `helper-projects/proto_imap.py` (IMAP) + `proto_imap_ext.py` (IDLE/CONDSTORE/MOVE/SORT/THREAD/ESEARCH/MULTIAPPEND/ENABLE/NAMESPACE/ID/COMPRESS/ACL derinliği)
+  - `helper-projects/proto_pop3.py` (POP3) + `proto_pop3_ext.py` (CAPA/NOOP/kilitlenme + DELE kalıcılığı)
+  - `helper-projects/proto_smtp.py` (SMTP submission + inbound) + `proto_smtp_security.py` (SPF/DKIM/DMARC/ARC sonuçları, giden DKIM, DSN, BDAT/CHUNKING, AUTH mekanizmaları)
+  - `helper-projects/proto_managesieve.py` (ManageSieve) + `proto_sieve_exec.py` (fileinto/redirect/discard/reject/imap4flags/vacation'ın teslimde gerçekten çalışması)
+  - `helper-projects/proto_caldav.py` (CalDAV), `proto_carddav.py` (CardDAV) + `proto_dav_ext.py` (ETag/CTag, If-Match 412, PROPPATCH, OPTIONS, VTODO, çapraz yüzey)
+  - `helper-projects/proto_mapi.py` (MAPI/HTTP — NSPI + OAB) + `proto_mapi_ext.py` (GetGAL, object_class, 100 kaydı sınırı, HiddenFromGAL, OAB artımlı)
+  - `helper-projects/proto_notes.py` (Outlook Notes) + `proto_notes_ext.py` (JMAP yazma yolu + ters görünürlük)
+  - `helper-projects/proto_jmap.py` (JMAP) + `proto_jmap_ext.py` (Thread/Identity/VacationResponse, Mailbox/Email değişiklikleri, blob, EventSource, SearchSnippet, takvim/kişi/not metotları)
+  - `helper-projects/proto_autodiscover.py` (Autodiscover + Autoconfig) + `proto_autodiscover_ext.py` (EWS/MAPI/NSPI/OAB girdileri, devre dışı hesap 403)
+  - `helper-projects/proto_ews_ext.py` (EWS derinliği: klasör yönetimi, Sync*, Subscribe/GetEvents, Availability, rooms, ExpandDL, MailTips, UserConfiguration, ConvertId, Persona/Photo)
   - `helper-projects/proto_cross.py` (protokoller arası tutarlılık)
-- Ek probe'lar: `helper-projects/jmap_probe.py`, `helper-projects/jmap_send_probe.py`, `helper-projects/default_folders_probe.py`, `helper-projects/smime_probe.py`.
-- Orkestratör: `helper-projects/run_all.py` tüm protokol + EWS suite'lerini sırayla çalıştırır ve özet basar.
+- Yüzey/işletim probe'ları:
+  - `helper-projects/proto_auth.py` (login kilitleme 429, TOTP yaşam döngüsü, JWT refresh/logout kara listesi, parola değişimi)
+  - `helper-projects/proto_admin.py` (admin REST: domain/alias/grup CRUD, kuyruk, tenant, 401/403 kapıları)
+  - `helper-projects/proto_reload.py` (config hot-reload: canlı POP3 kapatma/açma, restart_required sınıflaması, DTO'da sır yok)
+  - `helper-projects/proto_tls.py` (STARTTLS değişmezi: SMTP/IMAP/POP3'te ilan ⇔ el sıkışma başarısı, TLS>=1.2, DTO'da özel anahtar yok)
+  - `helper-projects/proto_backup.py` (per-user yedek oluştur/listele/doğrula/güvenli geri yükle + push stub negatifleri)
+  - `helper-projects/proto_metrics_mcp.py` (Prometheus /metrics içeriği + MCP JSON-RPC, token kapıları)
+  - `helper-projects/smime_probe.py` (giden S/MIME imzalama — kendi kendine yeten: imzalamayı açar, anahtar üretir, container'ı yeniden oluşturur, sonda eski hâline döndürür)
+- Ek probe'lar: `helper-projects/jmap_probe.py`, `helper-projects/jmap_send_probe.py`, `helper-projects/default_folders_probe.py`.
+- Orkestratör: `helper-projects/run_all.py` tüm protokol + yüzey + EWS suite'lerini sırayla çalıştırır ve özet basar (31 suite, hepsi yeşil olmalı).
+- BAĞIMSIZ (run_all dışında): `helper-projects/ha_probe.py` — HA/failover harness'i. Dev stack'i durdurur, `docker-compose.ha-full.yml` topolojisini SIFIRDAN kurar (repmgr+pgpool, Redis Sentinel, 2 düğüm + HAProxy), eşzamanlı boot / kuyruk tek-teslim / düğümler arası OOF dedup / node-kill / Redis failover / PG failover senaryolarını koşar, sonda HA stack'i söküp dev stack'i geri getirir. Host portları dev stack'le çakıştığı için run_all'a dahil değildir.
 
 ## Test hesapları
 
@@ -455,30 +464,54 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 - `helper-projects/proto_autodiscover.py` — Autodiscover (Outlook) + Autoconfig (Thunderbird)
 - `helper-projects/proto_cross.py` — protokoller arası tutarlılık (EWS/IMAP/POP3/JMAP aynı mesajı görür)
 - `helper-projects/default_folders_probe.py` — standart klasörlerin tüm protokollerde görünürlüğü
-- `helper-projects/smime_probe.py` — giden S/MIME imzalama
+- `helper-projects/proto_imap_ext.py` — IMAP derinliği: IDLE bildirimi, CONDSTORE/HIGHESTMODSEQ, MOVE/UIDPLUS, SORT/THREAD, SEARCH/ESEARCH, MULTIAPPEND, ENABLE, NAMESPACE, ID, COMPRESS, ACL, AUTHENTICATE
+- `helper-projects/proto_smtp_security.py` — gelen SPF/DKIM/DMARC/ARC `Authentication-Results`, giden DKIM imzası, DSN, BDAT/CHUNKING, AUTH mekanizmaları
+- `helper-projects/proto_sieve_exec.py` — Sieve aksiyonlarının teslimde yürütülmesi: fileinto/redirect/discard/reject/imap4flags/vacation (tek otomatik yanıt)
+- `helper-projects/proto_jmap_ext.py` — JMAP derinliği: Thread/Identity/VacationResponse, Mailbox query+set+changes, Email changes+import, blob upload/download, EventSource, SearchSnippet, takvim/kişi/not metotları
+- `helper-projects/proto_pop3_ext.py` — POP3 derinliği: CAPA/NOOP, kimlik kilitleme, DELE+QUIT kalıcılığı
+- `helper-projects/proto_dav_ext.py` — CalDAV/CardDAV derinliği: ETag/CTag değişimi, If-Match/If-None-Match 412, PROPPATCH, OPTIONS, VTODO, çapraz yüzey görünürlüğü
+- `helper-projects/proto_mapi_ext.py` — MAPI/HTTP derinliği: GetGAL, object_class, 100 kayıt sınırı, HiddenFromGAL, OAB artımlı indirme
+- `helper-projects/proto_notes_ext.py` — Notes JMAP yazma yolu + EWS/JMAP ters görünürlük
+- `helper-projects/proto_autodiscover_ext.py` — Autodiscover derinliği: EWS/MAPI/NSPI/OAB girdileri, devre dışı hesap 403, autoconfig auth/socket alanları
+- `helper-projects/proto_ews_ext.py` — EWS derinliği: klasör yönetimi (oluştur/yeniden adlandır/sil), SyncFolderHierarchy/Items, Subscribe/GetEvents, GetUserAvailability, oda listeleri, ExpandDL, MailTips, UserConfiguration, ConvertId, GetPersona/GetUserPhoto
+- `helper-projects/proto_auth.py` — kimlik doğrulama derinliği: login kilitleme 429, TOTP kurulum/doğrulama/kapatma + TOTP'li login, JWT refresh/logout kara listesi, parola değişimi
+- `helper-projects/proto_admin.py` — admin REST API: domain/alias/mail-grubu CRUD, kuyruk listesi, tenant listesi, rate-limit DTO, 401/403 kapıları
+- `helper-projects/proto_reload.py` — config hot-reload: POP3'ü canlı kapatıp açma, yapısal değişikliğin restart_required sınıflanması, GET DTO'da sır sızıntısı yok
+- `helper-projects/proto_tls.py` — TLS/STARTTLS değişmezi: SMTP(25/587)/IMAP/POP3'te STARTTLS yalnızca el sıkışma başarılı olabilecekse ilan edilir; ilan yokken upgrade komutu reddedilir; min_version 1.2/1.3
+- `helper-projects/proto_backup.py` — yedekleme yaşam döngüsü: per-user oluştur → listele → doğrula → farklı-kullanıcıya güvenli geri yükle → sil; POST /backups; push stub negatifleri (VAPID 503, SSRF koruması, 401/400/403)
+- `helper-projects/proto_metrics_mcp.py` — Prometheus /metrics içerik + MCP JSON-RPC (token kapısı, admin araç RBAC'ı)
+- `helper-projects/smime_probe.py` — giden S/MIME imzalama (kendi kendine yeten: signing'i açar, PKCS#1 anahtar üretir, container'ı yeniden oluşturur, sonda geri alır; run_all'da EN SONDA koşar)
+- `helper-projects/ha_probe.py` — BAĞIMSIZ HA/failover harness'i (run_all dışı; ayrıntı yukarıda)
 
 ### Otomasyon durumu
 
-- EWS son kullanıcı akışları + temel protokol kapsamı OTOMATİKTİR. `run_all.py`
-  şu suite'leri çalıştırır: IMAP, SMTP, ManageSieve, JMAP, Autodiscover/Autoconfig,
-  POP3, CalDAV, CardDAV, MAPI/HTTP, Notes (IPM.StickyNote), protokoller arası
-  tutarlılık, ve üç EWS son kullanıcı suite'i (mail, kural/OOF, collaboration).
+- EWS son kullanıcı akışları + protokol kapsamı + yüzey/işletim kapsamı
+  OTOMATİKTİR. `run_all.py` 31 suite çalıştırır: 11 temel protokol suite'i,
+  bunların `_ext` derinlik suite'leri, Sieve yürütme, SMTP güvenlik, TLS/STARTTLS,
+  auth/güvenlik, admin REST, config hot-reload, backup+push, Metrics+MCP, üç EWS
+  son kullanıcı suite'i ve (en sonda, kendi kendine yeten) S/MIME imzalama.
   Hepsi yeşil olmalı.
-- Henüz otomatik scriptlere BAĞLANMAMIŞ "Genişletilmiş test kapsamı" maddeleri
-  (yeni istemci/yapılandırma gerektirir):
-  - TLS varyantları: STARTTLS (587/143/110/4190) ve implicit TLS (465/993/995/8443),
-    sertifika/zincir/SAN ve TLS sürüm/cipher politikası
-  - E-posta kimlik standartları: DKIM imzalama, gelen SPF/DKIM/DMARC değerlendirmesi
-    ve `Authentication-Results`, DMARC politikası/raporları, ARC zinciri
+- HA/failover ayrıca OTOMATİKTİR ama run_all dışındadır: `ha_probe.py`
+  (`docker-compose.ha-full.yml` üzerinde eşzamanlı boot, kuyruk tek-teslim,
+  düğümler arası OOF dedup, node-kill, Redis Sentinel failover, repmgr/pgpool
+  PG failover + standby olarak yeniden katılma, sonda dev stack'in geri
+  getirilmesi). Host portları dev stack ile çakıştığından ayrı çalıştırılır.
+- Otomatik kapsama BAĞLANMIŞ eski eksikler: STARTTLS ilan değişmezi (`proto_tls.py`;
+  gerçek el sıkışma dev'de cert olmadığı için yalnızca cert'li kurulumda),
+  SPF/DKIM/DMARC/ARC + giden DKIM + DSN (`proto_smtp_security.py`), yedekleme/geri
+  yükleme API'si (`proto_backup.py`), cluster/failover (`ha_probe.py`), Prometheus
+  metrics + sağlık (`proto_metrics_mcp.py`), TOTP/JWT/parola akışları
+  (`proto_auth.py`), admin API CRUD (`proto_admin.py`).
+- Henüz otomatik scriptlere BAĞLANMAMIŞ maddeler (yeni istemci/yapılandırma
+  gerektirir):
+  - Implicit TLS dinleyicileri (465/993/995/8443) ve sertifika/zincir/SAN,
+    cipher politikası — dev'de geçerli sertifika yok
   - Anti-spam / anti-virus: spam skorlama + junk yönlendirme, EICAR ile virüslü ek
-    reddi, tehlikeli ek türü engelleme, gönderen bazlı rate-limit
+    reddi (ClamAV dev'de kapalı), tehlikeli ek türü engelleme
   - Kota ve limitler: mailbox kota zorlaması (552), gönderim/saat limiti, klasör
     öğe sınırı
   - OpenPGP imzalı/şifreli mesaj akışı (S/MIME imzalama `smime_probe.py` ile var)
-  - SMTP teslim derinliği: retry/deferral/bounce, DSN/NDR, MDN, döngü/hop tespiti,
-    kuyruk inceleme (`queue` CLI)
-  - Sistem operasyonları: yedekleme/geri yükleme (`backup` CLI), `db`/`account`/
-    `domain` CLI ve admin API, cluster/failover, audit log, Prometheus metrics,
-    sağlık ucu, webhook/alert
-  - Kimlik doğrulama derinliği: LDAP, OAuth/modern auth, app password, oturum/token
-    süre dolması; webmail push (WebSocket/SSE) bildirimleri
+  - SMTP teslim derinliği: retry/deferral/bounce zamanlaması, MDN, döngü/hop
+    tespiti, kuyruk inceleme (`queue` CLI)
+  - Kimlik doğrulama derinliği: LDAP, OAuth/modern auth, app password; webmail
+    push (WebSocket/SSE) bildirimleri
