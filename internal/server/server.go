@@ -311,8 +311,13 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 	s.msgStore = msgStore
 
-	// Initialize TLS manager
+	// Initialize TLS manager. TLS is "enabled" when a certificate can actually
+	// be served: ACME is on, or a manual cert/key pair is configured. This drives
+	// IsEnabled(), which gates STARTTLS/STLS advertisement across SMTP/IMAP/POP3 --
+	// advertising an upgrade with no usable certificate strands STARTTLS-requiring
+	// clients (RFC 3207 downgrade protection aborts instead of falling back).
 	tlsConfig := umailTLS.Config{
+		Enabled:           cfg.TLS.ACME.Enabled || (cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != ""),
 		AutoTLS:           cfg.TLS.ACME.Enabled,
 		Email:             cfg.TLS.ACME.Email,
 		Domains:           []string{cfg.Server.Hostname},
