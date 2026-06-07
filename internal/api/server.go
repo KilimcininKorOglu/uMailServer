@@ -712,20 +712,6 @@ func (s *Server) initRouter() {
 		api.HandleFunc("/api/v1/notes/", http.HandlerFunc(s.notesHandler.handleNoteDetail).ServeHTTP)
 	}
 
-	// Backup management
-	api.HandleFunc("/api/v1/backups", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			s.handleBackupCreate(w, r)
-			return
-		}
-		s.handleBackupList(w, r)
-	})
-	api.HandleFunc("/api/v1/backups/", s.handleBackupPath)
-	api.HandleFunc("/api/v1/backups/per-user/", s.handlePerUserBackup)
-	api.HandleFunc("/api/v1/backups/per-mailbox/", s.handlePerMailboxBackup)
-	api.HandleFunc("/api/v1/backup-jobs", s.handleBackupJobList)
-	api.HandleFunc("/api/v1/backup-jobs/", s.handleBackupJobPath)
-
 	// User folder management (create/rename/delete custom mailboxes).
 	api.HandleFunc("/api/v1/folders", s.handleFolders)
 	api.HandleFunc("/api/v1/folders/", s.handleFolderPath)
@@ -816,6 +802,22 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/groups/", s.tenantAdminMiddleware(http.HandlerFunc(s.handleMailGroupDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/queue", s.tenantAdminMiddleware(http.HandlerFunc(s.handleQueue)).ServeHTTP)
 	api.HandleFunc("/api/v1/queue/", s.tenantAdminMiddleware(http.HandlerFunc(s.handleQueueDetail)).ServeHTTP)
+	// Backup management is an infrastructure surface: super-admin only (a backup
+	// captures another user's entire mailbox), served from the admin router so
+	// the admin SPA reaches it same-origin on a separate admin listener.
+	api.HandleFunc("/api/v1/backups", s.adminMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handleBackupCreate(w, r)
+			return
+		}
+		s.handleBackupList(w, r)
+	})).ServeHTTP)
+	api.HandleFunc("/api/v1/backups/", s.adminMiddleware(http.HandlerFunc(s.handleBackupPath)).ServeHTTP)
+	api.HandleFunc("/api/v1/backups/per-user/", s.adminMiddleware(http.HandlerFunc(s.handlePerUserBackup)).ServeHTTP)
+	api.HandleFunc("/api/v1/backups/per-mailbox/", s.adminMiddleware(http.HandlerFunc(s.handlePerMailboxBackup)).ServeHTTP)
+	api.HandleFunc("/api/v1/backup-jobs", s.adminMiddleware(http.HandlerFunc(s.handleBackupJobList)).ServeHTTP)
+	api.HandleFunc("/api/v1/backup-jobs/", s.adminMiddleware(http.HandlerFunc(s.handleBackupJobPath)).ServeHTTP)
+
 	// Cluster management (HA) is an infrastructure surface: super-admin only,
 	// served from the admin router so the admin SPA reaches it same-origin on a
 	// separate admin listener.
