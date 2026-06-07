@@ -634,10 +634,18 @@ func (s *Session) handleBDAT(arg string) error {
 		return s.WriteResponse(552, "5.2.3 Message exceeds fixed maximum message size")
 	}
 
-	// Read chunk data
+	// Read chunk data from the SAME buffered reader the command loop uses.
+	// Reading from s.conn directly loses any chunk bytes already pulled into the
+	// bufio buffer when the "BDAT n LAST" command line was read, which corrupts
+	// or stalls the transfer (the message was silently lost). Fall back to the
+	// raw conn only if no buffered reader was wired.
 	if size > 0 {
+		var src io.Reader = s.conn
+		if s.reader != nil {
+			src = s.reader
+		}
 		chunk := make([]byte, size)
-		_, err := io.ReadFull(s.conn, chunk)
+		_, err := io.ReadFull(src, chunk)
 		if err != nil {
 			return fmt.Errorf("failed to read BDAT chunk: %w", err)
 		}
