@@ -63,6 +63,10 @@ func (a *pop3MailstoreAdapter) DeleteMessage(user string, index int) error {
 	return a.mailstore.StoreFlags(user, "INBOX", seqSet, []string{"\\Deleted"}, imap.FlagAdd)
 }
 
+func (a *pop3MailstoreAdapter) Expunge(user string) error {
+	return a.mailstore.Expunge(user, "INBOX")
+}
+
 func (a *pop3MailstoreAdapter) GetMessageCount(user string) (int, error) {
 	msgs, err := a.ListMessages(user)
 	if err != nil {

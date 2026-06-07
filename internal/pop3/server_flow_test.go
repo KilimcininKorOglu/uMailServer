@@ -66,6 +66,10 @@ func (m *mockMailstore) DeleteMessage(user string, index int) error {
 	return nil
 }
 
+func (m *mockMailstore) Expunge(user string) error {
+	return nil
+}
+
 func (m *mockMailstore) GetMessageCount(user string) (int, error) {
 	return len(m.messages), nil
 }

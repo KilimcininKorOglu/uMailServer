@@ -81,6 +81,10 @@ type Mailstore interface {
 	DeleteMessage(user string, index int) error
 	GetMessageCount(user string) (int, error)
 	GetMessageSize(user string, index int) (int64, error)
+	// Expunge permanently removes every message currently flagged \Deleted from
+	// the user's INBOX. POP3 calls it once when entering UPDATE state so a DELE
+	// committed by QUIT does not reappear in the next session (RFC 1939 §6).
+	Expunge(user string) error
 }
 
 // Message represents a POP3 message
@@ -887,10 +891,22 @@ func (s *Session) handleTransactionCommand(command string, args []string) error 
 
 // handleUpdateCommand handles commands in UPDATE state
 func (s *Session) handleUpdateCommand(command string, args []string) error {
-	// Delete all marked messages
+	// Mark all messages the client DELE'd in this session for deletion.
+	deleted := false
 	for i, msg := range s.messages {
 		if msg == nil {
 			_ = s.server.mailstore.DeleteMessage(s.user, i)
+			deleted = true
+		}
+	}
+
+	// RFC 1939 §6: entering UPDATE state must PERMANENTLY remove every message
+	// marked for deletion. DeleteMessage only sets the \Deleted flag, so without
+	// an expunge the message reappears on the next connection; remove it now.
+	if deleted {
+		if err := s.server.mailstore.Expunge(s.user); err != nil {
+			s.WriteResponse("-ERR some deleted messages may not have been removed")
+			return fmt.Errorf("quit")
 		}
 	}
 

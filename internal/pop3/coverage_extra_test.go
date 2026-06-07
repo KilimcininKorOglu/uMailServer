@@ -35,6 +35,10 @@ func (m *coverageMockMailstore) DeleteMessage(user string, index int) error {
 	return nil
 }
 
+func (m *coverageMockMailstore) Expunge(user string) error {
+	return nil
+}
+
 func (m *coverageMockMailstore) GetMessageCount(user string) (int, error) {
 	return 0, nil
 }
@@ -710,6 +714,10 @@ func (m *authFailureMockStore) GetMessageData(user string, index int) ([]byte, e
 }
 
 func (m *authFailureMockStore) DeleteMessage(user string, index int) error {
+	return nil
+}
+
+func (m *authFailureMockStore) Expunge(user string) error {
 	return nil
 }
 

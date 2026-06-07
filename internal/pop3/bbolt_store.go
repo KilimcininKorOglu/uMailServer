@@ -125,6 +125,41 @@ func (s *BboltStore) DeleteMessage(user string, index int) error {
 	return s.db.StoreMessageMetadata(user, "INBOX", uid, meta)
 }
 
+// Expunge permanently removes every \Deleted-flagged message from the user's
+// INBOX, both its stored body and its metadata. POP3 calls this when entering
+// UPDATE state so a committed DELE does not reappear (RFC 1939 §6).
+func (s *BboltStore) Expunge(user string) error {
+	uids, err := s.db.GetMessageUIDs(user, "INBOX")
+	if err != nil {
+		return err
+	}
+	for _, uid := range uids {
+		meta, err := s.db.GetMessageMetadata(user, "INBOX", uid)
+		if err != nil {
+			continue
+		}
+		deleted := false
+		for _, f := range meta.Flags {
+			if strings.EqualFold(f, "\\Deleted") || strings.EqualFold(f, "Deleted") {
+				deleted = true
+				break
+			}
+		}
+		if !deleted {
+			continue
+		}
+		// Metadata removal is authoritative for what POP3/IMAP list; do it first.
+		if derr := s.db.DeleteMessage(user, "INBOX", uid); derr != nil {
+			return derr
+		}
+		// Best-effort body removal; an already-absent body must not abort expunge.
+		if cerr := s.msgStore.DeleteMessage(user, fmt.Sprintf("%d", uid)); cerr != nil {
+			continue
+		}
+	}
+	return nil
+}
+
 // GetMessageCount returns the number of messages in the user's INBOX
 func (s *BboltStore) GetMessageCount(user string) (int, error) {
 	messages, err := s.ListMessages(user)
