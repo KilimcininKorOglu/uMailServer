@@ -30,9 +30,16 @@ func NewManager(dataDir string) *Manager {
 	}
 }
 
+// messagesRoot returns the on-disk Maildir root. The message store writes user
+// mail under <dataDir>/mail/messages (server.go), so backup and restore must
+// operate on that path, not <dataDir>/messages.
+func (m *Manager) messagesRoot() string {
+	return filepath.Join(m.dataDir, "mail", "messages")
+}
+
 // BackupUser creates a backup of a specific user's data
 func (m *Manager) BackupUser(user string, destPath string, opts BackupOptions) error {
-	userPath := filepath.Join(m.dataDir, "messages", user)
+	userPath := filepath.Join(m.messagesRoot(), user)
 	if _, err := os.Stat(userPath); os.IsNotExist(err) {
 		return fmt.Errorf("user %s does not exist", user)
 	}
@@ -42,7 +49,7 @@ func (m *Manager) BackupUser(user string, destPath string, opts BackupOptions) e
 
 // backupUserToPath creates a tar.gz archive of a user's maildir
 func (m *Manager) backupUserToPath(user, destPath string, opts BackupOptions) error {
-	userPath := filepath.Join(m.dataDir, "messages", user)
+	userPath := filepath.Join(m.messagesRoot(), user)
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
@@ -108,7 +115,7 @@ func (m *Manager) addDirToTar(basePath, relPath string, tw *tar.Writer) error {
 
 // BackupMailbox creates a backup of a specific mailbox
 func (m *Manager) BackupMailbox(user, mailbox, destPath string, opts BackupOptions) error {
-	mailboxPath := filepath.Join(m.dataDir, "messages", user, mailbox)
+	mailboxPath := filepath.Join(m.messagesRoot(), user, mailbox)
 	if _, err := os.Stat(mailboxPath); os.IsNotExist(err) {
 		return fmt.Errorf("mailbox %s for user %s does not exist", mailbox, user)
 	}
@@ -134,7 +141,7 @@ func (m *Manager) BackupMailbox(user, mailbox, destPath string, opts BackupOptio
 
 // BackupFull creates a full system backup
 func (m *Manager) BackupFull(destPath string, opts BackupOptions) error {
-	messagesDir := filepath.Join(m.dataDir, "messages")
+	messagesDir := m.messagesRoot()
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
@@ -307,11 +314,11 @@ func (m *Manager) Restore(backupPath string, opts RestoreOptions) error {
 	var targetDir string
 	switch opts.Mode {
 	case RestoreModeDifferent:
-		targetDir = filepath.Join(m.dataDir, "messages", opts.TargetUser)
+		targetDir = filepath.Join(m.messagesRoot(), opts.TargetUser)
 	case RestoreModeMerge:
-		targetDir = filepath.Join(m.dataDir, "messages")
+		targetDir = m.messagesRoot()
 	default:
-		targetDir = filepath.Join(m.dataDir, "messages")
+		targetDir = m.messagesRoot()
 	}
 
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
