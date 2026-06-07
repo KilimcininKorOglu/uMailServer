@@ -726,12 +726,6 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/backup-jobs", s.handleBackupJobList)
 	api.HandleFunc("/api/v1/backup-jobs/", s.handleBackupJobPath)
 
-	// Cluster management (HA)
-	api.HandleFunc("/api/v1/cluster/status", s.handleClusterStatus)
-	api.HandleFunc("/api/v1/cluster/instances", s.handleClusterInstances)
-	api.HandleFunc("/api/v1/cluster/failover", s.handleClusterFailover)
-	api.HandleFunc("/api/v1/cluster/heartbeat", s.handleClusterHeartbeat)
-
 	// User folder management (create/rename/delete custom mailboxes).
 	api.HandleFunc("/api/v1/folders", s.handleFolders)
 	api.HandleFunc("/api/v1/folders/", s.handleFolderPath)
@@ -822,6 +816,13 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/groups/", s.tenantAdminMiddleware(http.HandlerFunc(s.handleMailGroupDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/queue", s.tenantAdminMiddleware(http.HandlerFunc(s.handleQueue)).ServeHTTP)
 	api.HandleFunc("/api/v1/queue/", s.tenantAdminMiddleware(http.HandlerFunc(s.handleQueueDetail)).ServeHTTP)
+	// Cluster management (HA) is an infrastructure surface: super-admin only,
+	// served from the admin router so the admin SPA reaches it same-origin on a
+	// separate admin listener.
+	api.HandleFunc("/api/v1/cluster/status", s.adminMiddleware(http.HandlerFunc(s.handleClusterStatus)).ServeHTTP)
+	api.HandleFunc("/api/v1/cluster/instances", s.adminMiddleware(http.HandlerFunc(s.handleClusterInstances)).ServeHTTP)
+	api.HandleFunc("/api/v1/cluster/failover", s.adminMiddleware(http.HandlerFunc(s.handleClusterFailover)).ServeHTTP)
+	api.HandleFunc("/api/v1/cluster/heartbeat", s.adminMiddleware(http.HandlerFunc(s.handleClusterHeartbeat)).ServeHTTP)
 	api.HandleFunc("/api/v1/metrics", s.adminMiddleware(http.HandlerFunc(s.handleMetrics)).ServeHTTP)
 	api.HandleFunc("/api/v1/stats", s.tenantAdminMiddleware(http.HandlerFunc(s.handleStats)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/ratelimits/config", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitConfig)).ServeHTTP)

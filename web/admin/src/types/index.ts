@@ -251,6 +251,23 @@ export interface Job {
   error?: string;
 }
 
+// ClusterInstance mirrors internal/cluster.InstanceHealth (GET /api/v1/cluster/status).
+export interface ClusterInstance {
+  instance_id: string;
+  last_heartbeat: string;
+  is_leader: boolean;
+  connections: number;
+  status: 'healthy' | 'degraded' | 'offline';
+}
+
+export interface ClusterStatus {
+  enabled: boolean;
+  status?: string; // "disabled" when the cluster manager is off
+  instance_id?: string;
+  is_leader?: boolean;
+  instances: ClusterInstance[];
+}
+
 // ServerConfig mirrors the backend serverConfigDTO (internal/api/config_settings.go):
 // a typed, per-section, secrets-free view of the server configuration. Secrets
 // (JWT/TOTP keys, LDAP bind password, MCP auth tokens, alert SMTP password and

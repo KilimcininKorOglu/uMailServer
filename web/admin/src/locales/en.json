@@ -17,7 +17,8 @@
     "jobs": "Jobs",
     "tenants": "Tenants",
     "settings": "Settings",
-    "logout": "Logout"
+    "logout": "Logout",
+    "cluster": "Cluster"
   },
   "auth": {
     "login": "Admin Login",

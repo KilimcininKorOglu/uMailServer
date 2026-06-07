@@ -19,6 +19,7 @@ import type {
   ServerConfig,
   Tenant,
   TenantBranding,
+  ClusterStatus,
 } from "@/types";
 
 interface ApiError {
@@ -693,6 +694,36 @@ export function useJobs() {
   }, []);
 
   return { jobs, loading, error, fetchJobs };
+}
+
+// Cluster (HA) status + failover hook
+export function useCluster() {
+  const [status, setStatus] = useState<ClusterStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<ClusterStatus>("/cluster/status");
+      setStatus(result);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const triggerFailover = useCallback(async () => {
+    return apiRequest<{ success: boolean; new_leader: string; message: string }>(
+      "/cluster/failover",
+      { method: "POST", body: JSON.stringify({}) }
+    );
+  }, []);
+
+  return { status, loading, error, fetchStatus, triggerFailover };
 }
 
 // Server config (Settings) API hook

@@ -17,7 +17,8 @@
     "jobs": "İşler",
     "tenants": "Kiracılar",
     "settings": "Ayarlar",
-    "logout": "Çıkış"
+    "logout": "Çıkış",
+    "cluster": "Küme"
   },
   "auth": {
     "login": "Yönetici Girişi",
