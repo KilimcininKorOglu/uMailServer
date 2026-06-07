@@ -14,6 +14,25 @@ import (
 	"github.com/umailserver/umailserver/internal/semcore"
 )
 
+// folderDisplayName resolves a folder's human-readable name for EWS responses.
+// A distinguished folder reports its canonical name; a user-created folder
+// reports the name it was created with (recovered from the identity store, which
+// keys folders by name). The generic "User Folder" is only a last resort when
+// neither a role nor a stored name is available, so custom folders no longer all
+// surface as "User Folder".
+func (s *Server) folderDisplayName(mailboxKey, role string, id semcore.FolderId) string {
+	if name := semcore.CanonicalFolderNameForRole(role); name != "" {
+		return name
+	}
+	if name, err := s.identity.FolderNameByID(strings.TrimPrefix(mailboxKey, "e:"), id); err == nil && name != "" {
+		return name
+	}
+	if role != "" {
+		return role
+	}
+	return "User Folder"
+}
+
 // ---------------------------------------------------------------------------
 // GetFolder
 // ---------------------------------------------------------------------------
@@ -175,10 +194,7 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 		return errorMsg("GetFolder", ErrErrorAccessDenied, "folder belongs to a different mailbox")
 	}
 
-	displayName := rec.Role
-	if displayName == "" {
-		displayName = "User Folder"
-	}
+	displayName := s.folderDisplayName(checkKey, rec.Role, folderID)
 
 	msg := FolderResponseMessageType{
 		ResponseClass: "Success",
@@ -302,7 +318,6 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 	var matching []FolderType
 	for _, f := range allFolders {
 		// ListFolderIdentitiesForMailbox already filters by mboxKey scope.
-		// No additional mailbox ownership check needed.
 		// Filter to children of the specified parent.
 		if parentID.String() != "" && !f.ParentID.Equal(parentID) {
 			continue
@@ -312,10 +327,7 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
-		displayName := f.Role
-		if displayName == "" {
-			displayName = "User Folder"
-		}
+		displayName := s.folderDisplayName(mailboxKey, f.Role, f.FolderID)
 
 		fxml := FolderType{
 			FolderID:         FolderIdComponents{ID: f.FolderID.String()},
@@ -609,10 +621,7 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 		}
 
 		// Determine display name.
-		displayName := rec.Role
-		if displayName == "" {
-			displayName = "User Folder"
-		}
+		displayName := s.folderDisplayName(mboxKey, rec.Role, folderID)
 
 		fxml := FolderType{
 			FolderID:       FolderIdComponents{ID: folderID.String()},
@@ -1214,10 +1223,7 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 			continue
 		}
 
-		displayName := f.Role
-		if displayName == "" {
-			displayName = "User Folder"
-		}
+		displayName := s.folderDisplayName(mboxKey, f.Role, f.FolderID)
 
 		fxml := FolderType{
 			FolderID:         FolderIdComponents{ID: f.FolderID.String()},
