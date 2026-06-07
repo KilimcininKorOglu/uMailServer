@@ -91,10 +91,12 @@ func (s *Server) resolveCandidates(entry string) []directoryCandidate {
 		return nil
 	}
 
+	// An empty entry is the GetGAL case: every visible directory entry matches
+	// (HasPrefix against "" is always true below), yielding the full GAL capped
+	// at 100. Returning nil here made NSPI GetGAL hand Outlook an empty address
+	// book. ResolveNames with an empty entry is separately collapsed to no-match
+	// by the NSPI handler, so this does not leak the GAL into a name lookup.
 	entryLower := strings.ToLower(strings.TrimSpace(entry))
-	if entryLower == "" {
-		return nil
-	}
 
 	var candidates []directoryCandidate
 
