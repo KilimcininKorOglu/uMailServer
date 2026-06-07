@@ -253,20 +253,22 @@ function ServiceCard({ name, status, port }: ServiceStatus) {
   const Icon = config.icon;
 
   return (
-    <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
-      <div className={cn("p-2 rounded-lg", config.bg)}>
-        <Icon className={cn("h-5 w-5", config.color)} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="font-medium truncate">{name}</div>
-        {port !== undefined && (
-          <div className="text-xs text-muted-foreground">Port {port}</div>
-        )}
+    <div className="flex flex-col gap-3 p-4 rounded-lg bg-muted/50">
+      <div className="flex items-center gap-2 min-w-0">
+        <div className={cn("p-2 rounded-lg shrink-0", config.bg)}>
+          <Icon className={cn("h-5 w-5", config.color)} />
+        </div>
+        <div className="min-w-0">
+          <div className="font-medium truncate">{name}</div>
+          {port !== undefined && (
+            <div className="text-xs text-muted-foreground">Port {port}</div>
+          )}
+        </div>
       </div>
       <Badge
         variant={status === "operational" ? "default" : "secondary"}
         className={cn(
-          "text-xs",
+          "w-fit text-xs",
           status === "operational" && "bg-emerald-500 hover:bg-emerald-600"
         )}
       >
