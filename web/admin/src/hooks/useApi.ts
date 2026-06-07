@@ -20,6 +20,7 @@ import type {
   Tenant,
   TenantBranding,
   ClusterStatus,
+  BackupManifest,
 } from "@/types";
 
 interface ApiError {
@@ -694,6 +695,92 @@ export function useJobs() {
   }, []);
 
   return { jobs, loading, error, fetchJobs };
+}
+
+// Backup management hook (admin listener; super-admin only)
+export interface BackupCreateInput {
+  type: "full" | "per-user" | "per-mailbox";
+  target?: string;
+  encrypt?: boolean;
+}
+
+export interface BackupRestoreInput {
+  mode: "overwrite" | "merge" | "different-user";
+  target_user?: string;
+  overwrite?: boolean;
+}
+
+export function useBackups() {
+  const [backups, setBackups] = useState<BackupManifest[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchBackups = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<{ backups: BackupManifest[] }>("/backups");
+      setBackups(result.backups ?? []);
+      return result.backups ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const createBackup = useCallback(async (input: BackupCreateInput) => {
+    // per-user / per-mailbox have dedicated path-param routes; "full" uses the
+    // collection POST. per-mailbox target is "user/mailbox".
+    if (input.type === "per-user" && input.target) {
+      return apiRequest(`/backups/per-user/${encodeURIComponent(input.target)}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    }
+    if (input.type === "per-mailbox" && input.target) {
+      return apiRequest(`/backups/per-mailbox/${input.target}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    }
+    return apiRequest("/backups", {
+      method: "POST",
+      body: JSON.stringify({ type: input.type, target: input.target, encrypt: input.encrypt }),
+    });
+  }, []);
+
+  const verifyBackup = useCallback(async (id: string) => {
+    return apiRequest<{ id: string; verified: boolean; checksum?: string; message: string }>(
+      `/backups/${encodeURIComponent(id)}/verify`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+  }, []);
+
+  const restoreBackup = useCallback(async (id: string, input: BackupRestoreInput) => {
+    return apiRequest<{ id: string; status: string; message: string }>(
+      `/backups/${encodeURIComponent(id)}/restore`,
+      { method: "POST", body: JSON.stringify(input) }
+    );
+  }, []);
+
+  const deleteBackup = useCallback(async (id: string) => {
+    return apiRequest(`/backups/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      body: JSON.stringify({}),
+    });
+  }, []);
+
+  return {
+    backups,
+    loading,
+    error,
+    fetchBackups,
+    createBackup,
+    verifyBackup,
+    restoreBackup,
+    deleteBackup,
+  };
 }
 
 // Cluster (HA) status + failover hook

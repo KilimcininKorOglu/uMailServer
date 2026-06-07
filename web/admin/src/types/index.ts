@@ -251,6 +251,19 @@ export interface Job {
   error?: string;
 }
 
+// BackupManifest mirrors storage.BackupManifest (GET /api/v1/backups).
+export interface BackupManifest {
+  id: string;
+  filename: string;
+  size: number;
+  created_at: string;
+  type: string; // "full" | "per-user" | "per-mailbox"
+  target: string;
+  checksum?: string;
+  encrypted?: boolean;
+  path?: string;
+}
+
 // ClusterInstance mirrors internal/cluster.InstanceHealth (GET /api/v1/cluster/status).
 export interface ClusterInstance {
   instance_id: string;
