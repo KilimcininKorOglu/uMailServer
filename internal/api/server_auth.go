@@ -352,6 +352,20 @@ func (s *Server) checkLoginRateLimit(ip string) bool {
 // five consecutive failures accumulate within the window, sets an exponential
 // backoff lockout. This is the only place the counter advances, so the lockout
 // reflects failures alone — never successful logins.
+// newTokenID returns a unique JWT ID (RFC 7519 jti). Without it, two tokens
+// minted for the same subject within the same second are byte-identical, so
+// revoking one (logout/refresh adds the token hash to the blacklist) would also
+// revoke the other — logging out one of two same-second sessions would drop both.
+func newTokenID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// A non-unique jti only weakens per-token revocation granularity, never
+		// authentication itself, so a time-based fallback is acceptable.
+		return fmt.Sprintf("t-%d", time.Now().UnixNano())
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
 func (s *Server) recordLoginFailure(ip string) {
 	if cs := s.clusterCounters(); cs != nil {
 		ctx, cancel := rlCtx()
@@ -660,6 +674,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		passwordChangeRequiredClaim: mustChangePassword,
 		"exp":                       time.Now().Add(s.config.TokenExpiry).Unix(),
 		"iat":                       time.Now().Unix(),
+		"jti":                       newTokenID(),
 	})
 	// Set key ID header for secret rotation support
 	token.Header["kid"] = s.currentKid
@@ -853,6 +868,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		passwordChangeRequiredClaim: mustChangePassword,
 		"exp":                       time.Now().Add(s.config.TokenExpiry).Unix(),
 		"iat":                       time.Now().Unix(),
+		"jti":                       newTokenID(),
 	})
 	token.Header["kid"] = s.currentKid
 
