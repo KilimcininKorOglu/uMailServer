@@ -37,6 +37,7 @@ type MailStore interface {
 	UpdateBackupJob(job *storage.BackupJob) error
 	DeleteBackupJob(id string) error
 	ListBackupJobs(enabledOnly bool) ([]storage.BackupJob, error)
+	CreateBackupManifest(manifest *storage.BackupManifest) error
 	GetBackupManifest(id string) (*storage.BackupManifest, error)
 	DeleteBackupManifest(id string) error
 	ListBackupManifests(target string) ([]storage.BackupManifest, error)

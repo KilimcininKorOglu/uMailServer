@@ -13,6 +13,34 @@ import (
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
+// persistBackupManifest records a freshly created backup so it can later be
+// listed, verified, or restored by ID. The backup file is already on disk, so a
+// persistence failure is logged but not fatal (fail-open). Without this the
+// manifest store stays empty and the list/verify/restore-by-ID paths are dead.
+func (s *Server) persistBackupManifest(id, backupType, target, destPath string, encrypted bool) {
+	if s.mailDB == nil {
+		return
+	}
+	info, err := s.backupMgr.GetBackupInfo(destPath)
+	if err != nil {
+		s.logger.Error("failed to stat backup for manifest", "error", err, "path", destPath)
+		return
+	}
+	manifest := &storage.BackupManifest{
+		ID:        id,
+		Filename:  info.Filename,
+		Size:      info.Size,
+		CreatedAt: info.CreatedAt,
+		Type:      backupType,
+		Target:    target,
+		Path:      destPath,
+		Encrypted: encrypted,
+	}
+	if err := s.mailDB.CreateBackupManifest(manifest); err != nil {
+		s.logger.Error("failed to persist backup manifest", "error", err, "id", id)
+	}
+}
+
 // handleBackupPath handles /api/v1/backups/{id} subpaths
 func (s *Server) handleBackupPath(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
@@ -276,6 +304,12 @@ func (s *Server) handleBackupJobRunHTTP(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	jobType := job.Type
+	if jobType == "" {
+		jobType = "full"
+	}
+	s.persistBackupManifest(filepath.Base(destPath), jobType, job.Target, destPath, false)
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"id":      jobID,
 		"status":  "completed",
@@ -357,9 +391,16 @@ func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	backupType := req.Type
+	if backupType == "" {
+		backupType = "full"
+	}
+	id := filepath.Base(destPath)
+	s.persistBackupManifest(id, backupType, req.Target, destPath, req.Encrypt)
+
 	manifest, _ := s.backupMgr.GetBackupInfo(destPath)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":       manifest.ID,
+		"id":       id,
 		"filename": manifest.Filename,
 		"size":     manifest.Size,
 		"path":     destPath,
@@ -569,6 +610,8 @@ func (s *Server) handlePerUserBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.persistBackupManifest(backupID, "per-user", user, destPath, false)
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"id":      backupID,
 		"target":  user,
@@ -619,6 +662,8 @@ func (s *Server) handlePerMailboxBackup(w http.ResponseWriter, r *http.Request) 
 		})
 		return
 	}
+
+	s.persistBackupManifest(backupID, "per-mailbox", fmt.Sprintf("%s/%s", user, mailbox), destPath, false)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"id":      backupID,
