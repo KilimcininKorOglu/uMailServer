@@ -713,7 +713,13 @@ func (s *Server) initRouter() {
 	}
 
 	// Backup management
-	api.HandleFunc("/api/v1/backups", s.handleBackupList)
+	api.HandleFunc("/api/v1/backups", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handleBackupCreate(w, r)
+			return
+		}
+		s.handleBackupList(w, r)
+	})
 	api.HandleFunc("/api/v1/backups/", s.handleBackupPath)
 	api.HandleFunc("/api/v1/backups/per-user/", s.handlePerUserBackup)
 	api.HandleFunc("/api/v1/backups/per-mailbox/", s.handlePerMailboxBackup)
