@@ -276,6 +276,7 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 	// Parse sieve actions for fileinto, redirect, and keep
 	var targetFolders []string
 	var redirectAddrs []string
+	var extraFlags []string
 	hasKeep := false
 	hasDiscard := false
 	setRead := false
@@ -292,8 +293,16 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 			hasKeep = true
 		} else if action == "discard" {
 			hasDiscard = true
-		} else if strings.HasPrefix(action, "addflag:\\Seen") {
-			setRead = true
+		} else if strings.HasPrefix(action, "addflag:") {
+			// Sieve imap4flags: apply the flag to the stored message. \Seen also
+			// marks the canonical identity read (for EWS), the rest are IMAP keywords.
+			flag := strings.TrimPrefix(action, "addflag:")
+			if flag != "" {
+				extraFlags = append(extraFlags, flag)
+				if flag == "\\Seen" {
+					setRead = true
+				}
+			}
 		}
 	}
 
@@ -354,7 +363,7 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 		domainData, _ := s.database.GetDomain(redirectDomain)
 		if domainData != nil && domainData.IsActive {
 			redirectUser, _ := parseEmail(redirectAddr)
-			if err := s.deliverLocal(redirectUser, redirectDomain, from, dataWithLoop, false); err != nil {
+			if err := s.deliverLocal(redirectUser, redirectDomain, from, dataWithLoop, false, nil); err != nil {
 				s.logger.Error("Failed to deliver redirect locally", "to", redirectAddr, "error", err)
 			} else {
 				s.logger.Debug("Redirect delivered locally", "from", from, "to", redirectAddr)
@@ -398,7 +407,7 @@ func (s *Server) deliverMessageWithSieve(from string, to []string, data []byte, 
 
 		// Deliver with optional target folder from sieve
 		for _, targetFolder := range targetFolders {
-			if err := s.deliverLocal(user, domain, from, data, setRead, targetFolder); err != nil {
+			if err := s.deliverLocal(user, domain, from, data, setRead, extraFlags, targetFolder); err != nil {
 				s.logger.Error("Failed to deliver locally", "user", user, "domain", domain, "target", targetFolder, "error", err)
 				errs = append(errs, fmt.Errorf("deliver %s->%s: %w", recipient, targetFolder, err))
 			}
@@ -461,7 +470,7 @@ func addMailLoopHeader(data []byte, addr string) []byte {
 }
 
 // deliverLocal delivers a message to a local mailbox
-func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead bool, targetFolders ...string) error {
+func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead bool, extraFlags []string, targetFolders ...string) error {
 	// RFC 5233 subaddressing: "user+detail" resolves to the "user" mailbox.
 	user = baseLocalPart(user)
 	email := user + "@" + domain
@@ -483,7 +492,7 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 		if domainData, derr := s.database.GetDomain(domain); derr == nil && domainData != nil && domainData.CatchAllTarget != "" {
 			tUser, tDomain := parseEmail(domainData.CatchAllTarget)
 			if tUser != "" && tDomain != "" {
-				return s.deliverLocal(tUser, tDomain, from, data, isRead, targetFolders...)
+				return s.deliverLocal(tUser, tDomain, from, data, isRead, extraFlags, targetFolders...)
 			}
 		}
 		return fmt.Errorf("user does not exist or is not active: %s", email)
@@ -603,7 +612,7 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 			meta := &storage.MessageMetadata{
 				MessageID:    messageID,
 				UID:          uid,
-				Flags:        []string{"\\Recent"},
+				Flags:        append([]string{"\\Recent"}, extraFlags...),
 				InternalDate: time.Now(),
 				Size:         int64(len(data)),
 				Subject:      subject,

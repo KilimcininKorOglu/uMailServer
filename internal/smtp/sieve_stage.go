@@ -114,6 +114,16 @@ func (s *SieveStage) Process(ctx *MessageContext) PipelineResult {
 					// Call handler asynchronously to not block the pipeline
 					go s.vacationHandler(from, recipient, a)
 				}
+			case sieve.AddFlagAction:
+				// imap4flags: mark the delivered message with these flags. Emitted
+				// as markers consumed by deliverMessageWithSieve (which sets them on
+				// the stored message metadata).
+				if ctx.SpamResult.Reasons == nil {
+					ctx.SpamResult.Reasons = make([]string, 0)
+				}
+				for _, flag := range a.Flags {
+					ctx.SpamResult.Reasons = append(ctx.SpamResult.Reasons, "addflag:"+flag)
+				}
 			case sieve.AddHeaderAction:
 				// Inject the header into the stored message so the delivered
 				// copy carries it (e.g. X-Category from an assign-categories rule).

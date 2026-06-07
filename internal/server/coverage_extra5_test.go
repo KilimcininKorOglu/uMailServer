@@ -421,7 +421,7 @@ func TestCoverDeliverLocal_ForwardLoop(t *testing.T) {
 
 	// Data with X-Mail-Loop matching the account email
 	data := []byte("Subject: Test\r\nX-Mail-Loop: testuser@example.com\r\n\r\nBody")
-	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", data, false)
+	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", data, false, nil)
 	if err != nil {
 		t.Errorf("deliverLocal with forward loop failed: %v", err)
 	}
@@ -491,7 +491,7 @@ func TestCoverDeliverLocal_TargetFolder(t *testing.T) {
 	}()
 	time.Sleep(600 * time.Millisecond)
 
-	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Subject: Test\r\n\r\nBody"), false, "Junk")
+	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Subject: Test\r\n\r\nBody"), false, nil, "Junk")
 	if err != nil {
 		t.Errorf("deliverLocal with target folder failed: %v", err)
 	}
@@ -565,7 +565,7 @@ func TestCoverDeliverLocal_VacationSettings(t *testing.T) {
 	// Initialize vacation replies map
 	srv.vacationReplies = make(map[string]time.Time)
 
-	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Subject: Test\r\n\r\nBody"), false)
+	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Subject: Test\r\n\r\nBody"), false, nil)
 	if err != nil {
 		t.Errorf("deliverLocal with vacation settings failed: %v", err)
 	}
@@ -641,7 +641,7 @@ func TestCoverDeliverLocal_PushEnabled(t *testing.T) {
 	}()
 	time.Sleep(600 * time.Millisecond)
 
-	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Subject: Test\r\n\r\nBody"), false)
+	err = srv.deliverLocal("testuser", "example.com", "sender@example.com", []byte("Subject: Test\r\n\r\nBody"), false, nil)
 	if err != nil {
 		t.Errorf("deliverLocal with push enabled failed: %v", err)
 	}
