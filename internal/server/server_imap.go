@@ -17,9 +17,13 @@ func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
 	imapAddr := fmt.Sprintf("%s:%d", s.cfg().IMAP.Bind, s.cfg().IMAP.Port)
 	imapCfg := &imap.Config{
 		Addr:                 imapAddr,
-		TLSConfig:            s.tlsManager.GetTLSConfig(),
 		Logger:               s.logger,
 		SharedFoldersEnabled: s.cfg().Storage.SharedFolders,
+	}
+	// Only wire TLS (and thus advertise STARTTLS) when a usable certificate is
+	// configured; otherwise STARTTLS-requiring clients would fail the handshake.
+	if s.tlsManager.IsEnabled() {
+		imapCfg.TLSConfig = s.tlsManager.GetTLSConfig()
 	}
 
 	imapServer := imap.NewServer(imapCfg, mailstore)

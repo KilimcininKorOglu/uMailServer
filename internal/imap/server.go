@@ -362,7 +362,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.logger.Info("New IMAP session", "session", session.ID(), "remote", conn.RemoteAddr())
 
 	// Send greeting with capability advertisement
-	caps := defaultCapabilities(s.sharedFoldersEnabled)
+	caps := defaultCapabilities(s.sharedFoldersEnabled, s.tlsConfig != nil)
 	session.WriteResponse("*", "OK [CAPABILITY IMAP4rev2 IMAP4rev1 "+strings.Join(caps, " ")+"] uMailServer ready")
 
 	// Handle commands
@@ -435,7 +435,7 @@ func NewSession(conn net.Conn, server *Server) *Session {
 		writer:       bufio.NewWriter(conn),
 		server:       server,
 		state:        StateNotAuthenticated,
-		capabilities: defaultCapabilities(server.sharedFoldersEnabled),
+		capabilities: defaultCapabilities(server.sharedFoldersEnabled, server.tlsConfig != nil),
 		enabledCaps:  make(map[string]bool),
 	}
 }
@@ -557,12 +557,19 @@ func generateSessionID() string {
 	}
 }
 
-// defaultCapabilities returns the default server capabilities
-func defaultCapabilities(sharedFoldersEnabled bool) []string {
+// defaultCapabilities returns the default server capabilities. STARTTLS is only
+// advertised when TLS is available (startTLS); advertising it without a usable
+// certificate would make STARTTLS-requiring clients fail the handshake instead
+// of falling back, per RFC 3207 downgrade protection.
+func defaultCapabilities(sharedFoldersEnabled, startTLS bool) []string {
 	caps := []string{
 		"IMAP4rev2",
 		"IMAP4rev1",
-		"STARTTLS",
+	}
+	if startTLS {
+		caps = append(caps, "STARTTLS")
+	}
+	caps = append(caps,
 		"AUTH=PLAIN",
 		"AUTH=LOGIN",
 		"IDLE",
@@ -582,7 +589,7 @@ func defaultCapabilities(sharedFoldersEnabled bool) []string {
 		"THREAD=REFERENCES",
 		"THREAD=ORDEREDSUBJECT",
 		"MULTIAPPEND",
-	}
+	)
 	if sharedFoldersEnabled {
 		caps = append(caps, "ACL")
 	}

@@ -316,7 +316,7 @@ func TestSessionClose(t *testing.T) {
 }
 
 func TestDefaultCapabilities(t *testing.T) {
-	caps := defaultCapabilities(true)
+	caps := defaultCapabilities(true, true)
 
 	// Check some expected capabilities
 	expectedCaps := []string{"IMAP4rev1", "STARTTLS", "AUTH=PLAIN", "IDLE", "UIDPLUS", "ACL"}
@@ -923,7 +923,7 @@ func TestGenerateSessionIDUnique(t *testing.T) {
 }
 
 func TestDefaultCapabilitiesContent(t *testing.T) {
-	caps := defaultCapabilities(false)
+	caps := defaultCapabilities(false, true)
 
 	expectedCaps := []string{
 		"IMAP4rev1",
@@ -958,6 +958,15 @@ func TestDefaultCapabilitiesContent(t *testing.T) {
 	for _, cap := range caps {
 		if cap == "ACL" {
 			t.Fatal("expected ACL capability to be disabled")
+		}
+	}
+
+	// STARTTLS must not be advertised when TLS is unavailable: a client that
+	// sees STARTTLS and requires it would fail the handshake (no certificate)
+	// instead of falling back, per RFC 3207 downgrade protection.
+	for _, cap := range defaultCapabilities(false, false) {
+		if cap == "STARTTLS" {
+			t.Fatal("STARTTLS must not be advertised when TLS is unavailable")
 		}
 	}
 }
