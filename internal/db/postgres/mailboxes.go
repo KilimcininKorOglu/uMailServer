@@ -199,6 +199,25 @@ func (d *DB) GetHighestModSeq(user, mailbox string) (uint64, error) {
 	return uint64(modSeq), nil
 }
 
+// GetNextModSeq atomically increments and returns the mailbox's RFC 7162
+// mod-sequence. Used to stamp a new modseq on every flag change so CONDSTORE
+// UNCHANGEDSINCE and FETCH MODSEQ report a monotonic per-message value.
+func (d *DB) GetNextModSeq(user, mailbox string) (uint64, error) {
+	ctx := context.Background()
+	var modSeq int64
+	err := d.pool.QueryRow(ctx,
+		`UPDATE mailboxes SET highest_modseq = highest_modseq + 1
+		 WHERE user_email=$1 AND name=$2 RETURNING highest_modseq`, user, mailbox,
+	).Scan(&modSeq)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("postgres: next modseq %s/%s: %w", user, mailbox, err)
+	}
+	return uint64(modSeq), nil
+}
+
 // GetSubscribed reports whether the user is subscribed to the mailbox name
 // (independent of whether the mailbox exists).
 func (d *DB) GetSubscribed(user, mailbox string) (bool, error) {

@@ -21,6 +21,7 @@ type MetadataStore interface {
 	GetMailboxCounts(user, mailbox string) (exists, recent, unseen int, err error)
 	ClearRecent(user, mailbox string) error
 	GetHighestModSeq(user, mailbox string) (uint64, error)
+	GetNextModSeq(user, mailbox string) (uint64, error)
 
 	GetNextUID(user, mailbox string) (uint32, error)
 	ReconcileUIDNext(user, mailbox string) error

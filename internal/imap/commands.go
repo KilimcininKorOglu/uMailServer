@@ -2084,10 +2084,73 @@ func (s *Session) handleStore(args []string, byUID bool) error {
 	}
 
 	seqSet := args[0]
-	operation := strings.ToUpper(args[1]) // FLAGS, +FLAGS, -FLAGS
-	flagsStr := strings.Join(args[2:], " ")
 
-	if byUID {
+	// RFC 7162: optional (UNCHANGEDSINCE n) modifier between the sequence set and
+	// the operation. Messages whose modseq exceeds n are left untouched and
+	// reported back in a MODIFIED response code.
+	rest := args[1:]
+	var unchangedSince uint64
+	hasUnchangedSince := false
+	if len(rest) > 0 && strings.HasPrefix(rest[0], "(") {
+		var modTokens []string
+		for len(rest) > 0 {
+			t := rest[0]
+			rest = rest[1:]
+			modTokens = append(modTokens, strings.Trim(t, "()"))
+			if strings.HasSuffix(t, ")") {
+				break
+			}
+		}
+		if len(modTokens) >= 2 && strings.ToUpper(modTokens[0]) == "UNCHANGEDSINCE" {
+			if n, perr := strconv.ParseUint(modTokens[1], 10, 64); perr == nil {
+				unchangedSince = n
+				hasUnchangedSince = true
+			}
+		}
+	}
+	if len(rest) < 2 {
+		s.WriteResponse(s.tag, "BAD Missing operation or flags")
+		return nil
+	}
+	operation := strings.ToUpper(rest[0]) // FLAGS, +FLAGS, -FLAGS
+	flagsStr := strings.Join(rest[1:], " ")
+
+	// Partition the target set by UNCHANGEDSINCE before applying. The check works
+	// in sequence-number space, so do it after a UID->seq translation when needed.
+	var modifiedUIDs []uint32
+	skipTranslate := false
+	if hasUnchangedSince {
+		fetchSet := seqSet
+		if byUID {
+			if t, e := s.uidSetToSeqSet(s.selected.Name, seqSet); e == nil {
+				fetchSet = t
+			}
+		}
+		if msgs, ferr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, fetchSet, []string{"FLAGS", "UID"}); ferr == nil {
+			var allowed []string
+			for _, mmsg := range msgs {
+				if mmsg.ModSeq > unchangedSince {
+					modifiedUIDs = append(modifiedUIDs, mmsg.UID)
+				} else {
+					allowed = append(allowed, fmt.Sprintf("%d", mmsg.SeqNum))
+				}
+			}
+			if len(allowed) == 0 {
+				// Nothing left to update: report MODIFIED only if some entries
+				// actually failed the check, else a plain OK (empty/no match).
+				if len(modifiedUIDs) > 0 {
+					s.WriteResponse(s.tag, fmt.Sprintf("OK [MODIFIED %s] STORE completed", joinUint32(modifiedUIDs)))
+				} else {
+					s.WriteResponse(s.tag, "OK STORE completed")
+				}
+				return nil
+			}
+			seqSet = strings.Join(allowed, ",")
+			skipTranslate = true // seqSet is already sequence numbers
+		}
+	}
+
+	if byUID && !skipTranslate {
 		translated, terr := s.uidSetToSeqSet(s.selected.Name, seqSet)
 		if terr != nil {
 			s.WriteResponse(s.tag, fmt.Sprintf("NO %s", terr))
@@ -2157,8 +2220,22 @@ func (s *Session) handleStore(args []string, byUID bool) error {
 		tracing.SetStatus(span, tracing.StatusOk, "")
 	}
 
+	if len(modifiedUIDs) > 0 {
+		// RFC 7162: report the entries that failed the UNCHANGEDSINCE test.
+		s.WriteResponse(s.tag, fmt.Sprintf("OK [MODIFIED %s] STORE completed", joinUint32(modifiedUIDs)))
+		return nil
+	}
 	s.WriteResponse(s.tag, "OK STORE completed")
 	return nil
+}
+
+// joinUint32 renders a uint32 slice as a comma-separated IMAP sequence-set.
+func joinUint32(nums []uint32) string {
+	parts := make([]string, len(nums))
+	for i, n := range nums {
+		parts[i] = fmt.Sprintf("%d", n)
+	}
+	return strings.Join(parts, ",")
 }
 
 // COPY command. When byUID is true (UID COPY), args[0] is a UID set.

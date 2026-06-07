@@ -299,6 +299,7 @@ func (m *BboltMailstore) getMessage(user, mailbox string, seqNum, uid uint32, it
 		SeqNum:       seqNum,
 		UID:          uid,
 		Flags:        meta.Flags,
+		ModSeq:       meta.ModSeq,
 		InternalDate: meta.InternalDate,
 		Size:         meta.Size,
 		Subject:      meta.Subject,
@@ -452,6 +453,11 @@ func (m *BboltMailstore) StoreFlags(user, mailbox string, seqSet string, flags [
 	}
 	total := uint32(uidCount)
 
+	// RFC 7162: every flag change bumps the mailbox modseq; all messages touched
+	// by this one STORE share the new modseq, so CONDSTORE UNCHANGEDSINCE and
+	// FETCH MODSEQ report a consistent value.
+	newModSeq, _ := m.db.GetNextModSeq(user, mailbox) //nolint:errcheck // best-effort
+
 	for i, uid := range uids {
 		// IMAP uses 1-based sequence numbers
 		seqNum := uint32(i + 1)
@@ -489,6 +495,9 @@ func (m *BboltMailstore) StoreFlags(user, mailbox string, seqSet string, flags [
 				meta.Flags = newFlags
 			case FlagReplace:
 				meta.Flags = flags
+			}
+			if newModSeq > 0 {
+				meta.ModSeq = newModSeq
 			}
 			updatedFlags = meta.Flags
 			return nil
