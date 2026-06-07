@@ -199,7 +199,13 @@ func (s *Server) startSMTP() {
 
 		submissionServer := smtp.NewServer(submissionCfg, s.logger)
 		submissionServer.SetAuthHandler(s.authenticate)
-		submissionServer.SetDeliveryHandlerWithSieve(s.deliverMessageWithSieve)
+		// Route through submitMessageWithSieve so the RECIPIENT's Sieve script
+		// (fileinto rules, OOF vacation) runs for locally delivered submissions,
+		// matching the API/JMAP/EWS send path. The submission pipeline has no
+		// Sieve stage, so the session's action list is always empty here.
+		submissionServer.SetDeliveryHandlerWithSieve(func(from string, to []string, data []byte, _ []string) error {
+			return s.submitMessageWithSieve(from, to, data)
+		})
 		submissionServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionServer.SetUserSecretHandler(s.getUserSecret)
@@ -235,7 +241,10 @@ func (s *Server) startSMTP() {
 
 		submissionTLSServer := smtp.NewServer(submissionTLSCfg, s.logger)
 		submissionTLSServer.SetAuthHandler(s.authenticate)
-		submissionTLSServer.SetDeliveryHandlerWithSieve(s.deliverMessageWithSieve)
+		// Same recipient-Sieve routing as the 587 submission listener.
+		submissionTLSServer.SetDeliveryHandlerWithSieve(func(from string, to []string, data []byte, _ []string) error {
+			return s.submitMessageWithSieve(from, to, data)
+		})
 		submissionTLSServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionTLSServer.SetUserSecretHandler(s.getUserSecret)
