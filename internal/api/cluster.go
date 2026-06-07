@@ -91,8 +91,10 @@ func (s *Server) handleClusterFailover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if this instance is the leader
-	leader, err := s.clusterMgr.LeaderElection().IsLeader(context.Background(), "server")
+	// Check if this instance is the leader. Use the shared election key the
+	// leadership loop actually contends on — a literal like "server" matches
+	// nothing and would make failover permanently answer 403.
+	leader, err := s.clusterMgr.LeaderElection().IsLeader(context.Background(), cluster.LeaderElectionKey)
 	if err != nil {
 		http.Error(w, "Failed to check leadership", http.StatusInternalServerError)
 		return
