@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { getCookie, setCookie } from '@/utils/cookies'
 
 type TranslationMessages = Record<string, unknown>
 
@@ -26,7 +27,7 @@ const I18nContext = createContext<I18nContextValue | null>(null)
 // switching languages never propagated).
 function useI18nState(): I18nContextValue {
   const [locale, setLocale] = useState(() => {
-    return localStorage.getItem(STORAGE_KEY) || navigator.language.split('-')[0] || 'en'
+    return getCookie(STORAGE_KEY) || navigator.language.split('-')[0] || 'en'
   })
   const [messages, setMessages] = useState<TranslationMessages | null>(null)
   const [loading, setLoading] = useState(true)
@@ -51,7 +52,7 @@ function useI18nState(): I18nContextValue {
 
   const changeLocale = useCallback((newLocale: string) => {
     setLocale(newLocale)
-    localStorage.setItem(STORAGE_KEY, newLocale)
+    setCookie(STORAGE_KEY, newLocale)
     document.documentElement.lang = newLocale
   }, [])
 

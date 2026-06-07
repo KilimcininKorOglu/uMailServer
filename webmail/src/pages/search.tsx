@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import API from "@/utils/api"
+import { getCookie, setCookie, deleteCookie } from "@/utils/cookies"
 
 interface SearchEmail {
   id: string
@@ -27,7 +28,7 @@ interface SearchEmail {
   read: boolean
 }
 
-const RECENT_SEARCHES_KEY = 'umail_recent_searches'
+const RECENT_SEARCHES_COOKIE = 'umail_recent_searches'
 const MAX_RECENT_SEARCHES = 5
 
 export function SearchPage() {
@@ -43,9 +44,9 @@ export function SearchPage() {
   const [recentSearches, setRecentSearches] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Load recent searches from localStorage
+  // Load recent searches from the cookie
   useEffect(() => {
-    const saved = localStorage.getItem(RECENT_SEARCHES_KEY)
+    const saved = getCookie(RECENT_SEARCHES_COOKIE)
     if (saved) {
       try {
         setRecentSearches(JSON.parse(saved))
@@ -61,7 +62,7 @@ export function SearchPage() {
     setRecentSearches(prev => {
       const filtered = prev.filter(s => s.toLowerCase() !== term.toLowerCase())
       const updated = [term, ...filtered].slice(0, MAX_RECENT_SEARCHES)
-      localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated))
+      setCookie(RECENT_SEARCHES_COOKIE, JSON.stringify(updated))
       return updated
     })
   }, [])
@@ -69,7 +70,7 @@ export function SearchPage() {
   // Clear all recent searches
   const clearRecentSearches = useCallback(() => {
     setRecentSearches([])
-    localStorage.removeItem(RECENT_SEARCHES_KEY)
+    deleteCookie(RECENT_SEARCHES_COOKIE)
   }, [])
 
   // Perform actual search

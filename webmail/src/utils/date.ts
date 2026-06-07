@@ -1,3 +1,5 @@
+import { getCookie, setCookie, deleteCookie } from "./cookies"
+
 // Centralized, timezone-aware date formatting for the webmail UI.
 //
 // The user picks a display timezone during onboarding (or in Settings); every
@@ -8,28 +10,18 @@
 // settings update it on change. An empty value means "follow the device" —
 // formatters then omit the timeZone option and fall back to the browser zone.
 
-const TZ_STORAGE_KEY = 'umailserver-timezone'
+const TZ_COOKIE_KEY = 'umailserver-timezone'
 
-// Seed synchronously from localStorage so the very first render already uses the
+// Seed synchronously from the cookie so the very first render already uses the
 // chosen zone (no flash of browser-zone times before /auth/me resolves).
-let displayTimeZone = ''
-try {
-  displayTimeZone = localStorage.getItem(TZ_STORAGE_KEY) || ''
-} catch {
-  displayTimeZone = ''
-}
+let displayTimeZone = getCookie(TZ_COOKIE_KEY) || ''
 
 export function setDisplayTimeZone(tz: string): void {
   displayTimeZone = tz || ''
-  try {
-    if (displayTimeZone) {
-      localStorage.setItem(TZ_STORAGE_KEY, displayTimeZone)
-    } else {
-      localStorage.removeItem(TZ_STORAGE_KEY)
-    }
-  } catch {
-    // ignore storage failures (private mode, quota) — the in-memory value still
-    // applies for this session.
+  if (displayTimeZone) {
+    setCookie(TZ_COOKIE_KEY, displayTimeZone)
+  } else {
+    deleteCookie(TZ_COOKIE_KEY)
   }
 }
 

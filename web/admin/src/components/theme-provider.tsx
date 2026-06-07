@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react"
+import { getCookie, setCookie } from "@/utils/cookies"
 
 type Theme = "dark" | "light" | "system"
 
@@ -29,7 +30,7 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
+    () => (getCookie(storageKey) as Theme) || defaultTheme
   )
   const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("light")
 
@@ -54,7 +55,7 @@ export function ThemeProvider({
   const value = {
     theme,
     setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme)
+      setCookie(storageKey, theme)
       setTheme(theme)
     },
     resolvedTheme,

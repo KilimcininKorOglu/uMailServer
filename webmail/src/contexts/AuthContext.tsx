@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import api from '../utils/api'
 import { setDisplayTimeZone } from '../utils/date'
+import { getCookie, setCookie, deleteCookie } from '../utils/cookies'
 
 interface UserPrefs {
   onboarded?: boolean
@@ -31,10 +32,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
-// Marker set on a successful login and cleared on logout / a stale-session
+// Marker cookie set on a successful login and cleared on logout / a stale-session
 // probe. Without it, the mount-time `api.me()` probe runs on a fresh or
 // logged-out browser and logs a 401 on the login screen before the user has
-// done anything. (The JWT itself lives in an unreadable HttpOnly cookie.)
+// done anything. (The JWT itself lives in a separate unreadable HttpOnly cookie;
+// this readable marker only gates whether to probe.)
 const sessionMarkerKey = 'umail-webmail-authed'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -68,7 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let active = true
     // Only probe for a session if this browser previously logged in; otherwise
     // skip the request so the login screen does not log a 401.
-    if (!localStorage.getItem(sessionMarkerKey)) {
+    if (!getCookie(sessionMarkerKey)) {
       setHydrating(false)
       return
     }
@@ -80,13 +82,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           // Soft 200 with authenticated:false — the stored session is no longer
           // valid. Clear the marker so we stop probing on future loads.
-          localStorage.removeItem(sessionMarkerKey)
+          deleteCookie(sessionMarkerKey)
         }
       })
       .catch(() => {
         // Network/other failure: clear the marker so we stop probing on future
         // loads (the soft check itself no longer returns 401).
-        localStorage.removeItem(sessionMarkerKey)
+        deleteCookie(sessionMarkerKey)
       })
       .finally(() => {
         if (active) setHydrating(false)
@@ -102,7 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // Token is now in HttpOnly cookie - no need to store in memory
       await api.post<{ expiresIn?: number }>('/auth/login', { email, password })
-      localStorage.setItem(sessionMarkerKey, '1')
+      setCookie(sessionMarkerKey, '1')
       // Pull the full identity + presentation prefs so the onboarding gate and
       // chosen timezone are known immediately after login.
       try {
@@ -137,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     setIsAuthenticated(false)
     api.setToken(null)
-    localStorage.removeItem(sessionMarkerKey)
+    deleteCookie(sessionMarkerKey)
   }, [])
 
   const updatePrefs = useCallback((prefs: UserPrefs) => {

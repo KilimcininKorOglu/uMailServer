@@ -20,6 +20,7 @@ import { Jobs } from "@/pages/Jobs";
 import { Tenants } from "@/pages/Tenants";
 import { Cluster } from "@/pages/Cluster";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { getCookie, setCookie, deleteCookie } from "@/utils/cookies";
 import type { User, Activity } from "@/types";
 
 const adminEmailStorageKey = "umail-admin-email";
@@ -42,7 +43,7 @@ function App() {
       // (the email marker is set on login and cleared on logout). Without it the
       // jwt cookie is absent, so the probe would 403 and log a console error on
       // the login page before the user has done anything.
-      if (!localStorage.getItem(adminEmailStorageKey)) {
+      if (!getCookie(adminEmailStorageKey)) {
         return;
       }
       try {
@@ -58,7 +59,7 @@ function App() {
           // Resolve the real email: prefer the value stored at login, but if it
           // is missing (e.g. localStorage was cleared) ask the server via
           // /auth/me instead of showing a misleading placeholder address.
-          let email = localStorage.getItem(adminEmailStorageKey) ?? "";
+          let email = getCookie(adminEmailStorageKey) ?? "";
           if (!email) {
             const me = await fetch("/api/v1/auth/me", { credentials: "include" })
               .then((r) => (r.ok ? r.json() : null))
@@ -68,13 +69,13 @@ function App() {
             }
             email = me?.email ?? "";
             if (email) {
-              localStorage.setItem(adminEmailStorageKey, email);
+              setCookie(adminEmailStorageKey, email);
             }
           }
           setIsAuthenticated(true);
           setUser({ email, isAdmin: true });
           setMustChangePassword(false);
-          localStorage.removeItem(adminPasswordChangeStorageKey);
+          deleteCookie(adminPasswordChangeStorageKey);
           return;
         }
 
@@ -84,12 +85,12 @@ function App() {
         }
 
         if (response.status === 403 && data?.error === "password_change_required") {
-          const savedEmail = localStorage.getItem(adminEmailStorageKey);
+          const savedEmail = getCookie(adminEmailStorageKey);
           if (savedEmail) {
             setIsAuthenticated(true);
             setUser({ email: savedEmail, isAdmin: true });
             setMustChangePassword(true);
-            localStorage.setItem(adminPasswordChangeStorageKey, "true");
+            setCookie(adminPasswordChangeStorageKey, "true");
           }
           return;
         }
@@ -97,8 +98,8 @@ function App() {
         // The stored session is no longer valid (e.g. the cookie expired). Clear
         // the markers so subsequent login-page loads do not re-probe and log a
         // 403 every time.
-        localStorage.removeItem(adminEmailStorageKey);
-        localStorage.removeItem(adminPasswordChangeStorageKey);
+        deleteCookie(adminEmailStorageKey);
+        deleteCookie(adminPasswordChangeStorageKey);
       } catch {
         // Not authenticated
       }
@@ -122,11 +123,11 @@ function App() {
   const handleLogin = (userData: { email: string; mustChangePassword: boolean }) => {
     // Token is stored in HttpOnly cookie by the server
     // No need to store in localStorage (more secure against XSS)
-    localStorage.setItem(adminEmailStorageKey, userData.email);
+    setCookie(adminEmailStorageKey, userData.email);
     if (userData.mustChangePassword) {
-      localStorage.setItem(adminPasswordChangeStorageKey, "true");
+      setCookie(adminPasswordChangeStorageKey, "true");
     } else {
-      localStorage.removeItem(adminPasswordChangeStorageKey);
+      deleteCookie(adminPasswordChangeStorageKey);
     }
     setIsAuthenticated(true);
     setUser({ email: userData.email, isAdmin: true });
@@ -148,8 +149,8 @@ function App() {
     setUser(null);
     setMustChangePassword(false);
     setActivities([]);
-    localStorage.removeItem(adminEmailStorageKey);
-    localStorage.removeItem(adminPasswordChangeStorageKey);
+    deleteCookie(adminEmailStorageKey);
+    deleteCookie(adminPasswordChangeStorageKey);
     // Reset the address bar to the admin root so it does not linger on the
     // sub-route the user was viewing when they logged out.
     navigate("/", { replace: true });
