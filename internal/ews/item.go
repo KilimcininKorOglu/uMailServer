@@ -269,8 +269,19 @@ type ItemsContainer struct {
 }
 
 // MessageTypeResponse is a message item in responses (read/fetched).
+// MimeContentType carries the base64-encoded RFC 822 message in EWS responses.
+type MimeContentType struct {
+	XMLName      xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types MimeContent"`
+	CharacterSet string   `xml:"CharacterSet,attr,omitempty"`
+	Value        string   `xml:",chardata"`
+}
+
 type MessageTypeResponse struct {
-	XMLName          xml.Name                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	// MimeContent is the full RFC 822 message, base64-encoded, returned only when
+	// the request's ItemShape sets IncludeMimeContent (it is the first element of
+	// the EWS item schema). Lets a client fetch the original .eml.
+	MimeContent      *MimeContentType            `xml:"http://schemas.microsoft.com/exchange/services/2006/types MimeContent,omitempty"`
 	ItemID           ItemIdType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	ParentFolderID   FolderIdComponents          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
 	ItemClass        string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemClass,omitempty"`
@@ -1298,6 +1309,7 @@ type GetItemRequest struct {
 // ItemResponseShape.XMLName (ItemResponseShape).
 type ItemShapeType struct {
 	BaseShape            string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/types BaseShape,omitempty"`
+	IncludeMimeContent   bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types IncludeMimeContent,omitempty"`
 	AdditionalProperties *AdditionalPropertiesType `xml:"http://schemas.microsoft.com/exchange/services/2006/types AdditionalProperties,omitempty"`
 }
 
@@ -1332,6 +1344,20 @@ func (s *Server) handleGetItem(ctx context.Context, body []byte) []byte {
 		return s.errorItemResponseXML("GetItem", errCode, "could not resolve mailbox")
 	}
 
+	// MimeContent is returned when the client asks for it, either via the
+	// dedicated IncludeMimeContent flag (real Exchange clients) or as an
+	// AdditionalProperties FieldURI "item:MimeContent" (how exchangelib's
+	// .only('mime_content') requests it).
+	includeMime := req.ItemShapeDef.IncludeMimeContent
+	if ap := req.ItemShapeDef.AdditionalProperties; ap != nil {
+		for _, f := range ap.FieldURIs {
+			if strings.EqualFold(f.URI, "item:MimeContent") {
+				includeMime = true
+				break
+			}
+		}
+	}
+
 	msgs := make([]ItemResponseMessageType, 0, len(req.ItemIDs.Item))
 	for _, id := range req.ItemIDs.Item {
 		// Check collab store first for proper XML typing.
@@ -1340,7 +1366,7 @@ func (s *Server) handleGetItem(ctx context.Context, body []byte) []byte {
 				return resp
 			}
 		}
-		msg := s.getItemByID(ctx, mboxID, mboxKey, id)
+		msg := s.getItemByID(ctx, mboxID, mboxKey, id, includeMime)
 		msgs = append(msgs, msg)
 	}
 
@@ -1636,7 +1662,7 @@ func buildTaskGetItemFromRec(rec *semcore.StoredTaskIdentity) []byte {
 }
 
 // getItemByID retrieves one item by ItemId.
-func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mboxKey string, id ItemIdType) ItemResponseMessageType {
+func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mboxKey string, id ItemIdType, includeMime bool) ItemResponseMessageType {
 	itemID, err := semcore.NewItemId(id.ID)
 	if err != nil {
 		return errorItemMsg("GetItem", ErrErrorInvalidId, err.Error())
@@ -1704,6 +1730,14 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 		CcRecipients: recipientsWrap(recipientsFromHeader(rawMsg, "Cc")),
 		IsRead:       rec.IsRead,
 		Categories:   categoriesResponse(rec.Categories),
+	}
+	// Return the full RFC 822 message only when the client asked for it
+	// (IncludeMimeContent), base64-encoded as EWS requires.
+	if includeMime {
+		msgResp.MimeContent = &MimeContentType{
+			CharacterSet: "UTF-8",
+			Value:        base64.StdEncoding.EncodeToString(rawMsg),
+		}
 	}
 	if !rec.ConversationID.IsZero() {
 		msgResp.ConversationID = &ConversationIdType{ID: rec.ConversationID.String()}
