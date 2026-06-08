@@ -100,6 +100,7 @@ type IdentityStore interface {
 	EnsureMailboxId(email string) (semcore.MailboxId, error)
 	GetMailboxIDByEmail(email string) (semcore.MailboxId, error)
 	EnsureFolderId(mboxKey, folderName, role string) (semcore.FolderId, error)
+	EnsureChildFolderId(mboxKey string, parentID semcore.FolderId, displayName, role string) (semcore.FolderId, error)
 	GetFolderID(mboxKey, folderName string) (semcore.FolderId, error)
 	GetFolderByID(id semcore.FolderId) (*semcore.StoredFolderIdentity, error)
 	GetFolderByMailbox(mboxKey, role string) (*semcore.StoredFolderIdentity, error)

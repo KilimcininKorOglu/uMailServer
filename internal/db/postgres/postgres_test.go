@@ -1461,6 +1461,66 @@ func TestSemcoreFolderIdentity(t *testing.T) {
 	}
 }
 
+// TestSemcoreChildFolderIdentity covers EnsureChildFolderId parity with the
+// bbolt store: two children named the same under different parents get distinct
+// identities (a real copy, not a collapse), each records its parent, both render
+// the same client-visible name, and the operation is idempotent.
+func TestSemcoreChildFolderIdentity(t *testing.T) {
+	d := openTestDB(t)
+	const mbox = "alice@x.com"
+
+	parentA, err := d.EnsureFolderId(mbox, "Projects", "")
+	if err != nil {
+		t.Fatalf("EnsureFolderId(Projects): %v", err)
+	}
+	parentB, err := d.EnsureFolderId(mbox, "Archive", "")
+	if err != nil {
+		t.Fatalf("EnsureFolderId(Archive): %v", err)
+	}
+
+	idA, err := d.EnsureChildFolderId(mbox, parentA, "Reports", "")
+	if err != nil {
+		t.Fatalf("EnsureChildFolderId A: %v", err)
+	}
+	idB, err := d.EnsureChildFolderId(mbox, parentB, "Reports", "")
+	if err != nil {
+		t.Fatalf("EnsureChildFolderId B: %v", err)
+	}
+	if idA.Equal(idB) {
+		t.Fatalf("same-name children under different parents share id %v", idA)
+	}
+
+	recA, err := d.GetFolderByID(idA)
+	if err != nil || !recA.ParentID.Equal(parentA) {
+		t.Errorf("child A parent=%v err=%v want %v", recA.ParentID, err, parentA)
+	}
+	recB, err := d.GetFolderByID(idB)
+	if err != nil || !recB.ParentID.Equal(parentB) {
+		t.Errorf("child B parent=%v err=%v want %v", recB.ParentID, err, parentB)
+	}
+
+	for _, tc := range []struct {
+		id  semcore.FolderId
+		tag string
+	}{{idA, "A"}, {idB, "B"}} {
+		stored, err := d.FolderNameByID(mbox, tc.id)
+		if err != nil {
+			t.Fatalf("FolderNameByID %s: %v", tc.tag, err)
+		}
+		if got := semcore.DisplayNameFromStorageName(stored); got != "Reports" {
+			t.Errorf("child %s display name = %q, want Reports", tc.tag, got)
+		}
+	}
+
+	// Idempotent: repeat calls reuse the existing ids.
+	if again, err := d.EnsureChildFolderId(mbox, parentA, "Reports", ""); err != nil || !again.Equal(idA) {
+		t.Errorf("EnsureChildFolderId A repeat: %v err=%v want %v", again, err, idA)
+	}
+	if again, err := d.EnsureChildFolderId(mbox, parentB, "Reports", ""); err != nil || !again.Equal(idB) {
+		t.Errorf("EnsureChildFolderId B repeat: %v err=%v want %v", again, err, idB)
+	}
+}
+
 // TestSemcoreItemIdentity covers the item-identity surface: put (default and
 // explicit storage key), get-by-id, list-by-folder, folder/msgKey moves,
 // read/category state updates, the optimistic ChangeKey advance (with stale

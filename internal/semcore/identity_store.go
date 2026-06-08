@@ -490,13 +490,14 @@ func folderNameFromStorageKey(mboxKey string, key []byte) string {
 	return strings.TrimPrefix(string(key), mboxKey+"\x00")
 }
 
-// childStorageName returns the parent-scoped storage name for a child folder
+// ChildStorageName returns the parent-scoped storage name for a child folder
 // whose plain display name collides with an existing sibling under a different
 // parent. The form is "\x1f"+parentID+"\x1f"+displayName: the Unit Separator
 // (\x1f) never appears in an IMAP path or an EWS display name, and differs from
 // the "\x00" folder-key separator, so the stored name round-trips through the
-// existing key and migration machinery unchanged.
-func childStorageName(parentID FolderId, displayName string) string {
+// existing key and migration machinery unchanged. Exported so the relational
+// backend builds byte-identical storage names for backend parity.
+func ChildStorageName(parentID FolderId, displayName string) string {
 	return "\x1f" + parentID.String() + "\x1f" + displayName
 }
 
@@ -823,7 +824,7 @@ func (s *BoltIdentityStore) EnsureChildFolderId(mboxKey string, parentID FolderI
 		}
 
 		// Parent-scoped name (the plain name belongs to a different parent).
-		scopedKey := folderKey(mboxKey, childStorageName(parentID, displayName))
+		scopedKey := folderKey(mboxKey, ChildStorageName(parentID, displayName))
 		if data := b.Get([]byte(scopedKey)); data != nil {
 			var rec StoredFolderIdentity
 			if err := json.Unmarshal(data, &rec); err != nil {

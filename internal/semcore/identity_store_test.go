@@ -450,7 +450,7 @@ func TestDisplayNameFromStorageName(t *testing.T) {
 	}{
 		{"plain name unchanged", "Reports", "Reports"},
 		{"plain name with separator-free unicode", "Çalışmalar", "Çalışmalar"},
-		{"parent-scoped strips prefix", childStorageName(MustFolderId("fld-xyz"), "Reports"), "Reports"},
+		{"parent-scoped strips prefix", ChildStorageName(MustFolderId("fld-xyz"), "Reports"), "Reports"},
 		{"empty", "", ""},
 	}
 	for _, tc := range cases {

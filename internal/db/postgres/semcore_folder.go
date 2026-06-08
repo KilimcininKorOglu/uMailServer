@@ -63,6 +63,58 @@ func (d *DB) EnsureFolderId(mboxKey, folderName, role string) (semcore.FolderId,
 	return semcore.NewFolderId(raw)
 }
 
+// EnsureChildFolderId mirrors *semcore.BoltIdentityStore.EnsureChildFolderId:
+// it returns a FolderId for a child identified by parent and display name,
+// recording parent_id at creation, and never collapses a real copy into a
+// same-named sibling. When the plain display name already belongs to a
+// *different* parent, the folder is stored under a parent-scoped storage name
+// (semcore.ChildStorageName) so both keep distinct identities and storage keys.
+// Idempotent: a repeat call with the same (parent, name) returns the existing id.
+func (d *DB) EnsureChildFolderId(mboxKey string, parentID semcore.FolderId, displayName, role string) (semcore.FolderId, error) {
+	ctx := context.Background()
+
+	// Plain-name slot first.
+	var rawID, rawParent string
+	err := d.pool.QueryRow(ctx,
+		`SELECT folder_id, parent_id FROM semcore_folder_identity WHERE mbox_key=$1 AND folder_name=$2`,
+		mboxKey, displayName,
+	).Scan(&rawID, &rawParent)
+	switch {
+	case err == nil:
+		if parseFolderID(rawParent).Equal(parentID) {
+			// Same parent: idempotent reuse.
+			return semcore.NewFolderId(rawID)
+		}
+		// Different parent: fall through to the parent-scoped name.
+	case errors.Is(err, pgx.ErrNoRows):
+		// Plain name free: create under it.
+		return d.insertChildFolder(ctx, mboxKey, displayName, parentID, role)
+	default:
+		return semcore.FolderId{}, fmt.Errorf("postgres: ensure child folder %s/%s: %w", mboxKey, displayName, err)
+	}
+
+	// Parent-scoped name (the plain name belongs to a different parent).
+	return d.insertChildFolder(ctx, mboxKey, semcore.ChildStorageName(parentID, displayName), parentID, role)
+}
+
+// insertChildFolder inserts a child folder with parent_id set, returning the
+// existing folder_id on conflict (the no-op DO UPDATE makes RETURNING fire),
+// which keeps EnsureChildFolderId idempotent under a concurrent create.
+func (d *DB) insertChildFolder(ctx context.Context, mboxKey, folderName string, parentID semcore.FolderId, role string) (semcore.FolderId, error) {
+	var raw string
+	err := d.pool.QueryRow(ctx, `
+		INSERT INTO semcore_folder_identity (mbox_key, folder_name, folder_id, parent_id, role, is_subscribed)
+		VALUES ($1, $2, $3, $4, $5, true)
+		ON CONFLICT (mbox_key, folder_name) DO UPDATE SET mbox_key = semcore_folder_identity.mbox_key
+		RETURNING folder_id`,
+		mboxKey, folderName, newSemcoreID(), parentID.String(), role,
+	).Scan(&raw)
+	if err != nil {
+		return semcore.FolderId{}, fmt.Errorf("postgres: insert child folder %s/%s: %w", mboxKey, folderName, err)
+	}
+	return semcore.NewFolderId(raw)
+}
+
 // RestoreFolderIdentity inserts a folder identity with the exact FolderId and
 // all fields supplied, for the bbolt→Postgres migration. Unlike EnsureFolderId
 // it preserves the source's canonical id (items and collaboration records
