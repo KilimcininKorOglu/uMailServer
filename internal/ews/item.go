@@ -49,6 +49,9 @@ type CreateItemRequest struct {
 		DistinguishedFolderID *struct {
 			ID string `xml:"Id,attr"`
 		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId,omitempty"`
+		FolderID *struct {
+			ID string `xml:"Id,attr"`
+		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId,omitempty"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SavedItemFolderId,omitempty"`
 	// SaveItemToFolder: bool attribute. Uses bare attr name because Go's xml decoder
 	// doesn't match default-namespace attributes against namespace URLs in struct tags.
@@ -586,20 +589,20 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 	if sendAndSaveCopy {
 		targetRole = "sent"
 	}
-	saveItemToFolder := req.SaveItemToFolder != nil && *req.SaveItemToFolder
-	if req.SaveItemToFolderElement != nil {
-		saveItemToFolder = *req.SaveItemToFolderElement
-	}
-	if saveItemToFolder {
-		if req.SavedItemFolderID.DistinguishedFolderID != nil {
-			role, ok := DistinguishedFolderIDs[req.SavedItemFolderID.DistinguishedFolderID.ID]
-			if ok {
-				fld, err := s.identity.GetFolderByMailbox(ownerEmail, role)
-				if err == nil {
-					folderID = fld.FolderID
-				}
-				targetRole = role
+	// Honor an explicitly named SavedItemFolderId — its presence is the request
+	// to save there. A distinguished id maps through its role; an explicit
+	// FolderId is used directly. Without one, the disposition default applies
+	// (drafts, or sent for SendAndSaveCopy).
+	if req.SavedItemFolderID.DistinguishedFolderID != nil {
+		if role, ok := DistinguishedFolderIDs[req.SavedItemFolderID.DistinguishedFolderID.ID]; ok {
+			if fld, err := s.identity.GetFolderByMailbox(ownerEmail, role); err == nil {
+				folderID = fld.FolderID
 			}
+			targetRole = role
+		}
+	} else if req.SavedItemFolderID.FolderID != nil {
+		if fid, ferr := semcore.NewFolderId(req.SavedItemFolderID.FolderID.ID); ferr == nil {
+			folderID = fid
 		}
 	}
 

@@ -295,6 +295,55 @@ func TestCreateFolder_UserFolder(t *testing.T) {
 	}
 }
 
+// TestCreateFolder_ExplicitFolderIdParent proves a CreateFolder whose
+// ParentFolderId is an explicit <t:FolderId Id=".."/> child element nests the
+// new folder under that parent. The previous attribute-shaped struct tags
+// dropped the parent, so every folder landed at the mailbox root (BUG-34).
+func TestCreateFolder_ExplicitFolderIdParent(t *testing.T) {
+	srv, cleanup := tmpEWSServer(t)
+	defer cleanup()
+
+	const email = "alice@example.com"
+	if _, err := srv.identity.EnsureMailboxId(email); err != nil {
+		t.Fatalf("EnsureMailboxId: %v", err)
+	}
+	const mbox = email // handlers strip "e:"; identity is keyed by the raw email
+	parent, err := srv.identity.EnsureFolderId(mbox, "Projects", "")
+	if err != nil {
+		t.Fatalf("EnsureFolderId(Projects): %v", err)
+	}
+
+	body := `<CreateFolder xmlns="http://schemas.microsoft.com/exchange/services/2006/messages">
+  <ParentFolderId><t:FolderId Id="` + parent.String() + `"/></ParentFolderId>
+  <Folders><t:Folder><t:DisplayName>Reports</t:DisplayName></t:Folder></Folders>
+</CreateFolder>`
+
+	rec := ewsRequest(t, srv, email, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d, body: %s", rec.Code, rec.Body.String())
+	}
+	var resp CreateFolderResponse
+	unmarshalFromBody(t, rec.Body.Bytes(), &resp)
+	if len(resp.ResponseMessages.Messages) == 0 {
+		t.Fatal("expected response messages")
+	}
+	msg := resp.ResponseMessages.Messages[0]
+	if msg.ResponseCode.Value != ErrNoError || len(msg.Folders.Folders) == 0 {
+		t.Fatalf("CreateFolder failed: code=%s folders=%d", msg.ResponseCode.Value, len(msg.Folders.Folders))
+	}
+	childID, err := semcore.NewFolderId(msg.Folders.Folders[0].FolderID.ID)
+	if err != nil {
+		t.Fatalf("parse child id: %v", err)
+	}
+	rec2, err := srv.identity.GetFolderByID(childID)
+	if err != nil {
+		t.Fatalf("GetFolderByID(child): %v", err)
+	}
+	if !rec2.ParentID.Equal(parent) {
+		t.Errorf("child ParentID = %v, want %v (folder did not nest under the explicit parent)", rec2.ParentID, parent)
+	}
+}
+
 func TestCreateFolder_WithoutDisplayName(t *testing.T) {
 	srv, cleanup := tmpEWSServer(t)
 	defer cleanup()

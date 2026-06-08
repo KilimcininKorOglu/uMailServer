@@ -386,10 +386,18 @@ type FoldersContainer struct {
 
 // CreateFolderRequest is the EWS CreateFolder operation request.
 type CreateFolderRequest struct {
-	XMLName        xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateFolder"`
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateFolder"`
+	// ParentFolderId carries the parent as a CHILD element — either a
+	// <t:DistinguishedFolderId Id=".."/> or a <t:FolderId Id=".."/> — not as an
+	// attribute on ParentFolderId. Parsing them as attributes (the previous
+	// shape) silently dropped the parent, so every folder landed at the root.
 	ParentFolderID struct {
-		Distinguished string `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId,attr,omitempty"`
-		ID            string `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId,attr,omitempty"`
+		DistinguishedFolderID *struct {
+			ID string `xml:"Id,attr"`
+		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+		FolderID *struct {
+			ID string `xml:"Id,attr"`
+		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ParentFolderId"`
 	Folders FoldersContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
 }
@@ -422,22 +430,27 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 
 	// Resolve parent folder.
 	var parentID semcore.FolderId
-	if req.ParentFolderID.Distinguished != "" {
-		role, ok := DistinguishedFolderIDs[req.ParentFolderID.Distinguished]
+	if req.ParentFolderID.DistinguishedFolderID != nil {
+		role, ok := DistinguishedFolderIDs[req.ParentFolderID.DistinguishedFolderID.ID]
 		if !ok {
-			return s.errorResponseXML("CreateFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+req.ParentFolderID.Distinguished)
+			return s.errorResponseXML("CreateFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+req.ParentFolderID.DistinguishedFolderID.ID)
 		}
-		folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
-		if err == nil {
-			parentID = folder.FolderID
-		} else if errors.Is(err, semcore.ErrFolderNotFound) {
-			// Parent doesn't exist yet; create folder at root (parentID stays zero).
-		} else {
-			return s.errorResponseXML("CreateFolder", ErrErrorInternalServer, err.Error())
+		if role != "root" {
+			// msgfolderroot has no concrete parent — a folder created directly
+			// under it is top-level (zero parent), matching how FindFolder treats
+			// the root. Only a non-root distinguished parent (inbox, etc.) nests.
+			folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
+			if err == nil {
+				parentID = folder.FolderID
+			} else if errors.Is(err, semcore.ErrFolderNotFound) {
+				// Parent doesn't exist yet; create folder at root (parentID stays zero).
+			} else {
+				return s.errorResponseXML("CreateFolder", ErrErrorInternalServer, err.Error())
+			}
 		}
-	} else if req.ParentFolderID.ID != "" {
+	} else if req.ParentFolderID.FolderID != nil {
 		var err error
-		parentID, err = semcore.NewFolderId(req.ParentFolderID.ID)
+		parentID, err = semcore.NewFolderId(req.ParentFolderID.FolderID.ID)
 		if err != nil {
 			return s.errorResponseXML("CreateFolder", ErrErrorInvalidId, err.Error())
 		}
