@@ -286,6 +286,8 @@ type MessageTypeResponse struct {
 	ParentFolderID   FolderIdComponents          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
 	ItemClass        string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemClass,omitempty"`
 	Subject          string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
+	Sensitivity      string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sensitivity,omitempty"`
+	Importance       string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
 	DateTimeReceived string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
 	Size             int                         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
 	Body             BodyTypeResponse            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
@@ -1718,6 +1720,8 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 		ParentFolderID:   FolderIdComponents{ID: rec.FolderID.String()},
 		ItemClass:        rawHeaderValue(rawMsg, "X-Message-Class"),
 		Subject:          subject,
+		Sensitivity:      sensitivityFromHeaders(rawMsg),
+		Importance:       importanceFromHeaders(rawMsg),
 		DateTimeReceived: dateStr,
 		Size:             len(rawMsg),
 		Body: BodyTypeResponse{
@@ -3503,6 +3507,43 @@ func (s *Server) handleCreateAttachment(ctx context.Context, body []byte) []byte
 	resp := CreateAttachmentResponse{}
 	resp.Msgs.Messages = msgs
 	return buildResponseEnvelope(resp)
+}
+
+// importanceFromHeaders maps a stored message's priority headers to the EWS
+// item:Importance enum (Low/Normal/High), reading the Importance header first
+// and falling back to X-Priority. Defaults to Normal.
+func importanceFromHeaders(raw []byte) string {
+	switch strings.ToLower(strings.TrimSpace(rawHeaderValue(raw, "Importance"))) {
+	case "high":
+		return "High"
+	case "low":
+		return "Low"
+	case "normal":
+		return "Normal"
+	}
+	if p := strings.Fields(rawHeaderValue(raw, "X-Priority")); len(p) > 0 {
+		switch p[0] {
+		case "1", "2":
+			return "High"
+		case "4", "5":
+			return "Low"
+		}
+	}
+	return "Normal"
+}
+
+// sensitivityFromHeaders maps a stored message's Sensitivity header to the EWS
+// item:Sensitivity enum (Normal/Personal/Private/Confidential). Defaults Normal.
+func sensitivityFromHeaders(raw []byte) string {
+	switch strings.ToLower(strings.TrimSpace(rawHeaderValue(raw, "Sensitivity"))) {
+	case "personal":
+		return "Personal"
+	case "private":
+		return "Private"
+	case "company-confidential", "confidential":
+		return "Confidential"
+	}
+	return "Normal"
 }
 
 // renderAttachmentPart renders one MIME attachment part body (without the
