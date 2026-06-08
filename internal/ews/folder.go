@@ -25,7 +25,10 @@ func (s *Server) folderDisplayName(mailboxKey, role string, id semcore.FolderId)
 		return name
 	}
 	if name, err := s.identity.FolderNameByID(strings.TrimPrefix(mailboxKey, "e:"), id); err == nil && name != "" {
-		return name
+		// FolderNameByID returns the raw storage name, which is parent-scoped
+		// ("\x1f"+parentID+"\x1f"+display) for a child that collided with a
+		// same-named sibling; strip it back to the client-visible display name.
+		return semcore.DisplayNameFromStorageName(name)
 	}
 	if role != "" {
 		return role
