@@ -20,11 +20,59 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// tokenizeIMAPLine splits an IMAP command line into tokens on whitespace, like
+// strings.Fields, EXCEPT that whitespace inside a double-quoted string (RFC 3501
+// quoted-string) is not a delimiter, so `SUBJECT "two words"` stays one value
+// token instead of being split into `"two` and `words"`. The surrounding quote
+// characters are retained in the token, so the per-token quote-stripping done
+// downstream (parseSearchCriteria's unq, and the trims other handlers apply) is
+// unchanged. A backslash inside a quoted string escapes the next character, so
+// \" does not close the string. For any input without a space inside quotes the
+// output is byte-identical to strings.Fields, so no existing command regresses.
+func tokenizeIMAPLine(line string) []string {
+	var tokens []string
+	var b strings.Builder
+	inQuote, escaped, started := false, false, false
+	flush := func() {
+		if started {
+			tokens = append(tokens, b.String())
+			b.Reset()
+			started = false
+		}
+	}
+	for _, r := range line {
+		switch {
+		case escaped:
+			b.WriteRune(r)
+			escaped = false
+		case inQuote:
+			started = true
+			b.WriteRune(r)
+			switch r {
+			case '\\':
+				escaped = true
+			case '"':
+				inQuote = false
+			}
+		case r == '"':
+			started, inQuote = true, true
+			b.WriteRune(r)
+		case unicode.IsSpace(r):
+			flush()
+		default:
+			started = true
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return tokens
+}
+
 // handleCommand parses and handles an IMAP command
 func (s *Session) handleCommand(line string) error {
 	// Parse the command line
 	// Format: TAG COMMAND [arguments...]
-	parts := strings.Fields(line)
+	parts := tokenizeIMAPLine(line)
 	if len(parts) < 2 {
 		s.WriteResponse("BAD", "Command expected")
 		return nil
@@ -1521,7 +1569,7 @@ func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 					retAll = true
 				}
 			}
-			searchArgs = strings.Fields(joined[closeIdx+1:])
+			searchArgs = tokenizeIMAPLine(joined[closeIdx+1:])
 		} else {
 			searchArgs = args[1:]
 		}
@@ -1640,7 +1688,7 @@ func (s *Session) handleSort(args []string, line string) error {
 		return nil
 	}
 	sortKeyArgs := strings.Fields(joined[open+1 : closeIdx])
-	rest := strings.Fields(joined[closeIdx+1:]) // [charset, search-keys...]
+	rest := tokenizeIMAPLine(joined[closeIdx+1:]) // [charset, search-keys...]
 	var searchArgs []string
 	if len(rest) > 1 {
 		searchArgs = rest[1:] // drop the positional charset token

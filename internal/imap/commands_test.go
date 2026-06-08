@@ -3324,3 +3324,79 @@ func TestParseSearchCriteria_Header(t *testing.T) {
 		})
 	}
 }
+
+// TestTokenizeIMAPLine_QuotedSpaces verifies the command tokenizer keeps a
+// double-quoted multi-word value as ONE token (the SEARCH SUBJECT "two words"
+// bug: strings.Fields split it into `"two` and `words"`), while staying
+// byte-identical to strings.Fields for any input without spaces inside quotes.
+func TestTokenizeIMAPLine_QuotedSpaces(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want []string
+	}{
+		{
+			name: "quoted multi-word value stays one token",
+			line: `a SEARCH SUBJECT "two words"`,
+			want: []string{"a", "SEARCH", "SUBJECT", `"two words"`},
+		},
+		{
+			name: "two quoted multi-word values",
+			line: `a SEARCH FROM "John Doe" SUBJECT "year end"`,
+			want: []string{"a", "SEARCH", "FROM", `"John Doe"`, "SUBJECT", `"year end"`},
+		},
+		{
+			name: "escaped quote does not close the string",
+			line: `a SEARCH SUBJECT "say \"hi\" now"`,
+			want: []string{"a", "SEARCH", "SUBJECT", `"say \"hi\" now"`},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tokenizeIMAPLine(tc.line)
+			if len(got) != len(tc.want) {
+				t.Fatalf("tokenizeIMAPLine(%q) = %#v, want %#v", tc.line, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("token[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+
+	// Parity: with no spaces inside quotes the tokenizer must match strings.Fields
+	// exactly, so no existing command (LOGIN/SELECT/CREATE/FETCH) regresses.
+	for _, line := range []string{
+		`a LOGIN user pass`,
+		`a SELECT INBOX`,
+		`tag UID FETCH 1:* (FLAGS BODY[])`,
+		`a SEARCH UNSEEN SUBJECT hello`,
+		"   leading   and   collapsed   spaces   ",
+	} {
+		got := tokenizeIMAPLine(line)
+		want := strings.Fields(line)
+		if len(got) != len(want) {
+			t.Fatalf("parity mismatch for %q: got %#v, fields %#v", line, got, want)
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Errorf("parity token[%d] for %q = %q, want %q", i, line, got[i], want[i])
+			}
+		}
+	}
+}
+
+// TestParseSearchCriteria_QuotedMultiWord verifies the end-to-end path: a SEARCH
+// criteria value with an embedded space, tokenized then parsed, recovers the
+// full phrase (not just the first word).
+func TestParseSearchCriteria_QuotedMultiWord(t *testing.T) {
+	args := tokenizeIMAPLine(`SUBJECT "two words" FROM "John Doe"`)
+	result := parseSearchCriteria(args)
+	if result.Subject != "two words" {
+		t.Errorf("Subject = %q, want %q", result.Subject, "two words")
+	}
+	if result.From != "John Doe" {
+		t.Errorf("From = %q, want %q", result.From, "John Doe")
+	}
+}
