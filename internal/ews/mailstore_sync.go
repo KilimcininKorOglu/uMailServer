@@ -19,9 +19,10 @@ import (
 
 // mailboxNameForFolder resolves a semcore FolderId to the IMAP mailbox name the
 // message-store index is keyed by. Distinguished folders map through their role
-// (CanonicalFolderNameForRole); user folders are resolved by their stored name.
-// Collaboration folders (calendar/contacts/tasks) are NOT mail and return "" so
-// callers skip them — their items live in the collaboration store, not m.db.
+// (CanonicalFolderNameForRole); user folders resolve to their full IMAP
+// hierarchy path (folderLineagePath). Collaboration folders (calendar/contacts/
+// tasks) are NOT mail and return "" so callers skip them — their items live in
+// the collaboration store, not m.db.
 func (s *Server) mailboxNameForFolder(mailboxKey string, folderID semcore.FolderId) string {
 	rec, err := s.identity.GetFolderByID(folderID)
 	if err != nil || rec == nil {
@@ -31,15 +32,57 @@ func (s *Server) mailboxNameForFolder(mailboxKey string, folderID semcore.Folder
 	case "calendar", "contacts", "tasks":
 		return ""
 	case "":
-		// User-created folder: recover its name from the identity store.
-		name, err := s.identity.FolderNameByID(mailboxKey, folderID)
-		if err != nil {
-			return ""
-		}
-		return name
+		// User-created folder: resolve the full hierarchy path so two folders
+		// that share a display name under different parents map to distinct
+		// mailboxes (e.g. "Archive/Reports" vs a top-level "Reports"), and their
+		// mirrored items never collide in the wrong IMAP mailbox.
+		return s.folderLineagePath(mailboxKey, folderID)
 	default:
 		return semcore.CanonicalFolderNameForRole(rec.Role)
 	}
+}
+
+// folderLineagePath builds the IMAP mailbox path for a user folder by walking
+// ParentID to the root and joining each ancestor's client-visible display name
+// with the IMAP hierarchy separator "/". The parent-scoped storage prefix is
+// stripped per segment (DisplayNameFromStorageName), so a collided child
+// resolves to a distinct path. A distinguished ancestor anchors the path at its
+// canonical name and ends the walk. A top-level user folder yields exactly its
+// flat name, matching the pre-existing mirror behavior. Depth is bounded and a
+// visited set guards against a cyclic ParentID chain.
+func (s *Server) folderLineagePath(mailboxKey string, id semcore.FolderId) string {
+	const maxDepth = 64
+	segments := make([]string, 0, 8)
+	seen := make(map[string]bool, 8)
+	cur := id
+	for depth := 0; depth < maxDepth; depth++ {
+		if cur.IsZero() || seen[cur.String()] {
+			break
+		}
+		seen[cur.String()] = true
+		name, err := s.identity.FolderNameByID(mailboxKey, cur)
+		if err != nil || name == "" {
+			break
+		}
+		segments = append(segments, semcore.DisplayNameFromStorageName(name))
+		rec, err := s.identity.GetFolderByID(cur)
+		if err != nil || rec == nil {
+			break
+		}
+		if canon := semcore.CanonicalFolderNameForRole(rec.Role); canon != "" {
+			segments[len(segments)-1] = canon
+			break
+		}
+		cur = rec.ParentID
+	}
+	if len(segments) == 0 {
+		return ""
+	}
+	// segments are leaf→root; reverse to root→leaf for the IMAP path.
+	for i, j := 0, len(segments)-1; i < j; i, j = i+1, j-1 {
+		segments[i], segments[j] = segments[j], segments[i]
+	}
+	return strings.Join(segments, "/")
 }
 
 // mirrorCreateToMailstore writes a metadata entry for an EWS-created item into
