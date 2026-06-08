@@ -224,6 +224,8 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleExpandDL(ctx, soapBody)
 	case "MoveFolder":
 		response = s.handleMoveFolder(ctx, soapBody)
+	case "CopyFolder":
+		response = s.handleCopyFolder(ctx, soapBody)
 	case "GetMailTips":
 		response = s.handleGetMailTips(ctx, soapBody)
 	case "GetServiceConfiguration":

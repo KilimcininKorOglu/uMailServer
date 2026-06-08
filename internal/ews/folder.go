@@ -1137,6 +1137,231 @@ func (s *Server) handleMoveFolder(ctx context.Context, body []byte) []byte {
 }
 
 // ---------------------------------------------------------------------------
+// CopyFolder
+// ---------------------------------------------------------------------------
+
+// CopyFolderRequest is the EWS CopyFolder operation request. It deep-copies the
+// listed folders (subtree + mail items) under ToFolderId. Same wire shape as
+// MoveFolder; the response echoes each copy's NEW FolderId, not the source's.
+type CopyFolderRequest struct {
+	XMLName  xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CopyFolder"`
+	ToFolder struct {
+		FolderID              *moveFolderTargetRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+		DistinguishedFolderID *moveFolderTargetRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ToFolderId"`
+	FolderIDs struct {
+		FolderID              []moveFolderTargetRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+		DistinguishedFolderID []moveFolderTargetRef `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderIds"`
+}
+
+// isCollabRole reports whether a folder role stores collaboration objects
+// (calendar/contacts/tasks) rather than mail. Those live in the collaboration
+// store, which has no copy primitive, so CopyFolder duplicates only their shell.
+func isCollabRole(role string) bool {
+	switch role {
+	case "calendar", "contacts", "tasks":
+		return true
+	default:
+		return false
+	}
+}
+
+// handleCopyFolder deep-copies folders under a destination folder: each source
+// folder's subtree is recreated and its mail items are duplicated as fresh
+// items. Unlike MoveFolder, the source is left untouched and the response
+// echoes the NEW (copy's) FolderId.
+func (s *Server) handleCopyFolder(ctx context.Context, body []byte) []byte {
+	var req CopyFolderRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("CopyFolder", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+
+	_, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	if errCode != "" {
+		return s.errorResponseXML("CopyFolder", errCode, "could not resolve mailbox")
+	}
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+	mboxID, err := s.identity.GetMailboxIDByEmail(mailboxKey)
+	if err != nil {
+		return s.errorResponseXML("CopyFolder", ErrErrorMailboxNotFound, err.Error())
+	}
+
+	// Resolve the destination (to) folder.
+	var dest semcore.FolderId
+	switch {
+	case req.ToFolder.DistinguishedFolderID != nil:
+		role, ok := DistinguishedFolderIDs[req.ToFolder.DistinguishedFolderID.ID]
+		if !ok {
+			return s.errorResponseXML("CopyFolder", ErrErrorFolderNotFound, "unknown destination distinguished folder")
+		}
+		fld, ferr := s.identity.GetFolderByMailbox(mailboxKey, role)
+		if ferr != nil {
+			fid, cerr := s.identity.EnsureFolderId(mailboxKey, req.ToFolder.DistinguishedFolderID.ID, role)
+			if cerr != nil {
+				return s.errorResponseXML("CopyFolder", ErrErrorFolderNotFound, "destination folder not found")
+			}
+			dest = fid
+		} else {
+			dest = fld.FolderID
+		}
+	case req.ToFolder.FolderID != nil:
+		dest, err = semcore.NewFolderId(req.ToFolder.FolderID.ID)
+		if err != nil {
+			return s.errorResponseXML("CopyFolder", ErrErrorInvalidId, "invalid destination folder id")
+		}
+	}
+	if dest.IsZero() {
+		return s.errorResponseXML("CopyFolder", ErrErrorFolderNotFound, "destination folder required")
+	}
+
+	// Gather source folder IDs (explicit ids + distinguished names).
+	var sources []semcore.FolderId
+	var srcErr []ErrorCode
+	for _, ref := range req.FolderIDs.DistinguishedFolderID {
+		role, ok := DistinguishedFolderIDs[ref.ID]
+		if !ok {
+			sources = append(sources, semcore.FolderId{})
+			srcErr = append(srcErr, ErrErrorFolderNotFound)
+			continue
+		}
+		fld, ferr := s.identity.GetFolderByMailbox(mailboxKey, role)
+		if ferr != nil {
+			sources = append(sources, semcore.FolderId{})
+			srcErr = append(srcErr, ErrErrorFolderNotFound)
+			continue
+		}
+		sources = append(sources, fld.FolderID)
+		srcErr = append(srcErr, "")
+	}
+	for _, ref := range req.FolderIDs.FolderID {
+		fid, ferr := semcore.NewFolderId(ref.ID)
+		if ferr != nil {
+			sources = append(sources, semcore.FolderId{})
+			srcErr = append(srcErr, ErrErrorInvalidId)
+			continue
+		}
+		sources = append(sources, fid)
+		srcErr = append(srcErr, "")
+	}
+
+	// Snapshot the mailbox folder tree ONCE so recursion replicates only the
+	// original folders, never the copies it creates as it goes.
+	all, lerr := s.identity.ListFolderIdentitiesForMailbox(mailboxKey)
+	if lerr != nil {
+		return s.errorResponseXML("CopyFolder", ErrErrorInternalServer, lerr.Error())
+	}
+	childrenOf := make(map[string][]semcore.FolderId, len(all))
+	recByID := make(map[string]*semcore.StoredFolderIdentity, len(all))
+	for i := range all {
+		f := &all[i]
+		childrenOf[f.ParentID.String()] = append(childrenOf[f.ParentID.String()], f.FolderID)
+		recByID[f.FolderID.String()] = f
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:CopyFolderResponse><m:ResponseMessages>`)
+	for i, fid := range sources {
+		if srcErr[i] != "" {
+			b.WriteString(`<m:CopyFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(srcErr[i]) + `</m:ResponseCode></m:CopyFolderResponseMessage>`)
+			continue
+		}
+		rec := recByID[fid.String()]
+		if rec == nil {
+			b.WriteString(`<m:CopyFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(ErrErrorFolderNotFound) + `</m:ResponseCode></m:CopyFolderResponseMessage>`)
+			continue
+		}
+		owner := rec.MailboxID.String()
+		if !rec.MailboxID.IsZero() && owner != "" && owner != mailboxKey && owner != mboxKey && rec.MailboxID != mboxID {
+			b.WriteString(`<m:CopyFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(ErrErrorAccessDenied) + `</m:ResponseCode></m:CopyFolderResponseMessage>`)
+			continue
+		}
+		newRoot, cerr := s.copyFolderTree(ctx, mboxID, mailboxKey, fid, dest, childrenOf, recByID, map[string]bool{}, 0)
+		if cerr != nil {
+			b.WriteString(`<m:CopyFolderResponseMessage ResponseClass="Error"><m:ResponseCode>` + string(ErrErrorInternalServer) + `</m:ResponseCode></m:CopyFolderResponseMessage>`)
+			continue
+		}
+		b.WriteString(`<m:CopyFolderResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode>`)
+		b.WriteString(`<m:Folders><t:Folder><t:FolderId Id="` + xmlEscape(newRoot.String()) + `"/></t:Folder></m:Folders>`)
+		b.WriteString(`</m:CopyFolderResponseMessage>`)
+	}
+	b.WriteString(`</m:ResponseMessages></m:CopyFolderResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return []byte(b.String())
+}
+
+// copyFolderTree recursively copies a source folder subtree under destParent and
+// returns the new root FolderId. childrenOf/recByID are a pre-captured snapshot
+// of the source tree (so newly created copies are never re-copied); visited and
+// depth guard against a cyclic ParentID chain. Mail items are duplicated as
+// fresh items via createRawItemInFolder (new ItemId + IMAP mirror); a
+// collaboration folder's shell is copied with its role but its items are not
+// duplicated (the collaboration store has no copy primitive).
+func (s *Server) copyFolderTree(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, src, destParent semcore.FolderId, childrenOf map[string][]semcore.FolderId, recByID map[string]*semcore.StoredFolderIdentity, visited map[string]bool, depth int) (semcore.FolderId, error) {
+	if depth > 64 {
+		return semcore.FolderId{}, fmt.Errorf("copyFolderTree: max depth exceeded")
+	}
+	if visited[src.String()] {
+		return semcore.FolderId{}, fmt.Errorf("copyFolderTree: cycle at %s", src.String())
+	}
+	visited[src.String()] = true
+
+	rec := recByID[src.String()]
+	if rec == nil {
+		return semcore.FolderId{}, fmt.Errorf("copyFolderTree: source folder %s not found", src.String())
+	}
+	srcName, err := s.identity.FolderNameByID(mailboxKey, src)
+	if err != nil {
+		return semcore.FolderId{}, fmt.Errorf("copyFolderTree: resolve source name: %w", err)
+	}
+	display := semcore.DisplayNameFromStorageName(srcName)
+
+	// A distinguished mail role is not preserved on a copy (there is one
+	// canonical Inbox/Sent/…); a collaboration role is preserved so the copy
+	// keeps its folder class. Plain user folders carry no role.
+	copyRole := ""
+	if isCollabRole(rec.Role) {
+		copyRole = rec.Role
+	}
+	newRoot, err := s.identity.EnsureChildFolderId(mailboxKey, destParent, display, copyRole)
+	if err != nil {
+		return semcore.FolderId{}, fmt.Errorf("copyFolderTree: create copy: %w", err)
+	}
+
+	// Duplicate mail items (collaboration items have no copy primitive).
+	if !isCollabRole(rec.Role) {
+		if items, ierr := s.identity.ListItemIdentitiesByFolder(src); ierr == nil {
+			for _, it := range items {
+				rawMsg, rerr := s.msgStore.ReadMessage(it.Email, it.MsgKey)
+				if rerr != nil {
+					continue
+				}
+				copiedRaw := prependHeader(rawMsg, "X-uMailServer-Copy-ID", generateID())
+				subject, _, _, _, _, _ := parseMimeHeaders(rawMsg)
+				s.createRawItemInFolder(ctx, mboxID, mailboxKey, newRoot, subject, copiedRaw, nil)
+			}
+		}
+	}
+
+	// Recurse into the snapshot's direct children (originals only).
+	for _, child := range childrenOf[src.String()] {
+		if _, cerr := s.copyFolderTree(ctx, mboxID, mailboxKey, child, newRoot, childrenOf, recByID, visited, depth+1); cerr != nil {
+			return semcore.FolderId{}, cerr
+		}
+	}
+
+	s.notifyFolderChange(mailboxKey, newRoot)
+	return newRoot, nil
+}
+
+// ---------------------------------------------------------------------------
 // SyncFolderHierarchy
 // ---------------------------------------------------------------------------
 
