@@ -717,12 +717,13 @@ func (s *Server) computeFreeBusy(ctx context.Context, email, displayName string,
 		if item.MailboxID != mailboxID {
 			continue
 		}
-		startVal := extractDirProp(item.RawData, "DTSTART")
-		evStart, _ := parseICalDateTimeTZ(startVal)
+		// Honor a DTSTART;TZID so busy ranges land at the correct instant
+		// (treating civil-local as UTC would shift free/busy by the zone offset).
+		evStart := icalEventInstant(item.RawData, "DTSTART")
 		if evStart.IsZero() {
 			continue
 		}
-		evEnd, _ := parseICalDateTimeTZ(extractDirProp(item.RawData, "DTEND"))
+		evEnd := icalEventInstant(item.RawData, "DTEND")
 		if evEnd.IsZero() {
 			// No DTEND: treat as a 30-minute block (EWS default visualization).
 			evEnd = evStart.Add(30 * time.Minute)

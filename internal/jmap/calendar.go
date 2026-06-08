@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/umailserver/umailserver/internal/caldav"
+	"github.com/umailserver/umailserver/internal/icaltz"
 )
 
 // JMAP Calendars (RFC 8620 method patterns; objects in JSCalendar, RFC 8984) are
@@ -346,6 +347,10 @@ type icalEvent struct {
 	Start       time.Time
 	End         time.Time
 	AllDay      bool
+	// Timezone is the IANA zone the civil Start/End are anchored to (from a
+	// DTSTART;TZID parameter). Preserved so recurring events keep their wall time
+	// across DST instead of being normalized to a bare UTC instant.
+	Timezone    string
 	passthrough []string
 }
 
@@ -377,6 +382,9 @@ func parseICalEvent(ics string) (icalEvent, bool) {
 			ev.Location = icsUnescape(value)
 		case "DTSTART":
 			ev.Start, ev.AllDay = parseICSTime(params, value)
+			if tzid := icsParam(params, "TZID"); tzid != "" {
+				ev.Timezone = tzid
+			}
 		case "DTEND":
 			ev.End, _ = parseICSTime(params, value)
 		case "DTSTAMP", "":
@@ -408,9 +416,21 @@ func buildICalEvent(ev icalEvent) string {
 			lines = append(lines, "DTEND;VALUE=DATE:"+ev.End.Format("20060102"))
 		}
 	} else {
-		lines = append(lines, "DTSTART:"+ev.Start.UTC().Format("20060102T150405Z"))
+		// Preserve the timezone anchor (DTSTART;TZID + VTIMEZONE) so recurring
+		// events keep their wall time across DST; bare UTC for floating events.
+		if vtz := icaltz.VTimezone(ev.Timezone, time.Now()); vtz != "" {
+			// VTIMEZONE is a VCALENDAR child, so insert it before BEGIN:VEVENT.
+			for i, l := range lines {
+				if l == "BEGIN:VEVENT" {
+					block := strings.Split(strings.TrimRight(vtz, "\r\n"), "\r\n")
+					lines = append(lines[:i], append(block, lines[i:]...)...)
+					break
+				}
+			}
+		}
+		lines = append(lines, icaltz.FormatProperty("DTSTART", ev.Timezone, ev.Start))
 		if !ev.End.IsZero() {
-			lines = append(lines, "DTEND:"+ev.End.UTC().Format("20060102T150405Z"))
+			lines = append(lines, icaltz.FormatProperty("DTEND", ev.Timezone, ev.End))
 		}
 	}
 	lines = append(lines, foldICSLine("SUMMARY:"+icsEscape(ev.Summary)))
@@ -448,6 +468,19 @@ func icalEventToJSCalendar(ev icalEvent) map[string]interface{} {
 		if !ev.End.IsZero() && ev.End.After(ev.Start) {
 			obj["duration"] = formatISODuration(ev.End.Sub(ev.Start))
 		}
+	} else if ev.Timezone != "" && !strings.EqualFold(ev.Timezone, "UTC") {
+		// Express start as civil-local in the event's zone so the recurrence
+		// anchor (and DST behavior) survives the JSCalendar round-trip.
+		if loc, err := time.LoadLocation(ev.Timezone); err == nil {
+			obj["start"] = ev.Start.In(loc).Format("2006-01-02T15:04:05")
+			obj["timeZone"] = ev.Timezone
+		} else {
+			obj["start"] = ev.Start.UTC().Format("2006-01-02T15:04:05")
+			obj["timeZone"] = "Etc/UTC"
+		}
+		if !ev.End.IsZero() && ev.End.After(ev.Start) {
+			obj["duration"] = formatISODuration(ev.End.Sub(ev.Start))
+		}
 	} else {
 		obj["start"] = ev.Start.UTC().Format("2006-01-02T15:04:05")
 		obj["timeZone"] = "Etc/UTC"
@@ -479,6 +512,11 @@ func applyJSCalendarPatch(ev *icalEvent, patch map[string]interface{}) error {
 		}
 	}
 	tz := argString(patch, "timeZone")
+	if tz != "" && !strings.EqualFold(tz, "UTC") && !strings.EqualFold(tz, "Etc/UTC") {
+		ev.Timezone = tz
+	} else if tz != "" {
+		ev.Timezone = ""
+	}
 	if v, ok := patch["start"]; ok {
 		sv, isStr := v.(string)
 		if !isStr || sv == "" {
@@ -596,10 +634,28 @@ func parseICSTime(params, value string) (time.Time, bool) {
 			return t.UTC(), false
 		}
 	}
+	// TZID-qualified civil time: parse in that zone so the instant is correct.
+	if tzid := icsParam(params, "TZID"); tzid != "" {
+		if loc, err := time.LoadLocation(tzid); err == nil {
+			if t, err := time.ParseInLocation("20060102T150405", value, loc); err == nil {
+				return t.UTC(), false
+			}
+		}
+	}
 	if t, err := time.Parse("20060102T150405", value); err == nil {
 		return t.UTC(), false
 	}
 	return time.Time{}, false
+}
+
+// icsParam returns a named iCalendar property parameter value (e.g. "TZID").
+func icsParam(params, key string) string {
+	for _, p := range strings.Split(params, ";") {
+		if eq := strings.IndexByte(p, '='); eq > 0 && strings.EqualFold(strings.TrimSpace(p[:eq]), key) {
+			return strings.TrimSpace(p[eq+1:])
+		}
+	}
+	return ""
 }
 
 func icsEscape(s string) string {

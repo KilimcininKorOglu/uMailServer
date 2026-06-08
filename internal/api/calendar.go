@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/umailserver/umailserver/internal/caldav"
+	"github.com/umailserver/umailserver/internal/icaltz"
 )
 
 // CalendarHandler bridges the webmail REST surface to the same CalDAV file
@@ -133,6 +134,11 @@ type CalendarEventDTO struct {
 	Organizer   string   `json:"organizer,omitempty"`
 	Attendees   []string `json:"attendees,omitempty"`
 	Recurrence  string   `json:"recurrence,omitempty"` // raw RRULE value, e.g. "FREQ=WEEKLY"
+	// Timezone is the IANA zone the civil Start/End are anchored to (e.g.
+	// "America/New_York"). When set, the event is stored as DTSTART;TZID=...
+	// civil local time plus a VTIMEZONE so recurring events keep their wall
+	// time across DST. Empty means a floating/UTC instant (one-off events).
+	Timezone string `json:"timezone,omitempty"`
 }
 
 const (
@@ -419,7 +425,12 @@ func foldICSLine(line string) string {
 
 // buildICSEvent renders a CalendarEventDTO as a full VCALENDAR document.
 func buildICSEvent(dto CalendarEventDTO) (string, error) {
-	dtStart, err := icsTimeValue(dto.Start, dto.AllDay)
+	// Timezone only applies to timed events; all-day events are floating dates.
+	tzid := ""
+	if !dto.AllDay {
+		tzid = dto.Timezone
+	}
+	dtStart, err := icsDateTimeProperty("DTSTART", dto.Start, dto.AllDay, tzid)
 	if err != nil {
 		return "", fmt.Errorf("invalid start time")
 	}
@@ -428,18 +439,24 @@ func buildICSEvent(dto CalendarEventDTO) (string, error) {
 		"BEGIN:VCALENDAR",
 		"VERSION:2.0",
 		"PRODID:-//uMailServer//Webmail//EN",
+	)
+	// A VTIMEZONE for the event's zone keeps DTSTART;TZID recurrences DST-correct
+	// for strict clients (no-op for UTC/floating events).
+	if vtz := icaltz.VTimezone(tzid, time.Now()); vtz != "" {
+		lines = append(lines, strings.TrimRight(vtz, "\r\n"))
+	}
+	lines = append(lines,
 		"BEGIN:VEVENT",
 		"UID:"+dto.UID,
 		"DTSTAMP:"+time.Now().UTC().Format("20060102T150405Z"),
 		dtStart,
 	)
 	if dto.End != "" {
-		dtEnd, err := icsTimeValue(dto.End, dto.AllDay)
+		dtEnd, err := icsDateTimeProperty("DTEND", dto.End, dto.AllDay, tzid)
 		if err != nil {
 			return "", fmt.Errorf("invalid end time")
 		}
-		// icsTimeValue emits the DTSTART property name; swap for DTEND.
-		lines = append(lines, strings.Replace(dtEnd, "DTSTART", "DTEND", 1))
+		lines = append(lines, dtEnd)
 	}
 	lines = append(lines, foldICSLine("SUMMARY:"+icsEscape(dto.Summary)))
 	if dto.Location != "" {
@@ -464,21 +481,23 @@ func buildICSEvent(dto CalendarEventDTO) (string, error) {
 	return strings.Join(lines, "\r\n") + "\r\n", nil
 }
 
-// icsTimeValue renders a DTSTART line for the given RFC3339 (or YYYY-MM-DD when
-// allDay) value, emitting UTC for timed events.
-func icsTimeValue(value string, allDay bool) (string, error) {
+// icsDateTimeProperty renders a date-time property line (DTSTART/DTEND) for the
+// given RFC3339 (or YYYY-MM-DD when allDay) value. With a non-empty IANA tzid it
+// emits the civil local time tagged with TZID (so recurrences keep their wall
+// time across DST); otherwise it emits the bare UTC instant.
+func icsDateTimeProperty(name, value string, allDay bool, tzid string) (string, error) {
 	if allDay {
 		t, err := time.Parse("2006-01-02", value[:min(10, len(value))])
 		if err != nil {
 			return "", err
 		}
-		return "DTSTART;VALUE=DATE:" + t.Format("20060102"), nil
+		return name + ";VALUE=DATE:" + t.Format("20060102"), nil
 	}
 	t, err := time.Parse(time.RFC3339, value)
 	if err != nil {
 		return "", err
 	}
-	return "DTSTART:" + t.UTC().Format("20060102T150405Z"), nil
+	return icaltz.FormatProperty(name, tzid, t), nil
 }
 
 // parseICSEvent extracts the first VEVENT from an iCalendar document into a DTO.
@@ -497,6 +516,9 @@ func parseICSEvent(ics string) (CalendarEventDTO, bool) {
 			dto.Location = icsUnescape(value)
 		case "DTSTART":
 			dto.Start, dto.AllDay = parseICSTime(params, value)
+			if tzid := icsParam(params, "TZID"); tzid != "" {
+				dto.Timezone = tzid
+			}
 		case "DTEND":
 			dto.End, _ = parseICSTime(params, value)
 		case "RRULE":
@@ -560,9 +582,31 @@ func parseICSTime(params, value string) (string, bool) {
 			return t.UTC().Format(time.RFC3339), false
 		}
 	}
-	// Floating or TZID-qualified local time: best-effort parse as UTC.
+	// TZID-qualified local time: parse in that zone so the instant is correct
+	// (treating it as UTC would shift the event by the zone's offset).
+	if tzid := icsParam(params, "TZID"); tzid != "" {
+		if loc, err := time.LoadLocation(tzid); err == nil {
+			if t, err := time.ParseInLocation("20060102T150405", value, loc); err == nil {
+				return t.UTC().Format(time.RFC3339), false
+			}
+		}
+	}
+	// Floating local time: best-effort parse as UTC.
 	if t, err := time.Parse("20060102T150405", value); err == nil {
 		return t.UTC().Format(time.RFC3339), false
 	}
 	return "", false
+}
+
+// icsParam returns the value of a named iCalendar property parameter (e.g.
+// "TZID") from a parameter string like "TZID=America/New_York;VALUE=DATE-TIME".
+func icsParam(params, key string) string {
+	for _, p := range strings.Split(params, ";") {
+		if eq := strings.IndexByte(p, '='); eq > 0 {
+			if strings.EqualFold(strings.TrimSpace(p[:eq]), key) {
+				return strings.TrimSpace(p[eq+1:])
+			}
+		}
+	}
+	return ""
 }

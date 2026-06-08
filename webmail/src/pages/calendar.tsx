@@ -28,7 +28,8 @@ import {
 } from "@/components/ui/select"
 import { toast } from "sonner"
 import { AttendeePicker } from "@/components/attendee-picker"
-import { withTz } from "@/utils/date"
+import { withTz, getDisplayTimeZone } from "@/utils/date"
+import { detectTimeZone } from "@/utils/timezone"
 import api, { type CalendarEvent, type UserFreeBusy, type Room } from "@/utils/api"
 import { useI18n } from "@/hooks/useI18n"
 
@@ -245,6 +246,10 @@ export function CalendarPage() {
       description: form.description || undefined,
       attendees: attendees.length > 0 ? attendees : undefined,
       recurrence: form.recurrence ? `FREQ=${form.recurrence}` : undefined,
+      // Anchor timed events to the user's zone so recurrences keep their wall
+      // time across DST (stored as DTSTART;TZID + VTIMEZONE). All-day events stay
+      // floating dates.
+      timezone: form.allDay ? undefined : (getDisplayTimeZone() || detectTimeZone()),
     }
     setBusy(true)
     try {

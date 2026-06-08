@@ -60,6 +60,7 @@ export interface CalendarEvent {
   organizer?: string
   attendees?: string[]
   recurrence?: string // raw RRULE value, e.g. "FREQ=WEEKLY"
+  timezone?: string // IANA zone anchoring civil start/end (recurrence DST safety)
 }
 
 export type CalendarEventInput = Omit<CalendarEvent, "uid"> & { uid?: string }

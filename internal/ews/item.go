@@ -1408,6 +1408,64 @@ func extractDirProp(data, name string) string {
 	return ""
 }
 
+// extractDirPropParam returns a named parameter (e.g. "TZID") of a directory
+// property line, or "" when absent.
+func extractDirPropParam(data, name, param string) string {
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimRight(line, "\r")
+		colon := strings.IndexByte(line, ':')
+		if colon < 0 {
+			continue
+		}
+		key := line[:colon]
+		semi := strings.IndexByte(key, ';')
+		base := key
+		if semi >= 0 {
+			base = key[:semi]
+		}
+		if !strings.EqualFold(base, name) {
+			continue
+		}
+		if semi >= 0 {
+			for _, p := range strings.Split(key[semi+1:], ";") {
+				if eq := strings.IndexByte(p, '='); eq > 0 && strings.EqualFold(strings.TrimSpace(p[:eq]), param) {
+					return strings.TrimSpace(p[eq+1:])
+				}
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+// icalEventInstant reads a date-time property (DTSTART/DTEND/DUE) from raw iCal
+// and returns the correct UTC instant, honoring a TZID parameter. Treating a
+// civil-local "DTSTART;TZID=America/New_York:..." value as UTC would shift the
+// event by the zone's offset, so the TZID is resolved via the IANA database.
+func icalEventInstant(data, prop string) time.Time {
+	val := extractDirProp(data, prop)
+	if val == "" {
+		return time.Time{}
+	}
+	if strings.HasSuffix(val, "Z") {
+		if t, err := time.Parse("20060102T150405", strings.TrimSuffix(val, "Z")); err == nil {
+			return t.UTC()
+		}
+		return time.Time{}
+	}
+	if tzid := extractDirPropParam(data, prop, "TZID"); tzid != "" && !strings.EqualFold(tzid, "UTC") {
+		if loc, err := time.LoadLocation(tzid); err == nil {
+			if t, err := time.ParseInLocation("20060102T150405", val, loc); err == nil {
+				return t.UTC()
+			}
+		}
+	}
+	if t, err := time.Parse("20060102T150405", val); err == nil {
+		return t
+	}
+	return time.Time{}
+}
+
 // icalToEWSDateTime converts an iCalendar DTSTART/DTEND value to the EWS
 // date-time wire format. Empty input yields empty output.
 func icalToEWSDateTime(v string) string {
@@ -1507,11 +1565,11 @@ func buildCalendarGetItemFromRec(rec *semcore.StoredCalendarItemIdentity) []byte
 	if subj := extractDirProp(rec.RawData, "SUMMARY"); subj != "" {
 		b.WriteString(`<t:Subject>` + xmlEsc(subj) + `</t:Subject>`)
 	}
-	if start := icalToEWSDateTime(extractDirProp(rec.RawData, "DTSTART")); start != "" {
-		b.WriteString(`<t:Start>` + start + `</t:Start>`)
+	if t := icalEventInstant(rec.RawData, "DTSTART"); !t.IsZero() {
+		b.WriteString(`<t:Start>` + FormatEWSDateTime(t) + `</t:Start>`)
 	}
-	if end := icalToEWSDateTime(extractDirProp(rec.RawData, "DTEND")); end != "" {
-		b.WriteString(`<t:End>` + end + `</t:End>`)
+	if t := icalEventInstant(rec.RawData, "DTEND"); !t.IsZero() {
+		b.WriteString(`<t:End>` + FormatEWSDateTime(t) + `</t:End>`)
 	}
 	if loc := extractDirProp(rec.RawData, "LOCATION"); loc != "" {
 		b.WriteString(`<t:Location>` + xmlEsc(loc) + `</t:Location>`)
