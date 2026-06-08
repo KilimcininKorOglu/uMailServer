@@ -899,12 +899,6 @@ func (s *Server) createRawItemInFolder(ctx context.Context, mboxID semcore.Mailb
 		_ = s.lifecycle.AppendLifecycle(result.Lifecycle) // best-effort; event was already emitted
 	}
 
-	// Persist lifecycle event so GetEvents and sync consumers see the mutation.
-	if s.lifecycle != nil {
-		//nolint:errcheck
-		_ = s.lifecycle.AppendLifecycle(result.Lifecycle) // best-effort; event was already emitted
-	}
-
 	// Mirror the item into the IMAP mailstore index so IMAP/POP3/JMAP/webmail —
 	// which read from that index, not the semcore identity store — see this
 	// EWS-created item (cross-protocol integrity). Best-effort; the semcore
