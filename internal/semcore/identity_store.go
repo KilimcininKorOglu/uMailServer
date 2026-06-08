@@ -490,6 +490,31 @@ func folderNameFromStorageKey(mboxKey string, key []byte) string {
 	return strings.TrimPrefix(string(key), mboxKey+"\x00")
 }
 
+// childStorageName returns the parent-scoped storage name for a child folder
+// whose plain display name collides with an existing sibling under a different
+// parent. The form is "\x1f"+parentID+"\x1f"+displayName: the Unit Separator
+// (\x1f) never appears in an IMAP path or an EWS display name, and differs from
+// the "\x00" folder-key separator, so the stored name round-trips through the
+// existing key and migration machinery unchanged.
+func childStorageName(parentID FolderId, displayName string) string {
+	return "\x1f" + parentID.String() + "\x1f" + displayName
+}
+
+// DisplayNameFromStorageName recovers the client-visible folder name from a
+// stored folder name. A parent-scoped name ("\x1f"+parentID+"\x1f"+display)
+// yields its trailing display segment; a plain name is returned unchanged.
+// Exported so EWS presentation and the IMAP-mirror bridge can strip the prefix
+// that FolderNameByID otherwise returns verbatim.
+func DisplayNameFromStorageName(stored string) string {
+	if !strings.HasPrefix(stored, "\x1f") {
+		return stored
+	}
+	if i := strings.LastIndexByte(stored, '\x1f'); i >= 0 {
+		return stored[i+1:]
+	}
+	return stored
+}
+
 func itemStorageKey(msgKey, email string) string {
 	if email == "" {
 		return msgKey
@@ -731,6 +756,96 @@ func (s *BoltIdentityStore) PutFolderIdentity_Locked(mboxKey, folderName string,
 		}
 		return b.Put([]byte(k), data)
 	})
+}
+
+// writeFolderRecord writes a new folder identity record within an existing
+// bbolt transaction, setting ParentID at creation time. Unlike
+// PutFolderIdentity_Locked it does not open its own transaction, so it can be
+// composed inside a single atomic Update alongside collision checks.
+func writeFolderRecord(b *bbolt.Bucket, key string, id FolderId, mboxKey string, parentID FolderId, role string) error {
+	rec := StoredFolderIdentity{
+		FolderID:     id,
+		MailboxID:    MailboxId{raw: mboxKey},
+		ParentID:     parentID,
+		Role:         role,
+		IsSubscribed: true,
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("marshal folder identity: %w", err)
+	}
+	return b.Put([]byte(key), data)
+}
+
+// EnsureChildFolderId returns a FolderId for a child folder identified by its
+// parent and display name, creating a new canonical identity when none exists.
+//
+// It differs from EnsureFolderId in two ways. First, it records ParentID at
+// creation time so the folder's lineage is known immediately. Second, it never
+// collapses a real copy into an existing sibling: when displayName already
+// belongs to a *different* parent, the new folder is stored under a
+// parent-scoped storage name (childStorageName) so both folders keep distinct
+// identities and distinct storage keys while rendering the same display name.
+//
+// The operation is idempotent: a repeat call with the same (parent, name)
+// returns the existing FolderId rather than minting a second one.
+func (s *BoltIdentityStore) EnsureChildFolderId(mboxKey string, parentID FolderId, displayName, role string) (FolderId, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var result FolderId
+	err := s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketFolder))
+
+		// Plain-name slot first.
+		plainKey := folderKey(mboxKey, displayName)
+		if data := b.Get([]byte(plainKey)); data != nil {
+			var rec StoredFolderIdentity
+			if err := json.Unmarshal(data, &rec); err != nil {
+				return fmt.Errorf("unmarshal folder identity: %w", err)
+			}
+			if rec.ParentID.Equal(parentID) {
+				// Same parent: idempotent reuse.
+				result = rec.FolderID
+				return nil
+			}
+			// Different parent: fall through to the parent-scoped name.
+		} else {
+			id, err := NewFolderId(generateID())
+			if err != nil {
+				return fmt.Errorf("generate folder ID: %w", err)
+			}
+			if err := writeFolderRecord(b, plainKey, id, mboxKey, parentID, role); err != nil {
+				return err
+			}
+			result = id
+			return nil
+		}
+
+		// Parent-scoped name (the plain name belongs to a different parent).
+		scopedKey := folderKey(mboxKey, childStorageName(parentID, displayName))
+		if data := b.Get([]byte(scopedKey)); data != nil {
+			var rec StoredFolderIdentity
+			if err := json.Unmarshal(data, &rec); err != nil {
+				return fmt.Errorf("unmarshal folder identity: %w", err)
+			}
+			result = rec.FolderID
+			return nil
+		}
+		id, err := NewFolderId(generateID())
+		if err != nil {
+			return fmt.Errorf("generate folder ID: %w", err)
+		}
+		if err := writeFolderRecord(b, scopedKey, id, mboxKey, parentID, role); err != nil {
+			return err
+		}
+		result = id
+		return nil
+	})
+	if err != nil {
+		return FolderId{}, fmt.Errorf("EnsureChildFolderId: %w", err)
+	}
+	return result, nil
 }
 
 // SetFolderParent implements IdentityStore.

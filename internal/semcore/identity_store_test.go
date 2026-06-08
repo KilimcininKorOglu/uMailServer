@@ -372,6 +372,96 @@ func TestBoltIdentityStore_EnsureFolderId_reusesRoleMatch(t *testing.T) {
 	}
 }
 
+func TestBoltIdentityStore_EnsureChildFolderId_distinctParentsSameName(t *testing.T) {
+	store := tmpBoltStore(t)
+	defer closeStore(store, t)
+
+	mboxKey := "e:childscope@local.test"
+	parentA := MustFolderId("fld-parent-a")
+	parentB := MustFolderId("fld-parent-b")
+
+	// Two folders both named "Reports", under different parents, must get
+	// distinct identities — a real copy, not a collapse into the sibling.
+	idA, err := store.EnsureChildFolderId(mboxKey, parentA, "Reports", "")
+	if err != nil {
+		t.Fatalf("EnsureChildFolderId A: %v", err)
+	}
+	idB, err := store.EnsureChildFolderId(mboxKey, parentB, "Reports", "")
+	if err != nil {
+		t.Fatalf("EnsureChildFolderId B: %v", err)
+	}
+	if idA.Equal(idB) {
+		t.Fatalf("same-name children under different parents share id %v", idA)
+	}
+
+	// Each carries the parent it was created under.
+	recA, err := store.GetFolderByID(idA)
+	if err != nil {
+		t.Fatalf("GetFolderByID A: %v", err)
+	}
+	if !recA.ParentID.Equal(parentA) {
+		t.Errorf("child A ParentID = %v, want %v", recA.ParentID, parentA)
+	}
+	recB, err := store.GetFolderByID(idB)
+	if err != nil {
+		t.Fatalf("GetFolderByID B: %v", err)
+	}
+	if !recB.ParentID.Equal(parentB) {
+		t.Errorf("child B ParentID = %v, want %v", recB.ParentID, parentB)
+	}
+
+	// Both render as the same client-visible name, even though one is stored
+	// under a parent-scoped storage name.
+	for _, tc := range []struct {
+		id  FolderId
+		tag string
+	}{{idA, "A"}, {idB, "B"}} {
+		stored, err := store.FolderNameByID(mboxKey, tc.id)
+		if err != nil {
+			t.Fatalf("FolderNameByID %s: %v", tc.tag, err)
+		}
+		if got := DisplayNameFromStorageName(stored); got != "Reports" {
+			t.Errorf("child %s display name = %q, want %q", tc.tag, got, "Reports")
+		}
+	}
+
+	// Idempotent: a repeat call with the same (parent, name) reuses the id.
+	idA2, err := store.EnsureChildFolderId(mboxKey, parentA, "Reports", "")
+	if err != nil {
+		t.Fatalf("EnsureChildFolderId A repeat: %v", err)
+	}
+	if !idA2.Equal(idA) {
+		t.Errorf("repeat EnsureChildFolderId minted %v, want existing %v", idA2, idA)
+	}
+	idB2, err := store.EnsureChildFolderId(mboxKey, parentB, "Reports", "")
+	if err != nil {
+		t.Fatalf("EnsureChildFolderId B repeat: %v", err)
+	}
+	if !idB2.Equal(idB) {
+		t.Errorf("repeat EnsureChildFolderId minted %v, want existing %v", idB2, idB)
+	}
+}
+
+func TestDisplayNameFromStorageName(t *testing.T) {
+	cases := []struct {
+		name   string
+		stored string
+		want   string
+	}{
+		{"plain name unchanged", "Reports", "Reports"},
+		{"plain name with separator-free unicode", "Çalışmalar", "Çalışmalar"},
+		{"parent-scoped strips prefix", childStorageName(MustFolderId("fld-xyz"), "Reports"), "Reports"},
+		{"empty", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DisplayNameFromStorageName(tc.stored); got != tc.want {
+				t.Errorf("DisplayNameFromStorageName(%q) = %q, want %q", tc.stored, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBoltIdentityStore_GetFolderByMailbox_prefersCanonicalRoleName(t *testing.T) {
 	store := tmpBoltStore(t)
 	defer closeStore(store, t)
