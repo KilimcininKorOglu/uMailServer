@@ -2,11 +2,17 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 
 	"github.com/umailserver/umailserver/internal/push"
 )
+
+// errPushNotConfigured is returned when an operation needs a push service but
+// none is wired, so the handler can answer an honest 503 instead of pretending
+// success (matching the VAPID endpoint).
+var errPushNotConfigured = errors.New("push notifications not configured")
 
 // handlePushVAPID handles GET /api/v1/push/vapid-public-key
 func (s *Server) handlePushVAPID(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +210,10 @@ func (s *Server) handlePushTest(w http.ResponseWriter, r *http.Request) {
 
 	// Send test notification
 	if err := s.sendTestPushNotification(user); err != nil {
+		if errors.Is(err, errPushNotConfigured) {
+			s.sendError(w, http.StatusServiceUnavailable, "push notifications not configured")
+			return
+		}
 		s.logger.Error("Failed to send test notification", "error", err, "user", user)
 		s.sendError(w, http.StatusInternalServerError, "failed to send test notification")
 		return
@@ -270,7 +280,9 @@ func (s *Server) unsubscribePush(userID, subscriptionID string) error {
 }
 
 func (s *Server) getPushSubscriptions(userID string) []*push.Subscription {
-	// In real implementation, call push service
+	if s.pushSvc != nil {
+		return s.pushSvc.GetUserSubscriptions(userID)
+	}
 	return []*push.Subscription{}
 }
 
@@ -291,12 +303,15 @@ func (s *Server) sendTestPushNotification(userID string) error {
 			Body:  "This is a test push notification",
 		})
 	}
-	// In real implementation, send via push service
-	return nil
+	// No push service wired: report it honestly so the handler answers 503
+	// instead of a misleading "sent".
+	return errPushNotConfigured
 }
 
 func (s *Server) getPushStats() map[string]interface{} {
-	// In real implementation, get from push service
+	if s.pushSvc != nil {
+		return s.pushSvc.GetStats()
+	}
 	return map[string]interface{}{
 		"totalSubscriptions": 0,
 		"totalUsers":         0,

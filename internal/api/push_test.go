@@ -256,16 +256,37 @@ func TestHandlePushTest(t *testing.T) {
 
 	server.handlePushTest(w, req)
 
-	// Returns 200 even though it's a stub implementation
-	if w.Code != http.StatusOK {
-		t.Errorf("Status = %d, want %d", w.Code, http.StatusOK)
+	// With no push service wired, the endpoint must answer an honest 503 (like
+	// the VAPID endpoint), not a misleading 200 "sent".
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusServiceUnavailable)
 	}
+}
 
+// TestHandlePushTest_ConfiguredSends verifies that when a push service IS wired,
+// the test endpoint actually invokes it and reports success.
+func TestHandlePushTest_ConfiguredSends(t *testing.T) {
+	tmpDir := t.TempDir()
+	server := NewTestServer(t, tmpDir)
+	mock := &MockPushService{}
+	server.pushSvc = mock
+
+	req := httptest.NewRequest("POST", "/api/v1/push/test", nil)
+	req = req.WithContext(withUser(req.Context(), "user@example.com"))
+	w := httptest.NewRecorder()
+
+	server.handlePushTest(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if len(mock.SendNotificationCalls) != 1 {
+		t.Errorf("expected the push service to be invoked once, got %d calls", len(mock.SendNotificationCalls))
+	}
 	var result map[string]string
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
-
 	if result["status"] != "sent" {
 		t.Errorf("Expected status 'sent', got %s", result["status"])
 	}

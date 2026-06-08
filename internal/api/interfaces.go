@@ -22,6 +22,8 @@ type PushService interface {
 	Unsubscribe(userID, subscriptionID string) error
 	SendNotification(userID string, notif *push.Notification) error
 	GetVAPIDPublicKey() string
+	GetUserSubscriptions(userID string) []*push.Subscription
+	GetStats() map[string]interface{}
 }
 
 // VacationManager interface for vacation auto-reply

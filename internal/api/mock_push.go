@@ -10,6 +10,8 @@ type MockPushService struct {
 	UnsubscribeError        error
 	SendNotificationError   error
 	GetVAPIDPublicKeyResult string
+	SubscriptionsResult     []*push.Subscription
+	StatsResult             map[string]interface{}
 
 	SubscribeCalls        []string
 	UnsubscribeCalls      []struct{ UserID, SubscriptionID string }
@@ -42,4 +44,12 @@ func (m *MockPushService) SendNotification(userID string, notif *push.Notificati
 
 func (m *MockPushService) GetVAPIDPublicKey() string {
 	return m.GetVAPIDPublicKeyResult
+}
+
+func (m *MockPushService) GetUserSubscriptions(userID string) []*push.Subscription {
+	return m.SubscriptionsResult
+}
+
+func (m *MockPushService) GetStats() map[string]interface{} {
+	return m.StatsResult
 }
