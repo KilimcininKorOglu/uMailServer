@@ -206,6 +206,13 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	op, soapBody := parseSOAPOperation(body)
 	ctx := r.Context()
 
+	// GetStreamingEvents holds the connection open and streams frames directly
+	// to w, so it must bypass the buffered []byte response path below.
+	if op == "GetStreamingEvents" {
+		s.handleGetStreamingEvents(w, r, soapBody)
+		return
+	}
+
 	var response []byte
 	switch op {
 	case "GetFolder":
@@ -496,11 +503,12 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"GetAttachment", "CreateAttachment", "DeleteAttachment", "ItemIds", "ItemShape", "ToFolderId",
 		"AttachmentIds", "AttachmentId", "FileAttachment", "Mailbox", "ParentItemId", "Attachments",
 		// Subscription elements
-		"Subscribe", "Unsubscribe", "GetEvents",
-		"PullSubscriptionRequest", "SubscriptionId", "Watermark",
+		"Subscribe", "Unsubscribe", "GetEvents", "GetStreamingEvents",
+		"PullSubscriptionRequest", "StreamingSubscriptionRequest", "SubscriptionId", "SubscriptionIds",
+		"ConnectionTimeout", "Watermark",
 		"NotificationEvent", "SubscribeResponse", "UnsubscribeResponse",
 		"GetEventsResponse", "SubscribeResponseMessage", "UnsubscribeResponseMessage",
-		"GetEventsResponseMessage",
+		"GetEventsResponseMessage", "GetStreamingEventsResponse", "GetStreamingEventsResponseMessage",
 		// Calendar item operation elements
 		"CreateCalendarItem", "GetCalendarItem", "UpdateCalendarItem", "DeleteCalendarItem",
 		"CalendarItem", "CalendarItemId", "Recurrence", "CalendarFolder",

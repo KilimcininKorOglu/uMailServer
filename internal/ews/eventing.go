@@ -26,6 +26,11 @@ type SubscribeRequest struct {
 		SubscribeToAllFolders string         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeToAllFolders,attr,omitempty"`
 		FolderIDs             []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages PullSubscriptionRequest,omitempty"`
+	StreamingSubscriptionRequest *struct {
+		XMLName               xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages StreamingSubscriptionRequest"`
+		SubscribeToAllFolders string         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeToAllFolders,attr,omitempty"`
+		FolderIDs             []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages StreamingSubscriptionRequest,omitempty"`
 }
 
 // SubscribeResponse is the EWS Subscribe operation response.
@@ -68,16 +73,25 @@ func (s *Server) handleSubscribe(ctx context.Context, body []byte) []byte {
 	}
 	_ = mboxKey
 
+	// Determine the subscription kind and folder scope from whichever request
+	// variant the client sent. Streaming and pull share the watermark/lifecycle
+	// model; only the delivery mechanism (GetStreamingEvents vs GetEvents) differs.
+	kind := semcore.SubscriptionKindPull
+	var folderRefs []FolderIDOnly
+	switch {
+	case req.StreamingSubscriptionRequest != nil:
+		kind = semcore.SubscriptionKindStreaming
+		folderRefs = req.StreamingSubscriptionRequest.FolderIDs
+	case req.PullSubscriptionSubscriptionRequest != nil:
+		folderRefs = req.PullSubscriptionSubscriptionRequest.FolderIDs
+	}
 	var subscribedFolders []semcore.FolderId
-	pullReq := req.PullSubscriptionSubscriptionRequest
-	if pullReq != nil {
-		for _, fid := range pullReq.FolderIDs {
-			fid2, err := semcore.NewFolderId(fid.ID)
-			if err != nil {
-				continue
-			}
-			subscribedFolders = append(subscribedFolders, fid2)
+	for _, fid := range folderRefs {
+		fid2, err := semcore.NewFolderId(fid.ID)
+		if err != nil {
+			continue
 		}
+		subscribedFolders = append(subscribedFolders, fid2)
 	}
 
 	// Get the current highest lifecycle seq for this mailbox.
@@ -98,7 +112,7 @@ func (s *Server) handleSubscribe(ctx context.Context, body []byte) []byte {
 
 	sub := semcore.Subscription{
 		MailboxID: mboxID,
-		Kind:      semcore.SubscriptionKindPull,
+		Kind:      kind,
 	}
 	if len(subscribedFolders) > 0 {
 		sub.FolderIDs = subscribedFolders
