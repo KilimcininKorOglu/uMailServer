@@ -31,6 +31,14 @@ type SubscribeRequest struct {
 		SubscribeToAllFolders string         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeToAllFolders,attr,omitempty"`
 		FolderIDs             []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages StreamingSubscriptionRequest,omitempty"`
+	PushSubscriptionRequest *struct {
+		XMLName               xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages PushSubscriptionRequest"`
+		SubscribeToAllFolders string         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SubscribeToAllFolders,attr,omitempty"`
+		FolderIDs             []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+		StatusFrequency       int            `xml:"http://schemas.microsoft.com/exchange/services/2006/types StatusFrequency"`
+		URL                   string         `xml:"http://schemas.microsoft.com/exchange/services/2006/types URL"`
+		CallerData            string         `xml:"http://schemas.microsoft.com/exchange/services/2006/types CallerData,omitempty"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages PushSubscriptionRequest,omitempty"`
 }
 
 // SubscribeResponse is the EWS Subscribe operation response.
@@ -78,10 +86,21 @@ func (s *Server) handleSubscribe(ctx context.Context, body []byte) []byte {
 	// model; only the delivery mechanism (GetStreamingEvents vs GetEvents) differs.
 	kind := semcore.SubscriptionKindPull
 	var folderRefs []FolderIDOnly
+	var pushURL string
 	switch {
 	case req.StreamingSubscriptionRequest != nil:
 		kind = semcore.SubscriptionKindStreaming
 		folderRefs = req.StreamingSubscriptionRequest.FolderIDs
+	case req.PushSubscriptionRequest != nil:
+		kind = semcore.SubscriptionKindPush
+		folderRefs = req.PushSubscriptionRequest.FolderIDs
+		pushURL = strings.TrimSpace(req.PushSubscriptionRequest.URL)
+		// Validate the client callback URL up front (SSRF): reject a missing,
+		// non-http(s), or internal/loopback target before recording it.
+		if !s.pushURLAllowed(pushURL) {
+			return s.errorResponseXML("Subscribe", ErrErrorInvalidPushSubscriptionURL,
+				"push subscription URL is missing or not an allowed public http(s) target")
+		}
 	case req.PullSubscriptionSubscriptionRequest != nil:
 		folderRefs = req.PullSubscriptionSubscriptionRequest.FolderIDs
 	}
@@ -113,6 +132,7 @@ func (s *Server) handleSubscribe(ctx context.Context, body []byte) []byte {
 	sub := semcore.Subscription{
 		MailboxID: mboxID,
 		Kind:      kind,
+		PushURL:   pushURL,
 	}
 	if len(subscribedFolders) > 0 {
 		sub.FolderIDs = subscribedFolders

@@ -30,11 +30,14 @@ type semIdentity interface {
 }
 
 // semSubscriptions is the EWS + API subscription surface plus the drain used at
-// shutdown.
+// shutdown and the enumerate/advance pair the push dispatcher needs. Adding the
+// dispatcher methods here statically requires both backends to implement them.
 type semSubscriptions interface {
 	ews.SubscriptionStore
 	api.SubscriptionStore
 	ExpireAllSubscriptions() (int, error)
+	ListPushSubscriptions() ([]semcore.Subscription, error)
+	UpdateSubscriptionSeq(id semcore.SubscriptionId, seq uint64) error
 }
 
 // semLifecycle is the EWS lifecycle surface plus the pipeline's append.

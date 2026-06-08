@@ -115,8 +115,9 @@ const (
 	ErrErrorUpdateDelegatesFailed        ErrorCode = "ErrorUpdateDelegatesFailed"
 	ErrErrorDelegateValidationFailed     ErrorCode = "ErrorDelegateValidationFailed"
 	// Subscription and sync session error codes (VAL-CROSS-008)
-	ErrErrorSubscriptionDrained ErrorCode = "ErrorSubscriptionDrained"
-	ErrErrorInvalidSubscription ErrorCode = "ErrorInvalidSubscription"
+	ErrErrorSubscriptionDrained        ErrorCode = "ErrorSubscriptionDrained"
+	ErrErrorInvalidSubscription        ErrorCode = "ErrorInvalidSubscription"
+	ErrErrorInvalidPushSubscriptionURL ErrorCode = "ErrorInvalidPushSubscriptionUrl"
 	// Directory resolution.
 	ErrErrorNameResolutionNoResults ErrorCode = "ErrorNameResolutionNoResults"
 )

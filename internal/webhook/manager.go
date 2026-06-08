@@ -258,6 +258,27 @@ func (m *Manager) sendInner(hook *Webhook, event Event, attempts *int, finalErr 
 // Performs DNS resolution at validation time and caches the resolved IP
 // to prevent DNS rebinding attacks.
 func (m *Manager) isValidWebhookURL(rawURL string) (bool, string) {
+	// In testing mode the instance accepts private targets; otherwise defer to
+	// the shared SSRF guard so the validation logic never forks.
+	m.mu.RLock()
+	allowPrivate := m.allowPrivateIP
+	m.mu.RUnlock()
+	if allowPrivate {
+		u, err := url.Parse(rawURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			return false, ""
+		}
+		return true, ""
+	}
+	return ValidateOutboundURL(rawURL)
+}
+
+// ValidateOutboundURL reports whether rawURL is a safe server-initiated POST
+// target — http/https only, never localhost/loopback/private/link-local — and
+// returns the validated IP. The hostname is resolved at call time so DNS
+// rebinding cannot point a previously-validated name at an internal address.
+// It is the shared SSRF guard for outbound webhooks AND EWS push notifications.
+func ValidateOutboundURL(rawURL string) (bool, string) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return false, ""
@@ -272,14 +293,6 @@ func (m *Manager) isValidWebhookURL(rawURL string) (bool, string) {
 	hostname := u.Hostname()
 	if hostname == "" {
 		return false, ""
-	}
-
-	// If private IPs are allowed (testing mode), skip security checks
-	m.mu.RLock()
-	allowPrivate := m.allowPrivateIP
-	m.mu.RUnlock()
-	if allowPrivate {
-		return true, ""
 	}
 
 	// Block localhost variants

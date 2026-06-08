@@ -129,6 +129,47 @@ func (d *DB) RemoveSubscription(id semcore.SubscriptionId) error {
 	return nil
 }
 
+// ListPushSubscriptions returns every active (not drained, not expired) push
+// subscription across all mailboxes, for the push-notification dispatcher.
+func (d *DB) ListPushSubscriptions() ([]semcore.Subscription, error) {
+	rows, err := d.pool.Query(context.Background(),
+		`SELECT id, mailbox_id, kind, folder_ids, last_seq, push_url, expires_at, drained_at, created_at
+		 FROM semcore_subscription
+		 WHERE kind=$1 AND drained_at IS NULL AND (expires_at IS NULL OR expires_at > now())`,
+		int16(semcore.SubscriptionKindPush))
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list push subscriptions: %w", err)
+	}
+	defer rows.Close()
+	var result []semcore.Subscription
+	for rows.Next() {
+		sub, err := subscriptionFromRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, *sub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: list push subscriptions: %w", err)
+	}
+	return result, nil
+}
+
+// UpdateSubscriptionSeq advances a subscription's last-delivered sequence and
+// renews its expiry (the push dispatcher calls it after a successful delivery).
+func (d *DB) UpdateSubscriptionSeq(id semcore.SubscriptionId, seq uint64) error {
+	tag, err := d.pool.Exec(context.Background(),
+		`UPDATE semcore_subscription SET last_seq=$2, expires_at=$3 WHERE id=$1`,
+		id.ID, int64(seq), time.Now().Add(subscriptionTTL))
+	if err != nil {
+		return fmt.Errorf("postgres: update subscription seq %q: %w", id.ID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("subscription %q not found", id.ID)
+	}
+	return nil
+}
+
 // ExpireAllSubscriptions marks every not-yet-drained subscription as drained
 // (server drain/restart), returning the number newly drained. Mirrors bbolt.
 func (d *DB) ExpireAllSubscriptions() (int, error) {

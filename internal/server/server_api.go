@@ -176,6 +176,7 @@ func (s *Server) startAPI() {
 			s.submitMessageWithSieve,
 		)
 		ewsServer.SetLogger(s.logger)
+		s.ewsServer = ewsServer
 
 		// GetUserAvailability free/busy reads calendar items straight from the
 		// canonical collaboration store (which now holds every webmail/CalDAV/EWS

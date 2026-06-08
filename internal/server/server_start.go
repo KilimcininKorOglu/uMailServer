@@ -73,6 +73,10 @@ func (s *Server) Start() error {
 	// Start alert checker goroutine (periodic health checks for alerting)
 	s.startAlertChecker()
 
+	// Start the EWS push-notification dispatcher (delivers PushSubscription
+	// events to client callback URLs; leader-gated in a cluster).
+	s.startEWSPushDispatcher()
+
 	if err := s.startIMAP(s.mailstore); err != nil {
 		return err
 	}

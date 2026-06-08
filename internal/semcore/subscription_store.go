@@ -43,6 +43,14 @@ type SubscriptionStore interface {
 	// RemoveSubscription deletes a subscription (Unsubscribe).
 	RemoveSubscription(id SubscriptionId) error
 
+	// ListPushSubscriptions returns every active (not drained, not expired) push
+	// subscription across all mailboxes, for the push-notification dispatcher.
+	ListPushSubscriptions() ([]Subscription, error)
+
+	// UpdateSubscriptionSeq advances a subscription's last-delivered sequence and
+	// renews its expiry. The push dispatcher calls it after a successful delivery.
+	UpdateSubscriptionSeq(id SubscriptionId, seq uint64) error
+
 	// ExpireAllSubscriptions marks every active subscription as drained.
 	// This is called during server drain or restart so that long-lived
 	// sync clients receive an explicit termination signal instead of silently
@@ -328,6 +336,56 @@ func (s *BoltSubscriptionStore) RemoveSubscription(id SubscriptionId) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketSubscriptions))
 		return b.Delete([]byte(id.ID))
+	})
+}
+
+// ListPushSubscriptions implements SubscriptionStore.
+func (s *BoltSubscriptionStore) ListPushSubscriptions() ([]Subscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var result []Subscription
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketSubscriptions))
+		return b.ForEach(func(k, v []byte) error {
+			var r storedSubscription
+			if err := json.Unmarshal(v, &r); err != nil {
+				return nil
+			}
+			if r.Kind != SubscriptionKindPush {
+				return nil
+			}
+			sub := r.toSubscription()
+			if sub.IsDrained() || sub.IsExpired() {
+				return nil
+			}
+			result = append(result, *sub)
+			return nil
+		})
+	})
+	return result, err
+}
+
+// UpdateSubscriptionSeq implements SubscriptionStore.
+func (s *BoltSubscriptionStore) UpdateSubscriptionSeq(id SubscriptionId, seq uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(bucketSubscriptions))
+		data := b.Get([]byte(id.ID))
+		if data == nil {
+			return fmt.Errorf("subscription %q not found", id.ID)
+		}
+		var r storedSubscription
+		if err := json.Unmarshal(data, &r); err != nil {
+			return fmt.Errorf("unmarshal: %w", err)
+		}
+		r.LastSeq = seq
+		r.ExpiresAt = time.Now().Add(30 * time.Minute)
+		out, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(id.ID), out)
 	})
 }
 

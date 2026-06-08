@@ -1794,6 +1794,52 @@ func TestSemcoreSubscription(t *testing.T) {
 	}
 }
 
+// TestSemcorePushDispatcherSurface covers the push-dispatcher store methods:
+// ListPushSubscriptions returns only push subscriptions (not pull, not drained),
+// and UpdateSubscriptionSeq advances last_seq while renewing expiry.
+func TestSemcorePushDispatcherSurface(t *testing.T) {
+	d := openTestDB(t)
+	mbox := semcore.MustMailboxId("push@x.com")
+
+	pushID, err := d.CreateSubscription(semcore.Subscription{
+		MailboxID: mbox, Kind: semcore.SubscriptionKindPush, PushURL: "https://example.com/cb",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubscription(push): %v", err)
+	}
+	// A pull subscription must NOT appear in the push list.
+	if _, err := d.CreateSubscription(semcore.Subscription{
+		MailboxID: mbox, Kind: semcore.SubscriptionKindPull,
+	}); err != nil {
+		t.Fatalf("CreateSubscription(pull): %v", err)
+	}
+
+	list, err := d.ListPushSubscriptions()
+	if err != nil || len(list) != 1 || list[0].ID.ID != pushID.ID || list[0].Kind != semcore.SubscriptionKindPush {
+		t.Fatalf("ListPushSubscriptions=%+v err=%v want exactly the push sub", list, err)
+	}
+
+	// UpdateSubscriptionSeq advances last_seq.
+	if err := d.UpdateSubscriptionSeq(pushID, 42); err != nil {
+		t.Fatalf("UpdateSubscriptionSeq: %v", err)
+	}
+	got, err := d.GetSubscription(pushID)
+	if err != nil || got.LastSeq != 42 {
+		t.Fatalf("after UpdateSubscriptionSeq, last_seq=%d err=%v want 42", got.LastSeq, err)
+	}
+	if err := d.UpdateSubscriptionSeq(semcore.SubscriptionId{ID: "sub-ghost"}, 1); err == nil {
+		t.Error("UpdateSubscriptionSeq(absent) should error")
+	}
+
+	// A drained push subscription is excluded from the push list.
+	if _, err := d.ExpireAllSubscriptions(); err != nil {
+		t.Fatalf("ExpireAllSubscriptions: %v", err)
+	}
+	if list, err := d.ListPushSubscriptions(); err != nil || len(list) != 0 {
+		t.Errorf("after drain, ListPushSubscriptions=%d err=%v want 0", len(list), err)
+	}
+}
+
 // TestSemcoreDelegate covers delegate grants: create assigns a del- id, upsert
 // by (owner, email) preserves the id and created_at while updating fields and
 // permissions, lookups by id and by (owner, email), listing, and remove.

@@ -65,6 +65,7 @@ type Server struct {
 	imapServer        *imap.Server
 	apiServer         *api.Server
 	adminServer       *api.AdminServer
+	ewsServer         *ews.Server
 	tlsManager        *umailTLS.Manager
 	webhookMgr        *webhook.Manager
 	alertMgr          *alert.Manager

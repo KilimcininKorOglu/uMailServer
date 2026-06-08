@@ -60,6 +60,11 @@ type Server struct {
 	// messageExpungedNotifier, when set, is invoked after an EWS item is removed
 	// from the IMAP mailstore index (DeleteItem, MoveItem source side).
 	messageExpungedNotifier func(email, folder string, seqNum uint32)
+	// allowPrivatePushTargets relaxes the push-subscription SSRF guard to accept
+	// loopback/private callback URLs. It is OFF in production (a real client
+	// supplies a public https URL); tests set it so an httptest/sink on
+	// 127.0.0.1 can receive the POST.
+	allowPrivatePushTargets bool
 }
 
 // FreeBusyInterval is one busy time range contributed by an external free/busy
@@ -129,6 +134,13 @@ func (s *Server) SetMessageCreatedNotifier(fn func(email, folder string, uid uin
 // removed from the IMAP mailstore index (delete / move source).
 func (s *Server) SetMessageExpungedNotifier(fn func(email, folder string, seqNum uint32)) {
 	s.messageExpungedNotifier = fn
+}
+
+// SetAllowPrivatePushTargets relaxes the push-subscription SSRF guard so a
+// loopback/private callback URL is accepted. Production leaves this false; only
+// tests enable it so a local sink can receive the delivered notification.
+func (s *Server) SetAllowPrivatePushTargets(allow bool) {
+	s.allowPrivatePushTargets = allow
 }
 
 // notifyFolderChange signals that a mailbox folder changed, resolving a
@@ -504,8 +516,8 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"AttachmentIds", "AttachmentId", "FileAttachment", "Mailbox", "ParentItemId", "Attachments",
 		// Subscription elements
 		"Subscribe", "Unsubscribe", "GetEvents", "GetStreamingEvents",
-		"PullSubscriptionRequest", "StreamingSubscriptionRequest", "SubscriptionId", "SubscriptionIds",
-		"ConnectionTimeout", "Watermark",
+		"PullSubscriptionRequest", "StreamingSubscriptionRequest", "PushSubscriptionRequest",
+		"SubscriptionId", "SubscriptionIds", "ConnectionTimeout", "Watermark",
 		"NotificationEvent", "SubscribeResponse", "UnsubscribeResponse",
 		"GetEventsResponse", "SubscribeResponseMessage", "UnsubscribeResponseMessage",
 		"GetEventsResponseMessage", "GetStreamingEventsResponse", "GetStreamingEventsResponseMessage",
