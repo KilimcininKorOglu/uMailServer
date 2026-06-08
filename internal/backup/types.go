@@ -66,6 +66,7 @@ type BackupOptions struct {
 // RestoreOptions contains settings for restore operation
 type RestoreOptions struct {
 	Mode       RestoreMode `json:"mode"`
+	SourceType BackupType  `json:"source_type"` // archive layout: full ("messages/" prefix) vs per-user ("<user>/" prefix)
 	TargetUser string      `json:"target_user"` // For different-user restore
 	TargetPath string      `json:"target_path"` // Custom restore path
 	DateFrom   *time.Time  `json:"date_from"`   // Selective restore start date

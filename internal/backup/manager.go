@@ -291,6 +291,24 @@ func (m *Manager) Verify(backupPath string) (*BackupManifest, error) {
 	return manifest, nil
 }
 
+// firstSegment returns the first '/'-separated segment of a slash-path.
+func firstSegment(name string) string {
+	if i := strings.IndexByte(name, '/'); i >= 0 {
+		return name[:i]
+	}
+	return name
+}
+
+// dropFirstSegment removes the first '/'-separated segment of a slash-path,
+// returning the remainder (no leading slash), or "" when name was a single
+// segment (the prefix directory entry itself).
+func dropFirstSegment(name string) string {
+	if i := strings.IndexByte(name, '/'); i >= 0 {
+		return name[i+1:]
+	}
+	return ""
+}
+
 // Restore restores a backup to the specified location
 func (m *Manager) Restore(backupPath string, opts RestoreOptions) error {
 	if !m.CanRestore(backupPath) {
@@ -311,14 +329,25 @@ func (m *Manager) Restore(backupPath string, opts RestoreOptions) error {
 
 	tr := tar.NewReader(gz)
 
+	// The archive layout differs by backup type (see BackupUser/BackupFull), so
+	// the leading prefix must be reconciled with targetDir or entries land at the
+	// wrong depth: a per-user archive prefixes "<origUser>/", and a full archive
+	// prefixes "messages/".
 	var targetDir string
+	stripFirstSegment := false // per-user archive restored to a DIFFERENT user
+	stripMessagesPrefix := false
 	switch opts.Mode {
 	case RestoreModeDifferent:
 		targetDir = filepath.Join(m.messagesRoot(), opts.TargetUser)
-	case RestoreModeMerge:
+		// targetDir already names the target user; without dropping the archive's
+		// original-user segment the tree would nest as <target>/<origUser>/...,
+		// which no protocol serves.
+		stripFirstSegment = opts.SourceType == BackupTypeUser
+	default: // merge / overwrite restore to the canonical location
 		targetDir = m.messagesRoot()
-	default:
-		targetDir = m.messagesRoot()
+		// A full archive carries a "messages/" prefix; drop it so entries land at
+		// <messagesRoot>/<user>/... not <messagesRoot>/messages/<user>/...
+		stripMessagesPrefix = opts.SourceType == BackupTypeFull
 	}
 
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -334,7 +363,18 @@ func (m *Manager) Restore(backupPath string, opts RestoreOptions) error {
 			return err
 		}
 
-		targetPath := filepath.Join(targetDir, header.Name)
+		name := filepath.ToSlash(header.Name)
+		switch {
+		case stripFirstSegment:
+			name = dropFirstSegment(name)
+		case stripMessagesPrefix && firstSegment(name) == "messages":
+			name = dropFirstSegment(name)
+		}
+		if name == "" {
+			continue // the prefix directory entry itself
+		}
+
+		targetPath := filepath.Join(targetDir, filepath.FromSlash(name))
 
 		switch header.Typeflag {
 		case tar.TypeDir:

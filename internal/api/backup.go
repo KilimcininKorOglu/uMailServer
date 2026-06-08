@@ -188,7 +188,7 @@ func (s *Server) handleBackupRestoreHTTP(w http.ResponseWriter, r *http.Request,
 		path = filepath.Join(s.config.DataDir, "backups", "full", manifest.Filename)
 	}
 
-	opts := backup.RestoreOptions{Overwrite: req.Overwrite}
+	opts := backup.RestoreOptions{Overwrite: req.Overwrite, SourceType: backup.BackupType(manifest.Type)}
 	switch req.Mode {
 	case "overwrite":
 		opts.Mode = backup.RestoreModeOverwrite
@@ -543,7 +543,7 @@ func (s *Server) handleBackupRestore(w http.ResponseWriter, r *http.Request) {
 		path = filepath.Join(s.config.DataDir, "backups", "full", manifest.Filename)
 	}
 
-	opts := backup.RestoreOptions{Overwrite: req.Overwrite}
+	opts := backup.RestoreOptions{Overwrite: req.Overwrite, SourceType: backup.BackupType(manifest.Type)}
 	switch req.Mode {
 	case "overwrite":
 		opts.Mode = backup.RestoreModeOverwrite
