@@ -63,6 +63,12 @@ func (s *Server) startAPI() {
 	}
 	s.apiServer.SetSearchService(s.searchSvc)
 	s.apiServer.SetTracingProvider(s.tracingProvider)
+	if s.rateLimiter != nil {
+		// Powers the read-only per-IP/per-user rate-limit stats endpoints.
+		// Rate-limit CONFIG is owned by the settings DTO (PUT /api/v1/admin/config,
+		// persisted + live-applied via ReloadConfig), not a parallel write path.
+		s.apiServer.SetRateLimitManager(s.rateLimiter)
+	}
 	if s.queue != nil {
 		s.apiServer.SetQueueManager(s.queue)
 	}

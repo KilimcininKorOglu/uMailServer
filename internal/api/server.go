@@ -828,7 +828,9 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/cluster/heartbeat", s.adminMiddleware(http.HandlerFunc(s.handleClusterHeartbeat)).ServeHTTP)
 	api.HandleFunc("/api/v1/metrics", s.adminMiddleware(http.HandlerFunc(s.handleMetrics)).ServeHTTP)
 	api.HandleFunc("/api/v1/stats", s.tenantAdminMiddleware(http.HandlerFunc(s.handleStats)).ServeHTTP)
-	api.HandleFunc("/api/v1/admin/ratelimits/config", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitConfig)).ServeHTTP)
+	// Rate-limit CONFIG lives in the settings DTO (PUT /api/v1/admin/config); a
+	// separate runtime-only write endpoint here would not persist and would be a
+	// second source of truth. Only the read-only per-IP/per-user stats remain.
 	api.HandleFunc("/api/v1/admin/ratelimits/ip/", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitIPStats)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/ratelimits/user/", s.adminMiddleware(http.HandlerFunc(s.handleRateLimitUserStats)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/vacations", s.adminMiddleware(http.HandlerFunc(s.handleAdminVacations)).ServeHTTP)

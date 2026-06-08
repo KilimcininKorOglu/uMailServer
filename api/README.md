@@ -182,10 +182,10 @@ There are two different metrics-style endpoints:
 | DELETE | `/api/v1/queue/{id}` | Drop queue entry |
 | GET | `/api/v1/metrics` | JSON metrics |
 | GET | `/api/v1/stats` | Dashboard stats |
-| GET | `/api/v1/admin/ratelimits/config` | Rate-limit config |
-| PUT | `/api/v1/admin/ratelimits/config` | Update rate-limit config |
 | GET | `/api/v1/admin/ratelimits/ip/{ip}` | Per-IP rate-limit stats |
 | GET | `/api/v1/admin/ratelimits/user/{user}` | Per-user rate-limit stats |
+| GET | `/api/v1/admin/config` | Server settings (incl. `security.rate_limit`) |
+| PUT | `/api/v1/admin/config` | Update settings (persisted + live-applied) |
 | GET | `/api/v1/admin/vacations` | Active vacation overview |
 | GET | `/api/v1/admin/push/stats` | Push stats |
 | POST | `/api/v1/admin/jwt/rotate` | Rotate JWT signing secret |
