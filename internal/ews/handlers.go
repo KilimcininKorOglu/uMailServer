@@ -262,6 +262,8 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		response = s.handleCopyItem(ctx, soapBody)
 	case "GetAttachment":
 		response = s.handleGetAttachment(ctx, soapBody)
+	case "CreateAttachment":
+		response = s.handleCreateAttachment(ctx, soapBody)
 	case "DeleteAttachment":
 		response = s.handleDeleteAttachment(ctx, soapBody)
 	case "Subscribe":
@@ -489,8 +491,8 @@ func rewriteEWSMessagePrefix(data []byte) []byte {
 		"DistinguishedFolderName", "DisplayName",
 		// Item operation elements
 		"GetItem", "UpdateItem", "DeleteItem", "CreateItem", "SendItem", "MoveItem", "CopyItem",
-		"GetAttachment", "DeleteAttachment", "ItemIds", "ItemShape", "ToFolderId",
-		"AttachmentIds", "AttachmentId", "FileAttachment", "Mailbox",
+		"GetAttachment", "CreateAttachment", "DeleteAttachment", "ItemIds", "ItemShape", "ToFolderId",
+		"AttachmentIds", "AttachmentId", "FileAttachment", "Mailbox", "ParentItemId", "Attachments",
 		// Subscription elements
 		"Subscribe", "Unsubscribe", "GetEvents",
 		"PullSubscriptionRequest", "SubscriptionId", "Watermark",

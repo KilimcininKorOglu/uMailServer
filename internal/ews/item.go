@@ -3350,6 +3350,272 @@ func isAttachmentPart(seg []byte) bool {
 }
 
 // ---------------------------------------------------------------------------
+// CreateAttachment
+// ---------------------------------------------------------------------------
+
+// CreateAttachmentRequest is the EWS CreateAttachment operation request.
+type CreateAttachmentRequest struct {
+	XMLName      xml.Name `xml:"CreateAttachment"`
+	ParentItemID struct {
+		ID string `xml:"Id,attr"`
+		CK string `xml:"ChangeKey,attr"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ParentItemId"`
+	Attachments struct {
+		Files []FileAttachmentType `xml:"http://schemas.microsoft.com/exchange/services/2006/types FileAttachment"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Attachments"`
+}
+
+// CreateAttachmentResponse is the EWS CreateAttachment operation response.
+type CreateAttachmentResponse struct {
+	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateAttachmentResponse"`
+	Msgs    struct {
+		Messages []CreateAttachmentResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateAttachmentResponseMessage"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessages"`
+}
+
+// CreateAttachmentResponseMessageType is one CreateAttachment result.
+type CreateAttachmentResponseMessageType struct {
+	XMLName       xml.Name         `xml:"http://schemas.microsoft.com/exchange/services/2006/messages CreateAttachmentResponseMessage"`
+	ResponseClass string           `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	Attachments   *struct {
+		File *CreatedFileAttachmentType `xml:"http://schemas.microsoft.com/exchange/services/2006/types FileAttachment"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Attachments,omitempty"`
+}
+
+// CreatedFileAttachmentType carries the new attachment's id (with the parent's
+// updated change key) so the client can fetch it and refresh the parent.
+type CreatedFileAttachmentType struct {
+	XMLName      xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types FileAttachment"`
+	AttachmentID struct {
+		ID                string `xml:"Id,attr"`
+		RootItemID        string `xml:"RootItemId,attr,omitempty"`
+		RootItemChangeKey string `xml:"RootItemChangeKey,attr,omitempty"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types AttachmentId"`
+}
+
+func createAttachErrMsg(code ResponseCodeType) CreateAttachmentResponseMessageType {
+	return CreateAttachmentResponseMessageType{ResponseClass: "Error", ResponseCode: code}
+}
+
+// handleCreateAttachment attaches one or more files to an existing item: it
+// rewrites the parent's stored MIME to carry the new part(s), repoints the
+// blob, and advances the parent ChangeKey through the canonical mutation
+// (mirroring handleDeleteAttachment in reverse).
+func (s *Server) handleCreateAttachment(ctx context.Context, body []byte) []byte {
+	var req CreateAttachmentRequest
+	if err := decodeRequest(body, &req); err != nil {
+		return s.errorResponseXML("CreateAttachment", ErrErrorInvalidOperation, "malformed request: "+err.Error())
+	}
+	mboxID, mboxKey, errCode := s.resolveMailboxFromBody(ctx, body)
+	if errCode != "" {
+		return s.errorResponseXML("CreateAttachment", errCode, "could not resolve mailbox")
+	}
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+
+	parentID, err := semcore.NewItemId(req.ParentItemID.ID)
+	if err != nil {
+		resp := CreateAttachmentResponse{}
+		resp.Msgs.Messages = []CreateAttachmentResponseMessageType{createAttachErrMsg(ResponseCodeType{Value: ErrErrorInvalidId})}
+		return buildResponseEnvelope(resp)
+	}
+	parentRec, err := s.identity.GetItemIdentity(parentID)
+	if err != nil {
+		resp := CreateAttachmentResponse{}
+		resp.Msgs.Messages = []CreateAttachmentResponseMessageType{createAttachErrMsg(ResponseCodeType{Value: ErrErrorItemNotFound})}
+		return buildResponseEnvelope(resp)
+	}
+	if !parentRec.MailboxID.IsZero() && parentRec.MailboxID != mboxID {
+		resp := CreateAttachmentResponse{}
+		resp.Msgs.Messages = []CreateAttachmentResponseMessageType{createAttachErrMsg(ResponseCodeType{Value: ErrErrorAccessDenied})}
+		return buildResponseEnvelope(resp)
+	}
+
+	rawMsg, err := s.msgStore.ReadMessage(parentRec.Email, parentRec.MsgKey)
+	if err != nil {
+		resp := CreateAttachmentResponse{}
+		resp.Msgs.Messages = []CreateAttachmentResponseMessageType{createAttachErrMsg(ResponseCodeType{Value: ErrErrorItemNotFound})}
+		return buildResponseEnvelope(resp)
+	}
+
+	// Index of the first new attachment = current attachment count.
+	_, _, _, _, _, _, existing := parseMimeWithAttachments(rawMsg)
+	nextIndex := len(existing)
+
+	msgs := make([]CreateAttachmentResponseMessageType, 0, len(req.Attachments.Files))
+	changed := false
+	for _, att := range req.Attachments.Files {
+		content, derr := base64.StdEncoding.DecodeString(strings.TrimSpace(att.Content))
+		if derr != nil {
+			content = []byte(att.Content)
+		}
+		updated, ok := addAttachmentToMime(rawMsg, att.Name, att.ContentType, content)
+		if !ok {
+			msgs = append(msgs, createAttachErrMsg(ResponseCodeType{Value: ErrErrorInternalServer}))
+			continue
+		}
+		rawMsg = updated
+		changed = true
+		idx := nextIndex
+		nextIndex++
+		m := CreateAttachmentResponseMessageType{
+			ResponseClass: "Success",
+			ResponseCode:  ResponseCodeType{Value: ErrNoError},
+		}
+		m.Attachments = &struct {
+			File *CreatedFileAttachmentType `xml:"http://schemas.microsoft.com/exchange/services/2006/types FileAttachment"`
+		}{File: &CreatedFileAttachmentType{}}
+		m.Attachments.File.AttachmentID.ID = makeAttachmentID(parentID.String(), idx)
+		m.Attachments.File.AttachmentID.RootItemID = parentID.String()
+		msgs = append(msgs, m)
+	}
+
+	if changed {
+		newKey, serr := s.msgStore.StoreMessage(parentRec.Email, rawMsg)
+		if serr != nil {
+			resp := CreateAttachmentResponse{}
+			resp.Msgs.Messages = []CreateAttachmentResponseMessageType{createAttachErrMsg(ResponseCodeType{Value: ErrErrorInternalServer})}
+			return buildResponseEnvelope(resp)
+		}
+		if serr := s.identity.SetItemMsgKey(parentID, newKey); serr != nil {
+			resp := CreateAttachmentResponse{}
+			resp.Msgs.Messages = []CreateAttachmentResponseMessageType{createAttachErrMsg(ResponseCodeType{Value: ErrErrorInternalServer})}
+			return buildResponseEnvelope(resp)
+		}
+		delegateCtx := s.buildDelegateAuditContext(ctx, mboxID, mailboxKey)
+		result, merr := s.mutationPipe.MutateUpdate(&semcore.UpdateInput{
+			ItemID:               parentID,
+			MailboxID:            mboxID,
+			FolderID:             parentRec.FolderID,
+			Actor:                mailboxKey,
+			Source:               semcore.MutationSourceEWS,
+			DelegateAuditContext: delegateCtx,
+		})
+		if merr == nil {
+			for i := range msgs {
+				if msgs[i].Attachments != nil && msgs[i].Attachments.File != nil {
+					msgs[i].Attachments.File.AttachmentID.RootItemChangeKey = result.ChangeKey.String()
+				}
+			}
+		}
+	}
+
+	resp := CreateAttachmentResponse{}
+	resp.Msgs.Messages = msgs
+	return buildResponseEnvelope(resp)
+}
+
+// renderAttachmentPart renders one MIME attachment part body (without the
+// leading boundary delimiter), matching buildMimeMessageWithHeaders' format.
+func renderAttachmentPart(name, contentType string, content []byte) string {
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	var b strings.Builder
+	b.WriteString("Content-Type: " + contentType)
+	if name != "" {
+		b.WriteString("; name=\"" + name + "\"")
+	}
+	b.WriteString("\r\nContent-Transfer-Encoding: base64\r\n")
+	b.WriteString("Content-Disposition: attachment")
+	if name != "" {
+		b.WriteString("; filename=\"" + name + "\"")
+	}
+	b.WriteString("\r\n\r\n")
+	encoded := base64.StdEncoding.EncodeToString(content)
+	for len(encoded) > 76 {
+		b.WriteString(encoded[:76] + "\r\n")
+		encoded = encoded[76:]
+	}
+	if encoded != "" {
+		b.WriteString(encoded + "\r\n")
+	}
+	return b.String()
+}
+
+// addAttachmentToMime appends a file attachment to a stored message. A message
+// that is already multipart/mixed gets the new part inserted before its closing
+// delimiter; a single-part message is wrapped in a fresh multipart/mixed whose
+// first part is the original body (its Content-Type/Transfer-Encoding move onto
+// that inner part).
+func addAttachmentToMime(data []byte, name, contentType string, content []byte) ([]byte, bool) {
+	msg, err := mail.ReadMessage(bytes.NewReader(data))
+	if err != nil {
+		return nil, false
+	}
+	mediaType, params, _ := mime.ParseMediaType(msg.Header.Get("Content-Type")) //nolint:errcheck // non-multipart yields empty boundary, handled below.
+	boundary := params["boundary"]
+	part := renderAttachmentPart(name, contentType, content)
+
+	hdrEnd := bytes.Index(data, []byte("\r\n\r\n"))
+	if hdrEnd < 0 {
+		return nil, false
+	}
+
+	if boundary != "" && strings.HasPrefix(mediaType, "multipart/") {
+		header := data[:hdrEnd+4]
+		mbody := data[hdrEnd+4:]
+		closing := []byte("--" + boundary + "--")
+		idx := bytes.LastIndex(mbody, closing)
+		if idx < 0 {
+			return nil, false
+		}
+		var out bytes.Buffer
+		out.Write(header)
+		out.Write(mbody[:idx])
+		out.WriteString("--" + boundary + "\r\n")
+		out.WriteString(part)
+		out.Write(mbody[idx:])
+		return out.Bytes(), true
+	}
+
+	// Single-part message: wrap into multipart/mixed.
+	origBody := data[hdrEnd+4:]
+	innerCT := msg.Header.Get("Content-Type")
+	if innerCT == "" {
+		innerCT = "text/plain; charset=utf-8"
+	}
+	innerCTE := msg.Header.Get("Content-Transfer-Encoding")
+	newBoundary := "umail-" + generateID()
+
+	var out bytes.Buffer
+	// Re-emit top-level headers, dropping Content-Type / Content-Transfer-Encoding
+	// (and their folded continuation lines) since they move onto the inner part.
+	skip := false
+	for _, line := range strings.Split(string(data[:hdrEnd]), "\r\n") {
+		if line != "" && (line[0] == ' ' || line[0] == '\t') {
+			if skip {
+				continue // folded continuation of a dropped header
+			}
+			out.WriteString(line + "\r\n")
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "content-type:") || strings.HasPrefix(lower, "content-transfer-encoding:") {
+			skip = true
+			continue
+		}
+		skip = false
+		out.WriteString(line + "\r\n")
+	}
+	out.WriteString("Content-Type: multipart/mixed; boundary=\"" + newBoundary + "\"\r\n\r\n")
+	out.WriteString("--" + newBoundary + "\r\n")
+	out.WriteString("Content-Type: " + innerCT + "\r\n")
+	if innerCTE != "" {
+		out.WriteString("Content-Transfer-Encoding: " + innerCTE + "\r\n")
+	}
+	out.WriteString("\r\n")
+	out.Write(origBody)
+	if !bytes.HasSuffix(origBody, []byte("\r\n")) {
+		out.WriteString("\r\n")
+	}
+	out.WriteString("--" + newBoundary + "\r\n")
+	out.WriteString(part)
+	out.WriteString("--" + newBoundary + "--\r\n")
+	return out.Bytes(), true
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
