@@ -82,7 +82,11 @@ func TestToolAddDomain_MissingName(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(server.HandleHTTP)
-	handler.ServeHTTP(rr, httptest.NewRequest("POST", "/mcp", bytes.NewReader(body)))
+	// Grant admin so the request reaches the tool and exercises its validation
+	// (without it the admin-tool RBAC gate now returns 403, not the tool error).
+	req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+	//nolint:staticcheck // the MCP server reads this string context key directly
+	handler.ServeHTTP(rr, req.WithContext(context.WithValue(req.Context(), "isAdmin", true)))
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rr.Code)
@@ -201,7 +205,9 @@ func TestToolAddAccount_MissingFields(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(server.HandleHTTP)
-	handler.ServeHTTP(rr, httptest.NewRequest("POST", "/mcp", bytes.NewReader(body)))
+	req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+	//nolint:staticcheck // the MCP server reads this string context key directly
+	handler.ServeHTTP(rr, req.WithContext(context.WithValue(req.Context(), "isAdmin", true)))
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rr.Code)
@@ -236,7 +242,9 @@ func TestToolAddAccount_InvalidEmail(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(server.HandleHTTP)
-	handler.ServeHTTP(rr, httptest.NewRequest("POST", "/mcp", bytes.NewReader(body)))
+	req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+	//nolint:staticcheck // the MCP server reads this string context key directly
+	handler.ServeHTTP(rr, req.WithContext(context.WithValue(req.Context(), "isAdmin", true)))
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rr.Code)
@@ -271,7 +279,9 @@ func TestToolAddAccount_NonexistentDomain(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(server.HandleHTTP)
-	handler.ServeHTTP(rr, httptest.NewRequest("POST", "/mcp", bytes.NewReader(body)))
+	req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+	//nolint:staticcheck // the MCP server reads this string context key directly
+	handler.ServeHTTP(rr, req.WithContext(context.WithValue(req.Context(), "isAdmin", true)))
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rr.Code)
@@ -1126,5 +1136,47 @@ func TestHandleToolCall_InvalidParams(t *testing.T) {
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rr.Code)
+	}
+}
+
+// TestMCPAdminTool_WithoutAdmin_Returns403 verifies an admin-only tool invoked
+// without admin privileges is rejected with 403 Forbidden (a caller/authz
+// error), not a generic 500 Internal Server Error.
+func TestMCPAdminTool_WithoutAdmin_Returns403(t *testing.T) {
+	database, err := db.Open(t.TempDir() + "/mcp.db")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	})
+
+	server := NewServer(database)
+
+	reqBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "add_domain",
+			"arguments": map[string]interface{}{
+				"name": "example.com",
+			},
+		},
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(server.HandleHTTP)
+	// No isAdmin in context: the RBAC gate must deny the admin tool.
+	handler.ServeHTTP(rr, httptest.NewRequest("POST", "/mcp", bytes.NewReader(body)))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403, got %d", rr.Code)
 	}
 }

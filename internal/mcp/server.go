@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -216,8 +217,12 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errAdminRequired) {
+			status = http.StatusForbidden // RBAC denial is the caller's fault, not a server error
+		}
 		slog.Error("mcp handler error", "method", req.Method, "error", err)
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeError(w, status, err.Error())
 		if span := otrace.SpanFromContext(ctx); span != nil {
 			tracing.SetStatus(span, tracing.StatusError, err.Error())
 		}
@@ -473,6 +478,10 @@ func (s *Server) handleToolsList() map[string]interface{} {
 	}}
 }
 
+// errAdminRequired is returned when a non-admin caller invokes an admin-only
+// tool, so the HTTP layer can answer 403 Forbidden instead of a generic 500.
+var errAdminRequired = errors.New("admin access required")
+
 // adminTools is the set of tools that require admin privileges.
 var adminTools = map[string]struct{}{
 	"add_domain":     {},
@@ -494,7 +503,7 @@ func (s *Server) handleToolCall(ctx context.Context, params json.RawMessage) (ma
 	if _, isAdminTool := adminTools[req.Name]; isAdminTool {
 		isAdmin, ok := ctx.Value("isAdmin").(bool)
 		if !ok || !isAdmin {
-			return nil, fmt.Errorf("admin access required")
+			return nil, errAdminRequired
 		}
 	}
 

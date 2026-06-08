@@ -560,8 +560,8 @@ func TestMCPServer_AdminTool_WithoutAdminContext(t *testing.T) {
 	handler := http.HandlerFunc(server.HandleHTTP)
 	handler.ServeHTTP(rr, httptest.NewRequest("POST", "/mcp", bytes.NewReader(body)))
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status 500, got %d", rr.Code)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403, got %d", rr.Code)
 	}
 
 	var resp map[string]interface{}
@@ -681,8 +681,8 @@ func TestSetAdminAuthToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer regular-token")
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status 500 with regular token, got %d", rr.Code)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 with regular token, got %d", rr.Code)
 	}
 
 	var resp map[string]interface{}
