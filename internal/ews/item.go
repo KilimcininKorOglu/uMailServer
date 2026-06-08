@@ -1380,6 +1380,32 @@ func (s *Server) getCollabGetItemResponse(ctx context.Context, mboxKey string, i
 	return nil
 }
 
+// icalComponent returns the body of the first iCalendar component named comp
+// (e.g. "VEVENT") — the lines between BEGIN:comp and the matching END:comp.
+// Properties MUST be read from the right component: a timezone-anchored event
+// carries a VTIMEZONE whose own DTSTART/RRULE would otherwise be picked up by a
+// whole-document scan (the VTIMEZONE precedes the VEVENT), so a weekly event in
+// America/New_York would mis-report the zone's DST rule. Falls back to the full
+// data when the component is absent.
+func icalComponent(data, comp string) string {
+	begin, end := "BEGIN:"+comp, "END:"+comp
+	lines := strings.Split(data, "\n")
+	start := -1
+	for i, ln := range lines {
+		trimmed := strings.TrimRight(ln, "\r")
+		if start < 0 {
+			if strings.EqualFold(trimmed, begin) {
+				start = i + 1
+			}
+			continue
+		}
+		if strings.EqualFold(trimmed, end) {
+			return strings.Join(lines[start:i], "\n")
+		}
+	}
+	return data
+}
+
 // extractDirProp returns the value of the first iCalendar/vCard content line
 // whose property name matches name (case-insensitive). Property parameters
 // (after ';') and folding are handled minimally, which is sufficient for the
@@ -1553,25 +1579,40 @@ func buildContactGetItemFromRec(rec *semcore.StoredContactIdentity) []byte {
 // buildCalendarGetItemFromRec projects a stored calendar item's iCalendar into
 // an EWS <t:CalendarItem> GetItem response.
 func buildCalendarGetItemFromRec(rec *semcore.StoredCalendarItemIdentity) []byte {
+	// Scope all reads to the VEVENT so a timezone-anchored event's VTIMEZONE
+	// (which carries its own DTSTART/RRULE for the DST transitions) cannot leak
+	// into Start/End or the recurrence pattern.
+	ev := icalComponent(rec.RawData, "VEVENT")
 	var b bytes.Buffer
 	b.WriteString(`<t:CalendarItem>`)
 	b.WriteString(`<t:ItemId Id="` + xmlEsc(rec.ID.String()) + `" ChangeKey="` + xmlEsc(rec.ChangeKey.String()) + `"/>`)
-	if subj := extractDirProp(rec.RawData, "SUMMARY"); subj != "" {
+	if subj := extractDirProp(ev, "SUMMARY"); subj != "" {
 		b.WriteString(`<t:Subject>` + xmlEsc(subj) + `</t:Subject>`)
 	}
-	if t := icalEventInstant(rec.RawData, "DTSTART"); !t.IsZero() {
+	if t := icalEventInstant(ev, "DTSTART"); !t.IsZero() {
 		b.WriteString(`<t:Start>` + FormatEWSDateTime(t) + `</t:Start>`)
 	}
-	if t := icalEventInstant(rec.RawData, "DTEND"); !t.IsZero() {
+	if t := icalEventInstant(ev, "DTEND"); !t.IsZero() {
 		b.WriteString(`<t:End>` + FormatEWSDateTime(t) + `</t:End>`)
 	}
-	if loc := extractDirProp(rec.RawData, "LOCATION"); loc != "" {
+	if loc := extractDirProp(ev, "LOCATION"); loc != "" {
 		b.WriteString(`<t:Location>` + xmlEsc(loc) + `</t:Location>`)
 	}
 	b.WriteString(`<t:UID>` + xmlEsc(rec.IcalUID) + `</t:UID>`)
-	// IsRecurring is true when the stored iCalendar carries an RRULE.
-	if extractDirProp(rec.RawData, "RRULE") != "" {
+	// A recurring event carries its full <t:Recurrence> (pattern + boundary) so
+	// the client renders the whole series, not just the master occurrence. The
+	// pattern is derived from the stored RRULE anchored to the event's CIVIL-local
+	// start (its DTSTART;TZID), so weekday/day-of-month/month are the wall-clock
+	// ones, not the UTC instant's.
+	if rrule := extractDirProp(ev, "RRULE"); rrule != "" {
 		b.WriteString(`<t:IsRecurring>true</t:IsRecurring>`)
+		localStart := icalEventInstant(ev, "DTSTART")
+		if tzid := extractDirPropParam(ev, "DTSTART", "TZID"); tzid != "" {
+			if loc, err := time.LoadLocation(tzid); err == nil {
+				localStart = localStart.In(loc)
+			}
+		}
+		b.WriteString(ewsRecurrenceXML(rrule, localStart))
 	}
 	b.WriteString(`</t:CalendarItem>`)
 	return collabGetItemEnvelope(b.String())

@@ -1971,6 +1971,133 @@ func recurrenceRange(s string) semcore.RecurrenceRange {
 	}
 }
 
+// icalWeekdayNames maps iCal BYDAY two-letter codes to the full weekday names
+// EWS/Outlook expect (matching Go's time.Weekday.String()).
+var icalWeekdayNames = map[string]string{
+	"SU": "Sunday", "MO": "Monday", "TU": "Tuesday", "WE": "Wednesday",
+	"TH": "Thursday", "FR": "Friday", "SA": "Saturday",
+}
+
+// splitICalByDay splits an iCal BYDAY token like "2MO" or "-1FR" into its
+// ordinal prefix (0 when absent) and the two-letter weekday code.
+func splitICalByDay(s string) (int, string) {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 {
+		return 0, strings.ToUpper(s)
+	}
+	code := strings.ToUpper(s[len(s)-2:])
+	prefix := s[:len(s)-2]
+	if prefix == "" {
+		return 0, code
+	}
+	n, _ := strconv.Atoi(prefix) //nolint:errcheck
+	return n, code
+}
+
+// ewsDaysOfWeek renders a BYDAY list as the space-separated full weekday names
+// EWS WeeklyRecurrence expects, falling back to the start day's weekday.
+func ewsDaysOfWeek(byDay []string, localStart time.Time) string {
+	var out []string
+	for _, d := range byDay {
+		if _, code := splitICalByDay(d); icalWeekdayNames[code] != "" {
+			out = append(out, icalWeekdayNames[code])
+		}
+	}
+	if len(out) == 0 {
+		return localStart.Weekday().String()
+	}
+	return strings.Join(out, " ")
+}
+
+// ewsRelativeDay reports the EWS DayOfWeekIndex + weekday name for a single
+// positional BYDAY token (e.g. "2MO" -> "Second","Monday"); ok is false for a
+// plain weekly BYDAY with no ordinal prefix.
+func ewsRelativeDay(byDay []string) (idx, weekday string, ok bool) {
+	if len(byDay) != 1 {
+		return "", "", false
+	}
+	n, code := splitICalByDay(byDay[0])
+	name := icalWeekdayNames[code]
+	if n == 0 || name == "" {
+		return "", "", false
+	}
+	weekIndex := map[int]string{1: "First", 2: "Second", 3: "Third", 4: "Fourth", 5: "Last", -1: "Last"}[n]
+	if weekIndex == "" {
+		return "", "", false
+	}
+	return weekIndex, name, true
+}
+
+// ewsRecurrenceXML renders a stored iCal RRULE (with the event's civil-local
+// start) as an EWS <t:Recurrence> block — a pattern plus a boundary — using the
+// element names exchangelib/Outlook expect, so the recurring series renders on
+// the client instead of appearing as a single occurrence. Returns "" when there
+// is no usable RRULE.
+func ewsRecurrenceXML(rrule string, localStart time.Time) string {
+	rr := parseICalRRULE(rrule)
+	if rr == nil || rr.Freq == "" {
+		return ""
+	}
+	interval := rr.Interval
+	if interval < 1 {
+		interval = 1
+	}
+
+	var pattern string
+	switch strings.ToUpper(rr.Freq) {
+	case "DAILY":
+		pattern = fmt.Sprintf(`<t:DailyRecurrence><t:Interval>%d</t:Interval></t:DailyRecurrence>`, interval)
+	case "WEEKLY":
+		pattern = fmt.Sprintf(`<t:WeeklyRecurrence><t:Interval>%d</t:Interval><t:DaysOfWeek>%s</t:DaysOfWeek></t:WeeklyRecurrence>`,
+			interval, ewsDaysOfWeek(rr.ByDay, localStart))
+	case "MONTHLY":
+		if widx, wd, ok := ewsRelativeDay(rr.ByDay); ok {
+			pattern = fmt.Sprintf(`<t:RelativeMonthlyRecurrence><t:Interval>%d</t:Interval><t:DaysOfWeek>%s</t:DaysOfWeek><t:DayOfWeekIndex>%s</t:DayOfWeekIndex></t:RelativeMonthlyRecurrence>`,
+				interval, wd, widx)
+		} else {
+			dom := localStart.Day()
+			if len(rr.ByMonthDay) > 0 {
+				dom = rr.ByMonthDay[0]
+			}
+			pattern = fmt.Sprintf(`<t:AbsoluteMonthlyRecurrence><t:Interval>%d</t:Interval><t:DayOfMonth>%d</t:DayOfMonth></t:AbsoluteMonthlyRecurrence>`,
+				interval, dom)
+		}
+	case "YEARLY":
+		month := int(localStart.Month())
+		if len(rr.ByMonth) > 0 {
+			month = rr.ByMonth[0]
+		}
+		if widx, wd, ok := ewsRelativeDay(rr.ByDay); ok {
+			pattern = fmt.Sprintf(`<t:RelativeYearlyRecurrence><t:DaysOfWeek>%s</t:DaysOfWeek><t:DayOfWeekIndex>%s</t:DayOfWeekIndex><t:Month>%s</t:Month></t:RelativeYearlyRecurrence>`,
+				wd, widx, time.Month(month).String())
+		} else {
+			dom := localStart.Day()
+			if len(rr.ByMonthDay) > 0 {
+				dom = rr.ByMonthDay[0]
+			}
+			pattern = fmt.Sprintf(`<t:AbsoluteYearlyRecurrence><t:DayOfMonth>%d</t:DayOfMonth><t:Month>%s</t:Month></t:AbsoluteYearlyRecurrence>`,
+				dom, time.Month(month).String())
+		}
+	default:
+		return ""
+	}
+
+	startDate := localStart.Format("2006-01-02")
+	var boundary string
+	switch {
+	case rr.UseUntil && !rr.Until.IsZero():
+		boundary = fmt.Sprintf(`<t:EndDateRecurrence><t:StartDate>%s</t:StartDate><t:EndDate>%s</t:EndDate></t:EndDateRecurrence>`,
+			startDate, rr.Until.Format("2006-01-02"))
+	case rr.UseCount && rr.Count > 0:
+		boundary = fmt.Sprintf(`<t:NumberedRecurrence><t:StartDate>%s</t:StartDate><t:NumberOfOccurrences>%d</t:NumberOfOccurrences></t:NumberedRecurrence>`,
+			startDate, rr.Count)
+	default:
+		boundary = fmt.Sprintf(`<t:NoEndRecurrence><t:StartDate>%s</t:StartDate></t:NoEndRecurrence>`, startDate)
+	}
+
+	return `<t:Recurrence>` + pattern + boundary + `</t:Recurrence>`
+}
+
 // reminderFromEWSTrigger converts an EWS ReminderType to a ReminderTrigger.
 // VAL-COLLAB-012: reminder and notification lifecycle persist across edits,
 // recurrence, and projection rereads.
