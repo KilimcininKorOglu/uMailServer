@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -2287,6 +2288,49 @@ func joinUint32(nums []uint32) string {
 }
 
 // COPY command. When byUID is true (UID COPY), args[0] is a UID set.
+// uidSetString formats UIDs as an IMAP sequence-set for the RFC 4315
+// COPYUID/APPENDUID response codes: sorted ascending with consecutive runs
+// collapsed into "a:b". Returns "" for an empty set.
+func uidSetString(uids []uint32) string {
+	if len(uids) == 0 {
+		return ""
+	}
+	sorted := append([]uint32(nil), uids...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	var b strings.Builder
+	start, prev := sorted[0], sorted[0]
+	flush := func() {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		if start == prev {
+			fmt.Fprintf(&b, "%d", start)
+		} else {
+			fmt.Fprintf(&b, "%d:%d", start, prev)
+		}
+	}
+	for _, u := range sorted[1:] {
+		if u == prev+1 {
+			prev = u
+			continue
+		}
+		flush()
+		start, prev = u, u
+	}
+	flush()
+	return b.String()
+}
+
+// copyUIDCode returns the RFC 4315 "[COPYUID validity src dst]" response code for
+// a COPY/MOVE, or "" when nothing was copied (so the caller omits it). The src
+// and dst UID sets correspond positionally once both are sorted ascending.
+func copyUIDCode(cu CopyUIDs) string {
+	if len(cu.DstUIDs) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("[COPYUID %d %s %s]", cu.UIDValidity, uidSetString(cu.SrcUIDs), uidSetString(cu.DstUIDs))
+}
+
 func (s *Session) handleCopy(args []string, byUID bool) error {
 	if len(args) < 2 {
 		s.WriteResponse(s.tag, "BAD Missing sequence or destination")
@@ -2310,13 +2354,18 @@ func (s *Session) handleCopy(args []string, byUID bool) error {
 		seqSet = translated
 	}
 
-	err := s.server.mailstore.CopyMessages(s.user, s.selected.Name, destMailbox, seqSet)
+	cu, err := s.server.mailstore.CopyMessages(s.user, s.selected.Name, destMailbox, seqSet)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
 	}
 
-	s.WriteResponse(s.tag, "OK COPY completed")
+	// RFC 4315 UIDPLUS: report the source->dest UID mapping in the tagged OK.
+	if code := copyUIDCode(cu); code != "" {
+		s.WriteResponse(s.tag, "OK "+code+" COPY completed")
+	} else {
+		s.WriteResponse(s.tag, "OK COPY completed")
+	}
 	return nil
 }
 
@@ -2344,16 +2393,19 @@ func (s *Session) handleMove(args []string, byUID bool) error {
 		seqSet = translated
 	}
 
-	expungedSeqs, expungedUIDs, err := s.server.mailstore.MoveMessages(s.user, s.selected.Name, destMailbox, seqSet)
+	copied, expungedSeqs, expungedUIDs, err := s.server.mailstore.MoveMessages(s.user, s.selected.Name, destMailbox, seqSet)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
 	}
 
-	// RFC 6851: the move removes the source messages now, so report them as
-	// untagged EXPUNGE responses before the tagged OK. Send them highest
-	// sequence number first so the remaining numbers stay valid, and notify the
-	// search index by UID (its keys are folder+uid).
+	// RFC 6851 §4.3 / RFC 4315: emit the COPYUID mapping as an untagged OK
+	// response code first, then (RFC 6851) the untagged EXPUNGE responses for the
+	// removed source messages — highest sequence first so the remaining numbers
+	// stay valid — and notify the search index by UID, before the tagged OK.
+	if code := copyUIDCode(copied); code != "" {
+		s.WriteData("OK " + code)
+	}
 	if s.server.onExpunge != nil {
 		for _, uid := range expungedUIDs {
 			s.server.onExpunge(s.user, s.selected.Name, uid)

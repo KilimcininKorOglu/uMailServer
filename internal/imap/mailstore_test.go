@@ -368,7 +368,7 @@ func TestBboltMailstoreCopyMessages(t *testing.T) {
 	}
 
 	// Copy messages (may not work without actual messages)
-	err = ms.CopyMessages(user, srcBox, dstBox, "1:*")
+	_, err = ms.CopyMessages(user, srcBox, dstBox, "1:*")
 	if err != nil {
 		t.Logf("CopyMessages returned error (may be expected without messages): %v", err)
 	}
@@ -396,7 +396,7 @@ func TestBboltMailstoreMoveMessages(t *testing.T) {
 	}
 
 	// Move messages (may not work without actual messages)
-	_, _, err = ms.MoveMessages(user, srcBox, dstBox, "1:*")
+	_, _, _, err = ms.MoveMessages(user, srcBox, dstBox, "1:*")
 	if err != nil {
 		t.Logf("MoveMessages returned error (may be expected without messages): %v", err)
 	}
@@ -841,7 +841,7 @@ func TestBboltMailstoreCopyMessagesWithData(t *testing.T) {
 	}
 
 	// Copy the message
-	err = ms.CopyMessages(user, srcBox, dstBox, "1")
+	_, err = ms.CopyMessages(user, srcBox, dstBox, "1")
 	if err != nil {
 		t.Logf("CopyMessages returned error: %v", err)
 	}
@@ -877,7 +877,7 @@ func TestBboltMailstoreMoveMessagesWithData(t *testing.T) {
 	}
 
 	// Move the message
-	_, _, err = ms.MoveMessages(user, srcBox, dstBox, "1")
+	_, _, _, err = ms.MoveMessages(user, srcBox, dstBox, "1")
 	if err != nil {
 		t.Logf("MoveMessages returned error: %v", err)
 	}
@@ -909,7 +909,7 @@ func TestMoveMessagesIsAtomicRFC6851(t *testing.T) {
 		t.Fatalf("AppendMessage: %v", err)
 	}
 
-	seqs, uids, err := ms.MoveMessages(user, srcBox, dstBox, "1")
+	_, seqs, uids, err := ms.MoveMessages(user, srcBox, dstBox, "1")
 	if err != nil {
 		t.Fatalf("MoveMessages: %v", err)
 	}
@@ -931,6 +931,101 @@ func TestMoveMessagesIsAtomicRFC6851(t *testing.T) {
 	}
 	if len(dstUIDs) != 1 {
 		t.Errorf("destination should hold the moved message, got %d", len(dstUIDs))
+	}
+}
+
+// TestCopyMessagesReportsCopyUID verifies CopyMessages returns the RFC 4315
+// COPYUID mapping: the destination UIDVALIDITY plus the per-message source→dest
+// UID pairs the handler needs to emit the [COPYUID ...] response code.
+func TestCopyMessagesReportsCopyUID(t *testing.T) {
+	ms, err := NewBboltMailstore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewBboltMailstore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := ms.Close(); err != nil {
+			t.Errorf("ms.Close: %v", err)
+		}
+	})
+
+	const user, srcBox, dstBox = "testuser", "INBOX", "Archive"
+	for _, mb := range []string{srcBox, dstBox} {
+		if err := ms.CreateMailbox(user, mb); err != nil {
+			t.Fatalf("CreateMailbox %s: %v", mb, err)
+		}
+	}
+	for _, subj := range []string{"copy-1", "copy-2"} {
+		if err := ms.AppendMessage(user, srcBox, nil, time.Now(),
+			[]byte("From: a@b\r\nSubject: "+subj+"\r\n\r\nbody\r\n")); err != nil {
+			t.Fatalf("AppendMessage %s: %v", subj, err)
+		}
+	}
+
+	cu, err := ms.CopyMessages(user, srcBox, dstBox, "1:2")
+	if err != nil {
+		t.Fatalf("CopyMessages: %v", err)
+	}
+
+	dst, err := ms.db.GetMailbox(user, dstBox)
+	if err != nil {
+		t.Fatalf("GetMailbox dst: %v", err)
+	}
+	if cu.UIDValidity != dst.UIDValidity || cu.UIDValidity == 0 {
+		t.Errorf("COPYUID validity = %d, want non-zero dest UIDVALIDITY %d", cu.UIDValidity, dst.UIDValidity)
+	}
+	if len(cu.SrcUIDs) != 2 || len(cu.DstUIDs) != 2 {
+		t.Fatalf("expected two src/dst UID pairs, got src=%v dst=%v", cu.SrcUIDs, cu.DstUIDs)
+	}
+	if cu.SrcUIDs[0] != 1 || cu.SrcUIDs[1] != 2 {
+		t.Errorf("source UIDs = %v, want [1 2]", cu.SrcUIDs)
+	}
+	// Parallel ordering: SrcUIDs[i] maps to DstUIDs[i]; the dest set must match
+	// the UIDs actually assigned in the destination mailbox.
+	dstUIDs, err := ms.db.GetMessageUIDs(user, dstBox)
+	if err != nil {
+		t.Fatalf("GetMessageUIDs dst: %v", err)
+	}
+	if len(dstUIDs) != 2 {
+		t.Fatalf("destination should hold two copied messages, got %d", len(dstUIDs))
+	}
+}
+
+// TestMoveMessagesReportsCopyUID verifies the copy half of an atomic MOVE still
+// reports the RFC 4315 COPYUID mapping for the destination.
+func TestMoveMessagesReportsCopyUID(t *testing.T) {
+	ms, err := NewBboltMailstore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewBboltMailstore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := ms.Close(); err != nil {
+			t.Errorf("ms.Close: %v", err)
+		}
+	})
+
+	const user, srcBox, dstBox = "testuser", "INBOX", "Archive"
+	for _, mb := range []string{srcBox, dstBox} {
+		if err := ms.CreateMailbox(user, mb); err != nil {
+			t.Fatalf("CreateMailbox %s: %v", mb, err)
+		}
+	}
+	if err := ms.AppendMessage(user, srcBox, nil, time.Now(),
+		[]byte("From: a@b\r\nSubject: move-copyuid\r\n\r\nbody\r\n")); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	copied, _, _, err := ms.MoveMessages(user, srcBox, dstBox, "1")
+	if err != nil {
+		t.Fatalf("MoveMessages: %v", err)
+	}
+	if copied.UIDValidity == 0 {
+		t.Errorf("MOVE COPYUID needs a non-zero dest UIDVALIDITY, got 0")
+	}
+	if len(copied.SrcUIDs) != 1 || len(copied.DstUIDs) != 1 {
+		t.Fatalf("expected one src/dst UID pair from MOVE, got src=%v dst=%v", copied.SrcUIDs, copied.DstUIDs)
+	}
+	if copied.SrcUIDs[0] != 1 {
+		t.Errorf("source UID = %d, want 1", copied.SrcUIDs[0])
 	}
 }
 

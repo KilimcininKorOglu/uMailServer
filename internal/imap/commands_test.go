@@ -3400,3 +3400,36 @@ func TestParseSearchCriteria_QuotedMultiWord(t *testing.T) {
 		t.Errorf("From = %q, want %q", result.From, "John Doe")
 	}
 }
+
+// TestUIDSetString verifies the RFC 4315 UID-set rendering: ascending sort,
+// contiguous runs collapsed to a:b, comma-joined, empty for no input.
+func TestUIDSetString(t *testing.T) {
+	cases := []struct {
+		in   []uint32
+		want string
+	}{
+		{nil, ""},
+		{[]uint32{}, ""},
+		{[]uint32{1}, "1"},
+		{[]uint32{1, 2, 3}, "1:3"},
+		{[]uint32{1, 3, 4, 5, 9}, "1,3:5,9"},
+		{[]uint32{5, 1, 2}, "1:2,5"}, // unsorted input is sorted first
+		{[]uint32{2, 4, 6}, "2,4,6"}, // no contiguous runs
+	}
+	for _, c := range cases {
+		if got := uidSetString(c.in); got != c.want {
+			t.Errorf("uidSetString(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestCopyUIDCode verifies the COPYUID response code is well-formed when a copy
+// happened and empty when nothing was copied (so the caller omits it).
+func TestCopyUIDCode(t *testing.T) {
+	if got := copyUIDCode(CopyUIDs{}); got != "" {
+		t.Errorf("empty CopyUIDs should yield no COPYUID code, got %q", got)
+	}
+	if got := copyUIDCode(CopyUIDs{UIDValidity: 42, SrcUIDs: []uint32{1, 2}, DstUIDs: []uint32{10, 11}}); got != "[COPYUID 42 1:2 10:11]" {
+		t.Errorf("copyUIDCode = %q, want %q", got, "[COPYUID 42 1:2 10:11]")
+	}
+}

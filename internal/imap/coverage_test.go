@@ -662,16 +662,16 @@ func (f *failingMailstore) StoreFlags(user, mailbox string, seqSet string, flags
 	return f.mockMailstore.StoreFlags(user, mailbox, seqSet, flags, op)
 }
 
-func (f *failingMailstore) CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) error {
+func (f *failingMailstore) CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) (CopyUIDs, error) {
 	if f.copyErr != nil {
-		return f.copyErr
+		return CopyUIDs{}, f.copyErr
 	}
 	return f.mockMailstore.CopyMessages(user, sourceMailbox, destMailbox, seqSet)
 }
 
-func (f *failingMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (seqs []uint32, uids []uint32, err error) {
+func (f *failingMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (copied CopyUIDs, seqs []uint32, uids []uint32, err error) {
 	if f.moveErr != nil {
-		return nil, nil, f.moveErr
+		return CopyUIDs{}, nil, nil, f.moveErr
 	}
 	return f.mockMailstore.MoveMessages(user, sourceMailbox, destMailbox, seqSet)
 }

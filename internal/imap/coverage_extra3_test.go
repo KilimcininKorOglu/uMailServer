@@ -336,7 +336,7 @@ func TestCopyMessages_MultipleMessages(t *testing.T) {
 	}
 
 	// Copy messages 1:2 to Archive
-	err = ms.CopyMessages(user, "INBOX", "Archive", "1:2")
+	_, err = ms.CopyMessages(user, "INBOX", "Archive", "1:2")
 	if err != nil {
 		t.Fatalf("CopyMessages: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestMoveMessages_MultipleMessages(t *testing.T) {
 	}
 
 	// Move message 1 to Trash
-	_, _, err = ms.MoveMessages(user, "INBOX", "Trash", "1")
+	_, _, _, err = ms.MoveMessages(user, "INBOX", "Trash", "1")
 	if err != nil {
 		t.Fatalf("MoveMessages: %v", err)
 	}

@@ -70,6 +70,16 @@ type Server struct {
 	onLoginResult func(username string, success bool, ip, reason string)
 }
 
+// CopyUIDs reports the UID mapping a COPY (or the copy half of a MOVE) produced
+// for the RFC 4315 COPYUID response code: SrcUIDs[i] was copied to DstUIDs[i] in
+// a mailbox with the given UIDValidity. All fields are zero/empty when nothing
+// was copied (the caller then omits COPYUID).
+type CopyUIDs struct {
+	UIDValidity uint32
+	SrcUIDs     []uint32
+	DstUIDs     []uint32
+}
+
 // Mailstore interface for mailbox operations
 type Mailstore interface {
 	// Authentication
@@ -98,12 +108,14 @@ type Mailstore interface {
 	ExpungeUIDs(user, mailbox string, ranges []SeqRange) (seqs []uint32, uids []uint32, err error)
 	AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) error
 	SearchMessages(user, mailbox string, criteria SearchCriteria) ([]uint32, error)
-	CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) error
+	// CopyMessages copies the messages to destMailbox and returns the RFC 4315
+	// COPYUID mapping (source UID -> destination UID, with the dest UIDVALIDITY).
+	CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) (CopyUIDs, error)
 	// MoveMessages implements RFC 6851 MOVE: it copies the messages to the
 	// destination and atomically removes them from the source, returning the
-	// expunged source sequence numbers and UIDs so the caller can emit untagged
-	// EXPUNGE responses.
-	MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (seqs []uint32, uids []uint32, err error)
+	// COPYUID mapping plus the expunged source sequence numbers and UIDs so the
+	// caller can emit COPYUID and untagged EXPUNGE responses.
+	MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (copied CopyUIDs, seqs []uint32, uids []uint32, err error)
 
 	// Default mailbox provisioning
 	EnsureDefaultMailboxes(user string) error

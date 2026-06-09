@@ -1155,23 +1155,30 @@ func parseMessageDate(dateStr string) (time.Time, error) {
 }
 
 // CopyMessages copies messages to another mailbox
-func (m *BboltMailstore) CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) error {
+func (m *BboltMailstore) CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) (CopyUIDs, error) {
 	// Parse sequence set
 	ranges, err := ParseSequenceSet(seqSet)
 	if err != nil {
-		return err
+		return CopyUIDs{}, err
 	}
 
 	// Get source message UIDs
 	uids, err := m.db.GetMessageUIDs(user, sourceMailbox)
 	if err != nil {
-		return err
+		return CopyUIDs{}, err
 	}
 	uidCount := len(uids)
 	if uidCount > 0x7FFFFFFF {
-		return fmt.Errorf("mailbox exceeds maximum message count")
+		return CopyUIDs{}, fmt.Errorf("mailbox exceeds maximum message count")
 	}
 	total := uint32(uidCount)
+
+	// Destination UIDVALIDITY for the RFC 4315 COPYUID response (GetMailbox is a
+	// pure read — unlike SelectMailbox it does not clear \Recent).
+	var result CopyUIDs
+	if dst, derr := m.db.GetMailbox(user, destMailbox); derr == nil {
+		result.UIDValidity = dst.UIDValidity
+	}
 
 	for i, uid := range uids {
 		seqNum := uint32(i + 1) // IMAP uses 1-based sequence numbers
@@ -1229,34 +1236,38 @@ func (m *BboltMailstore) CopyMessages(user, sourceMailbox, destMailbox string, s
 		// Register the destination's semcore identity so the copy is visible
 		// over EWS FindItem too, not only the IMAP/POP3/JMAP/webmail index.
 		m.addSemcoreIdentity(user, destMailbox, newMeta.Flags, newMeta.InternalDate, data)
+		// Record the source->dest UID pair for the RFC 4315 COPYUID response.
+		result.SrcUIDs = append(result.SrcUIDs, uid)
+		result.DstUIDs = append(result.DstUIDs, newUID)
 	}
 
-	return nil
+	return result, nil
 }
 
 // MoveMessages implements RFC 6851 MOVE: it copies the messages to destMailbox
 // and atomically removes them from the source — not merely flagging them
-// \Deleted — returning the expunged source sequence numbers and UIDs so the
-// caller can emit the untagged EXPUNGE responses the move requires.
-func (m *BboltMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (seqs []uint32, uids []uint32, err error) {
+// \Deleted — returning the COPYUID mapping plus the expunged source sequence
+// numbers and UIDs so the caller can emit COPYUID and untagged EXPUNGE responses.
+func (m *BboltMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (copied CopyUIDs, seqs []uint32, uids []uint32, err error) {
 	// First copy to the destination (this also registers the destination's
 	// semcore identity, so the moved message is visible over EWS too).
-	if cErr := m.CopyMessages(user, sourceMailbox, destMailbox, seqSet); cErr != nil {
-		return nil, nil, cErr
+	copied, cErr := m.CopyMessages(user, sourceMailbox, destMailbox, seqSet)
+	if cErr != nil {
+		return CopyUIDs{}, nil, nil, cErr
 	}
 
 	ranges, err := ParseSequenceSet(seqSet)
 	if err != nil {
-		return nil, nil, err
+		return copied, nil, nil, err
 	}
 
 	srcUIDs, err := m.db.GetMessageUIDs(user, sourceMailbox)
 	if err != nil {
-		return nil, nil, err
+		return copied, nil, nil, err
 	}
 	uidCount := len(srcUIDs)
 	if uidCount > 0x7FFFFFFF {
-		return nil, nil, fmt.Errorf("mailbox exceeds maximum message count")
+		return copied, nil, nil, fmt.Errorf("mailbox exceeds maximum message count")
 	}
 	total := uint32(uidCount)
 
@@ -1290,11 +1301,12 @@ func (m *BboltMailstore) MoveMessages(user, sourceMailbox, destMailbox string, s
 	}
 
 	if len(movedRanges) == 0 {
-		return nil, nil, nil
+		return copied, nil, nil, nil
 	}
 	// Permanently remove the moved messages from the source (this also drops
 	// their semcore identity, so they do not ghost in EWS).
-	return m.ExpungeUIDs(user, sourceMailbox, movedRanges)
+	eseqs, euids, eerr := m.ExpungeUIDs(user, sourceMailbox, movedRanges)
+	return copied, eseqs, euids, eerr
 }
 
 // GetNextUID returns the next UID for a mailbox

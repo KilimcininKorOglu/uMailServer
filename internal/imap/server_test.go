@@ -75,12 +75,12 @@ func (m *mockMailstore) SearchMessages(user, mailbox string, criteria SearchCrit
 	return []uint32{}, nil
 }
 
-func (m *mockMailstore) CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) error {
-	return nil
+func (m *mockMailstore) CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) (CopyUIDs, error) {
+	return CopyUIDs{}, nil
 }
 
-func (m *mockMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (seqs []uint32, uids []uint32, err error) {
-	return nil, nil, nil
+func (m *mockMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (copied CopyUIDs, seqs []uint32, uids []uint32, err error) {
+	return CopyUIDs{}, nil, nil, nil
 }
 
 func (m *mockMailstore) EnsureDefaultMailboxes(user string) error {
