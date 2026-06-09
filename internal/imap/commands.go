@@ -1508,7 +1508,13 @@ func (s *Session) handleIdle() error {
 				if s.selected.Recent > 0 {
 					s.selected.Recent--
 				}
-				s.WriteData(fmt.Sprintf("%d EXPUNGE", notification.SeqNum))
+				// RFC 7162 §3.2.5.2: a QRESYNC client receives VANISHED instead of
+				// EXPUNGE, provided the notification carries the UID it reports.
+				if s.enabledCaps["QRESYNC"] && notification.MessageUID != 0 {
+					s.WriteData(fmt.Sprintf("VANISHED %d", notification.MessageUID))
+				} else {
+					s.WriteData(fmt.Sprintf("%d EXPUNGE", notification.SeqNum))
+				}
 
 			case NotificationFlagsChanged:
 				// Send FETCH response with updated flags

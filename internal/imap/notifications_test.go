@@ -171,7 +171,7 @@ func TestNotificationHubNotifyExpunge(t *testing.T) {
 
 	ch := hub.Subscribe("user1")
 
-	hub.NotifyExpunge("user1", "INBOX", 5)
+	hub.NotifyExpunge("user1", "INBOX", 7, 5)
 
 	select {
 	case received := <-ch:
@@ -180,6 +180,9 @@ func TestNotificationHubNotifyExpunge(t *testing.T) {
 		}
 		if received.SeqNum != 5 {
 			t.Errorf("expected seqNum 5, got %d", received.SeqNum)
+		}
+		if received.MessageUID != 7 {
+			t.Errorf("expected MessageUID 7 (for QRESYNC VANISHED), got %d", received.MessageUID)
 		}
 	case <-time.After(time.Second):
 		t.Error("timeout waiting for notification")

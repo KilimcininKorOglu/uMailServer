@@ -140,12 +140,13 @@ func (h *NotificationHub) NotifyNewMessage(user, mailbox string, uid, seqNum uin
 }
 
 // NotifyExpunge notifies subscribers about an expunged message
-func (h *NotificationHub) NotifyExpunge(user, mailbox string, seqNum uint32) {
+func (h *NotificationHub) NotifyExpunge(user, mailbox string, uid, seqNum uint32) {
 	h.Notify(user, MailboxNotification{
-		Type:    NotificationExpunge,
-		User:    user,
-		Mailbox: mailbox,
-		SeqNum:  seqNum,
+		Type:       NotificationExpunge,
+		User:       user,
+		Mailbox:    mailbox,
+		MessageUID: uid,
+		SeqNum:     seqNum,
 	})
 }
 

@@ -211,8 +211,8 @@ func (s *Server) startAPI() {
 		ewsServer.SetMessageCreatedNotifier(func(email, folder string, uid uint32) {
 			imap.GetNotificationHub().NotifyNewMessage(email, folder, uid, uid)
 		})
-		ewsServer.SetMessageExpungedNotifier(func(email, folder string, seqNum uint32) {
-			imap.GetNotificationHub().NotifyExpunge(email, folder, seqNum)
+		ewsServer.SetMessageExpungedNotifier(func(email, folder string, uid, seqNum uint32) {
+			imap.GetNotificationHub().NotifyExpunge(email, folder, uid, seqNum)
 		})
 
 		// Cancel a pending scheduled send when its Scheduled-folder projection is

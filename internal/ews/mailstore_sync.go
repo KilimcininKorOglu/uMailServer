@@ -170,7 +170,7 @@ func (s *Server) mirrorDeleteFromMailstore(mailboxKey string, folderID semcore.F
 		return
 	}
 	if s.messageExpungedNotifier != nil {
-		s.messageExpungedNotifier(mailboxKey, name, seqNum)
+		s.messageExpungedNotifier(mailboxKey, name, uid, seqNum)
 	}
 	// Deleting an item out of the Scheduled folder cancels its pending send, so
 	// EWS DeleteItem matches IMAP EXPUNGE (one surface cancels for all surfaces).
@@ -230,7 +230,7 @@ func (s *Server) mirrorMoveInMailstore(mailboxKey string, sourceFolder, destFold
 		return
 	}
 	if s.messageExpungedNotifier != nil {
-		s.messageExpungedNotifier(mailboxKey, srcName, seqNum)
+		s.messageExpungedNotifier(mailboxKey, srcName, uid, seqNum)
 	}
 	// Moving an item out of the Scheduled folder cancels its pending send, just
 	// like deleting it (IMAP move-out cancels via the source EXPUNGE hook too).

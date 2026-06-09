@@ -404,7 +404,7 @@ func TestCoverageHandleIdleExpungeNotification(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	hub := GetNotificationHub()
-	hub.NotifyExpunge("testuser", "INBOX", 2)
+	hub.NotifyExpunge("testuser", "INBOX", 2, 2)
 
 	if line, ok := waitForLine(lines, "EXPUNGE", 2*time.Second); ok {
 		t.Logf("expunge notification: %s", line)

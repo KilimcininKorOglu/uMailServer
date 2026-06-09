@@ -58,8 +58,10 @@ type Server struct {
 	// folderChangeNotifier).
 	messageCreatedNotifier func(email, folder string, uid uint32)
 	// messageExpungedNotifier, when set, is invoked after an EWS item is removed
-	// from the IMAP mailstore index (DeleteItem, MoveItem source side).
-	messageExpungedNotifier func(email, folder string, seqNum uint32)
+	// from the IMAP mailstore index (DeleteItem, MoveItem source side). It
+	// carries both the removed UID (for an RFC 7162 QRESYNC VANISHED) and the
+	// sequence number (for a plain EXPUNGE).
+	messageExpungedNotifier func(email, folder string, uid, seqNum uint32)
 	// scheduledCancelNotifier, when set, is invoked with the folder uid when an
 	// item is removed from the "Scheduled" folder, so deleting a scheduled
 	// message via EWS cancels its send (cross-protocol cancel).
@@ -141,8 +143,9 @@ func (s *Server) SetMessageCreatedNotifier(fn func(email, folder string, uid uin
 }
 
 // SetMessageExpungedNotifier wires a callback invoked after an EWS item is
-// removed from the IMAP mailstore index (delete / move source).
-func (s *Server) SetMessageExpungedNotifier(fn func(email, folder string, seqNum uint32)) {
+// removed from the IMAP mailstore index (delete / move source). The callback
+// receives the removed UID (for a QRESYNC VANISHED) and sequence number.
+func (s *Server) SetMessageExpungedNotifier(fn func(email, folder string, uid, seqNum uint32)) {
 	s.messageExpungedNotifier = fn
 }
 
