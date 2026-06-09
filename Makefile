@@ -156,11 +156,11 @@ docker-logs:
 # Build webmail frontend
 build-web:
 	@echo "Building webmail..."
-	cd webmail && npm ci && npm run build
+	cd webmail && npm ci --legacy-peer-deps && npm run build
 	@echo "Building admin panel..."
-	cd web/admin && npm ci && npm run build
+	cd web/admin && npm ci --legacy-peer-deps && npm run build
 	@echo "Building account portal..."
-	cd web/account && npm ci && npm run build
+	cd web/account && npm ci --legacy-peer-deps && npm run build
 
 # Build benchmark client
 build-client:
