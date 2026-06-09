@@ -743,44 +743,14 @@ func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, dat
 		return AppendUID{}, fmt.Errorf("message contains invalid UTF-8 sequence")
 	}
 
-	// Canonical mutation: assign semantic identity through the unified pipeline.
-	// This is the single authoritative write path for all mail mutations.
-	// It assigns ItemId, ChangeKey, and ConversationId consistently for
-	// SMTP-delivered and mailbox-authored messages.
-	//
-	// If the semcore store is not yet initialized (mutationPipe is nil),
-	// we skip semantic identity assignment and fall back to the existing path.
-	if m.mutationPipe != nil {
-		// Determine distinguished role for well-known folders.
-		role := distinguishedRole(mailbox)
-
-		// Resolve or create mailbox and folder identities.
-		mboxID, mboxErr := m.mutationPipe.Identity().EnsureMailboxId(user)
-		if mboxErr != nil {
-			// Log and continue without semantic identity.
-			// The existing storage path will still work.
-		} else {
-			fldID, fldErr := m.mutationPipe.Identity().EnsureFolderId(user, mailbox, role)
-			if fldErr != nil {
-				// Log and continue without semantic identity.
-			} else {
-				in := &semcore.MutationInput{
-					MailboxID:    mboxID,
-					FolderID:     fldID,
-					RawMessage:   data,
-					InternalDate: date,
-					Actor:        user,
-					Source:       semcore.MutationSourceIMAP,
-					UserFlags:    flags,
-				}
-				// Mutation is best-effort: even if it fails, we continue with
-				// the existing storage path. The message will be stored without
-				// semantic identity registration.
-				//nolint:errcheck // intentional discard of best-effort mutation result
-				_, _ = m.mutationPipe.MutateItem(in)
-			}
-		}
-	}
+	// Canonical mutation: register the message's semantic identity through the
+	// unified pipeline so the APPEND is visible over EWS FindItem too (which reads
+	// the semcore identity store + msgStore by the identity's Email). This shares
+	// the exact COPY/cross-protocol path — addSemcoreIdentity sets Email and
+	// IsRead, which EWS FindItem requires to load the body; the previous inline
+	// block omitted Email, so EWS silently skipped every APPENDed message. A no-op
+	// when the pipeline is unwired.
+	m.addSemcoreIdentity(user, mailbox, flags, date, data)
 
 	// Store message
 	messageID, err := m.msgStore.StoreMessage(user, data)
