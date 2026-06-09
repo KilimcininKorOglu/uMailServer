@@ -398,6 +398,23 @@ func (s *Session) handleRCPT(arg string) error {
 		}
 	}
 
+	// Per-account send/receive scope: an internal-only sender may not address
+	// external recipients (submission), and an internal-only recipient rejects
+	// external senders (inbound). Enforced here, per recipient, so a restricted
+	// address never causes an accept-then-bounce.
+	if s.server.recipientPolicy != nil {
+		authUser := ""
+		if s.isAuth {
+			authUser = s.username
+		}
+		if allow, reason := s.server.recipientPolicy(authUser, s.mailFrom, validated); !allow {
+			if reason == "" {
+				reason = "5.7.1 Delivery not permitted by mail policy"
+			}
+			return s.WriteResponse(550, reason)
+		}
+	}
+
 	s.rcptTo = append(s.rcptTo, validated)
 	s.rcptToNotify = append(s.rcptToNotify, notify)
 	s.state = StateRcptTo

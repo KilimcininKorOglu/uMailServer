@@ -176,7 +176,13 @@
     "photoTooLarge": "Profile photo must be 1 MB or smaller",
     "photoReadFailed": "Failed to read the image",
     "enterAdminPasswordPrompt": "Enter your admin password to change admin privileges.",
-    "updateFailed": "Failed to update account"
+    "updateFailed": "Failed to update account",
+    "mailScope": "Mail scope",
+    "mailScopeHint": "Restrict whether this account may exchange mail with external (non-local) domains.",
+    "sendScope": "Can send to",
+    "receiveScope": "Can receive from",
+    "scopeAnyone": "Anyone (internal & external)",
+    "scopeInternal": "Internal only"
   },
   "queue": {
     "title": "Mail Queue",

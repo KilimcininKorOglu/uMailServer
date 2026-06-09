@@ -175,6 +175,7 @@ func (s *Server) startSMTP() {
 		smtpServer.SetAuthHandler(s.authenticate)
 		smtpServer.SetDeliveryHandlerWithSieve(s.deliverMessageWithSieve)
 		smtpServer.SetLocalDomainFunc(s.isLocalDomainName)
+		smtpServer.SetRecipientPolicyFunc(s.checkRecipientPolicy)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken (CVE-2022-37454, etc.)
 		// smtpServer.SetUserSecretHandler(s.getUserSecret)
 		smtpServer.SetLoginResultHandler(s.protoLoginHandler("smtp"))
@@ -216,6 +217,7 @@ func (s *Server) startSMTP() {
 			return s.scheduleSend(from, from, to, data, sendAt, "smtp", true)
 		})
 		submissionServer.SetLocalDomainFunc(s.isLocalDomainName)
+		submissionServer.SetRecipientPolicyFunc(s.checkRecipientPolicy)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionServer.SetUserSecretHandler(s.getUserSecret)
 		submissionServer.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
@@ -262,6 +264,7 @@ func (s *Server) startSMTP() {
 			return s.scheduleSend(from, from, to, data, sendAt, "smtp", true)
 		})
 		submissionTLSServer.SetLocalDomainFunc(s.isLocalDomainName)
+		submissionTLSServer.SetRecipientPolicyFunc(s.checkRecipientPolicy)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionTLSServer.SetUserSecretHandler(s.getUserSecret)
 		submissionTLSServer.SetAuthLimits(s.cfg().Security.MaxLoginAttempts, time.Duration(s.cfg().Security.LockoutDuration))
@@ -289,4 +292,69 @@ func (s *Server) isLocalDomainName(domain string) bool {
 	}
 	d, err := s.database.GetDomain(domain)
 	return err == nil && d != nil && d.IsActive
+}
+
+// senderRestrictedToInternal reports whether the account identified by email is
+// configured to send only to locally hosted recipients (SendPolicy=="internal").
+// Absent accounts and the default empty policy are unrestricted (fail open — the
+// policy only ever narrows the default-open behavior).
+func (s *Server) senderRestrictedToInternal(email string) bool {
+	if s.database == nil {
+		return false
+	}
+	_, _, acct, err := s.loadLocalAccount(email)
+	return err == nil && acct != nil && acct.SendPolicy == "internal"
+}
+
+// recipientRestrictedToInternal reports whether the account identified by email
+// only accepts mail from locally hosted senders (ReceivePolicy=="internal").
+func (s *Server) recipientRestrictedToInternal(email string) bool {
+	if s.database == nil {
+		return false
+	}
+	_, _, acct, err := s.loadLocalAccount(email)
+	return err == nil && acct != nil && acct.ReceivePolicy == "internal"
+}
+
+// checkRecipientPolicy enforces per-account internal-only send/receive scope at
+// RCPT TO. On submission (authUser != "") it gates the authenticated account's
+// SendPolicy: an "internal" account may only address locally hosted recipients,
+// rejected per-recipient so the rest of the message still flows. On the inbound
+// listener (authUser == "") it gates the recipient account's ReceivePolicy: an
+// "internal" account rejects senders outside the local domains. It returns
+// (true, "") whenever delivery is permitted.
+func (s *Server) checkRecipientPolicy(authUser, from, recipient string) (bool, string) {
+	// Submission: gate the authenticated sender's outbound scope.
+	if authUser != "" {
+		if s.senderRestrictedToInternal(authUser) {
+			_, rdomain := parseEmail(recipient)
+			if !s.isLocalDomainName(rdomain) {
+				return false, "5.7.1 External recipients are not permitted for this account"
+			}
+		}
+		return true, ""
+	}
+	// Inbound: gate the recipient's inbound scope against the envelope sender.
+	if s.recipientRestrictedToInternal(recipient) && !s.isLocalSender(from) {
+		return false, "5.7.1 Recipient accepts internal mail only"
+	}
+	return true, ""
+}
+
+// sendPolicyViolation reports a non-empty rejection reason when the sender
+// account is internal-only and any recipient lies outside the locally hosted
+// domains; "" means the submission is permitted. It backs the shared submission
+// path (submitMessageWithSieve) so webmail/EWS/JMAP sends honor the same scope
+// the SMTP RCPT check enforces per-recipient.
+func (s *Server) sendPolicyViolation(from string, to []string) string {
+	if !s.senderRestrictedToInternal(from) {
+		return ""
+	}
+	for _, recipient := range to {
+		_, rdomain := parseEmail(recipient)
+		if !s.isLocalDomainName(rdomain) {
+			return "550 5.7.1 External recipients are not permitted for this account"
+		}
+	}
+	return ""
 }

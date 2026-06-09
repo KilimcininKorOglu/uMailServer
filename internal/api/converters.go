@@ -41,11 +41,44 @@ func accountToJSON(a *db.AccountData) map[string]interface{} {
 		"title":                a.Title,
 		"department":           a.Department,
 		"phone":                a.Phone,
+		"send_policy":          mailScopePolicyForJSON(a.SendPolicy),
+		"receive_policy":       mailScopePolicyForJSON(a.ReceivePolicy),
 	}
 	if a.VacationSettings != "" {
 		result["vacation_settings"] = a.VacationSettings
 	}
 	return result
+}
+
+// validMailScopePolicy reports whether a per-account send/receive scope value is
+// one the API accepts: "" and "anyone" both mean unrestricted, "internal"
+// restricts to locally hosted domains.
+func validMailScopePolicy(v string) bool {
+	switch v {
+	case "", "anyone", "internal":
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeMailScopePolicy collapses the stored scope to the canonical internal
+// representation: "internal" stays, everything else (default/"anyone") is the
+// empty unrestricted value.
+func normalizeMailScopePolicy(v string) string {
+	if v == "internal" {
+		return "internal"
+	}
+	return ""
+}
+
+// mailScopePolicyForJSON renders the stored scope for API responses, surfacing
+// the default empty value as the explicit "anyone" the admin UI selects.
+func mailScopePolicyForJSON(v string) string {
+	if v == "internal" {
+		return "internal"
+	}
+	return "anyone"
 }
 
 func aliasToJSON(a *db.AliasData) map[string]interface{} {

@@ -176,7 +176,13 @@
     "photoTooLarge": "Profil fotoğrafı 1 MB veya daha küçük olmalıdır",
     "photoReadFailed": "Görsel okunamadı",
     "enterAdminPasswordPrompt": "Yönetici yetkilerini değiştirmek için yönetici parolanızı girin.",
-    "updateFailed": "Hesap güncellenemedi"
+    "updateFailed": "Hesap güncellenemedi",
+    "mailScope": "Posta kapsamı",
+    "mailScopeHint": "Bu hesabın dış (yerel olmayan) alan adlarıyla posta alışverişi yapıp yapamayacağını kısıtlayın.",
+    "sendScope": "Gönderebileceği yer",
+    "receiveScope": "Alabileceği yer",
+    "scopeAnyone": "Herkes (kurum içi ve dışı)",
+    "scopeInternal": "Yalnızca kurum içi"
   },
   "queue": {
     "title": "E-posta Kuyruğu",

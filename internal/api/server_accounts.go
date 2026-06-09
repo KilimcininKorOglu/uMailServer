@@ -156,6 +156,8 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		Title         string `json:"title"`
 		Department    string `json:"department"`
 		Phone         string `json:"phone"`
+		SendPolicy    string `json:"send_policy"`
+		ReceivePolicy string `json:"receive_policy"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -165,6 +167,10 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	if req.Email == "" || req.Password == "" {
 		s.sendError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+	if !validMailScopePolicy(req.SendPolicy) || !validMailScopePolicy(req.ReceivePolicy) {
+		s.sendError(w, http.StatusBadRequest, "send_policy and receive_policy must be empty, \"anyone\", or \"internal\"")
 		return
 	}
 
@@ -244,6 +250,8 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		Title:         req.Title,
 		Department:    req.Department,
 		Phone:         req.Phone,
+		SendPolicy:    normalizeMailScopePolicy(req.SendPolicy),
+		ReceivePolicy: normalizeMailScopePolicy(req.ReceivePolicy),
 	}
 	if req.QuotaLimit != nil {
 		account.QuotaLimit = *req.QuotaLimit
@@ -336,10 +344,17 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		Title                *string `json:"title"`
 		Department           *string `json:"department"`
 		Phone                *string `json:"phone"`
+		SendPolicy           *string `json:"send_policy"`
+		ReceivePolicy        *string `json:"receive_policy"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
 		s.sendError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if (req.SendPolicy != nil && !validMailScopePolicy(*req.SendPolicy)) ||
+		(req.ReceivePolicy != nil && !validMailScopePolicy(*req.ReceivePolicy)) {
+		s.sendError(w, http.StatusBadRequest, "send_policy and receive_policy must be empty, \"anyone\", or \"internal\"")
 		return
 	}
 
@@ -489,6 +504,12 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 	}
 	if req.Phone != nil {
 		account.Phone = *req.Phone
+	}
+	if req.SendPolicy != nil {
+		account.SendPolicy = normalizeMailScopePolicy(*req.SendPolicy)
+	}
+	if req.ReceivePolicy != nil {
+		account.ReceivePolicy = normalizeMailScopePolicy(*req.ReceivePolicy)
 	}
 	account.UpdatedAt = time.Now()
 

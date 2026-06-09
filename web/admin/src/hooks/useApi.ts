@@ -267,7 +267,14 @@ export function useAccounts() {
   }, []);
 
   const createAccount = useCallback(
-    async (email: string, password: string, isAdmin = false, quotaLimit?: number, avatar?: string, profile?: AccountProfile) => {
+    async (
+      email: string,
+      password: string,
+      isAdmin = false,
+      quotaLimit?: number,
+      avatar?: string,
+      profile?: AccountProfile & { send_policy?: string; receive_policy?: string },
+    ) => {
       const result = await apiRequest<Account>("/accounts", {
         method: "POST",
         body: JSON.stringify({ email, password, is_admin: isAdmin, quota_limit: quotaLimit, avatar, ...profile }),

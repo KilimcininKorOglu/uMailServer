@@ -366,6 +366,16 @@ func (s *Server) scheduledListForOwner(owner string) ([]api.ScheduledMailItem, e
 // vacation) before handing off to deliverMessageWithSieve, so all submission
 // protocols share identical delivery semantics.
 func (s *Server) submitMessageWithSieve(from string, to []string, data []byte) error {
+	// Per-account send scope: an internal-only sender may not address external
+	// recipients. Enforced on the shared submission path so every surface
+	// (webmail/JMAP/EWS, and SMTP submission that routes through here) is gated
+	// uniformly. SMTP RCPT also rejects external recipients per-recipient, so an
+	// SMTP client never reaches here with a forbidden recipient; this closes the
+	// API/EWS/JMAP paths that bypass RCPT.
+	if reason := s.sendPolicyViolation(from, to); reason != "" {
+		return fmt.Errorf("%s", reason)
+	}
+
 	var sieveActions []string
 	if s.sieveManager != nil {
 		headers := make(map[string][]string)

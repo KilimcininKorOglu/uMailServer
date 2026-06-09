@@ -85,7 +85,14 @@ export interface Account {
   title?: string;
   department?: string;
   phone?: string;
+  send_policy?: MailScopePolicy;
+  receive_policy?: MailScopePolicy;
 }
+
+// MailScopePolicy gates an account's mail to/from external (non-local) domains.
+// "anyone" (default) is unrestricted; "internal" limits the account to locally
+// hosted domains for that direction.
+export type MailScopePolicy = "anyone" | "internal";
 
 // AccountProfile is the optional directory profile passed on create/update.
 export interface AccountProfile {

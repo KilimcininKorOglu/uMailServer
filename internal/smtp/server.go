@@ -46,6 +46,11 @@ type Server struct {
 	onGetPassword   func(username string) (string, error) // Get user's password for SCRAM-SHA-256
 	onLoginResult   func(username string, success bool, ip, reason string)
 	isLocalDomain   func(domain string) bool // reports whether a domain is locally hosted (anti-relay)
+	// recipientPolicy, when set, gates each RCPT TO against per-account send/receive
+	// scope. authUser is the authenticated sender on submission (else ""), from is
+	// the envelope sender, recipient is the candidate RCPT. It returns (false,
+	// reason) to reject that single recipient with a 5.7.1 response.
+	recipientPolicy func(authUser, from, recipient string) (bool, string)
 	pipeline        *Pipeline
 
 	// Rate limiting
@@ -296,6 +301,16 @@ func (s *Server) SetScheduleHandler(handler func(from string, to []string, data 
 // closes the open-relay hole on the inbound (port 25) listener.
 func (s *Server) SetLocalDomainFunc(fn func(domain string) bool) {
 	s.isLocalDomain = fn
+}
+
+// SetRecipientPolicyFunc wires the per-account send/receive scope check applied
+// at RCPT TO. On a submission listener it enforces the authenticated account's
+// send scope (internal-only accounts may not address external recipients); on
+// the inbound listener it enforces each local recipient's receive scope
+// (internal-only accounts reject external senders). Rejecting at RCPT keeps the
+// restriction per-recipient and avoids accept-then-bounce backscatter.
+func (s *Server) SetRecipientPolicyFunc(fn func(authUser, from, recipient string) (bool, string)) {
+	s.recipientPolicy = fn
 }
 
 // SetPipeline sets the message processing pipeline

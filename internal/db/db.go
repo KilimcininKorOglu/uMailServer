@@ -57,6 +57,8 @@ type AccountData struct {
 	MaxMessageSize     int64     `json:"max_message_size"`
 	ForwardTo          string    `json:"forward_to,omitempty"`
 	ForwardKeepCopy    bool      `json:"forward_keep_copy"`
+	SendPolicy         string    `json:"send_policy,omitempty"`    // "" / "anyone" (default) = unrestricted; "internal" = may only send to locally hosted domains
+	ReceivePolicy      string    `json:"receive_policy,omitempty"` // "" / "anyone" (default) = unrestricted; "internal" = only accepts mail from locally hosted domains
 	SieveScript        string    `json:"sieve_script,omitempty"`
 	VacationSettings   string    `json:"vacation_settings,omitempty"`
 	MustChangePassword bool      `json:"must_change_password"`

@@ -38,10 +38,17 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAccounts } from "@/hooks/useApi";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
-import type { Account } from "@/types";
+import type { Account, MailScopePolicy } from "@/types";
 
 // useApi rejects with a plain { message, status } object rather than an Error,
 // so unwrap that shape (and a genuine Error) to recover the server's reason.
@@ -52,6 +59,60 @@ function errorMessage(err: unknown, fallback: string): string {
     if (typeof msg === "string" && msg) return msg;
   }
   return fallback;
+}
+
+// MailScopeFields renders the per-account send/receive scope selectors shared by
+// the create and edit dialogs: "anyone" (unrestricted) vs "internal" (locally
+// hosted domains only) for each direction.
+function MailScopeFields({
+  t,
+  idPrefix,
+  sendPolicy,
+  receivePolicy,
+  onSendChange,
+  onReceiveChange,
+}: {
+  t: (key: string, params?: Record<string, string>) => string;
+  idPrefix: string;
+  sendPolicy: MailScopePolicy;
+  receivePolicy: MailScopePolicy;
+  onSendChange: (v: MailScopePolicy) => void;
+  onReceiveChange: (v: MailScopePolicy) => void;
+}) {
+  return (
+    <div className="space-y-3 pt-4 border-t">
+      <div className="space-y-0.5">
+        <Label>{t("accounts.mailScope")}</Label>
+        <p className="text-xs text-muted-foreground">{t("accounts.mailScopeHint")}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-send-policy`}>{t("accounts.sendScope")}</Label>
+          <Select value={sendPolicy} onValueChange={(v) => onSendChange(v as MailScopePolicy)}>
+            <SelectTrigger id={`${idPrefix}-send-policy`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="anyone">{t("accounts.scopeAnyone")}</SelectItem>
+              <SelectItem value="internal">{t("accounts.scopeInternal")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-receive-policy`}>{t("accounts.receiveScope")}</Label>
+          <Select value={receivePolicy} onValueChange={(v) => onReceiveChange(v as MailScopePolicy)}>
+            <SelectTrigger id={`${idPrefix}-receive-policy`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="anyone">{t("accounts.scopeAnyone")}</SelectItem>
+              <SelectItem value="internal">{t("accounts.scopeInternal")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function Accounts() {
@@ -77,6 +138,8 @@ export function Accounts() {
   const [newAccountQuotaMB, setNewAccountQuotaMB] = useState(0);
   const [newAccountAvatar, setNewAccountAvatar] = useState("");
   const [newAccountProfile, setNewAccountProfile] = useState({ display_name: "", title: "", department: "", phone: "" });
+  const [newAccountSendPolicy, setNewAccountSendPolicy] = useState<MailScopePolicy>("anyone");
+  const [newAccountReceivePolicy, setNewAccountReceivePolicy] = useState<MailScopePolicy>("anyone");
   const [requirePasswordChangeOnReset, setRequirePasswordChangeOnReset] = useState(true);
   const [originalIsAdmin, setOriginalIsAdmin] = useState(false);
   const [currentAdminPassword, setCurrentAdminPassword] = useState("");
@@ -107,7 +170,7 @@ export function Accounts() {
         newAccountIsAdmin,
         newAccountQuotaMB * 1024 * 1024,
         newAccountAvatar || undefined,
-        newAccountProfile
+        { ...newAccountProfile, send_policy: newAccountSendPolicy, receive_policy: newAccountReceivePolicy }
       );
       setIsAddDialogOpen(false);
       setNewAccountEmail("");
@@ -116,6 +179,8 @@ export function Accounts() {
       setNewAccountQuotaMB(0);
       setNewAccountAvatar("");
       setNewAccountProfile({ display_name: "", title: "", department: "", phone: "" });
+      setNewAccountSendPolicy("anyone");
+      setNewAccountReceivePolicy("anyone");
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("accounts.createFailed"));
     }
@@ -177,6 +242,8 @@ export function Accounts() {
         title: selectedAccount.title ?? "",
         department: selectedAccount.department ?? "",
         phone: selectedAccount.phone ?? "",
+        send_policy: selectedAccount.send_policy ?? "anyone",
+        receive_policy: selectedAccount.receive_policy ?? "anyone",
       };
       if (newAccountPassword) {
         updates.password = newAccountPassword;
@@ -340,6 +407,14 @@ export function Accounts() {
                   />
                 </div>
               </div>
+              <MailScopeFields
+                t={t}
+                idPrefix="create"
+                sendPolicy={newAccountSendPolicy}
+                receivePolicy={newAccountReceivePolicy}
+                onSendChange={setNewAccountSendPolicy}
+                onReceiveChange={setNewAccountReceivePolicy}
+              />
               <div className="flex items-center justify-between pt-2">
                 <Label htmlFor="is-admin">{t("accounts.adminAccount")}</Label>
                 <Switch
@@ -538,6 +613,14 @@ export function Accounts() {
                   />
                 </div>
               </div>
+              <MailScopeFields
+                t={t}
+                idPrefix="edit"
+                sendPolicy={selectedAccount.send_policy ?? "anyone"}
+                receivePolicy={selectedAccount.receive_policy ?? "anyone"}
+                onSendChange={(v) => setSelectedAccount({ ...selectedAccount, send_policy: v })}
+                onReceiveChange={(v) => setSelectedAccount({ ...selectedAccount, receive_policy: v })}
+              />
               <div className="space-y-2 pt-4 border-t">
                 <Label htmlFor="new-password">{t("accounts.newPassword")}</Label>
                 <Input
