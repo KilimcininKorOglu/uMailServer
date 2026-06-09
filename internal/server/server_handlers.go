@@ -829,6 +829,8 @@ func distinguishedRole(folderName string) string {
 		return "notes"
 	case "OUTBOX":
 		return "outbox"
+	case "SCHEDULED":
+		return "scheduled"
 	default:
 		return ""
 	}

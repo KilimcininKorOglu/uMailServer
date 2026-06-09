@@ -481,6 +481,8 @@ func canonicalFolderNameForRole(role string) string {
 		return "Archive"
 	case "notes":
 		return "Notes"
+	case "scheduled":
+		return "Scheduled"
 	default:
 		return ""
 	}

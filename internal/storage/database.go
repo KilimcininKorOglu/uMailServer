@@ -184,7 +184,7 @@ func (db *Database) RestoreMailbox(user, mailbox string, uidValidity, uidNext ui
 // DefaultMailboxes is the canonical set of standard folders provisioned for
 // every account so all protocols (IMAP, JMAP, EWS, webmail) expose a consistent
 // view. This is the single source of truth for the default folder set.
-var DefaultMailboxes = []string{"INBOX", "Sent", "Drafts", "Junk", "Trash", "Archive", "Notes"}
+var DefaultMailboxes = []string{"INBOX", "Sent", "Drafts", "Junk", "Trash", "Archive", "Notes", "Scheduled"}
 
 // EnsureDefaultMailboxes creates the standard folders for user if they do not
 // already exist. CreateMailbox is idempotent, so repeated calls are safe; this

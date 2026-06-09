@@ -161,6 +161,7 @@ var DistinguishedFolderIDs = map[string]string{
 	"contacts":      "contacts",
 	"tasks":         "tasks",
 	"notes":         "notes",
+	"scheduled":     "scheduled",
 }
 
 // DistinguishedFolderIdType represents a DistinguishedFolderId element that can
