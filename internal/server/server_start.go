@@ -77,6 +77,10 @@ func (s *Server) Start() error {
 	// events to client callback URLs; leader-gated in a cluster).
 	s.startEWSPushDispatcher()
 
+	// Start the scheduled-send release loop (delivers "send later" messages at
+	// their time; leader-gated in a cluster).
+	s.startScheduledSender()
+
 	if err := s.startIMAP(s.mailstore); err != nil {
 		return err
 	}

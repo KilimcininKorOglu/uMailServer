@@ -201,6 +201,13 @@ func (s *Server) startAPI() {
 			imap.GetNotificationHub().NotifyExpunge(email, folder, seqNum)
 		})
 
+		// Cancel a pending scheduled send when its Scheduled-folder projection is
+		// removed over EWS (DeleteItem or move-out), matching the IMAP EXPUNGE
+		// cancel path so deleting from any surface cancels the send everywhere.
+		ewsServer.SetScheduledCancelNotifier(func(owner string, uid uint32) {
+			s.cancelScheduledOnExpunge(owner, scheduledFolder, uid)
+		})
+
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 

@@ -60,6 +60,10 @@ type Server struct {
 	// messageExpungedNotifier, when set, is invoked after an EWS item is removed
 	// from the IMAP mailstore index (DeleteItem, MoveItem source side).
 	messageExpungedNotifier func(email, folder string, seqNum uint32)
+	// scheduledCancelNotifier, when set, is invoked with the folder uid when an
+	// item is removed from the "Scheduled" folder, so deleting a scheduled
+	// message via EWS cancels its send (cross-protocol cancel).
+	scheduledCancelNotifier func(owner string, uid uint32)
 	// allowPrivatePushTargets relaxes the push-subscription SSRF guard to accept
 	// loopback/private callback URLs. It is OFF in production (a real client
 	// supplies a public https URL); tests set it so an httptest/sink on
@@ -134,6 +138,13 @@ func (s *Server) SetMessageCreatedNotifier(fn func(email, folder string, uid uin
 // removed from the IMAP mailstore index (delete / move source).
 func (s *Server) SetMessageExpungedNotifier(fn func(email, folder string, seqNum uint32)) {
 	s.messageExpungedNotifier = fn
+}
+
+// SetScheduledCancelNotifier wires a callback invoked with the folder uid when an
+// item is removed from the "Scheduled" folder, so deleting a scheduled message
+// via EWS cancels its send.
+func (s *Server) SetScheduledCancelNotifier(fn func(owner string, uid uint32)) {
+	s.scheduledCancelNotifier = fn
 }
 
 // SetAllowPrivatePushTargets relaxes the push-subscription SSRF guard so a

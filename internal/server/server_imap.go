@@ -39,15 +39,15 @@ func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
 	if s.cfg().IMAP.STARTTLSPort <= 0 {
 		imapServer.SetAllowPlainAuth(true)
 	}
-	if s.searchSvc != nil {
-		imapServer.SetOnExpunge(func(user, mailbox string, uid uint32) {
-			// IMAP expunge doesn't have ItemId readily available.
-			// Pass empty string to use legacy folder:uid removal.
-			// TODO(phase3): Look up ItemId from mailstore and pass it here
-			// so that semantic-core mode can remove by ItemId.
+	imapServer.SetOnExpunge(func(user, mailbox string, uid uint32) {
+		// Expunging a message from the Scheduled folder cancels its send.
+		s.cancelScheduledOnExpunge(user, mailbox, uid)
+		if s.searchSvc != nil {
+			// IMAP expunge doesn't have ItemId readily available; pass empty
+			// string to use legacy folder:uid removal.
 			s.searchSvc.RemoveMessage(user, mailbox, uid, "")
-		})
-	}
+		}
+	})
 
 	if err := imapServer.Start(); err != nil {
 		return fmt.Errorf("failed to start IMAP server: %w", err)
