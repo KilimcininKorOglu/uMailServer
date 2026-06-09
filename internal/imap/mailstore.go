@@ -26,6 +26,13 @@ type BboltMailstore struct {
 	// Nil if semantic-core is not yet initialized.
 	mutationPipe *semcore.MutationPipeline
 
+	// identity is the canonical semcore identity store, wired via
+	// SetIdentityStore. The mutation pipeline can only ADD identities;
+	// removing one on EXPUNGE (so EWS FindItem does not keep a ghost) and the
+	// folder-scoped lookup that backs it need the full store. Nil when
+	// semantic-core is not initialized.
+	identity imapIdentityStore
+
 	// MDN tracking
 	mdnSent    map[string]bool // Message-Id -> true if MDN sent
 	mdnSentMu  sync.Mutex
@@ -49,6 +56,23 @@ func (m *BboltMailstore) SetMDNHandler(handler func(from, to, messageID, inReply
 // *semcore.MutationPipeline owned by the server.
 func (m *BboltMailstore) SetMutationPipeline(pipe *semcore.MutationPipeline) {
 	m.mutationPipe = pipe
+}
+
+// imapIdentityStore is the slice of the semcore identity store IMAP needs to
+// keep EWS FindItem (which reads the identity store, not the mailstore index)
+// consistent on COPY/MOVE/EXPUNGE: resolve a folder identity and remove the
+// item identities filed under it. Satisfied by the server's canonical store.
+type imapIdentityStore interface {
+	EnsureFolderId(mboxKey, folderName, role string) (semcore.FolderId, error)
+	ListItemIdentitiesByFolder(folderID semcore.FolderId) ([]semcore.StoredItemIdentity, error)
+	DeleteItemIdentity(id semcore.ItemId) error
+}
+
+// SetIdentityStore wires the canonical semcore identity store so IMAP can remove
+// an item's semantic identity on EXPUNGE (the mutation pipeline only adds). Pass
+// the same store EWS and JMAP use, so one delete is seen on every surface.
+func (m *BboltMailstore) SetIdentityStore(identity imapIdentityStore) {
+	m.identity = identity
 }
 
 // NewBboltMailstore creates a new mailstore backed by bbolt
@@ -543,6 +567,9 @@ func (m *BboltMailstore) Expunge(user, mailbox string) error {
 			// Delete message
 			_ = m.msgStore.DeleteMessage(user, meta.MessageID)
 			_ = m.db.DeleteMessage(user, mailbox, uid)
+			// Drop the semcore identity too so the message does not ghost in
+			// EWS FindItem after it is gone from the IMAP index.
+			m.removeSemcoreIdentity(user, mailbox, meta.MessageID)
 		}
 	}
 
@@ -604,6 +631,9 @@ func (m *BboltMailstore) ExpungeUIDs(user, mailbox string, ranges []SeqRange) (s
 			if dErr := m.msgStore.DeleteMessage(user, meta.MessageID); dErr != nil && err == nil {
 				err = dErr
 			}
+			// Drop the semcore identity too so the message does not ghost in
+			// EWS FindItem after it is gone from the IMAP index.
+			m.removeSemcoreIdentity(user, mailbox, meta.MessageID)
 			// #nosec G115 -- sequence number is a small 1-based index
 			seqs = append(seqs, uint32(idx+1))
 			uids = append(uids, uid)
@@ -1196,6 +1226,9 @@ func (m *BboltMailstore) CopyMessages(user, sourceMailbox, destMailbox string, s
 		}
 
 		_ = m.db.StoreMessageMetadata(user, destMailbox, newUID, newMeta)
+		// Register the destination's semcore identity so the copy is visible
+		// over EWS FindItem too, not only the IMAP/POP3/JMAP/webmail index.
+		m.addSemcoreIdentity(user, destMailbox, newMeta.Flags, newMeta.InternalDate, data)
 	}
 
 	return nil

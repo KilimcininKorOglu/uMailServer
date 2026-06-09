@@ -57,6 +57,13 @@ func (s *Server) Start() error {
 		s.mailstore.SetMutationPipeline(s.mutationPipe)
 	}
 
+	// Wire the canonical semcore identity store so IMAP EXPUNGE removes the
+	// message's semantic identity too (the mutation pipeline only adds it),
+	// keeping EWS FindItem from showing a ghost after a copy/move is expunged.
+	if s.semcoreStore != nil {
+		s.mailstore.SetIdentityStore(s.semcoreStore.Identity())
+	}
+
 	s.startSMTP()
 
 	// Start search indexing worker pool
