@@ -635,17 +635,23 @@ class API {
     return skipped
   }
 
-  // importRules uploads an Outlook .rwz file and creates filters from it.
+  // importRules uploads an Outlook .rwz file and creates filters from it. The
+  // file is sent base64-encoded in a JSON body (matching the avatar upload
+  // contract) so it passes the API CSRF guard, which requires application/json.
   async importRules(file: File): Promise<RwzImportResult> {
-    const headers: Record<string, string> = {}
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('failed to read file'))
+      reader.readAsDataURL(file)
+    })
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
-    const form = new FormData()
-    form.append('file', file)
     const res = await fetch(`${API_URL}/filters/import`, {
       method: 'POST',
       headers,
       credentials: 'include',
-      body: form,
+      body: JSON.stringify({ data: dataUrl }),
     })
     if (!res.ok) {
       let msg = `HTTP ${res.status}`

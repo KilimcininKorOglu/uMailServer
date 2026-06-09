@@ -2,30 +2,24 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-// rwzUpload builds a multipart body carrying data as the "file" field.
-func rwzUpload(t *testing.T, data []byte) (*bytes.Buffer, string) {
-	t.Helper()
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	fw, err := mw.CreateFormFile("file", "rules.rwz")
-	if err != nil {
-		t.Fatalf("CreateFormFile: %v", err)
+// rwzImportRequest builds a JSON import request carrying data as base64, matching
+// the application/json contract enforced by the API CSRF guard.
+func rwzImportRequest(user string, data []byte) *http.Request {
+	body, _ := json.Marshal(map[string]string{"data": base64.StdEncoding.EncodeToString(data)}) //nolint:errcheck // marshaling a string map never fails
+	req := httptest.NewRequest("POST", "/api/v1/filters/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if user != "" {
+		req = req.WithContext(withUser(req.Context(), user))
 	}
-	if _, err := fw.Write(data); err != nil {
-		t.Fatalf("write form file: %v", err)
-	}
-	if err := mw.Close(); err != nil {
-		t.Fatalf("close multipart: %v", err)
-	}
-	return &buf, mw.FormDataContentType()
+	return req
 }
 
 func exportRwz(t *testing.T, server *Server, user string) []byte {
@@ -63,10 +57,7 @@ func TestFiltersExportImportRoundTrip(t *testing.T) {
 	}
 
 	const dstUser = "dst@example.com"
-	body, ct := rwzUpload(t, data)
-	req := httptest.NewRequest("POST", "/api/v1/filters/import", body)
-	req.Header.Set("Content-Type", ct)
-	req = req.WithContext(withUser(req.Context(), dstUser))
+	req := rwzImportRequest(dstUser, data)
 	w := httptest.NewRecorder()
 	server.handleFiltersImport(w, req)
 	if w.Code != http.StatusOK {
@@ -124,9 +115,7 @@ func TestFiltersExportMethodNotAllowed(t *testing.T) {
 
 func TestFiltersImportUnauthorized(t *testing.T) {
 	server := newFilterTestServer(t, t.TempDir())
-	body, ct := rwzUpload(t, []byte{0})
-	req := httptest.NewRequest("POST", "/api/v1/filters/import", body)
-	req.Header.Set("Content-Type", ct)
+	req := rwzImportRequest("", []byte{0})
 	w := httptest.NewRecorder()
 	server.handleFiltersImport(w, req)
 	if w.Code != http.StatusUnauthorized {
@@ -136,10 +125,7 @@ func TestFiltersImportUnauthorized(t *testing.T) {
 
 func TestFiltersImportRejectsBadFile(t *testing.T) {
 	server := newFilterTestServer(t, t.TempDir())
-	body, ct := rwzUpload(t, []byte("this is not an rwz file"))
-	req := httptest.NewRequest("POST", "/api/v1/filters/import", body)
-	req.Header.Set("Content-Type", ct)
-	req = req.WithContext(withUser(req.Context(), "u@example.com"))
+	req := rwzImportRequest("u@example.com", []byte("this is not an rwz file"))
 	w := httptest.NewRecorder()
 	server.handleFiltersImport(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -149,10 +135,7 @@ func TestFiltersImportRejectsBadFile(t *testing.T) {
 
 func TestFiltersImportRejectsOversize(t *testing.T) {
 	server := newFilterTestServer(t, t.TempDir())
-	body, ct := rwzUpload(t, bytes.Repeat([]byte{0}, maxRwzUpload+128))
-	req := httptest.NewRequest("POST", "/api/v1/filters/import", body)
-	req.Header.Set("Content-Type", ct)
-	req = req.WithContext(withUser(req.Context(), "u@example.com"))
+	req := rwzImportRequest("u@example.com", bytes.Repeat([]byte{0}, maxRwzUpload+128))
 	w := httptest.NewRecorder()
 	server.handleFiltersImport(w, req)
 	if w.Code != http.StatusRequestEntityTooLarge {

@@ -1,9 +1,10 @@
 package api
 
 import (
+	"encoding/base64"
 	"fmt"
-	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,8 +12,8 @@ import (
 	"github.com/umailserver/umailserver/internal/semcore"
 )
 
-// maxRwzUpload bounds an uploaded .rwz file. Real rule sets are a few KiB; this
-// is generous while still rejecting abuse (the global body limit is 4 MiB).
+// maxRwzUpload bounds the decoded size of an imported .rwz file. Real rule sets
+// are a few KiB; this is generous while still rejecting abuse.
 const maxRwzUpload = 1 << 20 // 1 MiB
 
 // handleFiltersExport serves the caller's inbox filters as an Outlook .rwz file.
@@ -70,8 +71,10 @@ func (s *Server) handleFiltersExport(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFiltersImport creates inbox filters from an uploaded Outlook .rwz file.
+// The file is sent base64-encoded inside a JSON body so it passes the API CSRF
+// guard (which requires application/json), matching the avatar upload contract.
 //
-// POST /api/v1/filters/import  (multipart/form-data, field "file")
+// POST /api/v1/filters/import  body {"data": "<base64 .rwz>"}
 func (s *Server) handleFiltersImport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -83,20 +86,27 @@ func (s *Server) handleFiltersImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(maxRwzUpload); err != nil {
-		s.sendError(w, http.StatusBadRequest, "invalid upload")
+	var req struct {
+		Data string `json:"data"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		s.sendError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	file, _, err := r.FormFile("file")
+	// Tolerate a "data:...;base64," URL prefix (the form FileReader.readAsDataURL produces).
+	raw := strings.TrimSpace(req.Data)
+	if strings.HasPrefix(raw, "data:") {
+		if i := strings.Index(raw, ","); i >= 0 {
+			raw = raw[i+1:]
+		}
+	}
+	data, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		s.sendError(w, http.StatusBadRequest, "missing file field")
+		s.sendError(w, http.StatusBadRequest, "invalid base64 data")
 		return
 	}
-	defer func() { _ = file.Close() }() //nolint:errcheck // best-effort close of an upload
-
-	data, err := io.ReadAll(io.LimitReader(file, maxRwzUpload+1))
-	if err != nil {
-		s.sendError(w, http.StatusBadRequest, "failed to read upload")
+	if len(data) == 0 {
+		s.sendError(w, http.StatusBadRequest, "empty file")
 		return
 	}
 	if len(data) > maxRwzUpload {
