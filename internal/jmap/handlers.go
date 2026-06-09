@@ -731,6 +731,11 @@ func (s *Server) handleEmailSet(user string, call MethodCall, createdIDs map[str
 
 				// Delete from old mailbox
 				_ = s.db.DeleteMessage(user, targetMbox, targetUID)
+				// Move the semcore identity with the index so EWS FindItem
+				// follows the message to its new folder, leaving no ghost in
+				// the old one. Order matters: remove uses the old targetMbox.
+				s.addSemcoreIdentity(user, newMbox, meta.MessageID, meta.Flags, meta.InternalDate)
+				s.removeSemcoreIdentity(user, targetMbox, meta.MessageID)
 				targetMbox = newMbox
 			}
 		}
@@ -766,6 +771,9 @@ func (s *Server) handleEmailSet(user string, call MethodCall, createdIDs map[str
 						_ = s.msgStore.DeleteMessage(user, emailID)
 						// Delete metadata from database
 						_ = s.db.DeleteMessage(user, mbox, uid)
+						// Drop the semcore identity too so the destroyed
+						// message does not ghost in EWS FindItem.
+						s.removeSemcoreIdentity(user, mbox, emailID)
 						found = true
 						break
 					}
@@ -911,6 +919,10 @@ func (s *Server) handleEmailImport(user string, call MethodCall) Response {
 			}
 			continue
 		}
+
+		// Augment the mailstore write with a semcore identity so the imported
+		// message is visible over EWS FindItem too, not only JMAP/IMAP/webmail.
+		s.addSemcoreIdentity(user, targetMbox, meta.MessageID, meta.Flags, meta.InternalDate)
 
 		// Convert to JMAP Email
 		email := s.storageToJMAPEmail(user, meta, nil, targetMbox)

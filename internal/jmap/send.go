@@ -57,6 +57,9 @@ func (s *Server) createEmail(user string, create map[string]interface{}) (Email,
 	if err := s.db.StoreMessageMetadata(user, targetMbox, uid, meta); err != nil {
 		return Email{}, err
 	}
+	// Augment the mailstore write with a semcore identity so EWS FindItem sees
+	// the message too, not only JMAP/IMAP/POP3/webmail.
+	s.addSemcoreIdentity(user, targetMbox, msgKey, meta.Flags, meta.InternalDate)
 
 	return s.storageToJMAPEmail(user, meta, nil, targetMbox), nil
 }
@@ -314,6 +317,10 @@ func (s *Server) applyEmailPatch(user, emailID string, patch map[string]interfac
 			return err
 		}
 		_ = s.db.DeleteMessage(user, mbox, uid) //nolint:errcheck
+		// Move the semcore identity with the mailstore index so EWS FindItem
+		// sees the message in its new folder and not the old one (no ghost).
+		s.addSemcoreIdentity(user, targetMbox, meta.MessageID, meta.Flags, meta.InternalDate)
+		s.removeSemcoreIdentity(user, mbox, meta.MessageID)
 		return nil
 	}
 
