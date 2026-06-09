@@ -123,6 +123,16 @@ func (s *Server) putUserConfiguration(ctx context.Context, body []byte, op strin
 		return s.errorResponseXML(op, ErrErrorInternalServer, "failed to persist configuration")
 	}
 
+	// Signature bridge: an Outlook/OWA write of OWA.UserOptions carries the
+	// signature in its dictionary; mirror it onto the canonical signature store
+	// so webmail (/api/v1/signature) and EWS share ONE signature.
+	if strings.EqualFold(cfg.Name.Name, owaUserOptionsName) {
+		if sig, ok := owaSignatureFromDict(blob.Dictionary); ok {
+			//nolint:errcheck // best-effort: the opaque config is already persisted
+			s.db.PutSignature(owner, sig)
+		}
+	}
+
 	return s.userConfigSimpleResponse(op + "Response")
 }
 
@@ -141,8 +151,26 @@ func (s *Server) handleGetUserConfiguration(ctx context.Context, body []byte) []
 
 	owner, name := userConfigOwnerName(mboxKey, req.Name)
 	stored, err := s.db.GetUserConfig(owner, name)
+	isOWAOptions := strings.EqualFold(req.Name.Name, owaUserOptionsName)
+	// Signature bridge: surface the canonical webmail signature through OWA's
+	// options config so an EWS/Outlook client reads the same signature webmail
+	// set. The bridge is minimally invasive — it only engages when there is a
+	// canonical signature to share (or the stored config already carries one), so
+	// a signature-less OWA.UserOptions still round-trips (or 404s) verbatim.
+	sig := ""
+	if isOWAOptions {
+		sig, _ = s.db.GetSignature(owner) //nolint:errcheck // empty signature is a valid (no-signature) state
+	}
 	if err != nil {
-		return s.errorResponseXML("GetUserConfiguration", ErrErrorItemNotFound, "user configuration not found")
+		if !isOWAOptions || sig == "" {
+			return s.errorResponseXML("GetUserConfiguration", ErrErrorItemNotFound, "user configuration not found")
+		}
+		stored = &db.UserConfigBlob{} // synthesize so the signature can be injected
+	}
+	if isOWAOptions {
+		if _, hadSig := owaSignatureFromDict(stored.Dictionary); sig != "" || hadSig {
+			stored.Dictionary = emitOWADictionaryWithSignature(parseOWADictionary(stored.Dictionary), sig)
+		}
 	}
 
 	var b strings.Builder
