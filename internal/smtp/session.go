@@ -58,7 +58,8 @@ type Session struct {
 
 	// Message data
 	mailFrom     string
-	mailFromRet  string // RET parameter (FULL or HDRS)
+	mailFromRet  string    // RET parameter (FULL or HDRS)
+	holdUntil    time.Time // FUTURERELEASE absolute send time (zero = send now)
 	rcptTo       []string
 	rcptToNotify []string // NOTIFY parameter per recipient
 	data         []byte
@@ -221,6 +222,14 @@ func (s *Session) handleEHLO(arg string) error {
 		capabilities = append(capabilities, "STARTTLS")
 	}
 
+	// FUTURERELEASE (RFC 4865) on submission listeners: advertise the max hold
+	// interval (seconds) and the latest absolute release time the server accepts.
+	if s.server.config.IsSubmission && s.server.config.FutureReleaseEnabled && s.server.onSchedule != nil {
+		maxSecs := s.server.config.FutureReleaseMaxSeconds
+		latest := time.Now().UTC().Add(time.Duration(maxSecs) * time.Second).Format(time.RFC3339)
+		capabilities = append(capabilities, fmt.Sprintf("FUTURERELEASE %d %s", maxSecs, latest))
+	}
+
 	// Only advertise AUTH after TLS or if insecure auth is allowed on submission
 	if s.isTLS || (s.server.config.IsSubmission && s.server.config.AllowInsecure) {
 		authMechs := []string{"PLAIN LOGIN", "SCRAM-SHA-256"}
@@ -287,9 +296,61 @@ func (s *Session) handleMAIL(arg string) error {
 
 	s.mailFrom = from
 	s.mailFromRet = ret
+
+	// FUTURERELEASE (RFC 4865): parse HOLDFOR/HOLDUNTIL on submission listeners so
+	// the message is held and released at the requested time.
+	if s.server.config.IsSubmission && s.server.config.FutureReleaseEnabled {
+		sendAt, ferr := parseFutureRelease(arg, time.Now(), s.server.config.FutureReleaseMaxSeconds)
+		if ferr != nil {
+			return s.WriteResponse(501, "5.5.4 "+ferr.Error())
+		}
+		s.holdUntil = sendAt
+	}
+
 	s.state = StateMailFrom
 
 	return s.WriteResponse(250, "OK")
+}
+
+// parseFutureRelease extracts the RFC 4865 HOLDFOR=<seconds> or HOLDUNTIL=<date-time>
+// MAIL FROM parameter and returns the absolute release time (zero when neither is
+// present). HOLDFOR and HOLDUNTIL are mutually exclusive; both present, an invalid
+// value, or a time beyond maxSeconds in the future is an error.
+func parseFutureRelease(arg string, now time.Time, maxSeconds int) (time.Time, error) {
+	var holdFor, holdUntil string
+	for _, part := range strings.Fields(arg) {
+		upper := strings.ToUpper(part)
+		switch {
+		case strings.HasPrefix(upper, "HOLDFOR="):
+			holdFor = part[len("HOLDFOR="):]
+		case strings.HasPrefix(upper, "HOLDUNTIL="):
+			holdUntil = part[len("HOLDUNTIL="):]
+		}
+	}
+	if holdFor == "" && holdUntil == "" {
+		return time.Time{}, nil
+	}
+	if holdFor != "" && holdUntil != "" {
+		return time.Time{}, fmt.Errorf("HOLDFOR and HOLDUNTIL are mutually exclusive")
+	}
+	var sendAt time.Time
+	if holdFor != "" {
+		secs, err := strconv.Atoi(holdFor)
+		if err != nil || secs < 0 {
+			return time.Time{}, fmt.Errorf("invalid HOLDFOR value")
+		}
+		sendAt = now.Add(time.Duration(secs) * time.Second)
+	} else {
+		t, err := time.Parse(time.RFC3339, holdUntil)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid HOLDUNTIL value")
+		}
+		sendAt = t.UTC()
+	}
+	if maxSeconds > 0 && sendAt.After(now.Add(time.Duration(maxSeconds)*time.Second)) {
+		return time.Time{}, fmt.Errorf("requested release time exceeds the server maximum")
+	}
+	return sendAt, nil
 }
 
 // handleRCPT handles the RCPT TO command
@@ -526,17 +587,10 @@ func (s *Session) handleDATA() error {
 		s.data = data
 	}
 
-	// Deliver message
-	if s.server.onDeliverWithSieve != nil {
-		if err := s.server.onDeliverWithSieve(s.mailFrom, s.rcptTo, s.data, s.sieveActions); err != nil {
-			s.resetTransaction()
-			return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
-		}
-	} else if s.server.onDeliver != nil {
-		if err := s.server.onDeliver(s.mailFrom, s.rcptTo, s.data); err != nil {
-			s.resetTransaction()
-			return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
-		}
+	// Deliver now, or hold for a future FUTURERELEASE time.
+	if err := s.deliverData(); err != nil {
+		s.resetTransaction()
+		return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
 	}
 
 	// Count inbound messages accepted on port 25 (smtp_messages_received is
@@ -549,6 +603,23 @@ func (s *Session) handleDATA() error {
 
 	s.resetTransaction()
 	return s.WriteResponse(250, "OK")
+}
+
+// deliverData routes the assembled message: a future FUTURERELEASE hold goes to
+// the scheduler (RFC 4865), otherwise it is delivered now through the sieve hook
+// (or the plain delivery hook when no sieve hook is wired).
+func (s *Session) deliverData() error {
+	if !s.holdUntil.IsZero() && s.holdUntil.After(time.Now()) && s.server.onSchedule != nil {
+		_, err := s.server.onSchedule(s.mailFrom, s.rcptTo, s.data, s.holdUntil)
+		return err
+	}
+	if s.server.onDeliverWithSieve != nil {
+		return s.server.onDeliverWithSieve(s.mailFrom, s.rcptTo, s.data, s.sieveActions)
+	}
+	if s.server.onDeliver != nil {
+		return s.server.onDeliver(s.mailFrom, s.rcptTo, s.data)
+	}
+	return nil
 }
 
 // errMessageTooLarge is returned by readData when the message exceeds the size limit
@@ -737,16 +808,9 @@ func (s *Session) handleBDAT(arg string) error {
 		// Deliver message. Prefer the Sieve-aware handler (the server registers
 		// SetDeliveryHandlerWithSieve, leaving onDeliver nil) — otherwise a
 		// BDAT-delivered message is silently dropped while BDAT still replies 250.
-		if s.server.onDeliverWithSieve != nil {
-			if err := s.server.onDeliverWithSieve(s.mailFrom, s.rcptTo, s.data, s.sieveActions); err != nil {
-				s.resetTransaction()
-				return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
-			}
-		} else if s.server.onDeliver != nil {
-			if err := s.server.onDeliver(s.mailFrom, s.rcptTo, s.data); err != nil {
-				s.resetTransaction()
-				return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
-			}
+		if err := s.deliverData(); err != nil {
+			s.resetTransaction()
+			return s.WriteResponse(451, "4.4.0 Requested action aborted: local error in processing")
 		}
 
 		// Count inbound messages accepted on port 25 (smtp_messages_received is
@@ -1230,6 +1294,7 @@ func (s *Session) handleSTARTTLS() error {
 // resetTransaction resets the transaction state
 func (s *Session) resetTransaction() {
 	s.mailFrom = ""
+	s.holdUntil = time.Time{}
 	s.rcptTo = make([]string, 0)
 	s.data = nil
 	if s.state > StateGreeted {

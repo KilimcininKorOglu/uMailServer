@@ -142,6 +142,9 @@ func (s *Server) buildSubmissionSMTPConfig() *smtp.Config {
 		RequireAuth:    s.cfg().SMTP.Submission.RequireAuth,
 		RequireTLS:     s.cfg().SMTP.Submission.RequireTLS,
 		IsSubmission:   true,
+
+		FutureReleaseEnabled:    s.cfg().ScheduledSend.Enabled,
+		FutureReleaseMaxSeconds: s.cfg().ScheduledSend.MaxHorizonDays * 24 * 60 * 60,
 	}
 	// Only advertise STARTTLS when a usable certificate is configured; otherwise
 	// STARTTLS-requiring clients fail the handshake instead of falling back.
@@ -206,6 +209,12 @@ func (s *Server) startSMTP() {
 		submissionServer.SetDeliveryHandlerWithSieve(func(from string, to []string, data []byte, _ []string) error {
 			return s.submitMessageWithSieve(from, to, data)
 		})
+		// FUTURERELEASE (RFC 4865): a future HOLDFOR/HOLDUNTIL records the message
+		// in the canonical scheduled store (owner = authenticated sender), released
+		// at its time. fileSent files a Sent copy on release.
+		submissionServer.SetScheduleHandler(func(from string, to []string, data []byte, sendAt time.Time) (string, error) {
+			return s.scheduleSend(from, from, to, data, sendAt, "smtp", true)
+		})
 		submissionServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// submissionServer.SetUserSecretHandler(s.getUserSecret)
@@ -237,6 +246,9 @@ func (s *Server) startSMTP() {
 			RequireAuth:    s.cfg().SMTP.SubmissionTLS.RequireAuth,
 			RequireTLS:     false, // Already on TLS
 			IsSubmission:   true,
+
+			FutureReleaseEnabled:    s.cfg().ScheduledSend.Enabled,
+			FutureReleaseMaxSeconds: s.cfg().ScheduledSend.MaxHorizonDays * 24 * 60 * 60,
 		}
 
 		submissionTLSServer := smtp.NewServer(submissionTLSCfg, s.logger)
@@ -244,6 +256,10 @@ func (s *Server) startSMTP() {
 		// Same recipient-Sieve routing as the 587 submission listener.
 		submissionTLSServer.SetDeliveryHandlerWithSieve(func(from string, to []string, data []byte, _ []string) error {
 			return s.submitMessageWithSieve(from, to, data)
+		})
+		// FUTURERELEASE (RFC 4865), same as the 587 listener.
+		submissionTLSServer.SetScheduleHandler(func(from string, to []string, data []byte, sendAt time.Time) (string, error) {
+			return s.scheduleSend(from, from, to, data, sendAt, "smtp", true)
 		})
 		submissionTLSServer.SetLocalDomainFunc(s.isLocalDomainName)
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken

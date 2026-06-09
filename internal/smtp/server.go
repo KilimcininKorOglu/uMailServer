@@ -39,11 +39,14 @@ type Server struct {
 	onValidate         func(from string, to []string) error
 	onDeliver          func(from string, to []string, data []byte) error
 	onDeliverWithSieve func(from string, to []string, data []byte, sieveActions []string) error
-	onGetUserSecret    func(username string) (string, error) // Get user's shared secret for CRAM-MD5
-	onGetPassword      func(username string) (string, error) // Get user's password for SCRAM-SHA-256
-	onLoginResult      func(username string, success bool, ip, reason string)
-	isLocalDomain      func(domain string) bool // reports whether a domain is locally hosted (anti-relay)
-	pipeline           *Pipeline
+	// onSchedule, when set, records a FUTURERELEASE (RFC 4865) submission for
+	// future delivery instead of delivering now, returning the scheduled id.
+	onSchedule      func(from string, to []string, data []byte, sendAt time.Time) (string, error)
+	onGetUserSecret func(username string) (string, error) // Get user's shared secret for CRAM-MD5
+	onGetPassword   func(username string) (string, error) // Get user's password for SCRAM-SHA-256
+	onLoginResult   func(username string, success bool, ip, reason string)
+	isLocalDomain   func(domain string) bool // reports whether a domain is locally hosted (anti-relay)
+	pipeline        *Pipeline
 
 	// Rate limiting
 	rateLimiter ConnectionRateLimiter
@@ -235,6 +238,12 @@ type Config struct {
 	RequireAuth  bool // Reject MAIL FROM if not authenticated (submission mode)
 	RequireTLS   bool // Require TLS before AUTH
 	IsSubmission bool // Submission server mode (port 587/465)
+
+	// FUTURERELEASE (RFC 4865) advertisement. When enabled on a submission
+	// listener, EHLO advertises FUTURERELEASE and MAIL FROM accepts HOLDFOR/
+	// HOLDUNTIL up to FutureReleaseMaxSeconds in the future.
+	FutureReleaseEnabled    bool
+	FutureReleaseMaxSeconds int
 }
 
 // NewServer creates a new SMTP server
@@ -272,6 +281,13 @@ func (s *Server) SetDeliveryHandler(handler func(from string, to []string, data 
 // SetDeliveryHandlerWithSieve sets the message delivery handler with sieve action support
 func (s *Server) SetDeliveryHandlerWithSieve(handler func(from string, to []string, data []byte, sieveActions []string) error) {
 	s.onDeliverWithSieve = handler
+}
+
+// SetScheduleHandler sets the FUTURERELEASE (RFC 4865) handler: a submission
+// carrying a future HOLDFOR/HOLDUNTIL is recorded for scheduled delivery instead
+// of being delivered now.
+func (s *Server) SetScheduleHandler(handler func(from string, to []string, data []byte, sendAt time.Time) (string, error)) {
+	s.onSchedule = handler
 }
 
 // SetLocalDomainFunc wires the local-domain check used for anti-relay policy.
