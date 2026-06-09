@@ -116,6 +116,62 @@ func TestConfigDTO_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestScheduledSendDTO_RoundTrip verifies the scheduled-send section survives a
+// configToDTO -> applyConfigDTO round trip unchanged (so an admin save preserves
+// the tuning even without dropping or zeroing it).
+func TestScheduledSendDTO_RoundTrip(t *testing.T) {
+	cur := &config.Config{}
+	cur.Server.Hostname = "mail.example.com"
+	cur.ScheduledSend = config.ScheduledSendConfig{Enabled: true, MaxHorizonDays: 90, TickSeconds: 45, MaxPerUser: 25}
+
+	cur, err := cloneConfig(cur)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	clone, err := cloneConfig(cur)
+	if err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+	req := configToDTO(cur)
+	applyConfigDTO(clone, &req)
+
+	if clone.ScheduledSend != cur.ScheduledSend {
+		t.Errorf("round trip changed scheduled_send: got %+v, want %+v", clone.ScheduledSend, cur.ScheduledSend)
+	}
+	if slices.Contains(changedSections(cur, clone, nil), "scheduled_send") {
+		t.Error("scheduled_send reported as changed after an identity round trip")
+	}
+}
+
+// TestValidateConfigDTO_ScheduledSendBounds rejects out-of-range scheduled-send
+// values (including the all-zero shape a section-omitting PUT would produce),
+// guarding against silently zeroing the live config.
+func TestValidateConfigDTO_ScheduledSendBounds(t *testing.T) {
+	base := configToDTO(config.DefaultConfig())
+	if msg, ok := validateConfigDTO(&base); !ok {
+		t.Fatalf("DefaultConfig DTO must be valid, got %q", msg)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*serverConfigDTO)
+	}{
+		{"zero horizon", func(d *serverConfigDTO) { d.ScheduledSend.MaxHorizonDays = 0 }},
+		{"horizon too large", func(d *serverConfigDTO) { d.ScheduledSend.MaxHorizonDays = 4000 }},
+		{"tick too small", func(d *serverConfigDTO) { d.ScheduledSend.TickSeconds = 1 }},
+		{"tick too large", func(d *serverConfigDTO) { d.ScheduledSend.TickSeconds = 7200 }},
+		{"zero per-user", func(d *serverConfigDTO) { d.ScheduledSend.MaxPerUser = 0 }},
+		{"all zero (omitted section)", func(d *serverConfigDTO) { d.ScheduledSend = scheduledSendSectionDTO{} }},
+	}
+	for _, tc := range cases {
+		dto := base
+		tc.mutate(&dto)
+		if _, ok := validateConfigDTO(&dto); ok {
+			t.Errorf("%s: expected validation to fail, but it passed", tc.name)
+		}
+	}
+}
+
 // TestChangedSections reports exactly the sections that differ.
 func TestChangedSections(t *testing.T) {
 	before := &config.Config{}

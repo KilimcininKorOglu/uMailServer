@@ -369,3 +369,14 @@ cluster:
   enabled: false
   redis_url: ""
   instance_id: ""
+
+# Scheduled ("send later") mail. A leader-gated loop releases messages at their
+# time; the four ingestion surfaces (webmail, EWS deferred-send, SMTP
+# FUTURERELEASE, JMAP sendAt) write to one canonical store and a cross-protocol
+# "Scheduled" folder. Enabling, the horizon, and the per-user cap are read live;
+# changing tick_seconds (or the enable flag) restarts the loop on reload.
+scheduled_send:
+  enabled: true
+  max_horizon_days: 365
+  tick_seconds: 30
+  max_per_user: 100

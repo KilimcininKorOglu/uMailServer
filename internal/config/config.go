@@ -44,6 +44,7 @@ type Config struct {
 	OOF           OOFConfig           `yaml:"oof"`
 	Notifications NotificationsConfig `yaml:"notifications"`
 	Cluster       ClusterConfig       `yaml:"cluster"`
+	ScheduledSend ScheduledSendConfig `yaml:"scheduled_send"`
 }
 
 // ServerConfig holds general server settings
@@ -437,6 +438,18 @@ type NotificationsConfig struct {
 	QueueAlerts    bool `yaml:"queue_alerts" json:"queue_alerts"`
 	SecurityAlerts bool `yaml:"security_alerts" json:"security_alerts"`
 	WeeklyReports  bool `yaml:"weekly_reports" json:"weekly_reports"`
+}
+
+// ScheduledSendConfig controls the "send later" feature: the leader-gated loop
+// that releases scheduled mail at its time, plus the bounds every ingestion
+// surface (webmail/EWS/SMTP/JMAP) enforces when accepting a schedule. Enabled,
+// MaxHorizonDays, and MaxPerUser are read live per request; a TickSeconds or
+// Enabled change restarts the release loop via ReloadConfig.
+type ScheduledSendConfig struct {
+	Enabled        bool `yaml:"enabled" json:"enabled"`
+	MaxHorizonDays int  `yaml:"max_horizon_days" json:"max_horizon_days"`
+	TickSeconds    int  `yaml:"tick_seconds" json:"tick_seconds"`
+	MaxPerUser     int  `yaml:"max_per_user" json:"max_per_user"`
 }
 
 // PushConfig holds Web Push notification settings (VAPID).
@@ -932,6 +945,20 @@ func (c *Config) Validate() error {
 		}
 		if c.Security.JWTSecret == "" {
 			return fmt.Errorf("security.jwt_secret must be set (and shared across all nodes) when cluster.enabled is true")
+		}
+	}
+
+	// A misconfigured scheduled-send horizon/tick/cap would silently break the
+	// feature (e.g. horizon 0 rejects every future schedule), so reject it up front.
+	if c.ScheduledSend.Enabled {
+		if c.ScheduledSend.MaxHorizonDays < 1 {
+			return fmt.Errorf("scheduled_send.max_horizon_days must be at least 1 when scheduled_send.enabled is true")
+		}
+		if c.ScheduledSend.TickSeconds < 1 {
+			return fmt.Errorf("scheduled_send.tick_seconds must be at least 1 when scheduled_send.enabled is true")
+		}
+		if c.ScheduledSend.MaxPerUser < 1 {
+			return fmt.Errorf("scheduled_send.max_per_user must be at least 1 when scheduled_send.enabled is true")
 		}
 	}
 

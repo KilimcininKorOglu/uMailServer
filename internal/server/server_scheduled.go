@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -12,15 +13,14 @@ import (
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
-// Scheduled-send tuning. Phase 4 replaces these constants with hot-reloadable
-// config (scheduled_send.*); until then they are sensible defaults.
+// Scheduled-send tuning. The enable flag, horizon, tick, and per-user cap are
+// hot-reloadable config (scheduled_send.*); the retry cap, claim lease, and the
+// projection folder name are fixed internals.
 const (
-	scheduledTick       = 30 * time.Second
-	scheduledMaxHorizon = 365 * 24 * time.Hour
-	scheduledMaxPerUser = 100
 	scheduledMaxRetries = 5
 	scheduledLease      = 10 * time.Minute
 	scheduledFolder     = "Scheduled"
+	scheduledTickFloor  = 30 * time.Second
 )
 
 // scheduledClaimer is the optional capability the relational backend exposes to
@@ -40,13 +40,15 @@ type scheduledClaimer interface {
 //
 //nolint:unused // ingestion entry point; the Phase 5 surfaces (webmail/EWS/SMTP/JMAP) call it.
 func (s *Server) scheduleSend(owner, from string, to []string, data []byte, sendAt time.Time, source string, fileSent bool) (string, error) {
+	sc := s.cfg().ScheduledSend
 	now := time.Now().UTC()
 	sendAt = sendAt.UTC()
-	if sendAt.After(now.Add(scheduledMaxHorizon)) {
+	if sc.Enabled && sendAt.After(now.Add(time.Duration(sc.MaxHorizonDays)*24*time.Hour)) {
 		return "", fmt.Errorf("scheduled send time is too far in the future")
 	}
-	if !sendAt.After(now) {
-		// Past or now: deliver immediately through the shared submission path.
+	if !sc.Enabled || !sendAt.After(now) {
+		// Disabled, or already due: deliver immediately through the shared path
+		// rather than holding a message the (stopped) loop would never release.
 		if err := s.submitMessageWithSieve(from, to, data); err != nil {
 			return "", err
 		}
@@ -76,7 +78,7 @@ func (s *Server) scheduleSend(owner, from string, to []string, data []byte, send
 		FolderUID: uid,
 		BlobKey:   blobKey,
 	}
-	if err := s.database.CreateScheduledMessageWithLimit(m, scheduledMaxPerUser); err != nil {
+	if err := s.database.CreateScheduledMessageWithLimit(m, sc.MaxPerUser); err != nil {
 		// Roll back the projection so a rejected schedule leaves no orphan entry.
 		_ = s.storageDB.DeleteMessage(owner, scheduledFolder, uid) //nolint:errcheck // best-effort rollback
 		return "", err
@@ -86,23 +88,52 @@ func (s *Server) scheduleSend(owner, from string, to []string, data []byte, send
 }
 
 // startScheduledSender launches the leader-gated background loop that releases
-// due scheduled messages. It mirrors startEWSPushDispatcher/startAlertChecker
-// and stops on ctx cancellation.
+// due scheduled messages. It mirrors startEWSPushDispatcher/startAlertChecker but
+// runs on its own cancelable context so a config change can restart it. It is a
+// no-op when scheduled-send is disabled.
 func (s *Server) startScheduledSender() {
+	sc := s.cfg().ScheduledSend
+	if !sc.Enabled {
+		s.logger.Info("scheduled-send disabled; release loop not started")
+		return
+	}
+	tick := time.Duration(sc.TickSeconds) * time.Second
+	if tick <= 0 {
+		tick = scheduledTickFloor
+	}
+	// Derive from s.ctx so shutdown stops the loop; fall back to Background only
+	// for bare test servers that have no lifecycle context.
+	parent := s.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	s.scheduledCancel = cancel
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		ticker := time.NewTicker(scheduledTick)
+		ticker := time.NewTicker(tick)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-s.ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				s.releaseDueScheduled()
 			}
 		}
 	}()
+}
+
+// restartScheduledSender stops the running release loop (if any) and starts a
+// fresh one from the live config, so toggling scheduled_send.enabled or changing
+// scheduled_send.tick_seconds takes effect without a full restart.
+func (s *Server) restartScheduledSender() {
+	if s.scheduledCancel != nil {
+		s.scheduledCancel()
+		s.scheduledCancel = nil
+	}
+	s.startScheduledSender()
 }
 
 // releaseDueScheduled sends every scheduled message whose time has arrived. It is

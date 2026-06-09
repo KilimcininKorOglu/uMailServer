@@ -44,6 +44,7 @@ type serverConfigDTO struct {
 	Signing       signingSectionDTO       `json:"signing"`
 	OOF           oofSectionDTO           `json:"oof"`
 	Notifications notificationsSectionDTO `json:"notifications"`
+	ScheduledSend scheduledSendSectionDTO `json:"scheduled_send"`
 }
 
 type serverSectionDTO struct {
@@ -317,6 +318,13 @@ type notificationsSectionDTO struct {
 	QueueAlerts    bool `json:"queue_alerts"`
 	SecurityAlerts bool `json:"security_alerts"`
 	WeeklyReports  bool `json:"weekly_reports"`
+}
+
+type scheduledSendSectionDTO struct {
+	Enabled        bool `json:"enabled"`
+	MaxHorizonDays int  `json:"max_horizon_days"`
+	TickSeconds    int  `json:"tick_seconds"`
+	MaxPerUser     int  `json:"max_per_user"`
 }
 
 // configPutResponse reports the outcome of a config update. applied lists the
@@ -688,6 +696,12 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 			SecurityAlerts: cfg.Notifications.SecurityAlerts,
 			WeeklyReports:  cfg.Notifications.WeeklyReports,
 		},
+		ScheduledSend: scheduledSendSectionDTO{
+			Enabled:        cfg.ScheduledSend.Enabled,
+			MaxHorizonDays: cfg.ScheduledSend.MaxHorizonDays,
+			TickSeconds:    cfg.ScheduledSend.TickSeconds,
+			MaxPerUser:     cfg.ScheduledSend.MaxPerUser,
+		},
 	}
 }
 
@@ -902,6 +916,11 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.Notifications.QueueAlerts = req.Notifications.QueueAlerts
 	cfg.Notifications.SecurityAlerts = req.Notifications.SecurityAlerts
 	cfg.Notifications.WeeklyReports = req.Notifications.WeeklyReports
+
+	cfg.ScheduledSend.Enabled = req.ScheduledSend.Enabled
+	cfg.ScheduledSend.MaxHorizonDays = req.ScheduledSend.MaxHorizonDays
+	cfg.ScheduledSend.TickSeconds = req.ScheduledSend.TickSeconds
+	cfg.ScheduledSend.MaxPerUser = req.ScheduledSend.MaxPerUser
 }
 
 func applyRateLimitDTO(rl *config.RateLimitConfig, req *rateLimitSectionDTO) {
@@ -964,6 +983,7 @@ func changedSections(before, after *config.Config, applied []string) []string {
 		{"signing", before.Signing, after.Signing},
 		{"oof", before.OOF, after.OOF},
 		{"notifications", before.Notifications, after.Notifications},
+		{"scheduled_send", before.ScheduledSend, after.ScheduledSend},
 	} {
 		if _, skip := appliedSet[sec.name]; skip {
 			continue
@@ -1035,6 +1055,17 @@ func validateConfigDTO(req *serverConfigDTO) (string, bool) {
 	}
 	if len(req.OOF.DefaultMessage) > 5000 {
 		return "oof.default_message exceeds maximum length of 5000", false
+	}
+	// Bounded unconditionally (even when disabled) so a full-config PUT that omits
+	// the section is rejected rather than silently zeroing the live values.
+	if req.ScheduledSend.MaxHorizonDays < 1 || req.ScheduledSend.MaxHorizonDays > 3650 {
+		return "scheduled_send.max_horizon_days must be between 1 and 3650", false
+	}
+	if req.ScheduledSend.TickSeconds < 5 || req.ScheduledSend.TickSeconds > 3600 {
+		return "scheduled_send.tick_seconds must be between 5 and 3600", false
+	}
+	if req.ScheduledSend.MaxPerUser < 1 || req.ScheduledSend.MaxPerUser > 10000 {
+		return "scheduled_send.max_per_user must be between 1 and 10000", false
 	}
 	return "", true
 }

@@ -91,6 +91,13 @@ func (s *Server) ReloadConfig(newCfg *config.Config) (applied, restartRequired [
 		applied = append(applied, "metrics")
 	}
 
+	// The scheduled-send release loop restarts in place to pick up an enable
+	// toggle or a new tick interval; the horizon/cap are read live per request.
+	if changed(old.ScheduledSend, newCfg.ScheduledSend) {
+		s.restartScheduledSender()
+		applied = append(applied, "scheduled_send")
+	}
+
 	// The global rate limiter retunes in place. The remaining Security fields
 	// (auth limits, audit log, secrets) are captured by listeners and the API at
 	// startup, so a change there needs a restart.

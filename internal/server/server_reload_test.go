@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"slices"
 	"testing"
@@ -45,6 +46,37 @@ func TestReloadConfig_Classification(t *testing.T) {
 	if !s.cfg().OOF.DefaultEnabled {
 		t.Error("live config does not reflect the OOF change")
 	}
+}
+
+// TestReloadConfig_ScheduledSendRestart verifies the release loop hot-toggles:
+// enabling it via reload starts the loop (applied lists scheduled_send and a
+// cancel func is held), and a later disable stops it. A long tick keeps the loop
+// idle so it never touches the (absent) store during the test.
+func TestReloadConfig_ScheduledSendRestart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{logger: slog.Default(), ctx: ctx}
+	old := &config.Config{} // scheduled-send disabled (zero value)
+	s.config.Store(old)
+
+	enable := *old
+	enable.ScheduledSend = config.ScheduledSendConfig{Enabled: true, MaxHorizonDays: 365, TickSeconds: 3600, MaxPerUser: 100}
+	applied, _ := s.ReloadConfig(&enable)
+	if !slices.Contains(applied, "scheduled_send") {
+		t.Errorf("expected scheduled_send in applied, got %v", applied)
+	}
+	if s.scheduledCancel == nil {
+		t.Fatal("enabling scheduled-send should have started the release loop")
+	}
+
+	disable := enable
+	disable.ScheduledSend.Enabled = false
+	if _, _ = s.ReloadConfig(&disable); s.scheduledCancel != nil {
+		t.Error("disabling scheduled-send should have stopped the release loop")
+	}
+
+	cancel()
+	s.wg.Wait()
 }
 
 // TestReloadConfig_NoChangeIsNoop verifies that reloading an identical config

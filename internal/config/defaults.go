@@ -208,5 +208,11 @@ func DefaultConfig() *Config {
 			Enabled: false,
 			KeyDir:  "",
 		},
+		ScheduledSend: ScheduledSendConfig{
+			Enabled:        true,
+			MaxHorizonDays: 365,
+			TickSeconds:    30,
+			MaxPerUser:     100,
+		},
 	}
 }

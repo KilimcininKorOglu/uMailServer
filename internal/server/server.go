@@ -122,6 +122,11 @@ type Server struct {
 	// Background task semaphore to limit concurrent goroutines spawned per delivery
 	bgSem chan struct{}
 
+	// scheduledCancel stops the running scheduled-send release loop so a config
+	// change can restart it; nil when the loop is not running. Written only at
+	// startup and under reloadMu (via restartScheduledSender).
+	scheduledCancel context.CancelFunc
+
 	ctx      context.Context
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
