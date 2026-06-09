@@ -119,6 +119,11 @@ type SearchCriteria struct {
 	// Logical operators
 	Not *SearchCriteria
 	Or  [2]*SearchCriteria
+
+	// RFC 7162 CONDSTORE: MODSEQ criterion — match messages whose mod-sequence
+	// is >= ModSeq. HasModSeq distinguishes an explicit "MODSEQ 0" from unset.
+	ModSeq    uint64
+	HasModSeq bool
 }
 
 // StatusItem represents items that can be queried with STATUS command

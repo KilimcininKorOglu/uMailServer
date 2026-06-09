@@ -3450,3 +3450,34 @@ func TestAppendUIDCode(t *testing.T) {
 		t.Errorf("MULTIAPPEND appendUIDCode = %q, want %q", got, "[APPENDUID 7 3:5]")
 	}
 }
+
+// TestExtractChangedSince verifies the RFC 7162 (CHANGEDSINCE n) FETCH modifier
+// is split off the item list, leaving the items intact.
+func TestExtractChangedSince(t *testing.T) {
+	items, ms, ok := extractChangedSince([]string{"(FLAGS)", "(CHANGEDSINCE", "12345)"})
+	if !ok || ms != 12345 {
+		t.Fatalf("extractChangedSince modseq = %d ok=%v, want 12345 true", ms, ok)
+	}
+	if len(items) != 1 || items[0] != "(FLAGS)" {
+		t.Errorf("item args = %v, want [(FLAGS)]", items)
+	}
+
+	// No modifier present: items are returned unchanged, ok is false.
+	items2, _, ok2 := extractChangedSince([]string{"(FLAGS", "UID)"})
+	if ok2 {
+		t.Errorf("no CHANGEDSINCE should yield ok=false")
+	}
+	if len(items2) != 2 {
+		t.Errorf("item args should be unchanged, got %v", items2)
+	}
+}
+
+// TestFormatFetchResponseMODSEQ verifies the RFC 7162 MODSEQ FETCH data item is
+// rendered as a parenthesized value.
+func TestFormatFetchResponseMODSEQ(t *testing.T) {
+	msg := &Message{UID: 7, ModSeq: 42, Flags: []string{"\\Seen"}}
+	got := formatFetchResponse(msg, []string{"UID", "MODSEQ"})
+	if got != "UID 7 MODSEQ (42)" {
+		t.Errorf("formatFetchResponse = %q, want %q", got, "UID 7 MODSEQ (42)")
+	}
+}

@@ -1078,6 +1078,54 @@ func TestAppendMessageReportsAppendUID(t *testing.T) {
 	}
 }
 
+// TestSearchMessagesMODSEQ verifies the RFC 7162 MODSEQ search criterion filters
+// to messages whose mod-sequence is >= the requested value. A flag change bumps
+// one message's mod-sequence so it sorts above the other.
+func TestSearchMessagesMODSEQ(t *testing.T) {
+	ms, err := NewBboltMailstore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewBboltMailstore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := ms.Close(); err != nil {
+			t.Errorf("ms.Close: %v", err)
+		}
+	})
+
+	const user, box = "testuser", "INBOX"
+	if err := ms.CreateMailbox(user, box); err != nil {
+		t.Fatalf("CreateMailbox: %v", err)
+	}
+	for _, subj := range []string{"modseq-1", "modseq-2"} {
+		if _, err := ms.AppendMessage(user, box, nil, time.Now(),
+			[]byte("From: a@b\r\nSubject: "+subj+"\r\n\r\nbody\r\n")); err != nil {
+			t.Fatalf("AppendMessage %s: %v", subj, err)
+		}
+	}
+
+	// A flag change on message 2 assigns it a nonzero mod-sequence.
+	if err := ms.StoreFlags(user, box, "2", []string{"\\Flagged"}, FlagAdd); err != nil {
+		t.Fatalf("StoreFlags: %v", err)
+	}
+	msgs, err := ms.FetchMessages(user, box, "1:2", []string{"UID"})
+	if err != nil || len(msgs) != 2 {
+		t.Fatalf("FetchMessages: %v (got %d)", err, len(msgs))
+	}
+	bumped := msgs[1].ModSeq
+	if bumped == 0 {
+		t.Fatalf("STORE should bump message 2 mod-sequence above 0")
+	}
+
+	// SEARCH MODSEQ <bumped> must return only the flag-changed message (seq 2).
+	hits, err := ms.SearchMessages(user, box, SearchCriteria{HasModSeq: true, ModSeq: bumped})
+	if err != nil {
+		t.Fatalf("SearchMessages MODSEQ: %v", err)
+	}
+	if len(hits) != 1 || hits[0] != 2 {
+		t.Errorf("SEARCH MODSEQ %d = %v, want [2]", bumped, hits)
+	}
+}
+
 // TestBboltMailstoreSearchMessagesAdvanced tests SearchMessages with various criteria
 func TestBboltMailstoreSearchMessagesAdvanced(t *testing.T) {
 	tmpDir := t.TempDir()

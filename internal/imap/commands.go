@@ -1610,6 +1610,25 @@ func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 		return nil
 	}
 
+	// RFC 7162 §3.1.5: a SEARCH with a MODSEQ criterion implicitly enables
+	// CONDSTORE and appends the highest mod-sequence among the matches. uids are
+	// still sequence numbers here (before the UID remap below).
+	var highestMatchedModSeq uint64
+	if criteria.HasModSeq && len(uids) > 0 {
+		s.enabledCaps["CONDSTORE"] = true
+		seqList := make([]string, len(uids))
+		for i, sn := range uids {
+			seqList[i] = fmt.Sprintf("%d", sn)
+		}
+		if msgs, ferr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, strings.Join(seqList, ","), []string{"UID"}); ferr == nil {
+			for _, mm := range msgs {
+				if mm.ModSeq > highestMatchedModSeq {
+					highestMatchedModSeq = mm.ModSeq
+				}
+			}
+		}
+	}
+
 	// SearchMessages returns message sequence numbers. UID SEARCH must report
 	// UIDs instead (RFC 3501 §6.4.8), so map the sequence numbers to UIDs.
 	if byUID {
@@ -1662,6 +1681,9 @@ func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 				parts = append(parts, "ALL "+strings.Join(nums, ","))
 			}
 		}
+		if criteria.HasModSeq && highestMatchedModSeq > 0 {
+			parts = append(parts, fmt.Sprintf("MODSEQ %d", highestMatchedModSeq))
+		}
 		uidTag := ""
 		if byUID {
 			uidTag = "UID "
@@ -1676,6 +1698,10 @@ func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 	result := "SEARCH"
 	for _, uid := range uids {
 		result += fmt.Sprintf(" %d", uid)
+	}
+	// RFC 7162 §3.1.5: append the highest mod-sequence of the matches.
+	if criteria.HasModSeq && highestMatchedModSeq > 0 {
+		result += fmt.Sprintf(" (MODSEQ %d)", highestMatchedModSeq)
 	}
 	s.WriteData(result)
 
@@ -2057,7 +2083,15 @@ func (s *Session) handleFetch(args []string, line string, byUID bool) error {
 	}
 
 	seqSet := args[0]
-	fetchItems := parseFetchItems(args[1:])
+	// RFC 7162 §3.1.4: an optional trailing "(CHANGEDSINCE <modseq>)" modifier
+	// restricts the response to messages changed since <modseq> and implicitly
+	// forces MODSEQ into the response (and enables CONDSTORE).
+	itemArgs, changedSince, hasChangedSince := extractChangedSince(args[1:])
+	fetchItems := parseFetchItems(itemArgs)
+	if hasChangedSince {
+		s.enabledCaps["CONDSTORE"] = true
+		fetchItems = appendItemIfAbsent(fetchItems, "MODSEQ")
+	}
 
 	if byUID {
 		translated, terr := s.uidSetToSeqSet(s.selected.Name, seqSet)
@@ -2099,6 +2133,18 @@ func (s *Session) handleFetch(args []string, line string, byUID bool) error {
 
 	if span != nil {
 		tracing.SetIntAttribute(span, "fetch.message_count", len(messages))
+	}
+
+	// RFC 7162 §3.1.4: with CHANGEDSINCE, only report messages whose mod-sequence
+	// exceeds the given value.
+	if hasChangedSince {
+		filtered := messages[:0]
+		for _, msg := range messages {
+			if msg.ModSeq > changedSince {
+				filtered = append(filtered, msg)
+			}
+		}
+		messages = filtered
 	}
 
 	for _, msg := range messages {
@@ -2269,12 +2315,20 @@ func (s *Session) handleStore(args []string, byUID bool) error {
 		}
 		messages, fetchErr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, seqSet, fetchItems)
 		if fetchErr == nil {
+			// RFC 7162 §3.2: once CONDSTORE/QRESYNC is enabled, every unsolicited
+			// FETCH (a STORE result included) MUST carry the updated MODSEQ.
+			condstore := s.enabledCaps["CONDSTORE"] || s.enabledCaps["QRESYNC"]
 			for _, msg := range messages {
+				var inner string
 				if byUID {
-					s.WriteData(fmt.Sprintf("%d FETCH (UID %d FLAGS (%s))", msg.SeqNum, msg.UID, strings.Join(msg.Flags, " ")))
+					inner = fmt.Sprintf("UID %d FLAGS (%s)", msg.UID, strings.Join(msg.Flags, " "))
 				} else {
-					s.WriteData(fmt.Sprintf("%d FETCH (FLAGS (%s))", msg.SeqNum, strings.Join(msg.Flags, " ")))
+					inner = fmt.Sprintf("FLAGS (%s)", strings.Join(msg.Flags, " "))
 				}
+				if condstore {
+					inner += fmt.Sprintf(" MODSEQ (%d)", msg.ModSeq)
+				}
+				s.WriteData(fmt.Sprintf("%d FETCH (%s)", msg.SeqNum, inner))
 			}
 		}
 	}
@@ -2995,6 +3049,22 @@ func parseSearchCriteria(args []string) SearchCriteria {
 				}
 				i++
 			}
+		case "MODSEQ":
+			// RFC 7162 §3.1.5: MODSEQ [<entry-name> <entry-type>] <modseq>. The
+			// optional entry-name is a quoted flag name followed by an entry-type
+			// (all/priv/shared); we match purely by mailbox mod-sequence, so skip
+			// the optional pair and read the trailing number.
+			j := i + 1
+			if j < len(args) && strings.HasPrefix(args[j], "\"") {
+				j += 2 // skip <entry-name> <entry-type>
+			}
+			if j < len(args) {
+				if n, err := strconv.ParseUint(args[j], 10, 64); err == nil {
+					criteria.ModSeq = n
+					criteria.HasModSeq = true
+				}
+				i = j
+			}
 		}
 	}
 
@@ -3005,6 +3075,43 @@ func parseSearchCriteria(args []string) SearchCriteria {
 func parseIMAPDate(dateStr string) (time.Time, error) {
 	// IMAP date format: 01-Jan-2024
 	return time.Parse("02-Jan-2006", dateStr)
+}
+
+// extractChangedSince splits the FETCH item args from a trailing
+// "(CHANGEDSINCE <modseq>)" modifier (RFC 7162 §3.1.4), which always follows the
+// item list. It returns the item args with the modifier removed, the modseq, and
+// whether one was present.
+func extractChangedSince(args []string) ([]string, uint64, bool) {
+	for i := 0; i < len(args); i++ {
+		if !strings.HasPrefix(strings.ToUpper(strings.TrimLeft(args[i], "(")), "CHANGEDSINCE") {
+			continue
+		}
+		var mod []string
+		for j := i; j < len(args); j++ {
+			mod = append(mod, strings.Trim(args[j], "()"))
+			if strings.HasSuffix(args[j], ")") {
+				break
+			}
+		}
+		if len(mod) >= 2 {
+			if n, err := strconv.ParseUint(mod[1], 10, 64); err == nil {
+				return args[:i], n, true
+			}
+		}
+		return args[:i], 0, false
+	}
+	return args, 0, false
+}
+
+// appendItemIfAbsent appends want to items unless a case-insensitive match is
+// already present.
+func appendItemIfAbsent(items []string, want string) []string {
+	for _, it := range items {
+		if strings.EqualFold(it, want) {
+			return items
+		}
+	}
+	return append(items, want)
 }
 
 func parseFetchItems(args []string) []string {
@@ -3081,6 +3188,9 @@ func formatFetchResponse(msg *Message, items []string) string {
 			parts = append(parts, fmt.Sprintf("RFC822.SIZE %d", msg.Size))
 		case upper == "UID":
 			parts = append(parts, fmt.Sprintf("UID %d", msg.UID))
+		case upper == "MODSEQ":
+			// RFC 7162 §3.1.4: the MODSEQ FETCH data item is a parenthesized list.
+			parts = append(parts, fmt.Sprintf("MODSEQ (%d)", msg.ModSeq))
 		case upper == "RFC822":
 			parts = append(parts, fmt.Sprintf("RFC822 {%d}\r\n%s", len(data), data))
 		case upper == "RFC822.HEADER":

@@ -976,6 +976,11 @@ func matchesCriteria(meta *storage.MessageMetadata, msgData []byte, criteria *Se
 		return false
 	}
 
+	// RFC 7162 CONDSTORE: MODSEQ matches messages with mod-sequence >= the value.
+	if criteria.HasModSeq && meta.ModSeq < criteria.ModSeq {
+		return false
+	}
+
 	// Check string criteria
 	if criteria.From != "" && !strings.Contains(strings.ToLower(meta.From), strings.ToLower(criteria.From)) {
 		return false
