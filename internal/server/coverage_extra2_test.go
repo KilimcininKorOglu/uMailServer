@@ -256,7 +256,7 @@ func TestPop3Adapter_WithMessages(t *testing.T) {
 	defer cleanup()
 	msgData := []byte("Subject: Test\r\nFrom: sender@test.com\r\n\r\nHello World")
 	for i := 0; i < 3; i++ {
-		err := adapter.mailstore.AppendMessage("testuser", "INBOX", nil, time.Now(), msgData)
+		_, err := adapter.mailstore.AppendMessage("testuser", "INBOX", nil, time.Now(), msgData)
 		if err != nil {
 			t.Fatalf("AppendMessage %d failed: %v", i, err)
 		}
@@ -308,7 +308,7 @@ func TestPop3Adapter_GetMessage_OutOfBounds(t *testing.T) {
 	adapter, cleanup := newTestPop3Adapter(t)
 	defer cleanup()
 	msgData := []byte("Subject: One\r\n\r\nBody")
-	err := adapter.mailstore.AppendMessage("testuser", "INBOX", nil, time.Now(), msgData)
+	_, err := adapter.mailstore.AppendMessage("testuser", "INBOX", nil, time.Now(), msgData)
 	if err != nil {
 		t.Fatalf("AppendMessage failed: %v", err)
 	}

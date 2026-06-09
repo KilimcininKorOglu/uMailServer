@@ -83,7 +83,7 @@ func TestAppendMessage_WithHeaders(t *testing.T) {
 	ms.CreateMailbox(user, mbox)
 
 	data := []byte("From: alice@example.com\r\nTo: bob@example.com\r\nSubject: Hello\r\nDate: Mon, 1 Jan 2024 00:00:00 +0000\r\n\r\nHello World")
-	err = ms.AppendMessage(user, mbox, []string{"\\Seen", "\\Flagged"}, time.Now(), data)
+	_, err = ms.AppendMessage(user, mbox, []string{"\\Seen", "\\Flagged"}, time.Now(), data)
 	if err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
@@ -125,11 +125,11 @@ func TestExpunge_WithDeletedMessages(t *testing.T) {
 	// Append two messages
 	data1 := []byte("From: a@b.com\r\nSubject: Msg1\r\n\r\nBody1")
 	data2 := []byte("From: c@d.com\r\nSubject: Msg2\r\n\r\nBody2")
-	err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data1)
+	_, err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data1)
 	if err != nil {
 		t.Fatalf("AppendMessage 1: %v", err)
 	}
-	err = ms.AppendMessage(user, mbox, []string{"\\Seen", "\\Deleted"}, time.Now(), data2)
+	_, err = ms.AppendMessage(user, mbox, []string{"\\Seen", "\\Deleted"}, time.Now(), data2)
 	if err != nil {
 		t.Fatalf("AppendMessage 2: %v", err)
 	}
@@ -186,11 +186,11 @@ func TestSearchMessages_WithActualMessages(t *testing.T) {
 	// Append messages with different characteristics
 	data1 := []byte("From: alice@example.com\r\nSubject: Important\r\n\r\nBody1")
 	data2 := []byte("From: bob@example.com\r\nSubject: Routine\r\n\r\nBody2")
-	err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data1)
+	_, err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data1)
 	if err != nil {
 		t.Fatalf("AppendMessage 1: %v", err)
 	}
-	err = ms.AppendMessage(user, mbox, nil, time.Now(), data2)
+	_, err = ms.AppendMessage(user, mbox, nil, time.Now(), data2)
 	if err != nil {
 		t.Fatalf("AppendMessage 2: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestFetchMessages_WithRangeAndBody(t *testing.T) {
 	// Append multiple messages
 	for i := 0; i < 3; i++ {
 		data := []byte(fmt.Sprintf("From: user%d@test.com\r\nSubject: Msg%d\r\n\r\nBody%d", i, i, i))
-		err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data)
+		_, err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data)
 		if err != nil {
 			t.Fatalf("AppendMessage %d: %v", i, err)
 		}
@@ -329,7 +329,7 @@ func TestCopyMessages_MultipleMessages(t *testing.T) {
 	// Append 3 messages
 	for i := 0; i < 3; i++ {
 		data := []byte(fmt.Sprintf("From: test@test.com\r\nSubject: Copy%d\r\n\r\nBody", i))
-		err = ms.AppendMessage(user, "INBOX", []string{"\\Seen"}, time.Now(), data)
+		_, err = ms.AppendMessage(user, "INBOX", []string{"\\Seen"}, time.Now(), data)
 		if err != nil {
 			t.Fatalf("AppendMessage %d: %v", i, err)
 		}
@@ -366,7 +366,7 @@ func TestMoveMessages_MultipleMessages(t *testing.T) {
 	// Append 2 messages
 	for i := 0; i < 2; i++ {
 		data := []byte(fmt.Sprintf("From: test@test.com\r\nSubject: Move%d\r\n\r\nBody", i))
-		err = ms.AppendMessage(user, "INBOX", []string{"\\Seen"}, time.Now(), data)
+		_, err = ms.AppendMessage(user, "INBOX", []string{"\\Seen"}, time.Now(), data)
 		if err != nil {
 			t.Fatalf("AppendMessage %d: %v", i, err)
 		}
@@ -920,7 +920,7 @@ func TestGetMessage_NoDataNeeded(t *testing.T) {
 	ms.CreateMailbox(user, mbox)
 
 	data := []byte("From: a@b.com\r\nSubject: Test\r\n\r\nBody")
-	err = ms.AppendMessage(user, mbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mbox, nil, time.Now(), data)
 	if err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
@@ -977,7 +977,7 @@ func TestStoreFlags_RemoveFlagFromEmptyFlags(t *testing.T) {
 
 	// Append message with no flags
 	data := []byte("From: a@b.com\r\nSubject: Test\r\n\r\nBody")
-	err = ms.AppendMessage(user, mbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mbox, nil, time.Now(), data)
 	if err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}

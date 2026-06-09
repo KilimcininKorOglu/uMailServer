@@ -32,7 +32,7 @@ func TestStoreFlags_RemoveFlagsWithMessages(t *testing.T) {
 
 	// Append a message with initial flags
 	data := []byte("From: a@b.com\r\nSubject: Test\r\n\r\nBody")
-	err = ms.AppendMessage(user, mbox, []string{"\\Seen", "\\Flagged"}, time.Now(), data)
+	_, err = ms.AppendMessage(user, mbox, []string{"\\Seen", "\\Flagged"}, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestStoreFlags_AddAlreadyPresent(t *testing.T) {
 	ms.CreateMailbox(user, mbox)
 
 	data := []byte("From: a@b.com\r\nSubject: Test\r\n\r\nBody")
-	err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data)
+	_, err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestSearchMessages_CriteriaMatch(t *testing.T) {
 	ms.CreateMailbox(user, mbox)
 
 	data := []byte("From: alice@example.com\r\nSubject: Hello\r\n\r\nBody text")
-	err = ms.AppendMessage(user, mbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mbox, nil, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage: %v", err)
 	}
@@ -731,7 +731,7 @@ func TestCopyMessages_WithMessages(t *testing.T) {
 	ms.CreateMailbox(user, "Sent")
 
 	data := []byte("From: a@b.com\r\nSubject: Test\r\n\r\nBody")
-	err = ms.AppendMessage(user, "INBOX", []string{"\\Seen"}, time.Now(), data)
+	_, err = ms.AppendMessage(user, "INBOX", []string{"\\Seen"}, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage: %v", err)
 	}
@@ -777,7 +777,7 @@ func TestMoveMessages_WithMessages(t *testing.T) {
 	ms.CreateMailbox(user, "Archive")
 
 	data := []byte("From: a@b.com\r\nSubject: Test\r\n\r\nBody")
-	err = ms.AppendMessage(user, "INBOX", []string{"\\Seen"}, time.Now(), data)
+	_, err = ms.AppendMessage(user, "INBOX", []string{"\\Seen"}, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage: %v", err)
 	}
@@ -823,7 +823,7 @@ func TestFetchMessages_WithBodyItems(t *testing.T) {
 	ms.CreateMailbox(user, mbox)
 
 	data := []byte("From: a@b.com\r\nSubject: Test\r\n\r\nHello World")
-	err = ms.AppendMessage(user, mbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mbox, nil, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage: %v", err)
 	}
@@ -876,7 +876,7 @@ func TestExpunge_NoDeletedMessages(t *testing.T) {
 	ms.CreateMailbox(user, mbox)
 
 	data := []byte("From: a@b.com\r\nSubject: Test\r\n\r\nBody")
-	err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data)
+	_, err = ms.AppendMessage(user, mbox, []string{"\\Seen"}, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage: %v", err)
 	}
@@ -910,7 +910,7 @@ func TestAppendMessage_EmptyData(t *testing.T) {
 	mbox := "INBOX"
 	ms.CreateMailbox(user, mbox)
 
-	err = ms.AppendMessage(user, mbox, nil, time.Now(), []byte{})
+	_, err = ms.AppendMessage(user, mbox, nil, time.Now(), []byte{})
 	if err != nil {
 		t.Logf("AppendMessage with empty data: %v", err)
 	}

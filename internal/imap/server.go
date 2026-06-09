@@ -80,6 +80,14 @@ type CopyUIDs struct {
 	DstUIDs     []uint32
 }
 
+// AppendUID reports the UID an APPEND assigned together with the destination
+// mailbox UIDVALIDITY, for the RFC 4315 APPENDUID response code. UID is 0 when
+// nothing was stored (the caller then omits APPENDUID).
+type AppendUID struct {
+	UIDValidity uint32
+	UID         uint32
+}
+
 // Mailstore interface for mailbox operations
 type Mailstore interface {
 	// Authentication
@@ -106,7 +114,9 @@ type Mailstore interface {
 	// message sequence numbers (for untagged EXPUNGE responses) and the matching
 	// UIDs (for search-index cleanup) of the removed messages.
 	ExpungeUIDs(user, mailbox string, ranges []SeqRange) (seqs []uint32, uids []uint32, err error)
-	AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) error
+	// AppendMessage stores the message in the mailbox and returns the RFC 4315
+	// APPENDUID mapping (the assigned UID with the mailbox UIDVALIDITY).
+	AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) (AppendUID, error)
 	SearchMessages(user, mailbox string, criteria SearchCriteria) ([]uint32, error)
 	// CopyMessages copies the messages to destMailbox and returns the RFC 4315
 	// COPYUID mapping (source UID -> destination UID, with the dest UIDVALIDITY).

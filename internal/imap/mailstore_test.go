@@ -334,7 +334,7 @@ func TestBboltMailstoreStoreAndExpunge(t *testing.T) {
 
 	// Store a message
 	data := []byte("From: test@example.com\r\nSubject: Test\r\n\r\nTest body")
-	err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
 	if err != nil {
 		t.Logf("AppendMessage may require full implementation: %v", err)
 	}
@@ -704,7 +704,7 @@ func TestBboltMailstoreStoreFlagsWithMessages(t *testing.T) {
 
 	// Append a message first
 	data := []byte("From: test@example.com\r\nSubject: Test\r\n\r\nTest body")
-	err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage requires full implementation: %v", err)
 	}
@@ -743,7 +743,7 @@ func TestBboltMailstoreFetchMessagesWithData(t *testing.T) {
 
 	// Append a message
 	data := []byte("From: test@example.com\r\nSubject: Test Message\r\n\r\nTest body content")
-	err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage requires full implementation: %v", err)
 	}
@@ -793,7 +793,7 @@ func TestBboltMailstoreExpungeWithDeleted(t *testing.T) {
 
 	// Append a message
 	data := []byte("From: test@example.com\r\nSubject: Test\r\n\r\nTest body")
-	err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage requires full implementation: %v", err)
 	}
@@ -835,7 +835,7 @@ func TestBboltMailstoreCopyMessagesWithData(t *testing.T) {
 
 	// Append a message to source
 	data := []byte("From: test@example.com\r\nSubject: Test\r\n\r\nTest body")
-	err = ms.AppendMessage(user, srcBox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, srcBox, nil, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage requires full implementation: %v", err)
 	}
@@ -871,7 +871,7 @@ func TestBboltMailstoreMoveMessagesWithData(t *testing.T) {
 
 	// Append a message to source
 	data := []byte("From: test@example.com\r\nSubject: Test\r\n\r\nTest body")
-	err = ms.AppendMessage(user, srcBox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, srcBox, nil, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage requires full implementation: %v", err)
 	}
@@ -904,7 +904,7 @@ func TestMoveMessagesIsAtomicRFC6851(t *testing.T) {
 			t.Fatalf("CreateMailbox %s: %v", mb, err)
 		}
 	}
-	if err := ms.AppendMessage(user, srcBox, nil, time.Now(),
+	if _, err := ms.AppendMessage(user, srcBox, nil, time.Now(),
 		[]byte("From: a@b\r\nSubject: move-me\r\n\r\nbody\r\n")); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
@@ -955,7 +955,7 @@ func TestCopyMessagesReportsCopyUID(t *testing.T) {
 		}
 	}
 	for _, subj := range []string{"copy-1", "copy-2"} {
-		if err := ms.AppendMessage(user, srcBox, nil, time.Now(),
+		if _, err := ms.AppendMessage(user, srcBox, nil, time.Now(),
 			[]byte("From: a@b\r\nSubject: "+subj+"\r\n\r\nbody\r\n")); err != nil {
 			t.Fatalf("AppendMessage %s: %v", subj, err)
 		}
@@ -1009,7 +1009,7 @@ func TestMoveMessagesReportsCopyUID(t *testing.T) {
 			t.Fatalf("CreateMailbox %s: %v", mb, err)
 		}
 	}
-	if err := ms.AppendMessage(user, srcBox, nil, time.Now(),
+	if _, err := ms.AppendMessage(user, srcBox, nil, time.Now(),
 		[]byte("From: a@b\r\nSubject: move-copyuid\r\n\r\nbody\r\n")); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
@@ -1026,6 +1026,55 @@ func TestMoveMessagesReportsCopyUID(t *testing.T) {
 	}
 	if copied.SrcUIDs[0] != 1 {
 		t.Errorf("source UID = %d, want 1", copied.SrcUIDs[0])
+	}
+}
+
+// TestAppendMessageReportsAppendUID verifies AppendMessage returns the RFC 4315
+// APPENDUID mapping: the assigned UID (monotonic per append) and the mailbox
+// UIDVALIDITY the handler needs to emit the [APPENDUID ...] response code.
+func TestAppendMessageReportsAppendUID(t *testing.T) {
+	ms, err := NewBboltMailstore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewBboltMailstore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := ms.Close(); err != nil {
+			t.Errorf("ms.Close: %v", err)
+		}
+	})
+
+	const user, box = "testuser", "INBOX"
+	if err := ms.CreateMailbox(user, box); err != nil {
+		t.Fatalf("CreateMailbox: %v", err)
+	}
+
+	first, err := ms.AppendMessage(user, box, nil, time.Now(),
+		[]byte("From: a@b\r\nSubject: append-1\r\n\r\nbody one\r\n"))
+	if err != nil {
+		t.Fatalf("AppendMessage 1: %v", err)
+	}
+	mb, err := ms.db.GetMailbox(user, box)
+	if err != nil {
+		t.Fatalf("GetMailbox: %v", err)
+	}
+	if first.UIDValidity != mb.UIDValidity || first.UIDValidity == 0 {
+		t.Errorf("APPENDUID validity = %d, want non-zero mailbox UIDVALIDITY %d", first.UIDValidity, mb.UIDValidity)
+	}
+	if first.UID == 0 {
+		t.Errorf("APPENDUID must report the assigned UID, got 0")
+	}
+
+	// A second append reports the next (higher) UID, same UIDVALIDITY.
+	second, err := ms.AppendMessage(user, box, nil, time.Now(),
+		[]byte("From: a@b\r\nSubject: append-2\r\n\r\nbody two\r\n"))
+	if err != nil {
+		t.Fatalf("AppendMessage 2: %v", err)
+	}
+	if second.UID <= first.UID {
+		t.Errorf("second APPENDUID UID = %d, want > first UID %d", second.UID, first.UID)
+	}
+	if second.UIDValidity != first.UIDValidity {
+		t.Errorf("UIDVALIDITY changed across appends: %d then %d", first.UIDValidity, second.UIDValidity)
 	}
 }
 
@@ -1050,7 +1099,7 @@ func TestBboltMailstoreSearchMessagesAdvanced(t *testing.T) {
 
 	// Append a message
 	data := []byte("From: test@example.com\r\nSubject: Test\r\n\r\nTest body")
-	err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
+	_, err = ms.AppendMessage(user, mailbox, nil, time.Now(), data)
 	if err != nil {
 		t.Skipf("AppendMessage requires full implementation: %v", err)
 	}

@@ -1569,7 +1569,7 @@ func TestHandleUIDCommands_TargetByUID(t *testing.T) {
 
 	for _, subj := range []string{"m1", "m2", "m3", "m4"} {
 		body := []byte("From: a@b.com\r\nSubject: " + subj + "\r\n\r\nBody " + subj)
-		if err := ms.AppendMessage(user, mbox, nil, time.Now(), body); err != nil {
+		if _, err := ms.AppendMessage(user, mbox, nil, time.Now(), body); err != nil {
 			t.Fatalf("AppendMessage %s: %v", subj, err)
 		}
 	}
@@ -1837,13 +1837,13 @@ func TestHandleUIDExpunge(t *testing.T) {
 	}
 
 	// Append three messages -> sequence numbers / UIDs 1, 2, 3.
-	if err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: One\r\n\r\nBody")); err != nil {
+	if _, err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: One\r\n\r\nBody")); err != nil {
 		t.Fatalf("AppendMessage 1: %v", err)
 	}
-	if err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: Two\r\n\r\nBody")); err != nil {
+	if _, err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: Two\r\n\r\nBody")); err != nil {
 		t.Fatalf("AppendMessage 2: %v", err)
 	}
-	if err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: Three\r\n\r\nBody")); err != nil {
+	if _, err := ms.AppendMessage(user, mbox, nil, time.Now(), []byte("From: a@b.com\r\nSubject: Three\r\n\r\nBody")); err != nil {
 		t.Fatalf("AppendMessage 3: %v", err)
 	}
 
@@ -3431,5 +3431,22 @@ func TestCopyUIDCode(t *testing.T) {
 	}
 	if got := copyUIDCode(CopyUIDs{UIDValidity: 42, SrcUIDs: []uint32{1, 2}, DstUIDs: []uint32{10, 11}}); got != "[COPYUID 42 1:2 10:11]" {
 		t.Errorf("copyUIDCode = %q, want %q", got, "[COPYUID 42 1:2 10:11]")
+	}
+}
+
+// TestAppendUIDCode verifies the APPENDUID response code: single UID, a
+// MULTIAPPEND run collapsed to a:b, and omission when nothing was stored.
+func TestAppendUIDCode(t *testing.T) {
+	if got := appendUIDCode(0, nil); got != "" {
+		t.Errorf("no validity/uids should yield no APPENDUID code, got %q", got)
+	}
+	if got := appendUIDCode(7, nil); got != "" {
+		t.Errorf("no uids should yield no APPENDUID code, got %q", got)
+	}
+	if got := appendUIDCode(7, []uint32{5}); got != "[APPENDUID 7 5]" {
+		t.Errorf("single-UID appendUIDCode = %q, want %q", got, "[APPENDUID 7 5]")
+	}
+	if got := appendUIDCode(7, []uint32{3, 4, 5}); got != "[APPENDUID 7 3:5]" {
+		t.Errorf("MULTIAPPEND appendUIDCode = %q, want %q", got, "[APPENDUID 7 3:5]")
 	}
 }

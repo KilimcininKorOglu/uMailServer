@@ -1121,9 +1121,15 @@ func (s *Session) handleAppend(args []string, line string) error {
 		return err
 	}
 
+	// Collect the UID(s) assigned for the RFC 4315 APPENDUID response. A
+	// MULTIAPPEND assigns one per message in the same mailbox, so the UIDVALIDITY
+	// is captured once from the first stored message.
+	var appendedUIDs []uint32
+	var appendUIDValidity uint32
+
 	// Append to mailbox
 	if s.server.mailstore != nil {
-		err := s.server.mailstore.AppendMessage(s.user, mailboxName, flags, date, data)
+		au, err := s.server.mailstore.AppendMessage(s.user, mailboxName, flags, date, data)
 		if err != nil {
 			s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 			if span != nil {
@@ -1132,6 +1138,8 @@ func (s *Session) handleAppend(args []string, line string) error {
 			}
 			return nil
 		}
+		appendedUIDs = append(appendedUIDs, au.UID)
+		appendUIDValidity = au.UIDValidity
 	}
 
 	// RFC 7889 MULTIAPPEND: Check for additional messages already buffered in
@@ -1201,11 +1209,12 @@ func (s *Session) handleAppend(args []string, line string) error {
 		}
 
 		if s.server.mailstore != nil {
-			err := s.server.mailstore.AppendMessage(s.user, mailboxName, nil, time.Now(), data)
+			au, err := s.server.mailstore.AppendMessage(s.user, mailboxName, nil, time.Now(), data)
 			if err != nil {
 				s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 				return nil
 			}
+			appendedUIDs = append(appendedUIDs, au.UID)
 		}
 	}
 
@@ -1213,7 +1222,12 @@ func (s *Session) handleAppend(args []string, line string) error {
 		tracing.SetStatus(span, tracing.StatusOk, "")
 	}
 
-	s.WriteResponse(s.tag, "OK APPEND completed")
+	// RFC 4315 UIDPLUS: report the assigned UID(s) in the tagged OK.
+	if code := appendUIDCode(appendUIDValidity, appendedUIDs); code != "" {
+		s.WriteResponse(s.tag, "OK "+code+" APPEND completed")
+	} else {
+		s.WriteResponse(s.tag, "OK APPEND completed")
+	}
 	return nil
 }
 
@@ -2329,6 +2343,16 @@ func copyUIDCode(cu CopyUIDs) string {
 		return ""
 	}
 	return fmt.Sprintf("[COPYUID %d %s %s]", cu.UIDValidity, uidSetString(cu.SrcUIDs), uidSetString(cu.DstUIDs))
+}
+
+// appendUIDCode returns the RFC 4315 "[APPENDUID validity uidset]" response code
+// for an APPEND (uidset is a single UID, or the run of UIDs a MULTIAPPEND
+// assigned), or "" when nothing was stored (so the caller omits it).
+func appendUIDCode(uidValidity uint32, uids []uint32) string {
+	if uidValidity == 0 || len(uids) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("[APPENDUID %d %s]", uidValidity, uidSetString(uids))
 }
 
 func (s *Session) handleCopy(args []string, byUID bool) error {

@@ -710,10 +710,10 @@ func parseMessageHeaders(data []byte) (subject, from, to, date string) {
 }
 
 // AppendMessage appends a message to a mailbox
-func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) error {
+func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) (AppendUID, error) {
 	// RFC 3629: validate UTF-8 well-formedness before storing
 	if !utf8.Valid(data) {
-		return fmt.Errorf("message contains invalid UTF-8 sequence")
+		return AppendUID{}, fmt.Errorf("message contains invalid UTF-8 sequence")
 	}
 
 	// Canonical mutation: assign semantic identity through the unified pipeline.
@@ -758,13 +758,20 @@ func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, dat
 	// Store message
 	messageID, err := m.msgStore.StoreMessage(user, data)
 	if err != nil {
-		return err
+		return AppendUID{}, err
 	}
 
 	// Get next UID
 	uid, err := m.db.GetNextUID(user, mailbox)
 	if err != nil {
-		return err
+		return AppendUID{}, err
+	}
+
+	// Mailbox UIDVALIDITY for the RFC 4315 APPENDUID response (GetMailbox is a
+	// pure read — unlike SelectMailbox it does not clear \Recent).
+	var uidValidity uint32
+	if mb, mErr := m.db.GetMailbox(user, mailbox); mErr == nil {
+		uidValidity = mb.UIDValidity
 	}
 
 	// Parse basic headers for indexing
@@ -807,7 +814,7 @@ func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, dat
 	}
 
 	if err := m.db.StoreMessageMetadata(user, mailbox, uid, meta); err != nil {
-		return err
+		return AppendUID{}, err
 	}
 
 	// Update thread information
@@ -820,14 +827,14 @@ func (m *BboltMailstore) AppendMessage(user, mailbox string, flags []string, dat
 	if err == nil {
 		uidCount := len(uids)
 		if uidCount > 0x7FFFFFFF {
-			return fmt.Errorf("mailbox exceeds maximum message count")
+			return AppendUID{UIDValidity: uidValidity, UID: uid}, fmt.Errorf("mailbox exceeds maximum message count")
 		}
 		seqNum := uint32(uidCount)
 		// Notify subscribers about the new message
 		GetNotificationHub().NotifyNewMessage(user, mailbox, uid, seqNum)
 	}
 
-	return nil
+	return AppendUID{UIDValidity: uidValidity, UID: uid}, nil
 }
 
 // updateThreadInfo updates the thread summary information

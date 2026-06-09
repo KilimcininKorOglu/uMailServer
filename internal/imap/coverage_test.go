@@ -641,9 +641,9 @@ func (f *failingMailstore) SelectMailbox(user, mailbox string) (*Mailbox, error)
 	return f.mockMailstore.SelectMailbox(user, mailbox)
 }
 
-func (f *failingMailstore) AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) error {
+func (f *failingMailstore) AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) (AppendUID, error) {
 	if f.appendErr != nil {
-		return f.appendErr
+		return AppendUID{}, f.appendErr
 	}
 	return f.mockMailstore.AppendMessage(user, mailbox, flags, date, data)
 }
