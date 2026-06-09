@@ -151,6 +151,48 @@ func TestCoverEHLO_CRAMMD5Capability(t *testing.T) {
 	}
 }
 
+// TestEHLO_AuthCapabilityKeyword pins the RFC 4954 §6 form of the AUTH
+// capability line: the "AUTH" keyword followed by the mechanism list. A prior
+// bug advertised just "PLAIN LOGIN SCRAM-SHA-256" without the keyword, so
+// RFC-compliant clients (Outlook, Thunderbird, smtplib) could not detect AUTH
+// support and failed to authenticate on submission.
+func TestEHLO_AuthCapabilityKeyword(t *testing.T) {
+	s, clientConn, reader := createSessionWithPipe(t)
+	defer clientConn.Close() //nolint:errcheck // test cleanup
+	s.server.config.AllowInsecure = true
+	s.server.config.IsSubmission = true
+
+	go func() {
+		_ = s.HandleCommand("EHLO testclient") //nolint:errcheck // EHLO write errors surface as a read failure below
+	}()
+
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	var fullResp string
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("failed to read EHLO response: %v", err)
+		}
+		fullResp += line
+		if strings.HasPrefix(line, "250 ") {
+			break
+		}
+	}
+
+	if !strings.Contains(fullResp, "AUTH PLAIN LOGIN SCRAM-SHA-256") {
+		t.Errorf("EHLO must advertise the AUTH capability with its keyword (RFC 4954 §6), got: %q", fullResp)
+	}
+	// Guard against regressing to a bare mechanism line with no AUTH keyword.
+	for _, line := range strings.Split(fullResp, "\r\n") {
+		trimmed := strings.TrimLeft(line, "250- ")
+		if strings.HasPrefix(trimmed, "PLAIN LOGIN") {
+			t.Errorf("AUTH mechanisms advertised without the AUTH keyword: %q", line)
+		}
+	}
+}
+
 func TestCoverMAIL_SubmissionModeRequireAuth(t *testing.T) {
 	s, clientConn, reader := createSessionWithPipe(t)
 	defer clientConn.Close()

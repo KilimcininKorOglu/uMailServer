@@ -232,12 +232,17 @@ func (s *Session) handleEHLO(arg string) error {
 
 	// Only advertise AUTH after TLS or if insecure auth is allowed on submission
 	if s.isTLS || (s.server.config.IsSubmission && s.server.config.AllowInsecure) {
-		authMechs := []string{"PLAIN LOGIN", "SCRAM-SHA-256"}
+		authMechs := []string{"PLAIN", "LOGIN", "SCRAM-SHA-256"}
 		// CRAM-MD5 disabled: HMAC-MD5 is cryptographically broken
 		// if s.server.onGetUserSecret != nil {
 		// 	authMechs = append(authMechs, "CRAM-MD5")
 		// }
-		capabilities = append(capabilities, strings.Join(authMechs, " "))
+		// RFC 4954 §6: the capability line is the "AUTH" keyword followed by the
+		// space-separated mechanism list ("AUTH PLAIN LOGIN SCRAM-SHA-256").
+		// Without the leading keyword, RFC-compliant clients (Outlook,
+		// Thunderbird, Python smtplib) do not detect AUTH support and cannot
+		// authenticate to submit mail.
+		capabilities = append(capabilities, "AUTH "+strings.Join(authMechs, " "))
 		// Warn if AUTH is advertised over non-TLS connection
 		if !s.isTLS && s.server.config.IsSubmission && s.server.config.AllowInsecure {
 			s.server.logger.Warn("SMTP AUTH advertised over unencrypted connection - credentials may be exposed",
