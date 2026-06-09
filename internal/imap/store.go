@@ -23,6 +23,12 @@ type MetadataStore interface {
 	GetHighestModSeq(user, mailbox string) (uint64, error)
 	GetNextModSeq(user, mailbox string) (uint64, error)
 
+	// RFC 7162 QRESYNC expunge tombstones: record the UIDs removed by an expunge
+	// at the given mod-sequence, and report those expunged at a mod-sequence
+	// greater than sinceModSeq (for VANISHED EARLIER).
+	RecordExpungedUIDs(user, mailbox string, uids []uint32, modSeq uint64) error
+	ExpungedUIDsSince(user, mailbox string, sinceModSeq uint64) ([]uint32, error)
+
 	GetNextUID(user, mailbox string) (uint32, error)
 	ReconcileUIDNext(user, mailbox string) error
 	GetMessageUIDs(user, mailbox string) ([]uint32, error)

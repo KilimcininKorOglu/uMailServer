@@ -1772,3 +1772,64 @@ func TestStoreMessageMetadataAssignsArrivalModSeq(t *testing.T) {
 		t.Errorf("explicit mod-sequence must be preserved, got %d want 9999", got3.ModSeq)
 	}
 }
+
+// TestExpungedUIDTombstones verifies the RFC 7162 QRESYNC tombstone store:
+// expunged UIDs are reported in ascending order only at a mod-sequence strictly
+// greater than the queried one, and are dropped when the mailbox is deleted.
+func TestExpungedUIDTombstones(t *testing.T) {
+	db := setupTestDB(t)
+	const user, mailbox = "u@test", "INBOX"
+
+	eq := func(got, want []uint32) bool {
+		if len(got) != len(want) {
+			return false
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	if err := db.RecordExpungedUIDs(user, mailbox, []uint32{3, 7, 9}, 50); err != nil {
+		t.Fatalf("RecordExpungedUIDs: %v", err)
+	}
+	got, err := db.ExpungedUIDsSince(user, mailbox, 49)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince: %v", err)
+	}
+	if !eq(got, []uint32{3, 7, 9}) {
+		t.Errorf("expunged since 49 = %v, want [3 7 9]", got)
+	}
+	// Strict >: a query at the exact mod-sequence returns nothing.
+	got, err = db.ExpungedUIDsSince(user, mailbox, 50)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince(50): %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expunged since 50 should be empty (strict >), got %v", got)
+	}
+	// A later expunge at a higher mod-sequence is reported above the boundary.
+	if err := db.RecordExpungedUIDs(user, mailbox, []uint32{12}, 60); err != nil {
+		t.Fatalf("RecordExpungedUIDs 2: %v", err)
+	}
+	got, err = db.ExpungedUIDsSince(user, mailbox, 50)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince(50) again: %v", err)
+	}
+	if !eq(got, []uint32{12}) {
+		t.Errorf("expunged since 50 = %v, want [12]", got)
+	}
+	// DeleteMailbox drops the tombstones.
+	if err := db.DeleteMailbox(user, mailbox); err != nil {
+		t.Fatalf("DeleteMailbox: %v", err)
+	}
+	got, err = db.ExpungedUIDsSince(user, mailbox, 0)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince(0): %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("tombstones should be gone after DeleteMailbox, got %v", got)
+	}
+}

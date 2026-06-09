@@ -556,6 +556,7 @@ func (m *BboltMailstore) Expunge(user, mailbox string) error {
 		return err
 	}
 
+	var expunged []uint32
 	for _, uid := range uids {
 		meta, err := m.db.GetMessageMetadata(user, mailbox, uid)
 		if err != nil {
@@ -570,10 +571,28 @@ func (m *BboltMailstore) Expunge(user, mailbox string) error {
 			// Drop the semcore identity too so the message does not ghost in
 			// EWS FindItem after it is gone from the IMAP index.
 			m.removeSemcoreIdentity(user, mailbox, meta.MessageID)
+			expunged = append(expunged, uid)
 		}
 	}
 
+	m.recordExpunged(user, mailbox, expunged)
 	return nil
+}
+
+// recordExpunged stamps an RFC 7162 expunge tombstone for the removed UIDs at a
+// fresh mailbox mod-sequence, so a later QRESYNC SELECT can replay them as
+// VANISHED (EARLIER). Best-effort: a failure only weakens QRESYNC for this
+// expunge, it does not affect mailbox correctness.
+func (m *BboltMailstore) recordExpunged(user, mailbox string, uids []uint32) {
+	if len(uids) == 0 {
+		return
+	}
+	modSeq, err := m.db.GetNextModSeq(user, mailbox)
+	if err != nil {
+		return
+	}
+	//nolint:errcheck // best-effort: a failure only weakens QRESYNC for this expunge
+	m.db.RecordExpungedUIDs(user, mailbox, uids, modSeq)
 }
 
 // ExpungeUIDs removes messages that carry the \Deleted flag AND whose UID is
@@ -640,6 +659,7 @@ func (m *BboltMailstore) ExpungeUIDs(user, mailbox string, ranges []SeqRange) (s
 		}
 	}
 
+	m.recordExpunged(user, mailbox, uids)
 	return seqs, uids, err
 }
 

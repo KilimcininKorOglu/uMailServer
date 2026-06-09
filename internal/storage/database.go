@@ -85,6 +85,13 @@ func messagesBucket(user, mailbox string) string {
 	return fmt.Sprintf("msgs:%s:%s", user, mailbox)
 }
 
+// expungedBucket returns the bucket name holding a mailbox's RFC 7162 expunge
+// tombstones (uid -> mod-sequence at expunge time), used to answer QRESYNC
+// VANISHED (EARLIER).
+func expungedBucket(user, mailbox string) string {
+	return fmt.Sprintf("expunged:%s:%s", user, mailbox)
+}
+
 // GetMailbox retrieves mailbox information
 func (db *Database) GetMailbox(user, mailbox string) (*Mailbox, error) {
 	if db.bolt == nil {
@@ -218,6 +225,9 @@ func (db *Database) DeleteMailbox(user, mailbox string) error {
 		if err := tx.DeleteBucket([]byte(messagesBucket(user, mailbox))); err != nil && err != bolterrors.ErrBucketNotFound {
 			return err
 		}
+		if err := tx.DeleteBucket([]byte(expungedBucket(user, mailbox))); err != nil && err != bolterrors.ErrBucketNotFound {
+			return err
+		}
 		return nil
 	})
 	if err == nil && existed {
@@ -281,6 +291,24 @@ func (db *Database) RenameMailbox(user, oldName, newName string) error {
 			if err := oldMB.ForEach(func(k, v []byte) error {
 				return newMB.Put(k, v)
 			}); err != nil {
+				return err
+			}
+		}
+
+		// Carry the RFC 7162 expunge tombstones across the rename so QRESYNC
+		// VANISHED still resolves against the renamed mailbox.
+		oldExp := expungedBucket(user, oldName)
+		if oldEB := tx.Bucket([]byte(oldExp)); oldEB != nil {
+			newEB, err := tx.CreateBucketIfNotExists([]byte(expungedBucket(user, newName)))
+			if err != nil {
+				return err
+			}
+			if err := oldEB.ForEach(func(k, v []byte) error {
+				return newEB.Put(k, v)
+			}); err != nil {
+				return err
+			}
+			if err := tx.DeleteBucket([]byte(oldExp)); err != nil {
 				return err
 			}
 		}
@@ -517,6 +545,50 @@ func (db *Database) GetHighestModSeq(user, mailbox string) (uint64, error) {
 		return nil
 	})
 	return modSeq, err
+}
+
+// RecordExpungedUIDs stores an RFC 7162 expunge tombstone (uid -> modSeq) for
+// each expunged UID, so a later QRESYNC SELECT can report them as VANISHED
+// (EARLIER). modSeq is the mailbox mod-sequence assigned to the expunge.
+func (db *Database) RecordExpungedUIDs(user, mailbox string, uids []uint32, modSeq uint64) error {
+	if db.bolt == nil || len(uids) == 0 {
+		return nil
+	}
+	return db.bolt.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(expungedBucket(user, mailbox)))
+		if err != nil {
+			return err
+		}
+		for _, uid := range uids {
+			if err := b.Put(itob(uid), itob64(modSeq)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ExpungedUIDsSince returns, in ascending order, the UIDs expunged from the
+// mailbox at a mod-sequence greater than sinceModSeq (RFC 7162 QRESYNC VANISHED
+// EARLIER). Keys are big-endian UIDs, so iteration is already ascending.
+func (db *Database) ExpungedUIDsSince(user, mailbox string, sinceModSeq uint64) ([]uint32, error) {
+	if db.bolt == nil {
+		return nil, nil
+	}
+	var uids []uint32
+	err := db.bolt.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(expungedBucket(user, mailbox)))
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			if btoi64(v) > sinceModSeq {
+				uids = append(uids, btoi(k))
+			}
+			return nil
+		})
+	})
+	return uids, err
 }
 
 // MessageMetadata stores message metadata

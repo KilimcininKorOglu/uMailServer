@@ -1078,6 +1078,49 @@ func TestAppendMessageReportsAppendUID(t *testing.T) {
 	}
 }
 
+// TestExpungeRecordsTombstone verifies an expunge stamps an RFC 7162 QRESYNC
+// tombstone for the removed UID so it can later be reported as VANISHED.
+func TestExpungeRecordsTombstone(t *testing.T) {
+	ms, err := NewBboltMailstore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewBboltMailstore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := ms.Close(); err != nil {
+			t.Errorf("ms.Close: %v", err)
+		}
+	})
+
+	const user, box = "testuser", "INBOX"
+	if err := ms.CreateMailbox(user, box); err != nil {
+		t.Fatalf("CreateMailbox: %v", err)
+	}
+	if _, err := ms.AppendMessage(user, box, nil, time.Now(),
+		[]byte("From: a@b\r\nSubject: expunge-me\r\n\r\nbody\r\n")); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := ms.StoreFlags(user, box, "1", []string{"\\Deleted"}, FlagAdd); err != nil {
+		t.Fatalf("StoreFlags \\Deleted: %v", err)
+	}
+
+	_, uids, err := ms.ExpungeUIDs(user, box, []SeqRange{{Start: 1, End: 1}})
+	if err != nil {
+		t.Fatalf("ExpungeUIDs: %v", err)
+	}
+	if len(uids) != 1 || uids[0] != 1 {
+		t.Fatalf("ExpungeUIDs removed %v, want [1]", uids)
+	}
+
+	// The expunged UID is reported by the tombstone store from mod-sequence 0.
+	vanished, err := ms.db.ExpungedUIDsSince(user, box, 0)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince: %v", err)
+	}
+	if len(vanished) != 1 || vanished[0] != 1 {
+		t.Errorf("expunge should record a tombstone for UID 1, got %v", vanished)
+	}
+}
+
 // TestSearchMessagesMODSEQ verifies the RFC 7162 MODSEQ search criterion filters
 // to messages whose mod-sequence is >= the requested value. A flag change bumps
 // one message's mod-sequence so it sorts above the other.

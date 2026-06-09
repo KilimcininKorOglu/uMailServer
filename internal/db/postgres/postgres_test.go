@@ -1022,6 +1022,68 @@ func TestStoreMessageMetadataAssignsArrivalModSeq(t *testing.T) {
 	}
 }
 
+// TestExpungedUIDTombstones verifies the RFC 7162 QRESYNC tombstone store on
+// Postgres: expunged UIDs are reported ascending at a mod-sequence strictly
+// greater than the queried one, and the FK cascade drops them on mailbox delete.
+func TestExpungedUIDTombstones(t *testing.T) {
+	d := openTestDB(t)
+	const user, mbox = "vanish@x.com", "INBOX"
+	if err := d.CreateMailbox(user, mbox); err != nil {
+		t.Fatalf("CreateMailbox: %v", err)
+	}
+
+	eq := func(got, want []uint32) bool {
+		if len(got) != len(want) {
+			return false
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	if err := d.RecordExpungedUIDs(user, mbox, []uint32{3, 7, 9}, 50); err != nil {
+		t.Fatalf("RecordExpungedUIDs: %v", err)
+	}
+	got, err := d.ExpungedUIDsSince(user, mbox, 49)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince: %v", err)
+	}
+	if !eq(got, []uint32{3, 7, 9}) {
+		t.Errorf("expunged since 49 = %v, want [3 7 9]", got)
+	}
+	got, err = d.ExpungedUIDsSince(user, mbox, 50)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince(50): %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expunged since 50 should be empty (strict >), got %v", got)
+	}
+	if err := d.RecordExpungedUIDs(user, mbox, []uint32{12}, 60); err != nil {
+		t.Fatalf("RecordExpungedUIDs 2: %v", err)
+	}
+	got, err = d.ExpungedUIDsSince(user, mbox, 50)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince(50) again: %v", err)
+	}
+	if !eq(got, []uint32{12}) {
+		t.Errorf("expunged since 50 = %v, want [12]", got)
+	}
+	// The FK cascade drops tombstones when the mailbox is deleted.
+	if err := d.DeleteMailbox(user, mbox); err != nil {
+		t.Fatalf("DeleteMailbox: %v", err)
+	}
+	got, err = d.ExpungedUIDsSince(user, mbox, 0)
+	if err != nil {
+		t.Fatalf("ExpungedUIDsSince(0): %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("tombstones should cascade-delete with the mailbox, got %v", got)
+	}
+}
+
 // TestMessageCRUD covers store/get/update/delete, counts, the atomic modseq
 // bump in UpdateMessageMetadataFunc, ClearRecent, and the generated search
 // vector — against real Postgres.

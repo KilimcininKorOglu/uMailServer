@@ -151,6 +151,60 @@ func (d *DB) DeleteMessage(user, mailbox string, uid uint32) error {
 	return nil
 }
 
+// RecordExpungedUIDs stores an RFC 7162 expunge tombstone (uid -> modSeq) for
+// each expunged UID so a later QRESYNC SELECT can report them as VANISHED
+// (EARLIER). The rows cascade with their mailbox on delete/rename.
+func (d *DB) RecordExpungedUIDs(user, mailbox string, uids []uint32, modSeq uint64) error {
+	if len(uids) == 0 {
+		return nil
+	}
+	ctx := context.Background()
+	batch := &pgx.Batch{}
+	for _, uid := range uids {
+		batch.Queue(
+			`INSERT INTO expunged_messages (user_email, mailbox, uid, mod_seq)
+			 VALUES ($1,$2,$3,$4)
+			 ON CONFLICT (user_email, mailbox, uid) DO UPDATE SET mod_seq=EXCLUDED.mod_seq`,
+			user, mailbox, int64(uid), int64(modSeq))
+	}
+	br := d.pool.SendBatch(ctx, batch)
+	defer br.Close() //nolint:errcheck // close reports the first exec error below
+	for range uids {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("postgres: record expunged %s/%s: %w", user, mailbox, err)
+		}
+	}
+	return nil
+}
+
+// ExpungedUIDsSince returns, in ascending UID order, the UIDs expunged from the
+// mailbox at a mod-sequence greater than sinceModSeq (RFC 7162 QRESYNC VANISHED
+// EARLIER).
+func (d *DB) ExpungedUIDsSince(user, mailbox string, sinceModSeq uint64) ([]uint32, error) {
+	ctx := context.Background()
+	rows, err := d.pool.Query(ctx,
+		`SELECT uid FROM expunged_messages
+		 WHERE user_email=$1 AND mailbox=$2 AND mod_seq > $3
+		 ORDER BY uid`,
+		user, mailbox, int64(sinceModSeq))
+	if err != nil {
+		return nil, fmt.Errorf("postgres: expunged since %s/%s: %w", user, mailbox, err)
+	}
+	defer rows.Close()
+	var uids []uint32
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return nil, fmt.Errorf("postgres: scan expunged uid: %w", err)
+		}
+		uids = append(uids, uint32(uid))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: iterate expunged: %w", err)
+	}
+	return uids, nil
+}
+
 // GetMessageUIDs returns the mailbox's UIDs in ascending order.
 func (d *DB) GetMessageUIDs(user, mailbox string) ([]uint32, error) {
 	ctx := context.Background()

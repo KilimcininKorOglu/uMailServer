@@ -355,6 +355,21 @@ CREATE INDEX IF NOT EXISTS idx_messages_search ON messages USING GIN (search);
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (user_email, thread_id);
 CREATE INDEX IF NOT EXISTS idx_messages_modseq ON messages (user_email, mailbox, mod_seq);
 
+-- RFC 7162 QRESYNC expunge tombstones: each expunged UID and the mailbox
+-- mod-sequence at which it vanished, so a later QRESYNC SELECT can replay
+-- VANISHED (EARLIER). The FK mirrors messages so tombstones drop on mailbox
+-- delete and follow a rename (preserving their UIDs).
+CREATE TABLE IF NOT EXISTS expunged_messages (
+    user_email TEXT   NOT NULL,
+    mailbox    TEXT   NOT NULL,
+    uid        BIGINT NOT NULL,
+    mod_seq    BIGINT NOT NULL,
+    PRIMARY KEY (user_email, mailbox, uid),
+    FOREIGN KEY (user_email, mailbox) REFERENCES mailboxes (user_email, name)
+        ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_expunged_modseq ON expunged_messages (user_email, mailbox, mod_seq);
+
 CREATE TABLE IF NOT EXISTS threads (
     user_email    TEXT     NOT NULL,
     thread_id     TEXT     NOT NULL,
