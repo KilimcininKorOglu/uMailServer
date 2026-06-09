@@ -99,7 +99,11 @@ type Mailstore interface {
 	AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) error
 	SearchMessages(user, mailbox string, criteria SearchCriteria) ([]uint32, error)
 	CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) error
-	MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) error
+	// MoveMessages implements RFC 6851 MOVE: it copies the messages to the
+	// destination and atomically removes them from the source, returning the
+	// expunged source sequence numbers and UIDs so the caller can emit untagged
+	// EXPUNGE responses.
+	MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (seqs []uint32, uids []uint32, err error)
 
 	// Default mailbox provisioning
 	EnsureDefaultMailboxes(user string) error

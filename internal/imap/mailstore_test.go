@@ -396,7 +396,7 @@ func TestBboltMailstoreMoveMessages(t *testing.T) {
 	}
 
 	// Move messages (may not work without actual messages)
-	err = ms.MoveMessages(user, srcBox, dstBox, "1:*")
+	_, _, err = ms.MoveMessages(user, srcBox, dstBox, "1:*")
 	if err != nil {
 		t.Logf("MoveMessages returned error (may be expected without messages): %v", err)
 	}
@@ -877,9 +877,60 @@ func TestBboltMailstoreMoveMessagesWithData(t *testing.T) {
 	}
 
 	// Move the message
-	err = ms.MoveMessages(user, srcBox, dstBox, "1")
+	_, _, err = ms.MoveMessages(user, srcBox, dstBox, "1")
 	if err != nil {
 		t.Logf("MoveMessages returned error: %v", err)
+	}
+}
+
+// TestMoveMessagesIsAtomicRFC6851 verifies MOVE removes the source message
+// immediately (RFC 6851) — the source index is empty afterward, not merely
+// flagged \Deleted — the destination holds the message, and the expunged
+// sequence numbers/UIDs are reported so the handler can emit untagged EXPUNGE.
+func TestMoveMessagesIsAtomicRFC6851(t *testing.T) {
+	ms, err := NewBboltMailstore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewBboltMailstore: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := ms.Close(); err != nil {
+			t.Errorf("ms.Close: %v", err)
+		}
+	})
+
+	const user, srcBox, dstBox = "testuser", "INBOX", "Archive"
+	for _, mb := range []string{srcBox, dstBox} {
+		if err := ms.CreateMailbox(user, mb); err != nil {
+			t.Fatalf("CreateMailbox %s: %v", mb, err)
+		}
+	}
+	if err := ms.AppendMessage(user, srcBox, nil, time.Now(),
+		[]byte("From: a@b\r\nSubject: move-me\r\n\r\nbody\r\n")); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	seqs, uids, err := ms.MoveMessages(user, srcBox, dstBox, "1")
+	if err != nil {
+		t.Fatalf("MoveMessages: %v", err)
+	}
+	if len(seqs) != 1 || len(uids) != 1 {
+		t.Fatalf("MOVE should report exactly one expunged message, got seqs=%v uids=%v", seqs, uids)
+	}
+
+	srcUIDs, err := ms.db.GetMessageUIDs(user, srcBox)
+	if err != nil {
+		t.Fatalf("GetMessageUIDs src: %v", err)
+	}
+	if len(srcUIDs) != 0 {
+		t.Errorf("MOVE left %d message(s) in the source — RFC 6851 requires immediate removal, not a \\Deleted flag", len(srcUIDs))
+	}
+
+	dstUIDs, err := ms.db.GetMessageUIDs(user, dstBox)
+	if err != nil {
+		t.Fatalf("GetMessageUIDs dst: %v", err)
+	}
+	if len(dstUIDs) != 1 {
+		t.Errorf("destination should hold the moved message, got %d", len(dstUIDs))
 	}
 }
 

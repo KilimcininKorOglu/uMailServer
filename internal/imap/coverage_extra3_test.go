@@ -373,18 +373,30 @@ func TestMoveMessages_MultipleMessages(t *testing.T) {
 	}
 
 	// Move message 1 to Trash
-	err = ms.MoveMessages(user, "INBOX", "Trash", "1")
+	_, _, err = ms.MoveMessages(user, "INBOX", "Trash", "1")
 	if err != nil {
 		t.Fatalf("MoveMessages: %v", err)
 	}
 
-	// Verify moved message has \Deleted flag (only message 1 was moved)
-	msgs, err := ms.FetchMessages(user, "INBOX", "1", []string{"FLAGS"})
+	// RFC 6851: MOVE removes the message from INBOX immediately (it is NOT left
+	// behind flagged \Deleted), so INBOX keeps only the un-moved message and
+	// Trash gains the moved one.
+	inboxMsgs, err := ms.FetchMessages(user, "INBOX", "1:*", []string{"FLAGS"})
 	if err != nil {
 		t.Fatalf("FetchMessages INBOX: %v", err)
 	}
-	if len(msgs) > 0 && !hasFlag(msgs[0].Flags, "\\Deleted") {
-		t.Errorf("expected moved message to have \\Deleted flag, flags=%v", msgs[0].Flags)
+	if len(inboxMsgs) != 1 {
+		t.Fatalf("expected 1 message left in INBOX after MOVE, got %d", len(inboxMsgs))
+	}
+	if hasFlag(inboxMsgs[0].Flags, "\\Deleted") {
+		t.Errorf("the un-moved message must not be \\Deleted, flags=%v", inboxMsgs[0].Flags)
+	}
+	trashMsgs, err := ms.FetchMessages(user, "Trash", "1:*", []string{"FLAGS"})
+	if err != nil {
+		t.Fatalf("FetchMessages Trash: %v", err)
+	}
+	if len(trashMsgs) != 1 {
+		t.Errorf("expected the moved message in Trash, got %d", len(trashMsgs))
 	}
 }
 

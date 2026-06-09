@@ -1234,30 +1234,36 @@ func (m *BboltMailstore) CopyMessages(user, sourceMailbox, destMailbox string, s
 	return nil
 }
 
-// MoveMessages moves messages to another mailbox
-func (m *BboltMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) error {
-	// First copy
-	if err := m.CopyMessages(user, sourceMailbox, destMailbox, seqSet); err != nil {
-		return err
+// MoveMessages implements RFC 6851 MOVE: it copies the messages to destMailbox
+// and atomically removes them from the source — not merely flagging them
+// \Deleted — returning the expunged source sequence numbers and UIDs so the
+// caller can emit the untagged EXPUNGE responses the move requires.
+func (m *BboltMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (seqs []uint32, uids []uint32, err error) {
+	// First copy to the destination (this also registers the destination's
+	// semcore identity, so the moved message is visible over EWS too).
+	if cErr := m.CopyMessages(user, sourceMailbox, destMailbox, seqSet); cErr != nil {
+		return nil, nil, cErr
 	}
 
-	// Then mark as deleted in source
 	ranges, err := ParseSequenceSet(seqSet)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	uids, err := m.db.GetMessageUIDs(user, sourceMailbox)
+	srcUIDs, err := m.db.GetMessageUIDs(user, sourceMailbox)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	uidCount := len(uids)
+	uidCount := len(srcUIDs)
 	if uidCount > 0x7FFFFFFF {
-		return fmt.Errorf("mailbox exceeds maximum message count")
+		return nil, nil, fmt.Errorf("mailbox exceeds maximum message count")
 	}
 	total := uint32(uidCount)
 
-	for i, uid := range uids {
+	// Flag the in-range messages \Deleted and collect their UIDs so the expunge
+	// below removes exactly the moved set (not any other pre-deleted message).
+	var movedRanges []SeqRange
+	for i, uid := range srcUIDs {
 		seqNum := uint32(i + 1) // IMAP uses 1-based sequence numbers
 		inSet := false
 		for _, r := range ranges {
@@ -1266,24 +1272,29 @@ func (m *BboltMailstore) MoveMessages(user, sourceMailbox, destMailbox string, s
 				break
 			}
 		}
-
 		if !inSet {
 			continue
 		}
 
-		meta, err := m.db.GetMessageMetadata(user, sourceMailbox, uid)
-		if err != nil {
+		meta, mErr := m.db.GetMessageMetadata(user, sourceMailbox, uid)
+		if mErr != nil {
 			continue
 		}
-
-		// Add deleted flag
 		if !hasFlag(meta.Flags, "\\Deleted") {
 			meta.Flags = append(meta.Flags, "\\Deleted")
-			_ = m.db.UpdateMessageMetadata(user, sourceMailbox, uid, meta)
+			if uErr := m.db.UpdateMessageMetadata(user, sourceMailbox, uid, meta); uErr != nil {
+				continue // leave it in place rather than expunge a message we could not flag
+			}
 		}
+		movedRanges = append(movedRanges, SeqRange{Start: uid, End: uid})
 	}
 
-	return nil
+	if len(movedRanges) == 0 {
+		return nil, nil, nil
+	}
+	// Permanently remove the moved messages from the source (this also drops
+	// their semcore identity, so they do not ghost in EWS).
+	return m.ExpungeUIDs(user, sourceMailbox, movedRanges)
 }
 
 // GetNextUID returns the next UID for a mailbox

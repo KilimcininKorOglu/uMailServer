@@ -2344,10 +2344,23 @@ func (s *Session) handleMove(args []string, byUID bool) error {
 		seqSet = translated
 	}
 
-	err := s.server.mailstore.MoveMessages(s.user, s.selected.Name, destMailbox, seqSet)
+	expungedSeqs, expungedUIDs, err := s.server.mailstore.MoveMessages(s.user, s.selected.Name, destMailbox, seqSet)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
+	}
+
+	// RFC 6851: the move removes the source messages now, so report them as
+	// untagged EXPUNGE responses before the tagged OK. Send them highest
+	// sequence number first so the remaining numbers stay valid, and notify the
+	// search index by UID (its keys are folder+uid).
+	if s.server.onExpunge != nil {
+		for _, uid := range expungedUIDs {
+			s.server.onExpunge(s.user, s.selected.Name, uid)
+		}
+	}
+	for i := len(expungedSeqs) - 1; i >= 0; i-- {
+		s.WriteData(fmt.Sprintf("%d EXPUNGE", expungedSeqs[i]))
 	}
 
 	s.WriteResponse(s.tag, "OK MOVE completed")

@@ -79,8 +79,8 @@ func (m *mockMailstore) CopyMessages(user, sourceMailbox, destMailbox string, se
 	return nil
 }
 
-func (m *mockMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) error {
-	return nil
+func (m *mockMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (seqs []uint32, uids []uint32, err error) {
+	return nil, nil, nil
 }
 
 func (m *mockMailstore) EnsureDefaultMailboxes(user string) error {

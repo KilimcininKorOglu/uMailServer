@@ -782,7 +782,7 @@ func TestMoveMessages_WithMessages(t *testing.T) {
 		t.Skipf("AppendMessage: %v", err)
 	}
 
-	err = ms.MoveMessages(user, "INBOX", "Archive", "1")
+	_, _, err = ms.MoveMessages(user, "INBOX", "Archive", "1")
 	if err != nil {
 		t.Fatalf("MoveMessages: %v", err)
 	}
@@ -800,7 +800,7 @@ func TestMoveMessages_InvalidSeqSet(t *testing.T) {
 	ms.CreateMailbox(user, "INBOX")
 	ms.CreateMailbox(user, "Archive")
 
-	err = ms.MoveMessages(user, "INBOX", "Archive", "abc")
+	_, _, err = ms.MoveMessages(user, "INBOX", "Archive", "abc")
 	if err == nil {
 		t.Error("expected error for invalid seq set")
 	}

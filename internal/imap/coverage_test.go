@@ -669,9 +669,9 @@ func (f *failingMailstore) CopyMessages(user, sourceMailbox, destMailbox string,
 	return f.mockMailstore.CopyMessages(user, sourceMailbox, destMailbox, seqSet)
 }
 
-func (f *failingMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) error {
+func (f *failingMailstore) MoveMessages(user, sourceMailbox, destMailbox string, seqSet string) (seqs []uint32, uids []uint32, err error) {
 	if f.moveErr != nil {
-		return f.moveErr
+		return nil, nil, f.moveErr
 	}
 	return f.mockMailstore.MoveMessages(user, sourceMailbox, destMailbox, seqSet)
 }
