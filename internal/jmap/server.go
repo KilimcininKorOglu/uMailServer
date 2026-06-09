@@ -39,6 +39,10 @@ type Server struct {
 	// EWS/SMTP submission (Sieve, OOF, conversation-id, relay). Nil means JMAP
 	// sending is unavailable and EmailSubmission/set reports notSupported.
 	submitMessage func(from string, to []string, data []byte) error
+	// scheduleMessage, when set, records an EmailSubmission carrying a future
+	// sendAt for scheduled delivery instead of submitting now, returning the
+	// scheduled id. fileSent files a Sent copy on release. Nil sends immediately.
+	scheduleMessage func(owner, from string, to []string, data []byte, sendAt time.Time, fileSent bool) (string, error)
 	// policyStore is the canonical out-of-office policy store, shared with EWS
 	// and webmail. When set, VacationResponse/get and /set read and write it so a
 	// vacation reply configured over JMAP is the same one EWS/webmail show.
@@ -105,6 +109,12 @@ func (s *Server) SetTracingProvider(provider *tracing.Provider) {
 // EmailSubmission/set, mirroring the closure passed to the EWS server.
 func (s *Server) SetSubmitMessageFunc(fn func(from string, to []string, data []byte) error) {
 	s.submitMessage = fn
+}
+
+// SetScheduleMessageFunc wires the "send later" path: an EmailSubmission with a
+// future sendAt is recorded for scheduled delivery instead of being submitted now.
+func (s *Server) SetScheduleMessageFunc(fn func(owner, from string, to []string, data []byte, sendAt time.Time, fileSent bool) (string, error)) {
+	s.scheduleMessage = fn
 }
 
 // Config holds JMAP server configuration

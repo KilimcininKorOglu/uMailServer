@@ -90,6 +90,12 @@ func (s *Server) startJMAP() {
 	// Route JMAP EmailSubmission/set through the same Sieve+delivery path as EWS
 	// so subaddressing/Sieve/OOF/conversation-id apply uniformly across protocols.
 	jmapServer.SetSubmitMessageFunc(s.submitMessageWithSieve)
+	// A future EmailSubmission sendAt routes to the canonical scheduled store
+	// (source "jmap", owner = account) instead of submitting now; fileSent files
+	// a Sent copy on release.
+	jmapServer.SetScheduleMessageFunc(func(owner, from string, to []string, data []byte, sendAt time.Time, fileSent bool) (string, error) {
+		return s.scheduleSend(owner, from, to, data, sendAt, "jmap", fileSent)
+	})
 	// Back JMAP VacationResponse with the canonical OOF policy store (shared with
 	// EWS and webmail) and the Sieve recompiler, so a vacation reply set over
 	// JMAP is the same one every surface shows and fires at delivery.

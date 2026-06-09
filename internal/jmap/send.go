@@ -114,6 +114,32 @@ func (s *Server) handleEmailSubmissionSet(user string, call MethodCall, createdI
 			continue
 		}
 
+		// Scheduled send: a future sendAt routes the message to the scheduler
+		// instead of submitting now (RFC 8621 sendAt; undoStatus stays "pending"
+		// until release). The scheduled submission is NOT added to `submitted`, so
+		// onSuccessUpdateEmail leaves the draft in place — the Sent copy is filed
+		// on release. Bcc is stripped from the held copy.
+		if reqAt := asString(sub["sendAt"]); reqAt != "" && s.scheduleMessage != nil {
+			if when, perr := time.Parse(time.RFC3339, reqAt); perr == nil && when.After(time.Now()) {
+				if _, serr := s.scheduleMessage(user, from, rcpt, stripBccHeader(data), when, true); serr != nil {
+					notCreated[key] = submissionError("forbiddenToSend", s.safeError("scheduleMessage", serr))
+					continue
+				}
+				subID := generateSubmissionID()
+				created[key] = map[string]interface{}{
+					"id":         subID,
+					"emailId":    emailID,
+					"identityId": "default",
+					"sendAt":     when.UTC().Format(time.RFC3339),
+					"undoStatus": "pending",
+				}
+				if createdIDs != nil {
+					createdIDs[key] = subID
+				}
+				continue
+			}
+		}
+
 		// Recipients must never see Bcc; relay a copy with the header removed.
 		if err := s.submitMessage(from, rcpt, stripBccHeader(data)); err != nil {
 			notCreated[key] = submissionError("forbiddenToSend", s.safeError("submitMessage", err))
