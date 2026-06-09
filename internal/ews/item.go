@@ -79,6 +79,24 @@ type MessageTypeNew struct {
 	Sender        *FromAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sender,omitempty"`
 	IsDraft       bool             `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsDraft,attr"`
 	Attachments   *AttachmentsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attachments,omitempty"`
+	// ExtendedProperty carries MAPI properties Outlook sets on a CreateItem. The
+	// server reads only the deferred-send pair (see deferredSendTime) that backs
+	// "Do not deliver before"; all others are ignored.
+	ExtendedProperty []ExtendedPropertyType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExtendedProperty,omitempty"`
+}
+
+// ExtendedPropertyType is one <t:ExtendedProperty> on a CreateItem message: a
+// MAPI property tag/type plus its string value.
+type ExtendedPropertyType struct {
+	ExtendedFieldURI ExtendedFieldURIType `xml:"http://schemas.microsoft.com/exchange/services/2006/types ExtendedFieldURI"`
+	Value            string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Value"`
+}
+
+// ExtendedFieldURIType identifies a MAPI property by tag ("0x3FEF") and type
+// ("SystemTime"/"Integer"). uMailServer matches on the numeric tag only.
+type ExtendedFieldURIType struct {
+	PropertyTag  string `xml:"PropertyTag,attr"`
+	PropertyType string `xml:"PropertyType,attr"`
 }
 
 type AttachmentsType struct {
@@ -1124,6 +1142,69 @@ func generateMessageID() string {
 	return fmt.Sprintf("%d.%d@umailserver.local", time.Now().UnixNano(), time.Now().UnixNano()%1000000)
 }
 
+// deferredSendTime derives the absolute send time Outlook requested via the
+// deferred-send MAPI properties on a CreateItem, or the zero time when none are
+// present. PidTagDeferredSendTime (0x3FEF, an absolute UTC instant) wins;
+// otherwise the relative PidTagDeferredSendNumber (0x3FEB) is added to now in the
+// unit named by PidTagDeferredSendUnits (0x3FEC: 0=minutes, 1=hours, 2=days,
+// 3=weeks). Semantics mirror MS-OXOMSG / Exchange the deferred-send interval.
+func deferredSendTime(props []ExtendedPropertyType, now time.Time) time.Time {
+	number, units := 0, 0
+	haveNumber, haveUnits := false, false
+	for i := range props {
+		tag, ok := parsePropertyTag(props[i].ExtendedFieldURI.PropertyTag)
+		if !ok {
+			continue
+		}
+		switch tag {
+		case 0x3FEF: // PidTagDeferredSendTime (absolute, wins)
+			if t, err := ParseEWSDateTime(strings.TrimSpace(props[i].Value)); err == nil && !t.IsZero() {
+				return t.UTC()
+			}
+		case 0x3FEB: // PidTagDeferredSendNumber
+			if n, err := strconv.Atoi(strings.TrimSpace(props[i].Value)); err == nil {
+				number, haveNumber = n, true
+			}
+		case 0x3FEC: // PidTagDeferredSendUnits
+			if u, err := strconv.Atoi(strings.TrimSpace(props[i].Value)); err == nil {
+				units, haveUnits = u, true
+			}
+		}
+	}
+	if !haveNumber || !haveUnits {
+		return time.Time{}
+	}
+	var unit time.Duration
+	switch units {
+	case 0:
+		unit = time.Minute
+	case 1:
+		unit = time.Hour
+	case 2:
+		unit = 24 * time.Hour
+	case 3:
+		unit = 7 * 24 * time.Hour
+	default:
+		return time.Time{}
+	}
+	return now.Add(time.Duration(number) * unit).UTC()
+}
+
+// parsePropertyTag parses an EWS PropertyTag attribute ("0x3FEF" hex or a decimal
+// string) into its numeric MAPI property id.
+func parsePropertyTag(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	base := 10
+	if len(s) > 2 && (s[0:2] == "0x" || s[0:2] == "0X") {
+		s, base = s[2:], 16
+	}
+	v, err := strconv.ParseInt(s, base, 32)
+	if err != nil {
+		return 0, false
+	}
+	return int(v), true
+}
+
 func (s *Server) submitMessageItem(ctx context.Context, mboxID semcore.MailboxId, mailboxKey string, folderID semcore.FolderId, item *MessageTypeNew, extraHeaders map[string]string, delegateCtx *semcore.DelegateAuditContext, isSendOnBehalf bool, saveCopy bool) ItemResponseMessageType {
 	rawMsg := buildMimeMessageWithHeaders(item, mailboxKey, isSendOnBehalf, extraHeaders)
 	if rawMsg == nil {
@@ -1134,6 +1215,25 @@ func (s *Server) submitMessageItem(ctx context.Context, mboxID semcore.MailboxId
 	if err != nil {
 		return errorItemMsg("CreateItem", ErrErrorInvalidOperation, err.Error())
 	}
+
+	// Deferred send (Outlook "Do not deliver before"): when the client set a
+	// future deferred-send time and scheduling is wired, hand the message to the
+	// scheduler instead of submitting now. The scheduler files the cross-protocol
+	// Scheduled projection and releases at the time; SendAndSaveCopy files the
+	// Sent copy on release (saveCopy=true), SendOnly does not. No early Sent/Drafts
+	// copy is created here.
+	if s.scheduleMessage != nil {
+		if sendAt := deferredSendTime(item.ExtendedProperty, time.Now()); !sendAt.IsZero() && sendAt.After(time.Now()) {
+			if _, serr := s.scheduleMessage(mailboxKey, from, recipients, sanitized, sendAt, saveCopy); serr != nil {
+				return errorItemMsg("CreateItem", ErrErrorInternalServer, serr.Error())
+			}
+			return ItemResponseMessageType{
+				ResponseClass: "Success",
+				ResponseCode:  ResponseCodeType{Value: ErrNoError},
+			}
+		}
+	}
+
 	if err := s.submitOutboundMessage(from, recipients, sanitized); err != nil {
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, err.Error())
 	}

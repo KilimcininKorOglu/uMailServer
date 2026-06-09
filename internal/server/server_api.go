@@ -218,6 +218,14 @@ func (s *Server) startAPI() {
 			s.cancelScheduledOnExpunge(owner, scheduledFolder, uid)
 		})
 
+		// Deferred-send (Outlook "Do not deliver before"): a future
+		// PidTagDeferredSendTime routes the message to the canonical scheduled
+		// store instead of submitting now. Source "ews"; fileSent follows
+		// SendAndSaveCopy vs SendOnly.
+		ewsServer.SetScheduleMessageFunc(func(owner, from string, to []string, data []byte, sendAt time.Time, fileSent bool) (string, error) {
+			return s.scheduleSend(owner, from, to, data, sendAt, "ews", fileSent)
+		})
+
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 

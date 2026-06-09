@@ -64,6 +64,12 @@ type Server struct {
 	// item is removed from the "Scheduled" folder, so deleting a scheduled
 	// message via EWS cancels its send (cross-protocol cancel).
 	scheduledCancelNotifier func(owner string, uid uint32)
+	// scheduleMessage, when set, records a deferred-send message (Outlook "Do not
+	// deliver before") for future delivery instead of submitting it now,
+	// returning the scheduled-message id. fileSent files a Sent copy on release
+	// (SendAndSaveCopy true, SendOnly false). nil leaves deferred-send inert (the
+	// message is submitted immediately).
+	scheduleMessage func(owner, from string, to []string, data []byte, sendAt time.Time, fileSent bool) (string, error)
 	// allowPrivatePushTargets relaxes the push-subscription SSRF guard to accept
 	// loopback/private callback URLs. It is OFF in production (a real client
 	// supplies a public https URL); tests set it so an httptest/sink on
@@ -145,6 +151,13 @@ func (s *Server) SetMessageExpungedNotifier(fn func(email, folder string, seqNum
 // via EWS cancels its send.
 func (s *Server) SetScheduledCancelNotifier(fn func(owner string, uid uint32)) {
 	s.scheduledCancelNotifier = fn
+}
+
+// SetScheduleMessageFunc wires the deferred-send path: a CreateItem carrying a
+// future PidTagDeferredSendTime (or the relative number/units pair) is recorded
+// for scheduled delivery instead of being submitted now.
+func (s *Server) SetScheduleMessageFunc(fn func(owner, from string, to []string, data []byte, sendAt time.Time, fileSent bool) (string, error)) {
+	s.scheduleMessage = fn
 }
 
 // SetAllowPrivatePushTargets relaxes the push-subscription SSRF guard so a
