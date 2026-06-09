@@ -482,6 +482,12 @@ func New(cfg *config.Config) (*Server, error) {
 		logger.Info("Search service wired to semantic-core identity store")
 	}
 
+	// Re-home any legacy spam-role junk folder onto the canonical "junk" role.
+	// Older EWS code filed junk under role "spam"; converge it (and its mirrored
+	// storage mailbox) so EWS/IMAP/POP3/webmail all read one Junk folder.
+	// Idempotent and a no-op when no spam-role folder exists.
+	convergeLegacyJunkFolders(database, s.semcoreStore.Identity(), storageDB, logger)
+
 	// Initialize rate limiter with config
 	s.rateLimiter = ratelimit.New(quotaStore, buildRateLimitConfig(cfg))
 
