@@ -662,6 +662,9 @@ func (s *Server) initRouter() {
 	// Email filters
 	api.HandleFunc("/api/v1/filters", s.handleFilters)
 	api.HandleFunc("/api/v1/filters/reorder", s.handleFilterReorder)
+	// Exact paths; ServeMux matches these ahead of the "/api/v1/filters/" subtree.
+	api.HandleFunc("/api/v1/filters/export", s.handleFiltersExport)
+	api.HandleFunc("/api/v1/filters/import", s.handleFiltersImport)
 	api.HandleFunc("/api/v1/filters/", s.handleFilterPath)
 
 	// Client sessions (account portal)
