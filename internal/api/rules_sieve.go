@@ -28,17 +28,15 @@ func (s *Server) recompileSieveForMailbox(mbid semcore.MailboxId) error {
 		return nil
 	}
 
-	rules, err := s.semStore.Policy().ListRules(mbid)
-	if err != nil {
-		return err
-	}
-
 	var oofPolicy *semcore.OOFPolicy
 	if oofID, err := semcore.NewOOFId(mbid.String()); err == nil {
 		oofPolicy, _ = s.semStore.Policy().GetOOF(oofID) //nolint:errcheck // absent OOF is fine
 	}
 
-	script := semcore.CompilePolicyToSieve(rules, oofPolicy)
+	// Admin-authored global rules are compiled in ahead of the user's own rules
+	// (CompileEffectivePolicy) so they apply org-wide and a user editing their
+	// own rules can never drop them.
+	script := semcore.CompileEffectivePolicy(s.semStore.Policy(), mbid, oofPolicy)
 	for _, userID := range sieveUserIDs(mbid.String()) {
 		if err := s.sieveManager.StoreScript(userID, sieve.ManagedScriptName, script); err != nil {
 			return err

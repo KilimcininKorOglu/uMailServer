@@ -12,6 +12,8 @@ import type {
   BookingPolicy,
   RoomList,
   PolicyRule,
+  GlobalRule,
+  GlobalRuleInput,
   MailboxDiagnostics,
   SubscriptionInfo,
   ProtocolFailure,
@@ -634,6 +636,53 @@ export function useAdminRules() {
   }, [fetchRules]);
 
   return { rules, loading, error, fetchRules, toggleRule, deleteRule };
+}
+
+// useGlobalRules manages admin-authored global mail rules
+// (/api/v1/admin/global-rules). These apply to every mailbox ahead of each
+// user's own rules and are recompiled into every account's Sieve on mutation.
+export function useGlobalRules() {
+  const [rules, setRules] = useState<GlobalRule[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchGlobalRules = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<{ rules: GlobalRule[] }>("/admin/global-rules");
+      setRules(result.rules ?? []);
+      return result.rules ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const createGlobalRule = useCallback(async (input: GlobalRuleInput) => {
+    const created = await apiRequest<GlobalRule>("/admin/global-rules", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    await fetchGlobalRules();
+    return created;
+  }, [fetchGlobalRules]);
+
+  const updateGlobalRule = useCallback(async (id: string, input: Partial<GlobalRuleInput> & { enabled?: boolean }) => {
+    await apiRequest(`/admin/global-rules/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+    await fetchGlobalRules();
+  }, [fetchGlobalRules]);
+
+  const deleteGlobalRule = useCallback(async (id: string) => {
+    await apiRequest(`/admin/global-rules/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await fetchGlobalRules();
+  }, [fetchGlobalRules]);
+
+  return { rules, loading, error, fetchGlobalRules, createGlobalRule, updateGlobalRule, deleteGlobalRule };
 }
 
 // Rate-limit config (flat, read-only display) API hook

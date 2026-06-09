@@ -435,6 +435,41 @@ func CompilePolicyToSieve(rules []*Rule, oof *OOFPolicy) string {
 	return strings.Join(lines, "\n")
 }
 
+// GlobalRulesOwner is the reserved mailbox key under which admin-authored global
+// rules live. They are compiled into EVERY user's Sieve ahead of the user's own
+// rules so they apply org-wide, independent of (and evaluated before) per-user
+// rules. It is not a real address, so it never collides with a mailbox.
+const GlobalRulesOwner = "__global_rules__"
+
+// GlobalRulesMailboxId returns the MailboxId the global rule store is keyed by.
+func GlobalRulesMailboxId() MailboxId { return MailboxId{raw: GlobalRulesOwner} }
+
+// PolicyRuleLister is the minimal policy-store surface CompileEffectivePolicy
+// needs; the bbolt and postgres policy stores both satisfy it.
+type PolicyRuleLister interface {
+	ListRules(mailboxID MailboxId) ([]*Rule, error)
+}
+
+// CompileEffectivePolicy compiles the Sieve a mailbox actually runs at delivery:
+// the admin-authored global rules first, then the mailbox's own rules, plus its
+// OOF. Every recompile path (webmail/JMAP/EWS) funnels through this so a user
+// editing their own rules can never drop the org-wide global rules. The global
+// owner itself compiles only its own rules (no self-prepend).
+func CompileEffectivePolicy(policy PolicyRuleLister, mbid MailboxId, oof *OOFPolicy) string {
+	userRules, err := policy.ListRules(mbid)
+	if err != nil {
+		userRules = nil
+	}
+	var rules []*Rule
+	if mbid.raw != GlobalRulesOwner {
+		if global, gerr := policy.ListRules(GlobalRulesMailboxId()); gerr == nil {
+			rules = append(rules, global...)
+		}
+	}
+	rules = append(rules, userRules...)
+	return CompilePolicyToSieve(rules, oof)
+}
+
 // ValidateRuleConditions validates rule conditions for policy correctness.
 // Returns a list of validation errors, or nil if all conditions are valid.
 func ValidateRuleConditions(rule *Rule) []error {

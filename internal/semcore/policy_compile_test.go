@@ -418,3 +418,75 @@ func TestValidateAction_ValidRedirect(t *testing.T) {
 		t.Errorf("validateAction returned error for valid redirect: %v", err)
 	}
 }
+
+// stubRuleLister returns canned rules per mailbox key, modeling the policy
+// store for CompileEffectivePolicy tests.
+type stubRuleLister map[string][]*Rule
+
+func (s stubRuleLister) ListRules(mailboxID MailboxId) ([]*Rule, error) {
+	return s[mailboxID.String()], nil
+}
+
+// TestCompileEffectivePolicy_GlobalRulesApplyToUsers verifies the core contract
+// of admin-authored global rules: they are compiled into a user's effective
+// Sieve even when the user has no rules of their own, and they are evaluated
+// BEFORE the user's rules. If this regresses, an admin's org-wide rule would
+// silently stop firing for users — the whole point of the feature.
+func TestCompileEffectivePolicy_GlobalRulesApplyToUsers(t *testing.T) {
+	globalRule := &Rule{
+		ID:       MustRuleId("global-1"),
+		Enabled:  true,
+		Priority: 0,
+		Conditions: []RuleCondition{
+			{Kind: RuleConditionKindSubject, MatchType: RuleMatchTypeContains, Value: "GLOBALMARKER"},
+		},
+		Actions: []RuleAction{{Kind: RuleActionKindMoveToFolder, Target: "Quarantine"}},
+	}
+	userRule := &Rule{
+		ID:       MustRuleId("user-1"),
+		Enabled:  true,
+		Priority: 0,
+		Conditions: []RuleCondition{
+			{Kind: RuleConditionKindSubject, MatchType: RuleMatchTypeContains, Value: "USERMARKER"},
+		},
+		Actions: []RuleAction{{Kind: RuleActionKindMoveToFolder, Target: "Personal"}},
+	}
+
+	store := stubRuleLister{
+		GlobalRulesOwner:   {globalRule},
+		"user@example.com": {userRule},
+	}
+	userMbid := MustMailboxId("user@example.com")
+
+	// User with a personal rule: both the global and the user rule compile in,
+	// global first.
+	script := CompileEffectivePolicy(store, userMbid, nil)
+	gIdx := strings.Index(script, "GLOBALMARKER")
+	uIdx := strings.Index(script, "USERMARKER")
+	if gIdx < 0 {
+		t.Fatalf("global rule missing from user's effective policy:\n%s", script)
+	}
+	if uIdx < 0 {
+		t.Fatalf("user rule missing from user's effective policy:\n%s", script)
+	}
+	if gIdx > uIdx {
+		t.Errorf("global rule must be evaluated before the user rule (global idx %d > user idx %d)", gIdx, uIdx)
+	}
+
+	// User with NO personal rules still inherits the global rule.
+	emptyUser := MustMailboxId("noobody@example.com")
+	scriptEmpty := CompileEffectivePolicy(store, emptyUser, nil)
+	if !strings.Contains(scriptEmpty, "GLOBALMARKER") {
+		t.Errorf("ruleless user must still inherit the global rule:\n%s", scriptEmpty)
+	}
+	if strings.Contains(scriptEmpty, "USERMARKER") {
+		t.Errorf("ruleless user must not pick up another user's rule:\n%s", scriptEmpty)
+	}
+
+	// The global owner itself must not self-prepend (no double compilation).
+	scriptGlobal := CompileEffectivePolicy(store, GlobalRulesMailboxId(), nil)
+	if strings.Count(scriptGlobal, "GLOBALMARKER") != 1 {
+		t.Errorf("global owner must compile its rules exactly once, got %d:\n%s",
+			strings.Count(scriptGlobal, "GLOBALMARKER"), scriptGlobal)
+	}
+}

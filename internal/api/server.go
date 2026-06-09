@@ -78,13 +78,13 @@ type Server struct {
 	mailScheduledCancel func(owner, id string) error
 	// Cross-protocol (tri-store) filer + idempotent semcore remover, injected by
 	// the main server; nil leaves webmail filing storageDB-only (EWS-invisible).
-	mailFileCopy   func(owner, folder string, raw []byte, flags []string) (uint32, string, error)
-	mailRemoveCopy func(owner, folder, blobKey string)
-	calendarDeliver     func(from string, to []string, data []byte) error
-	queueMgr            *queue.Manager
-	httpServer          *http.Server
-	plainHTTPServer     *http.Server
-	healthMon           HealthMonitor
+	mailFileCopy    func(owner, folder string, raw []byte, flags []string) (uint32, string, error)
+	mailRemoveCopy  func(owner, folder, blobKey string)
+	calendarDeliver func(from string, to []string, data []byte) error
+	queueMgr        *queue.Manager
+	httpServer      *http.Server
+	plainHTTPServer *http.Server
+	healthMon       HealthMonitor
 
 	// Tracing provider for OpenTelemetry
 	tracingProvider *tracing.Provider
@@ -821,6 +821,11 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	// Backup management is an infrastructure surface: super-admin only (a backup
 	// captures another user's entire mailbox), served from the admin router so
 	// the admin SPA reaches it same-origin on a separate admin listener.
+	// Admin-authored global mail rules (apply to all mailboxes, compiled ahead of
+	// each user's own rules). Admin-only, served on the admin listener.
+	api.HandleFunc("/api/v1/admin/global-rules", s.adminMiddleware(http.HandlerFunc(s.handleGlobalRules)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/global-rules/", s.adminMiddleware(http.HandlerFunc(s.handleGlobalRuleDetail)).ServeHTTP)
+
 	api.HandleFunc("/api/v1/backups", s.adminMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			s.handleBackupCreate(w, r)

@@ -48,6 +48,12 @@ func (s *Server) handleAdminRules(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]adminRuleDTO, 0, len(rules))
 	for _, rule := range rules {
+		// Admin-authored global rules live under a reserved mailbox key and are
+		// managed on their own surface (/api/v1/admin/global-rules). Keep this
+		// per-user oversight view independent of them.
+		if rule.MailboxID.String() == semcore.GlobalRulesOwner {
+			continue
+		}
 		mailbox := emails[rule.MailboxID.String()]
 		if mailbox == "" {
 			mailbox = rule.MailboxID.String()

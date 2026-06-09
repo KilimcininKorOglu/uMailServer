@@ -196,6 +196,60 @@ export interface PolicyRule {
   mailbox: string;
 }
 
+// GlobalRuleCondition / GlobalRuleAction / GlobalRule mirror the backend
+// EmailFilter JSON shape (internal/api/filters.go). Global rules are
+// admin-authored mail rules applied to every mailbox ahead of each user's own
+// rules; they are edited on their own surface (/api/v1/admin/global-rules) and
+// stay independent of the per-user inbox-rule oversight view.
+export interface GlobalRuleCondition {
+  field: "from" | "to" | "subject" | "body" | "header" | "size" | "flag" | "address";
+  operator: "contains" | "equals" | "startsWith" | "endsWith" | "matches";
+  value: string;
+  headerName?: string;
+}
+
+export interface GlobalRuleAction {
+  type:
+    | "moveToFolder"
+    | "copyToFolder"
+    | "markRead"
+    | "markImportant"
+    | "flag"
+    | "forward"
+    | "forwardAsAttachment"
+    | "redirect"
+    | "reject"
+    | "addHeader"
+    | "deleteHeader"
+    | "delete"
+    | "stop"
+    | "vacation";
+  target?: string;
+  forwardTo?: string;
+  message?: string;
+  headerName?: string;
+  headerValue?: string;
+  flagName?: string;
+  clearFlag?: boolean;
+}
+
+export interface GlobalRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  matchAll: boolean;
+  conditions: GlobalRuleCondition[];
+  actions: GlobalRuleAction[];
+  priority: number;
+}
+
+export interface GlobalRuleInput {
+  name: string;
+  matchAll: boolean;
+  conditions: GlobalRuleCondition[];
+  actions: GlobalRuleAction[];
+}
+
 export interface RateLimitConfig {
   ip_per_minute: number;
   ip_per_hour: number;

@@ -8,6 +8,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/audit"
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/semcore"
 )
 
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +260,13 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		if err := s.mailDB.EnsureDefaultMailboxes(req.Email); err != nil {
 			s.logger.Warn("failed to provision default mailboxes", "email", req.Email, "error", err)
 		}
+	}
+
+	// Compile the new mailbox's managed Sieve so any admin-authored global rules
+	// apply to it from the first delivery. Best-effort.
+	if mbid, merr := semcore.NewMailboxId(req.Email); merr == nil {
+		//nolint:errcheck // best-effort: a recompile failure must not fail account creation
+		s.recompileSieveForMailbox(mbid)
 	}
 
 	// Audit account creation

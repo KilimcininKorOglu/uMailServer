@@ -802,5 +802,73 @@
     "restoreFailed": "Geri yükleme başarısız oldu",
     "backupDeleted": "Yedek silindi",
     "deleteFailed": "Silme başarısız oldu"
+  },
+  "globalRules": {
+    "tab": "Global Kurallar",
+    "title": "Global Posta Kuralları",
+    "description": "Her posta kutusuna, kullanıcının kendi kurallarından önce uygulanan yönetici tanımlı kurallar. Değişiklikler tüm hesapların filtre setini yeniden derler.",
+    "newRule": "Yeni kural",
+    "dialogDescription": "Bu kural, her posta kutusu için kullanıcının kişisel kurallarından önce değerlendirilir.",
+    "ruleName": "Kural adı",
+    "ruleNamePlaceholder": "örn. Dış faturaları karantinaya al",
+    "matchAll": "Tüm koşulları eşleştir",
+    "matchAllHelp": "Açıkken her koşul eşleşmelidir (VE). Kapalıyken herhangi bir koşul eşleşir (VEYA).",
+    "conditions": "Koşullar",
+    "actions": "Eylemler",
+    "addCondition": "Koşul ekle",
+    "addAction": "Eylem ekle",
+    "value": "Değer",
+    "headerName": "Başlık adı",
+    "headerValue": "Başlık değeri",
+    "targetFolder": "Hedef klasör",
+    "forwardAddress": "İletim adresi",
+    "rejectMessage": "Reddetme mesajı",
+    "noRules": "Global kural yok",
+    "noRulesHelp": "Kurumdaki her posta kutusuna uygulanan bir kural oluşturun.",
+    "unnamedRule": "Adsız kural",
+    "failedToSave": "Global kural kaydedilemedi",
+    "failedToUpdate": "Global kural güncellenemedi",
+    "failedToDelete": "Global kural silinemedi",
+    "field": {
+      "from": "Gönderen",
+      "to": "Alıcı",
+      "subject": "Konu",
+      "body": "Gövde",
+      "header": "Başlık",
+      "size": "Boyut",
+      "flag": "Bayrak",
+      "address": "Adres"
+    },
+    "operator": {
+      "contains": "içerir",
+      "equals": "eşittir",
+      "startsWith": "ile başlar",
+      "endsWith": "ile biter",
+      "matches": "eşleşir"
+    },
+    "action": {
+      "moveToFolder": "Klasöre taşı",
+      "copyToFolder": "Klasöre kopyala",
+      "markRead": "Okundu işaretle",
+      "markImportant": "Önemli işaretle",
+      "flag": "Bayrak",
+      "forward": "İlet",
+      "forwardAsAttachment": "Ek olarak ilet",
+      "redirect": "Yönlendir",
+      "reject": "Reddet",
+      "addHeader": "Başlık ekle",
+      "deleteHeader": "Başlık sil",
+      "delete": "Sil",
+      "stop": "İşlemeyi durdur"
+    },
+    "validation": {
+      "nameRequired": "Kural adı gereklidir",
+      "conditionRequired": "En az bir koşul gereklidir",
+      "conditionValue": "Koşul değeri boş olamaz",
+      "headerName": "Başlık koşulları için başlık adı gereklidir",
+      "actionRequired": "En az bir eylem gereklidir",
+      "targetFolder": "Taşıma/kopyalama için hedef klasör gereklidir",
+      "forwardTo": "İletim adresi gereklidir"
+    }
   }
 }

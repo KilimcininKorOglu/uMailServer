@@ -7,6 +7,7 @@ import {
   Mail,
   Bell,
   Clock,
+  Globe,
   AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { useAdminRules, useConfig } from "@/hooks/useApi";
 import { useI18n } from "@/hooks/useI18n";
+import { GlobalRulesTab } from "@/components/GlobalRulesTab";
 import type { PolicyRule, ServerConfig } from "@/types";
 
 interface OOFSettings {
@@ -224,6 +226,10 @@ export function Policies() {
             <Shield className="h-4 w-4 mr-2" />
             {t("policies.inboxRules")}
           </TabsTrigger>
+          <TabsTrigger value="global-rules">
+            <Globe className="h-4 w-4 mr-2" />
+            {t("globalRules.tab")}
+          </TabsTrigger>
           <TabsTrigger value="rate-limits">
             <Clock className="h-4 w-4 mr-2" />
             {t("policies.rateLimits")}
@@ -357,6 +363,10 @@ export function Policies() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="global-rules" className="space-y-4">
+          <GlobalRulesTab />
         </TabsContent>
 
         <TabsContent value="rate-limits" className="space-y-4">

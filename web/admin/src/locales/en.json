@@ -802,5 +802,73 @@
     "restoreFailed": "Restore failed",
     "backupDeleted": "Backup deleted",
     "deleteFailed": "Delete failed"
+  },
+  "globalRules": {
+    "tab": "Global Rules",
+    "title": "Global Mail Rules",
+    "description": "Admin-authored rules applied to every mailbox ahead of each user's own rules. Changes recompile every account's filter set.",
+    "newRule": "New rule",
+    "dialogDescription": "This rule is evaluated for every mailbox before the user's personal rules.",
+    "ruleName": "Rule name",
+    "ruleNamePlaceholder": "e.g. Quarantine external invoices",
+    "matchAll": "Match all conditions",
+    "matchAllHelp": "When on, every condition must match (AND). When off, any condition matches (OR).",
+    "conditions": "Conditions",
+    "actions": "Actions",
+    "addCondition": "Add condition",
+    "addAction": "Add action",
+    "value": "Value",
+    "headerName": "Header name",
+    "headerValue": "Header value",
+    "targetFolder": "Target folder",
+    "forwardAddress": "Forward address",
+    "rejectMessage": "Rejection message",
+    "noRules": "No global rules",
+    "noRulesHelp": "Create a rule that applies to every mailbox in the organization.",
+    "unnamedRule": "Unnamed rule",
+    "failedToSave": "Failed to save global rule",
+    "failedToUpdate": "Failed to update global rule",
+    "failedToDelete": "Failed to delete global rule",
+    "field": {
+      "from": "From",
+      "to": "To",
+      "subject": "Subject",
+      "body": "Body",
+      "header": "Header",
+      "size": "Size",
+      "flag": "Flag",
+      "address": "Address"
+    },
+    "operator": {
+      "contains": "contains",
+      "equals": "equals",
+      "startsWith": "starts with",
+      "endsWith": "ends with",
+      "matches": "matches"
+    },
+    "action": {
+      "moveToFolder": "Move to folder",
+      "copyToFolder": "Copy to folder",
+      "markRead": "Mark as read",
+      "markImportant": "Mark as important",
+      "flag": "Flag",
+      "forward": "Forward",
+      "forwardAsAttachment": "Forward as attachment",
+      "redirect": "Redirect",
+      "reject": "Reject",
+      "addHeader": "Add header",
+      "deleteHeader": "Delete header",
+      "delete": "Delete",
+      "stop": "Stop processing"
+    },
+    "validation": {
+      "nameRequired": "Rule name is required",
+      "conditionRequired": "At least one condition is required",
+      "conditionValue": "Condition value cannot be empty",
+      "headerName": "Header name is required for header conditions",
+      "actionRequired": "At least one action is required",
+      "targetFolder": "Target folder is required for move/copy",
+      "forwardTo": "Forward address is required"
+    }
   }
 }

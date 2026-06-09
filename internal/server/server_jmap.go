@@ -26,15 +26,12 @@ func (s *Server) recompileSieveForEmail(email string) error {
 	if err != nil {
 		return err
 	}
-	rules, err := s.semcoreStore.Policy().ListRules(mbid)
-	if err != nil {
-		return err
-	}
 	var oof *semcore.OOFPolicy
 	if oofID, oerr := semcore.NewOOFId(mbid.String()); oerr == nil {
 		oof, _ = s.semcoreStore.Policy().GetOOF(oofID) //nolint:errcheck // absent OOF is fine
 	}
-	script := semcore.CompilePolicyToSieve(rules, oof)
+	// Admin global rules are compiled in ahead of the user's own rules.
+	script := semcore.CompileEffectivePolicy(s.semcoreStore.Policy(), mbid, oof)
 	ids := []string{email}
 	if lp, _, ok := strings.Cut(email, "@"); ok && lp != "" && lp != email {
 		ids = append(ids, lp)

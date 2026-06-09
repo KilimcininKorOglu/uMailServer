@@ -859,7 +859,8 @@ func (s *Server) recompileSieveForMailbox(ctx context.Context, mailboxID semcore
 		oofPolicy, _ = s.policyStore.GetOOF(oofID) //nolint:errcheck
 	}
 
-	script := semcore.CompilePolicyToSieve(rules, oofPolicy)
+	// Admin global rules are compiled in ahead of the user's own rules.
+	script := semcore.CompileEffectivePolicy(s.policyStore, mailboxID, oofPolicy)
 	s.logger.Info("recompileSieveForMailbox compiled script", "mailboxID", mailboxID, "scriptLen", len(script), "scriptPreview", script[:min(300, len(script))])
 	for _, userID := range sieveUserIDs(mailboxID.String()) {
 		if err := s.sieveMgr.StoreScript(userID, sieve.ManagedScriptName, script); err != nil {
