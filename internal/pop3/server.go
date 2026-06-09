@@ -925,9 +925,16 @@ func (s *Session) sendTop(data []byte, lines int) {
 	}
 
 	if headerEnd == -1 {
-		// No headers found, send all
+		// No header/body separator: send the whole message, then ensure it ends
+		// with CRLF so the caller's terminating "." (WriteDataEnd) lands on its
+		// own line (mirrors the RETR path). Do NOT call WriteDataEnd here — the
+		// caller does, and a second one would emit a double "." terminator that
+		// desyncs the POP3 multiline stream and makes the NEXT command's response
+		// read as a bare ".".
 		_, _ = s.writer.Write(data)
-		s.WriteDataEnd()
+		if !strings.HasSuffix(string(data), "\n") {
+			_, _ = s.writer.WriteString("\r\n")
+		}
 		return
 	}
 
