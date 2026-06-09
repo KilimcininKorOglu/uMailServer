@@ -1725,3 +1725,50 @@ func TestNormalizeSubject(t *testing.T) {
 		}
 	}
 }
+
+// TestStoreMessageMetadataAssignsArrivalModSeq verifies RFC 7162: a newly stored
+// message with an unset mod-sequence is assigned a nonzero, monotonically
+// increasing one, while an explicitly-set mod-sequence (e.g. migration restore)
+// is preserved.
+func TestStoreMessageMetadataAssignsArrivalModSeq(t *testing.T) {
+	db := setupTestDB(t)
+	const user, mailbox = "u@test", "INBOX"
+
+	m1 := &MessageMetadata{MessageID: "id1", UID: 1, Flags: []string{"\\Recent"}}
+	if err := db.StoreMessageMetadata(user, mailbox, 1, m1); err != nil {
+		t.Fatalf("StoreMessageMetadata 1: %v", err)
+	}
+	got1, err := db.GetMessageMetadata(user, mailbox, 1)
+	if err != nil {
+		t.Fatalf("GetMessageMetadata 1: %v", err)
+	}
+	if got1.ModSeq == 0 {
+		t.Fatalf("arrival should assign a nonzero mod-sequence, got 0")
+	}
+
+	// A second arrival gets a strictly higher mod-sequence.
+	m2 := &MessageMetadata{MessageID: "id2", UID: 2}
+	if err := db.StoreMessageMetadata(user, mailbox, 2, m2); err != nil {
+		t.Fatalf("StoreMessageMetadata 2: %v", err)
+	}
+	got2, err := db.GetMessageMetadata(user, mailbox, 2)
+	if err != nil {
+		t.Fatalf("GetMessageMetadata 2: %v", err)
+	}
+	if got2.ModSeq <= got1.ModSeq {
+		t.Errorf("second arrival mod-sequence %d should exceed the first %d", got2.ModSeq, got1.ModSeq)
+	}
+
+	// An explicit mod-sequence (migration restore) must be preserved verbatim.
+	m3 := &MessageMetadata{MessageID: "id3", UID: 3, ModSeq: 9999}
+	if err := db.StoreMessageMetadata(user, mailbox, 3, m3); err != nil {
+		t.Fatalf("StoreMessageMetadata 3: %v", err)
+	}
+	got3, err := db.GetMessageMetadata(user, mailbox, 3)
+	if err != nil {
+		t.Fatalf("GetMessageMetadata 3: %v", err)
+	}
+	if got3.ModSeq != 9999 {
+		t.Errorf("explicit mod-sequence must be preserved, got %d want 9999", got3.ModSeq)
+	}
+}

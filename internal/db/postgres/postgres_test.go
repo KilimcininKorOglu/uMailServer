@@ -979,6 +979,49 @@ func TestMailboxLifecycleAndChanges(t *testing.T) {
 	}
 }
 
+// TestStoreMessageMetadataAssignsArrivalModSeq verifies RFC 7162 parity with the
+// bbolt store: a newly stored message with an unset mod-sequence is assigned a
+// nonzero, monotonically increasing one, while an explicit mod-sequence (e.g. a
+// migration restore) is preserved — against real Postgres.
+func TestStoreMessageMetadataAssignsArrivalModSeq(t *testing.T) {
+	d := openTestDB(t)
+	const user, mbox = "modseq@x.com", "INBOX"
+
+	if err := d.StoreMessageMetadata(user, mbox, 1, &storage.MessageMetadata{MessageID: "<a@x>", UID: 1}); err != nil {
+		t.Fatalf("StoreMessageMetadata 1: %v", err)
+	}
+	got1, err := d.GetMessageMetadata(user, mbox, 1)
+	if err != nil {
+		t.Fatalf("GetMessageMetadata 1: %v", err)
+	}
+	if got1.ModSeq == 0 {
+		t.Fatalf("arrival should assign a nonzero mod-sequence, got 0")
+	}
+
+	if err := d.StoreMessageMetadata(user, mbox, 2, &storage.MessageMetadata{MessageID: "<b@x>", UID: 2}); err != nil {
+		t.Fatalf("StoreMessageMetadata 2: %v", err)
+	}
+	got2, err := d.GetMessageMetadata(user, mbox, 2)
+	if err != nil {
+		t.Fatalf("GetMessageMetadata 2: %v", err)
+	}
+	if got2.ModSeq <= got1.ModSeq {
+		t.Errorf("second arrival mod-sequence %d should exceed the first %d", got2.ModSeq, got1.ModSeq)
+	}
+
+	// An explicit mod-sequence (migration restore) is preserved verbatim.
+	if err := d.StoreMessageMetadata(user, mbox, 3, &storage.MessageMetadata{MessageID: "<c@x>", UID: 3, ModSeq: 9999}); err != nil {
+		t.Fatalf("StoreMessageMetadata 3: %v", err)
+	}
+	got3, err := d.GetMessageMetadata(user, mbox, 3)
+	if err != nil {
+		t.Fatalf("GetMessageMetadata 3: %v", err)
+	}
+	if got3.ModSeq != 9999 {
+		t.Errorf("explicit mod-sequence must be preserved, got %d want 9999", got3.ModSeq)
+	}
+}
+
 // TestMessageCRUD covers store/get/update/delete, counts, the atomic modseq
 // bump in UpdateMessageMetadataFunc, ClearRecent, and the generated search
 // vector — against real Postgres.

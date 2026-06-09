@@ -36,6 +36,28 @@ func (d *DB) StoreMessageMetadata(user, mailbox string, uid uint32, meta *storag
 		return err
 	}
 
+	// RFC 7162: a newly arrived message gets a nonzero mod-sequence from the same
+	// per-mailbox counter as flag changes, so CONDSTORE/QRESYNC can report it.
+	// Updates and restores (modseq already set, e.g. migration) are left as-is.
+	if meta.ModSeq == 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM messages WHERE user_email=$1 AND mailbox=$2 AND uid=$3)`,
+			user, mailbox, int64(uid)).Scan(&exists); err != nil {
+			return fmt.Errorf("postgres: check message exists %s/%s/%d: %w", user, mailbox, uid, err)
+		}
+		if !exists {
+			var ms int64
+			if err := tx.QueryRow(ctx,
+				`UPDATE mailboxes SET highest_modseq = highest_modseq + 1
+				 WHERE user_email=$1 AND name=$2 RETURNING highest_modseq`,
+				user, mailbox).Scan(&ms); err != nil {
+				return fmt.Errorf("postgres: assign arrival modseq %s/%s: %w", user, mailbox, err)
+			}
+			meta.ModSeq = uint64(ms)
+		}
+	}
+
 	var preexisting bool
 	// xmax is non-zero on a row updated by ON CONFLICT, zero on a fresh insert.
 	err = tx.QueryRow(ctx, `

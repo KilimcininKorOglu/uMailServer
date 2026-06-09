@@ -470,6 +470,22 @@ func (db *Database) ReconcileUIDNext(user, mailbox string) error {
 	})
 }
 
+// nextModSeqTx increments and returns the per-mailbox RFC 7162 mod-sequence
+// inside an existing write transaction, so it can be called from another Update
+// (e.g. StoreMessageMetadata) without the nested-Update deadlock bbolt would
+// otherwise hit. The mailbox bucket is distinct from the messages bucket.
+func nextModSeqTx(tx *bbolt.Tx, user, mailbox string) (uint64, error) {
+	b, err := tx.CreateBucketIfNotExists([]byte(mailboxKey(user, mailbox)))
+	if err != nil {
+		return 0, err
+	}
+	modSeq := btoi64(b.Get([]byte("highestmodseq"))) + 1
+	if err := b.Put([]byte("highestmodseq"), itob64(modSeq)); err != nil {
+		return 0, err
+	}
+	return modSeq, nil
+}
+
 // GetNextModSeq returns the next modification sequence number for a mailbox and increments it (RFC 7162)
 func (db *Database) GetNextModSeq(user, mailbox string) (uint64, error) {
 	if db.bolt == nil {
@@ -478,13 +494,9 @@ func (db *Database) GetNextModSeq(user, mailbox string) (uint64, error) {
 
 	var modSeq uint64
 	err := db.bolt.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte(mailboxKey(user, mailbox)))
-		if err != nil {
-			return err
-		}
-		modSeq = btoi64(b.Get([]byte("highestmodseq")))
-		modSeq++
-		return b.Put([]byte("highestmodseq"), itob64(modSeq))
+		var err error
+		modSeq, err = nextModSeqTx(tx, user, mailbox)
+		return err
 	})
 	return modSeq, err
 }
@@ -606,19 +618,28 @@ func (db *Database) StoreMessageMetadata(user, mailbox string, uid uint32, meta 
 		return nil
 	}
 
-	data, err := json.Marshal(meta)
-	if err != nil {
-		return err
-	}
-
 	preexisting := false
-	err = db.bolt.Update(func(tx *bbolt.Tx) error {
+	err := db.bolt.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(messagesBucket(user, mailbox)))
 		if err != nil {
 			return err
 		}
 		if b.Get(itob(uid)) != nil {
 			preexisting = true
+		} else if meta != nil && meta.ModSeq == 0 {
+			// RFC 7162: a newly arrived message gets a nonzero mod-sequence from
+			// the same per-mailbox counter as flag changes, so CONDSTORE/QRESYNC
+			// can report it. Updates (preexisting) and restores (modseq already
+			// set, e.g. migration) are left untouched.
+			ms, mErr := nextModSeqTx(tx, user, mailbox)
+			if mErr != nil {
+				return mErr
+			}
+			meta.ModSeq = ms
+		}
+		data, err := json.Marshal(meta)
+		if err != nil {
+			return err
 		}
 		return b.Put(itob(uid), data)
 	})
