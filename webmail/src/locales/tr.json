@@ -453,6 +453,10 @@
   "filters": {
     "description": "Gelen postaları otomatik olarak sırala ve işle",
     "newFilter": "Yeni Filtre",
+    "import": "İçe Aktar",
+    "export": "Dışa Aktar",
+    "importHint": "Outlook .rwz dosyasından kuralları içe aktar (Outlook 2016+; en iyi çaba)",
+    "exportHint": "Filtreleri Outlook .rwz dosyası olarak dışa aktar (Outlook 2016+; en iyi çaba)",
     "editTitle": "Filtreyi Düzenle",
     "dialogDescription": "Eşleşen mesajlara uygulanacak koşulları ve işlemleri tanımlayın.",
     "disabled": "Devre dışı",
@@ -520,7 +524,13 @@
       "saveFailed": "Filtre kaydedilemedi",
       "updateFailed": "Filtre güncellenemedi",
       "deleted": "Filtre silindi",
-      "deleteFailed": "Filtre silinemedi"
+      "deleteFailed": "Filtre silinemedi",
+      "exported": "Kurallar dışa aktarıldı",
+      "exportWarning": "Kurallar dışa aktarıldı; bazı kurallar veya işlemler .rwz biçiminde temsil edilemedi",
+      "exportFailed": "Kurallar dışa aktarılamadı",
+      "imported": "{{imported}} kural içe aktarıldı",
+      "importPartial": "{{imported}} kural içe aktarıldı; {{skipped}} öğe atlandı",
+      "importFailed": "Kurallar içe aktarılamadı"
     },
     "validation": {
       "nameRequired": "Filtre adı zorunludur",

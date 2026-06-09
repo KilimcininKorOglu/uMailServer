@@ -225,6 +225,15 @@ export interface FilterInput {
   actions: FilterAction[]
 }
 
+// RwzImportResult is the JSON returned by POST /api/v1/filters/import: how many
+// rules were created and what could not be represented (Outlook .rwz import).
+export interface RwzImportResult {
+  imported: number
+  skippedRules: number
+  skippedElements: number
+  notes?: string[]
+}
+
 // VacationAutoReply mirrors the backend /api/v1/vacation contract
 // (internal/api/vacation.go VacationConfig): snake_case JSON keys, with
 // `message` as the reply body and RFC3339 date strings.
@@ -603,6 +612,52 @@ class API {
   // reorderFilters sets the filter priority order (first id = highest priority).
   async reorderFilters(filterIds: string[]): Promise<void> {
     await this.post('/filters/reorder', { filterIds })
+  }
+
+  // exportRules downloads the user's filters as an Outlook .rwz file and triggers
+  // a browser save. Returns the X-Rwz-Skipped summary header (or null) so the
+  // caller can warn about rules/elements that could not be represented.
+  async exportRules(): Promise<string | null> {
+    const headers: Record<string, string> = {}
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const res = await fetch(`${API_URL}/filters/export`, { headers, credentials: 'include' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const skipped = res.headers.get('X-Rwz-Skipped')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'rules.rwz'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    return skipped
+  }
+
+  // importRules uploads an Outlook .rwz file and creates filters from it.
+  async importRules(file: File): Promise<RwzImportResult> {
+    const headers: Record<string, string> = {}
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${API_URL}/filters/import`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: form,
+    })
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`
+      try {
+        const body = await res.json()
+        if (body?.error) msg = body.error
+      } catch {
+        // non-JSON error body; keep the status message
+      }
+      throw new Error(msg)
+    }
+    return res.json()
   }
 
   // Vacation/Auto-reply

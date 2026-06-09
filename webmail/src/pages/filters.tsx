@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react"
-import { Filter as FilterIcon, Plus, Pencil, Trash2, X, ArrowUp, ArrowDown } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Filter as FilterIcon, Plus, Pencil, Trash2, X, ArrowUp, ArrowDown, Download, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -97,6 +97,8 @@ export function FiltersPage() {
   const [draft, setDraft] = useState<FilterInput>(emptyDraft())
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Filter | null>(null)
+  const [transferring, setTransferring] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const loadFilters = useCallback(async () => {
     setLoading(true)
@@ -113,6 +115,47 @@ export function FiltersPage() {
   useEffect(() => {
     loadFilters()
   }, [loadFilters])
+
+  const handleExport = useCallback(async () => {
+    setTransferring(true)
+    try {
+      const skipped = await api.exportRules()
+      if (skipped) {
+        toast.warning(t("filters.toast.exportWarning"))
+      } else {
+        toast.success(t("filters.toast.exported"))
+      }
+    } catch {
+      toast.error(t("filters.toast.exportFailed"))
+    } finally {
+      setTransferring(false)
+    }
+  }, [t])
+
+  const handleImportFile = useCallback(
+    async (file: File) => {
+      setTransferring(true)
+      try {
+        const result = await api.importRules(file)
+        if (result.skippedRules > 0 || result.skippedElements > 0) {
+          toast.warning(
+            t("filters.toast.importPartial", {
+              imported: String(result.imported),
+              skipped: String(result.skippedRules + result.skippedElements),
+            }),
+          )
+        } else {
+          toast.success(t("filters.toast.imported", { imported: String(result.imported) }))
+        }
+        await loadFilters()
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("filters.toast.importFailed"))
+      } finally {
+        setTransferring(false)
+      }
+    },
+    [t, loadFilters],
+  )
 
   // Move a filter up/down in priority order and persist the new order.
   const moveFilter = async (index: number, dir: -1 | 1) => {
@@ -271,10 +314,41 @@ export function FiltersPage() {
             </p>
           </div>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-1" />
-          {t("filters.newFilter")}
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".rwz"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = "" // allow re-selecting the same file
+              if (file) handleImportFile(file)
+            }}
+          />
+          <Button
+            variant="outline"
+            onClick={() => importInputRef.current?.click()}
+            disabled={transferring}
+            title={t("filters.importHint")}
+          >
+            <Upload className="h-4 w-4 mr-1" />
+            {t("filters.import")}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={transferring || filters.length === 0}
+            title={t("filters.exportHint")}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            {t("filters.export")}
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4 mr-1" />
+            {t("filters.newFilter")}
+          </Button>
+        </div>
       </div>
 
       {loading ? (

@@ -453,6 +453,10 @@
   "filters": {
     "description": "Sort and act on incoming mail automatically",
     "newFilter": "New Filter",
+    "import": "Import",
+    "export": "Export",
+    "importHint": "Import rules from an Outlook .rwz file (Outlook 2016+; best-effort)",
+    "exportHint": "Export filters as an Outlook .rwz file (Outlook 2016+; best-effort)",
     "editTitle": "Edit Filter",
     "dialogDescription": "Define conditions and the actions to apply to matching messages.",
     "disabled": "Disabled",
@@ -520,7 +524,13 @@
       "saveFailed": "Failed to save filter",
       "updateFailed": "Failed to update filter",
       "deleted": "Filter deleted",
-      "deleteFailed": "Failed to delete filter"
+      "deleteFailed": "Failed to delete filter",
+      "exported": "Rules exported",
+      "exportWarning": "Rules exported; some rules or actions could not be represented in .rwz",
+      "exportFailed": "Failed to export rules",
+      "imported": "Imported {{imported}} rule(s)",
+      "importPartial": "Imported {{imported}} rule(s); {{skipped}} item(s) were skipped",
+      "importFailed": "Failed to import rules"
     },
     "validation": {
       "nameRequired": "Filter name is required",
