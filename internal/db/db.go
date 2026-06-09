@@ -34,6 +34,7 @@ const (
 	BucketClientSessions = "client_sessions"
 	BucketMailGroups     = "mailgroups"
 	BucketTenants        = "tenants"
+	BucketScheduled      = "scheduled"
 )
 
 // DB wraps bbolt database
@@ -159,6 +160,28 @@ type QueueEntry struct {
 	Ret    DSNRet    `json:"ret"`    // What to return in DSN (FULL or HDRS)
 }
 
+// ScheduledMessage holds a message queued for future ("send later") delivery.
+// It is the canonical record the leader-gated release loop reads; the "Scheduled"
+// system folder is a visibility projection (FolderUID/BlobKey link the two), so a
+// release moves the projection to Sent and a folder expunge cancels this record.
+type ScheduledMessage struct {
+	ID          string    `json:"id"`
+	Owner       string    `json:"owner"`        // mailbox that scheduled the send
+	From        string    `json:"from"`         // envelope sender
+	To          []string  `json:"to"`           // envelope recipients
+	MessagePath string    `json:"message_path"` // raw MIME on disk
+	SendAt      time.Time `json:"send_at"`      // absolute UTC release time
+	CreatedAt   time.Time `json:"created_at"`
+	ClaimedAt   time.Time `json:"claimed_at"` // lease stamp while status=sending
+	Status      string    `json:"status"`     // pending, sending, sent, failed, canceled
+	Source      string    `json:"source"`     // webmail, ews, smtp, jmap
+	FileSent    bool      `json:"file_sent"`  // file a Sent copy on release
+	FolderUID   uint32    `json:"folder_uid"` // uid in the owner's Scheduled folder
+	BlobKey     string    `json:"blob_key"`   // message-store key of the projection
+	RetryCount  int       `json:"retry_count"`
+	LastError   string    `json:"last_error"`
+}
+
 // DSNNotify represents delivery status notification preferences
 type DSNNotify int32
 
@@ -251,6 +274,7 @@ func (d *DB) initBuckets() error {
 		BucketPreferences,
 		BucketMailGroups,
 		BucketTenants,
+		BucketScheduled,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {
@@ -701,6 +725,156 @@ func (d *DB) ForEachQueueEntry(fn func(*QueueEntry) error) error {
 		}
 		return fn(&entry)
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled ("send later") messages
+// ---------------------------------------------------------------------------
+
+// CreateScheduledMessage persists a scheduled message, stamping CreatedAt.
+func (d *DB) CreateScheduledMessage(m *ScheduledMessage) error {
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = time.Now()
+	}
+	return d.Put(BucketScheduled, m.ID, m)
+}
+
+// CreateScheduledMessageWithLimit refuses to insert when the owner already has
+// maxPerOwner pending scheduled messages. The count and insert run in one bbolt
+// transaction so the limit holds under concurrent submitters.
+func (d *DB) CreateScheduledMessageWithLimit(m *ScheduledMessage, maxPerOwner int) error {
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = time.Now()
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("failed to marshal value: %w", err)
+	}
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketScheduled))
+		if b == nil {
+			return fmt.Errorf("bucket not found: %s", BucketScheduled)
+		}
+		count := 0
+		if err := b.ForEach(func(_, v []byte) error {
+			var e ScheduledMessage
+			if json.Unmarshal(v, &e) == nil && e.Owner == m.Owner && e.Status == "pending" {
+				count++
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		if count >= maxPerOwner {
+			return fmt.Errorf("too many scheduled messages (max %d per user)", maxPerOwner)
+		}
+		return b.Put([]byte(m.ID), data)
+	})
+}
+
+// GetScheduledMessage retrieves a scheduled message by id.
+func (d *DB) GetScheduledMessage(id string) (*ScheduledMessage, error) {
+	var m ScheduledMessage
+	if err := d.Get(BucketScheduled, id, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// UpdateScheduledMessage overwrites a scheduled message.
+func (d *DB) UpdateScheduledMessage(m *ScheduledMessage) error {
+	return d.Put(BucketScheduled, m.ID, m)
+}
+
+// DeleteScheduledMessage removes a scheduled message.
+func (d *DB) DeleteScheduledMessage(id string) error {
+	return d.Delete(BucketScheduled, id)
+}
+
+// ListScheduledByOwner returns all scheduled messages owned by the given mailbox.
+func (d *DB) ListScheduledByOwner(owner string) ([]*ScheduledMessage, error) {
+	var out []*ScheduledMessage
+	err := d.ForEach(BucketScheduled, func(_ string, value []byte) error {
+		var m ScheduledMessage
+		if err := json.Unmarshal(value, &m); err != nil {
+			return nil // skip malformed
+		}
+		if m.Owner == owner {
+			out = append(out, &m)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// ListDueScheduledMessages returns pending messages whose send time has arrived.
+func (d *DB) ListDueScheduledMessages(now time.Time) ([]*ScheduledMessage, error) {
+	var out []*ScheduledMessage
+	err := d.ForEach(BucketScheduled, func(_ string, value []byte) error {
+		var m ScheduledMessage
+		if err := json.Unmarshal(value, &m); err != nil {
+			return nil // skip malformed
+		}
+		if m.Status == "pending" && !m.SendAt.After(now) {
+			out = append(out, &m)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// CancelScheduledByFolderRef deletes the scheduled message whose Scheduled-folder
+// projection (owner + folder uid) was expunged, so canceling from any surface's
+// folder view cancels the send. Returns true if a matching record was removed.
+func (d *DB) CancelScheduledByFolderRef(owner string, uid uint32) (bool, error) {
+	var target string
+	err := d.ForEach(BucketScheduled, func(_ string, value []byte) error {
+		var m ScheduledMessage
+		if err := json.Unmarshal(value, &m); err != nil {
+			return nil
+		}
+		if m.Owner == owner && m.FolderUID == uid {
+			target = m.ID
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	if target == "" {
+		return false, nil
+	}
+	if err := d.Delete(BucketScheduled, target); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ResetStaleScheduledMessages flips messages stuck in 'sending' (claimed before
+// the given cutoff, e.g. by a node that crashed mid-release) back to 'pending' so
+// the release loop retries them. Returns how many were reset.
+func (d *DB) ResetStaleScheduledMessages(before time.Time) (int, error) {
+	var stale []*ScheduledMessage
+	err := d.ForEach(BucketScheduled, func(_ string, value []byte) error {
+		var m ScheduledMessage
+		if err := json.Unmarshal(value, &m); err != nil {
+			return nil
+		}
+		if m.Status == "sending" && m.ClaimedAt.Before(before) {
+			stale = append(stale, &m)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	for _, m := range stale {
+		m.Status = "pending"
+		if err := d.Put(BucketScheduled, m.ID, m); err != nil {
+			return 0, err
+		}
+	}
+	return len(stale), nil
 }
 
 // GetAlias retrieves an alias by domain and local part

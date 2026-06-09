@@ -49,7 +49,7 @@ func openTestDB(t *testing.T) *DB {
 	// so the test body runs against the full pool.
 	d.ReleaseInitLock(ctx)
 	if _, err := d.pool.Exec(ctx,
-		`TRUNCATE accounts, aliases, mail_groups, mail_queue, domains, tenants,
+		`TRUNCATE accounts, aliases, mail_groups, mail_queue, scheduled_messages, domains, tenants,
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
@@ -446,6 +446,74 @@ func TestQueueRoundTrip(t *testing.T) {
 	}
 	if _, err := d.GetQueueEntry("q1"); err == nil {
 		t.Error("GetQueueEntry after dequeue should error")
+	}
+}
+
+func TestScheduledRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+	past := time.Now().Add(-time.Minute).UTC()
+	m := &db.ScheduledMessage{
+		ID:          "s1",
+		Owner:       "u@example.com",
+		From:        "u@example.com",
+		To:          []string{"a@x.com", "b@x.com"},
+		MessagePath: "/spool/s1",
+		SendAt:      past,
+		Status:      "pending",
+		Source:      "webmail",
+		FileSent:    true,
+		FolderUID:   7,
+		BlobKey:     "blob1",
+	}
+	if err := d.CreateScheduledMessageWithLimit(m, 10); err != nil {
+		t.Fatalf("CreateScheduledMessageWithLimit: %v", err)
+	}
+	if err := d.CreateScheduledMessageWithLimit(&db.ScheduledMessage{ID: "s2", Owner: "u@example.com", SendAt: past, Status: "pending"}, 1); err == nil {
+		t.Error("create past per-owner max should error")
+	}
+
+	got, err := d.GetScheduledMessage("s1")
+	if err != nil {
+		t.Fatalf("GetScheduledMessage: %v", err)
+	}
+	if len(got.To) != 2 || got.To[0] != "a@x.com" || !got.FileSent || got.FolderUID != 7 || got.BlobKey != "blob1" {
+		t.Errorf("scheduled mismatch: %+v", got)
+	}
+
+	if byOwner, err := d.ListScheduledByOwner("u@example.com"); err != nil || len(byOwner) != 1 {
+		t.Fatalf("ListScheduledByOwner: %v len=%d", err, len(byOwner))
+	}
+	due, err := d.ListDueScheduledMessages(time.Now())
+	if err != nil || len(due) != 1 || due[0].ID != "s1" {
+		t.Fatalf("ListDueScheduledMessages: %v %+v", err, due)
+	}
+
+	// Claim flips status to sending and wins; a re-claim loses.
+	won, err := d.ClaimScheduledMessage("s1", time.Now())
+	if err != nil || !won {
+		t.Fatalf("ClaimScheduledMessage: won=%v err=%v", won, err)
+	}
+	if again, err := d.ClaimScheduledMessage("s1", time.Now()); err != nil || again {
+		t.Errorf("re-claim should lose: again=%v err=%v", again, err)
+	}
+	if due, err := d.ListDueScheduledMessages(time.Now()); err != nil || len(due) != 0 {
+		t.Errorf("claimed row still due: err=%v %+v", err, due)
+	}
+
+	// Stale-claim recovery resets it back to pending.
+	if n, err := d.ResetStaleScheduledMessages(time.Now().Add(time.Hour)); err != nil || n != 1 {
+		t.Errorf("ResetStaleScheduledMessages: n=%d err=%v", n, err)
+	}
+	if due, err := d.ListDueScheduledMessages(time.Now()); err != nil || len(due) != 1 {
+		t.Errorf("reset row should be due again: err=%v %+v", err, due)
+	}
+
+	// Folder-ref cancel removes the row.
+	if ok, err := d.CancelScheduledByFolderRef("u@example.com", 7); err != nil || !ok {
+		t.Errorf("CancelScheduledByFolderRef: ok=%v err=%v", ok, err)
+	}
+	if _, err := d.GetScheduledMessage("s1"); err == nil {
+		t.Error("GetScheduledMessage after cancel should error")
 	}
 }
 

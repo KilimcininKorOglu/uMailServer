@@ -170,6 +170,38 @@ CREATE TABLE IF NOT EXISTS mail_queue_recipients (
     PRIMARY KEY (queue_id, ord)
 );
 
+-- Scheduled ("send later") messages -----------------------------------------
+-- The canonical record a leader-gated release loop reads; the "Scheduled" system
+-- folder is a visibility projection (folder_uid links them). A due pending row is
+-- claimed (status->sending, claimed_at) before release; stale 'sending' rows are
+-- reset to 'pending' for crash recovery.
+CREATE TABLE IF NOT EXISTS scheduled_messages (
+    id           TEXT PRIMARY KEY,
+    owner        TEXT        NOT NULL DEFAULT '',
+    -- "from" is a reserved word; the Go field From maps to this column.
+    sender       TEXT        NOT NULL DEFAULT '',
+    message_path TEXT        NOT NULL DEFAULT '',
+    send_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    claimed_at   TIMESTAMPTZ NOT NULL DEFAULT '0001-01-01 00:00:00+00',
+    status       TEXT        NOT NULL DEFAULT 'pending',
+    source       TEXT        NOT NULL DEFAULT '',
+    file_sent    BOOLEAN     NOT NULL DEFAULT false,
+    folder_uid   BIGINT      NOT NULL DEFAULT 0,
+    blob_key     TEXT        NOT NULL DEFAULT '',
+    retry_count  INTEGER     NOT NULL DEFAULT 0,
+    last_error   TEXT        NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_messages (status, send_at);
+CREATE INDEX IF NOT EXISTS idx_scheduled_owner ON scheduled_messages (owner);
+
+CREATE TABLE IF NOT EXISTS scheduled_message_recipients (
+    scheduled_id TEXT    NOT NULL REFERENCES scheduled_messages (id) ON DELETE CASCADE,
+    ord          INTEGER NOT NULL,
+    recipient    TEXT    NOT NULL,
+    PRIMARY KEY (scheduled_id, ord)
+);
+
 -- Auth: token blacklist + portal sessions -----------------------------------
 -- The revoked-token blacklist is canonical DB state today (bbolt); on Postgres
 -- it becomes cluster-shared automatically (the HA reason it is not duplicated

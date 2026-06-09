@@ -335,3 +335,76 @@ func TestAliasOperations(t *testing.T) {
 		}
 	})
 }
+
+// TestScheduledMessageBbolt exercises the scheduled-message store on the bbolt
+// backend (the postgres mirror is covered by TestScheduledRoundTrip).
+func TestScheduledMessageBbolt(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := Open(tmpDir + "/test.db")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+
+	past := time.Now().Add(-time.Minute)
+	m := &ScheduledMessage{
+		ID: "s1", Owner: "u@example.com", From: "u@example.com",
+		To: []string{"a@x.com", "b@x.com"}, MessagePath: "/spool/s1",
+		SendAt: past, Status: "pending", Source: "webmail", FileSent: true, FolderUID: 7, BlobKey: "blob1",
+	}
+	if err := db.CreateScheduledMessageWithLimit(m, 10); err != nil {
+		t.Fatalf("CreateScheduledMessageWithLimit: %v", err)
+	}
+	if err := db.CreateScheduledMessageWithLimit(&ScheduledMessage{ID: "s2", Owner: "u@example.com", SendAt: past, Status: "pending"}, 1); err == nil {
+		t.Error("create past per-owner max should error")
+	}
+
+	got, err := db.GetScheduledMessage("s1")
+	if err != nil {
+		t.Fatalf("GetScheduledMessage: %v", err)
+	}
+	if len(got.To) != 2 || !got.FileSent || got.FolderUID != 7 || got.BlobKey != "blob1" {
+		t.Errorf("scheduled mismatch: %+v", got)
+	}
+
+	if due, err := db.ListDueScheduledMessages(time.Now()); err != nil || len(due) != 1 || due[0].ID != "s1" {
+		t.Fatalf("ListDueScheduledMessages: %v %+v", err, due)
+	}
+	if byOwner, err := db.ListScheduledByOwner("u@example.com"); err != nil || len(byOwner) != 1 {
+		t.Fatalf("ListScheduledByOwner: %v len=%d", err, len(byOwner))
+	}
+
+	// A future message is not due.
+	future := &ScheduledMessage{ID: "s3", Owner: "u@example.com", SendAt: time.Now().Add(time.Hour), Status: "pending"}
+	if err := db.CreateScheduledMessage(future); err != nil {
+		t.Fatalf("CreateScheduledMessage future: %v", err)
+	}
+	if due, err := db.ListDueScheduledMessages(time.Now()); err != nil || len(due) != 1 {
+		t.Errorf("future message should not be due: err=%v %+v", err, due)
+	}
+
+	// Stale-claim recovery: a 'sending' row reset back to pending.
+	got.Status = "sending"
+	got.ClaimedAt = time.Now().Add(-2 * time.Hour)
+	if err := db.UpdateScheduledMessage(got); err != nil {
+		t.Fatalf("UpdateScheduledMessage: %v", err)
+	}
+	if n, err := db.ResetStaleScheduledMessages(time.Now().Add(-time.Hour)); err != nil || n != 1 {
+		t.Errorf("ResetStaleScheduledMessages: n=%d err=%v", n, err)
+	}
+
+	// Folder-ref cancel removes the matching record.
+	if ok, err := db.CancelScheduledByFolderRef("u@example.com", 7); err != nil || !ok {
+		t.Errorf("CancelScheduledByFolderRef: ok=%v err=%v", ok, err)
+	}
+	if _, err := db.GetScheduledMessage("s1"); err == nil {
+		t.Error("GetScheduledMessage after cancel should error")
+	}
+	if ok, err := db.CancelScheduledByFolderRef("u@example.com", 999); err != nil || ok {
+		t.Errorf("cancel of a non-existent folder ref should report false: ok=%v err=%v", ok, err)
+	}
+}

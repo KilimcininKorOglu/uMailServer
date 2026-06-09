@@ -73,6 +73,17 @@ type Store interface {
 	GetPendingQueue(now time.Time) ([]*QueueEntry, error)
 	ForEachQueueEntry(fn func(*QueueEntry) error) error
 
+	// Scheduled ("send later") messages.
+	CreateScheduledMessage(m *ScheduledMessage) error
+	CreateScheduledMessageWithLimit(m *ScheduledMessage, maxPerOwner int) error
+	GetScheduledMessage(id string) (*ScheduledMessage, error)
+	UpdateScheduledMessage(m *ScheduledMessage) error
+	DeleteScheduledMessage(id string) error
+	ListScheduledByOwner(owner string) ([]*ScheduledMessage, error)
+	ListDueScheduledMessages(now time.Time) ([]*ScheduledMessage, error)
+	CancelScheduledByFolderRef(owner string, uid uint32) (bool, error)
+	ResetStaleScheduledMessages(before time.Time) (int, error)
+
 	// Auth: token blacklist and portal sessions.
 	StoreRevokedToken(tokenHash string, expiry time.Time) error
 	IsTokenRevoked(tokenHash string) (bool, error)
