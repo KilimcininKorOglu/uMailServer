@@ -147,9 +147,17 @@ func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.
 	folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
 	if err != nil {
 		if errors.Is(err, semcore.ErrFolderNotFound) {
-			// Auto-create the distinguished folder for new accounts.
+			// Auto-create the distinguished folder for new accounts. Create it
+			// under its CANONICAL name (e.g. "Junk", not the EWS id "junkemail")
+			// so it converges with the same folder IMAP/JMAP/webmail use and so
+			// EnsureFolderId's name fast-path cannot bind to a legacy folder that
+			// shares the EWS id as its name but carries a different role.
+			createName := name
+			if canonical := semcore.CanonicalFolderNameForRole(role); canonical != "" {
+				createName = canonical
+			}
 			// Uses EnsureFolderId so the operation is idempotent for existing folders.
-			_, err := s.identity.EnsureFolderId(mailboxKey, name, role)
+			_, err := s.identity.EnsureFolderId(mailboxKey, createName, role)
 			if err != nil {
 				return errorMsg("GetFolder", ErrErrorInternalServer, "failed to create folder: "+err.Error())
 			}
