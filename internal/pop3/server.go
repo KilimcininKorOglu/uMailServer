@@ -2,6 +2,7 @@ package pop3
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -479,6 +480,31 @@ func (s *Session) WriteDataLine(line string) {
 	}
 }
 
+// writeDotStuffed writes data as a POP3 multiline body: each line is emitted
+// CRLF-terminated and a leading "." is byte-stuffed to ".." per RFC 1939 §3, so
+// a message line that begins with "." cannot be mistaken for the terminator. An
+// unterminated final line still gets its CRLF. It does NOT write the terminating
+// "." line — the caller does that via WriteDataEnd.
+func (s *Session) writeDotStuffed(data []byte) {
+	for len(data) > 0 {
+		var line []byte
+		if nl := bytes.IndexByte(data, '\n'); nl == -1 {
+			line, data = data, nil
+		} else {
+			line, data = data[:nl], data[nl+1:]
+		}
+		line = bytes.TrimSuffix(line, []byte("\r"))
+		out := string(line) + "\r\n"
+		if len(line) > 0 && line[0] == '.' {
+			out = "." + out
+		}
+		if _, err := s.writer.WriteString(out); err != nil {
+			s.server.logger.Debug("failed to write dot-stuffed line", "error", err)
+			return
+		}
+	}
+}
+
 // WriteDataEnd writes the end of data marker
 func (s *Session) WriteDataEnd() {
 	s.setWriteDeadline()
@@ -760,12 +786,11 @@ func (s *Session) handleTransactionCommand(command string, args []string) error 
 			}
 		}
 
+		// Octet count is the message size, not the dot-stuffed wire size; the
+		// client un-stuffs transparently (RFC 1939 §3 + §11).
 		s.WriteResponse(fmt.Sprintf("+OK %d octets", len(msg.Data)))
 		s.setWriteDeadline()
-		_, _ = s.writer.Write(msg.Data)
-		if !strings.HasSuffix(string(msg.Data), "\n") {
-			_, _ = s.writer.WriteString("\r\n")
-		}
+		s.writeDotStuffed(msg.Data)
 		s.WriteDataEnd()
 
 	case "DELE":
@@ -925,16 +950,12 @@ func (s *Session) sendTop(data []byte, lines int) {
 	}
 
 	if headerEnd == -1 {
-		// No header/body separator: send the whole message, then ensure it ends
-		// with CRLF so the caller's terminating "." (WriteDataEnd) lands on its
-		// own line (mirrors the RETR path). Do NOT call WriteDataEnd here — the
-		// caller does, and a second one would emit a double "." terminator that
-		// desyncs the POP3 multiline stream and makes the NEXT command's response
-		// read as a bare ".".
-		_, _ = s.writer.Write(data)
-		if !strings.HasSuffix(string(data), "\n") {
-			_, _ = s.writer.WriteString("\r\n")
-		}
+		// No header/body separator: send the whole message dot-stuffed and
+		// CRLF-terminated. Do NOT call WriteDataEnd here — the caller does, and a
+		// second one would emit a double "." terminator that desyncs the POP3
+		// multiline stream and makes the NEXT command's response read as a bare
+		// ".".
+		s.writeDotStuffed(data)
 		return
 	}
 

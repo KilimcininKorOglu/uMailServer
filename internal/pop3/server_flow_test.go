@@ -307,6 +307,50 @@ func TestRETRCommand(t *testing.T) {
 	}
 }
 
+// TestRETRDotStuffing verifies a body line that is exactly "." is byte-stuffed
+// to ".." (RFC 1939 §3) so it is not mistaken for the multiline terminator, the
+// rest of the body still arrives, and the stream stays synced for the next
+// command. Without stuffing the lone "." would terminate RETR early and desync
+// the connection.
+func TestRETRDotStuffing(t *testing.T) {
+	store := newMockMailstore()
+	store.dataMap[0] = []byte("From: a@b\r\nSubject: S\r\n\r\nline1\r\n.\r\nline3\r\n")
+	srv, addr := startTestServer(t, store, func(user, pass string) (bool, error) {
+		return true, nil
+	})
+	t.Cleanup(func() {
+		if err := srv.Stop(); err != nil {
+			t.Errorf("srv.Stop: %v", err)
+		}
+	})
+
+	conn, reader := dialAndRead(t, addr)
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("conn.Close: %v", err)
+		}
+	})
+
+	sendCmd(t, conn, reader, "USER test")
+	sendCmd(t, conn, reader, "PASS pass")
+
+	status, lines := sendCmdMulti(t, conn, reader, "RETR 1")
+	if !strings.HasPrefix(status, "+OK") {
+		t.Fatalf("RETR: expected +OK, got %s", status)
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "..") {
+		t.Errorf("RETR: expected the lone-dot body line byte-stuffed as \"..\", got %v", lines)
+	}
+	if !strings.Contains(joined, "line3") {
+		t.Errorf("RETR: body truncated before line3 (premature terminator), got %v", lines)
+	}
+	// The connection must remain synced after the dot-stuffed RETR.
+	if resp := sendCmd(t, conn, reader, "NOOP"); !strings.HasPrefix(resp, "+OK") {
+		t.Errorf("NOOP after RETR: expected +OK (stream synced), got %s", resp)
+	}
+}
+
 func TestTOPCommand(t *testing.T) {
 	store := newMockMailstore()
 	store.dataMap[0] = []byte("From: test@example.com\r\nSubject: Test\r\n\r\nLine1\r\nLine2\r\nLine3\r\n")
