@@ -1087,9 +1087,11 @@ func (s *Server) handleMarkAsJunk(ctx context.Context, body []byte) []byte {
 	isJunk := strings.EqualFold(req.IsJunk, "true") || req.IsJunk == "1"
 	moveItem := strings.EqualFold(req.MoveItem, "true") || req.MoveItem == "1"
 
-	// When marking as junk we move to the Junk Email folder; un-marking moves
-	// the item back to the Inbox.
-	destName, destRole := "junkemail", "spam"
+	// When marking as junk we move to the Junk folder; un-marking moves the
+	// item back to the Inbox. The role is the canonical "junk" (not "spam") and
+	// the name is "Junk", so EWS resolves the same Junk folder that IMAP/JMAP/
+	// webmail and the canonical role map use.
+	destName, destRole := "Junk", "junk"
 	if !isJunk {
 		destName, destRole = "inbox", "inbox"
 	}

@@ -154,7 +154,7 @@ var DistinguishedFolderIDs = map[string]string{
 	"drafts":        "drafts",
 	"sentitems":     "sent",
 	"deleteditems":  "trash",
-	"junkemail":     "spam",
+	"junkemail":     "junk",
 	"archive":       "archive",
 	"outbox":        "outbox",
 	"calendar":      "calendar",
