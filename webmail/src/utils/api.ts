@@ -47,6 +47,19 @@ export interface SendMailRequest {
   from?: string // Sender identity for send-as or send-on-behalf
   attachments?: MailAttachment[]
   requestReadReceipt?: boolean // ask the recipient's client for a read receipt
+  // sendAt, when a future absolute RFC3339 instant, defers delivery: the server
+  // releases the message at that time instead of sending now.
+  sendAt?: string
+}
+
+// ScheduledMailItem is one pending/failed "send later" message in the Scheduled view.
+export interface ScheduledMailItem {
+  id: string
+  to: string[]
+  subject: string
+  sendAt: string // absolute RFC3339 (UTC)
+  status: string // pending | sending | failed
+  error?: string
 }
 
 export interface CalendarEvent {
@@ -568,6 +581,18 @@ class API {
 
   async sendMail(mail: SendMailRequest): Promise<void> {
     await this.post('/mail/send', mail)
+  }
+
+  // listScheduled returns the caller's pending/failed "send later" messages.
+  async listScheduled(): Promise<ScheduledMailItem[]> {
+    const res = await this.get<{ scheduled: ScheduledMailItem[] }>('/scheduled')
+    return res.scheduled ?? []
+  }
+
+  // cancelScheduled cancels one scheduled message by id (removing it from the
+  // Scheduled folder and the send queue).
+  async cancelScheduled(id: string): Promise<void> {
+    await this.post('/scheduled/cancel', { id })
   }
 
   // saveDraft stores a draft in the Drafts folder, replacing the existing draft

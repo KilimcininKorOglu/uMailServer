@@ -4,6 +4,7 @@ import {
   Inbox,
   Send,
   FileText,
+  Clock,
   Trash2,
   Star,
   AlertCircle,
@@ -77,6 +78,7 @@ const mainNavItems: NavItem[] = [
   { icon: Star, label: "nav.starred", path: "/starred", shortcut: "gs" },
   { icon: Send, label: "nav.sent", path: "/sent", shortcut: "gt" },
   { icon: FileText, label: "nav.drafts", path: "/drafts", shortcut: "gd" },
+  { icon: Clock, label: "nav.scheduled", path: "/scheduled" },
   { icon: Trash2, label: "nav.trash", path: "/trash", shortcut: "gT" },
   { icon: Users, label: "nav.contacts", path: "/contacts" },
   { icon: CalendarDays, label: "nav.calendar", path: "/calendar" },
@@ -87,7 +89,7 @@ const mainNavItems: NavItem[] = [
 
 // Standard mailboxes already shown in the main nav (or as Spam below); excluded
 // from the dynamic custom-folder list.
-const standardMailboxes = new Set(["inbox", "sent", "drafts", "trash", "junk"])
+const standardMailboxes = new Set(["inbox", "sent", "drafts", "trash", "junk", "scheduled"])
 
 const folderItems: NavItem[] = [
   { icon: AlertCircle, label: "nav.spam", path: "/spam", color: "text-red-500" },

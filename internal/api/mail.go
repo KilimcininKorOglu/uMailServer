@@ -60,6 +60,21 @@ type SendMailRequest struct {
 	// recipient's client is asked to send a read receipt (MDN) back to the
 	// sender. The MDN is generated on the receiving side when present.
 	RequestReadReceipt bool `json:"requestReadReceipt,omitempty"`
+	// SendAt, when set to a future absolute RFC3339 instant, defers delivery:
+	// the message is recorded for scheduled send (and shown in the Scheduled
+	// folder) instead of being delivered now. A past/empty value sends now.
+	SendAt string `json:"sendAt,omitempty"`
+}
+
+// ScheduledMailItem is one pending/failed scheduled message in the Scheduled
+// listing the webmail client renders.
+type ScheduledMailItem struct {
+	ID      string   `json:"id"`
+	To      []string `json:"to"`
+	Subject string   `json:"subject"`
+	SendAt  string   `json:"sendAt"` // absolute RFC3339 (UTC)
+	Status  string   `json:"status"` // pending | sending | failed
+	Error   string   `json:"error,omitempty"`
 }
 
 // buildMultipartBody assembles a multipart/mixed body (a text part plus
@@ -121,6 +136,17 @@ type MailHandler struct {
 	// identical to the SMTP submission / EWS / JMAP send path. When nil, send
 	// only files a copy in Sent and does not deliver.
 	deliver func(from string, to []string, data []byte) error
+	// schedule, when set, records a message for future delivery (the "send
+	// later" path) and returns the scheduled-message id. When nil, a future
+	// SendAt is rejected. The server binds source="webmail" and files a Sent
+	// copy on release.
+	schedule func(owner, from string, to []string, data []byte, sendAt time.Time) (string, error)
+	// listScheduled returns the caller's pending/failed scheduled messages, or
+	// nil to disable the Scheduled listing endpoint.
+	listScheduled func(owner string) ([]ScheduledMailItem, error)
+	// cancelScheduled cancels one scheduled message by id for the owner (removing
+	// the record and its Scheduled-folder projection), or nil to disable cancel.
+	cancelScheduled func(owner, id string) error
 	// displayName resolves an email address to a configured account display
 	// name (from the directory), or "" when the address is non-local or has no
 	// display name set. Injected by the server; nil disables resolution.
@@ -148,6 +174,23 @@ func (h *MailHandler) SetStorage(msgStore *storage.MessageStore, mailDB MailStor
 // SetDeliveryFunc wires the shared outbound delivery path used by webmail send.
 func (h *MailHandler) SetDeliveryFunc(fn func(from string, to []string, data []byte) error) {
 	h.deliver = fn
+}
+
+// SetScheduleFunc wires the "send later" path: a future SendAt routes the
+// message here instead of delivering now.
+func (h *MailHandler) SetScheduleFunc(fn func(owner, from string, to []string, data []byte, sendAt time.Time) (string, error)) {
+	h.schedule = fn
+}
+
+// SetScheduledListFunc wires the Scheduled-listing source for GET
+// /api/v1/mail/scheduled.
+func (h *MailHandler) SetScheduledListFunc(fn func(owner string) ([]ScheduledMailItem, error)) {
+	h.listScheduled = fn
+}
+
+// SetScheduledCancelFunc wires the per-id cancel source for the Scheduled view.
+func (h *MailHandler) SetScheduledCancelFunc(fn func(owner, id string) error) {
+	h.cancelScheduled = fn
 }
 
 // SetDisplayNameResolver wires the address→display-name lookup so the mail API
@@ -723,6 +766,39 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Scheduled ("send later"): a future SendAt routes the message to the
+	// scheduler (which files the Scheduled-folder projection and releases it at
+	// the time) instead of delivering now; the immediate deliver + Sent filing
+	// below are skipped. A past/empty SendAt falls through to immediate send.
+	if req.SendAt != "" {
+		sendAt, perr := time.Parse(time.RFC3339, req.SendAt)
+		if perr != nil {
+			h.sendError(w, http.StatusBadRequest, "Invalid sendAt (must be RFC3339)")
+			return
+		}
+		if sendAt.After(time.Now()) {
+			if h.schedule == nil {
+				h.sendError(w, http.StatusServiceUnavailable, "Scheduled send is not available")
+				return
+			}
+			id, serr := h.schedule(userEmail, senderEmail, recipients, []byte(rawEmail), sendAt)
+			if serr != nil {
+				h.sendError(w, http.StatusBadRequest, serr.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]string{
+				"message": "Email scheduled",
+				"id":      id,
+				"status":  "scheduled",
+			}); err != nil {
+				fmt.Printf("ERROR: failed to encode schedule confirmation: %v\n", err)
+			}
+			return
+		}
+	}
+
 	if err := h.deliver(senderEmail, recipients, []byte(rawEmail)); err != nil {
 		h.sendError(w, http.StatusBadGateway, "Failed to deliver message")
 		return
@@ -781,6 +857,70 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 		"id":      msgID,
 	}); err != nil {
 		fmt.Printf("ERROR: failed to encode send confirmation: %v\n", err)
+	}
+}
+
+// handleScheduledList returns the caller's pending/failed scheduled messages so
+// the webmail Scheduled view can show each one's send time and status. The same
+// messages are also visible in the Scheduled folder.
+func (h *MailHandler) handleScheduledList(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user")
+	userEmail, ok := user.(string)
+	if !ok {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	if h.listScheduled == nil {
+		h.sendError(w, http.StatusServiceUnavailable, "Scheduled send is not available")
+		return
+	}
+	items, err := h.listScheduled(userEmail)
+	if err != nil {
+		h.sendError(w, http.StatusInternalServerError, "Failed to list scheduled messages")
+		return
+	}
+	if items == nil {
+		items = []ScheduledMailItem{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{"scheduled": items}); err != nil {
+		fmt.Printf("ERROR: failed to encode scheduled list: %v\n", err)
+	}
+}
+
+// handleScheduledCancel cancels one scheduled message by id, removing both the
+// canonical record and its Scheduled-folder projection so the send never fires.
+// This is the dedicated path; deleting the message from the Scheduled folder
+// cancels it the same way.
+func (h *MailHandler) handleScheduledCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	user := r.Context().Value("user")
+	userEmail, ok := user.(string)
+	if !ok {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	if h.cancelScheduled == nil {
+		h.sendError(w, http.StatusServiceUnavailable, "Scheduled send is not available")
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.ID) == "" {
+		h.sendError(w, http.StatusBadRequest, "Invalid request")
+		return
+	}
+	if err := h.cancelScheduled(userEmail, req.ID); err != nil {
+		h.sendError(w, http.StatusBadRequest, "Failed to cancel scheduled message")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "Scheduled message canceled"}); err != nil {
+		fmt.Printf("ERROR: failed to encode cancel confirmation: %v\n", err)
 	}
 }
 

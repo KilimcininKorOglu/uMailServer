@@ -38,7 +38,7 @@ import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType, MailAttac
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import { useI18n } from "@/hooks/useI18n"
-import { withTz } from "@/utils/date"
+import { withTz, zonedInputToISO } from "@/utils/date"
 
 interface Attachment {
   id: string
@@ -158,6 +158,10 @@ export function ComposePage() {
   const [showCc, setShowCc] = useState(false)
   const [showBcc, setShowBcc] = useState(false)
   const [sending, setSending] = useState(false)
+  // Scheduled ("send later"): scheduleOpen toggles the picker; scheduledAt holds
+  // the chosen wall clock (datetime-local value, interpreted in the display tz).
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState("")
   const [draftId, setDraftId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
@@ -518,9 +522,21 @@ export function ComposePage() {
       return
     }
 
+    // Resolve a scheduled send time (if any) to an absolute instant in the
+    // user's display timezone, and reject a time that is not in the future.
+    let sendAtISO: string | undefined
+    if (scheduledAt) {
+      const iso = zonedInputToISO(scheduledAt)
+      if (!iso || new Date(iso).getTime() <= Date.now()) {
+        toast.error(t("compose.scheduleInPast"))
+        return
+      }
+      sendAtISO = iso
+    }
+
     setSending(true)
-    toast.success(t("compose.sendingEmail"))
-    
+    toast.success(sendAtISO ? t("compose.schedulingEmail") : t("compose.sendingEmail"))
+
     try {
       // Use the actual API with sender identity
       const senderEmail = selectedSender?.email || user?.email || ''
@@ -546,13 +562,19 @@ export function ComposePage() {
         from: senderEmail, // Pass sender identity to API
         attachments: encoded.length > 0 ? encoded : undefined,
         requestReadReceipt: requestReadReceipt || undefined,
+        sendAt: sendAtISO,
       })
 
-      toast.success(t("compose.emailSent"))
-      navigate("/sent")
+      if (sendAtISO) {
+        toast.success(t("compose.emailScheduled"))
+        navigate("/scheduled")
+      } else {
+        toast.success(t("compose.emailSent"))
+        navigate("/sent")
+      }
     } catch (err) {
       console.error('Failed to send email:', err)
-      toast.error(t("compose.sendFailed"))
+      toast.error(sendAtISO ? t("compose.scheduleFailed") : t("compose.sendFailed"))
       setSending(false)
     }
   }
@@ -646,15 +668,45 @@ export function ComposePage() {
             <Save className="h-4 w-4" />
           </Button>
           <Button
+            variant={scheduledAt ? "secondary" : "ghost"}
+            size="icon"
+            onClick={() => setScheduleOpen(o => !o)}
+            title={t("compose.scheduleSend")}
+          >
+            <Clock className="h-4 w-4" />
+          </Button>
+          <Button
             className="gap-2"
             onClick={handleSend}
             disabled={sending || to.length === 0}
           >
             <Send className="h-4 w-4" />
-            {sending ? t("common.sending") : t("common.send")}
+            {sending
+              ? (scheduledAt ? t("compose.scheduling") : t("common.sending"))
+              : (scheduledAt ? t("compose.scheduleSend") : t("common.send"))}
           </Button>
         </div>
       </div>
+
+      {/* Send-later picker: choose an absolute time (interpreted in the display
+          timezone); clearing the time returns to immediate send. */}
+      {scheduleOpen && (
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2">
+          <Clock className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">{t("compose.scheduleSendAt")}:</span>
+          <Input
+            type="datetime-local"
+            className="h-8 w-auto"
+            value={scheduledAt}
+            onChange={(e) => setScheduledAt(e.target.value)}
+          />
+          {scheduledAt && (
+            <Button variant="ghost" size="sm" onClick={() => setScheduledAt("")}>
+              {t("compose.scheduleClear")}
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Recipients */}
       <div className="border-b px-4 py-2 space-y-2">

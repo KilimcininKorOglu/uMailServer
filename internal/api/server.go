@@ -62,20 +62,25 @@ const ContextKeyEmail = "X-Email" //nolint:staticcheck
 
 // Server represents the admin API server
 type Server struct {
-	db              db.Store
-	logger          *slog.Logger
-	config          Config
-	mcpServer       *mcp.Server
-	sseServer       *websocket.SSEServer
-	searchSvc       *search.Service
-	msgStore        *storage.MessageStore
-	mailDB          MailStore
-	mailDeliver     func(from string, to []string, data []byte) error
-	calendarDeliver func(from string, to []string, data []byte) error
-	queueMgr        *queue.Manager
-	httpServer      *http.Server
-	plainHTTPServer *http.Server
-	healthMon       HealthMonitor
+	db          db.Store
+	logger      *slog.Logger
+	config      Config
+	mcpServer   *mcp.Server
+	sseServer   *websocket.SSEServer
+	searchSvc   *search.Service
+	msgStore    *storage.MessageStore
+	mailDB      MailStore
+	mailDeliver func(from string, to []string, data []byte) error
+	// Scheduled ("send later") hooks, injected by the main server; nil leaves the
+	// feature unavailable (a future SendAt is rejected and the endpoints 503).
+	mailSchedule        func(owner, from string, to []string, data []byte, sendAt time.Time) (string, error)
+	mailScheduledList   func(owner string) ([]ScheduledMailItem, error)
+	mailScheduledCancel func(owner, id string) error
+	calendarDeliver     func(from string, to []string, data []byte) error
+	queueMgr            *queue.Manager
+	httpServer          *http.Server
+	plainHTTPServer     *http.Server
+	healthMon           HealthMonitor
 
 	// Tracing provider for OpenTelemetry
 	tracingProvider *tracing.Provider
@@ -683,6 +688,7 @@ func (s *Server) initRouter() {
 	s.mailHandler.SetDisplayNameResolver(s.resolveDisplayName)
 	s.mailHandler.SetFromNameBuilder(s.buildOutboundFromName)
 	s.mailHandler.SetTimezoneResolver(s.resolveTimezone)
+	s.applyScheduledFuncs()
 
 	api.HandleFunc("/api/v1/mail/inbox", s.mailHandler.handleMailList)
 	api.HandleFunc("/api/v1/mail/sent", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
@@ -692,6 +698,8 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/mail/message", http.HandlerFunc(s.mailHandler.handleMailGet).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/attachment", http.HandlerFunc(s.mailHandler.handleMailAttachment).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/send", http.HandlerFunc(s.mailHandler.handleMailSend).ServeHTTP)
+	api.HandleFunc("/api/v1/scheduled", http.HandlerFunc(s.mailHandler.handleScheduledList).ServeHTTP)
+	api.HandleFunc("/api/v1/scheduled/cancel", http.HandlerFunc(s.mailHandler.handleScheduledCancel).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/delete", http.HandlerFunc(s.mailHandler.handleMailDelete).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/flag", http.HandlerFunc(s.mailHandler.handleMailFlag).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/labels", http.HandlerFunc(s.mailHandler.handleMailLabels).ServeHTTP)
@@ -1477,6 +1485,19 @@ func (s *Server) SetMailDeliveryFunc(fn func(from string, to []string, data []by
 	s.initMailHandler()
 }
 
+// SetScheduledFuncs wires the "send later" hooks webmail uses: schedule a future
+// send, list the caller's scheduled messages, and cancel one by id.
+func (s *Server) SetScheduledFuncs(
+	schedule func(owner, from string, to []string, data []byte, sendAt time.Time) (string, error),
+	list func(owner string) ([]ScheduledMailItem, error),
+	cancel func(owner, id string) error,
+) {
+	s.mailSchedule = schedule
+	s.mailScheduledList = list
+	s.mailScheduledCancel = cancel
+	s.initMailHandler()
+}
+
 // initMailHandler initializes the mail handler with storage backends
 func (s *Server) initMailHandler() {
 	if s.mailHandler == nil && (s.msgStore != nil || s.mailDB != nil) {
@@ -1487,6 +1508,24 @@ func (s *Server) initMailHandler() {
 	}
 	if s.mailHandler != nil && s.mailDeliver != nil {
 		s.mailHandler.SetDeliveryFunc(s.mailDeliver)
+	}
+	s.applyScheduledFuncs()
+}
+
+// applyScheduledFuncs binds the injected "send later" hooks onto the mail
+// handler. Safe to call repeatedly; each is applied only when set.
+func (s *Server) applyScheduledFuncs() {
+	if s.mailHandler == nil {
+		return
+	}
+	if s.mailSchedule != nil {
+		s.mailHandler.SetScheduleFunc(s.mailSchedule)
+	}
+	if s.mailScheduledList != nil {
+		s.mailHandler.SetScheduledListFunc(s.mailScheduledList)
+	}
+	if s.mailScheduledCancel != nil {
+		s.mailHandler.SetScheduledCancelFunc(s.mailScheduledCancel)
 	}
 }
 

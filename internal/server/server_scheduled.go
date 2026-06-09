@@ -37,8 +37,6 @@ type scheduledClaimer interface {
 // send-on-behalf). fileSent controls whether a Sent copy is filed on release
 // (EWS SendOnly sets false). Returns the scheduled-message id ("" for an
 // immediate send).
-//
-//nolint:unused // ingestion entry point; the Phase 5 surfaces (webmail/EWS/SMTP/JMAP) call it.
 func (s *Server) scheduleSend(owner, from string, to []string, data []byte, sendAt time.Time, source string, fileSent bool) (string, error) {
 	sc := s.cfg().ScheduledSend
 	now := time.Now().UTC()
@@ -234,6 +232,25 @@ func (s *Server) failScheduled(m *db.ScheduledMessage, reason string) {
 		s.logger.Warn("scheduled: mark failed failed", "id", m.ID, "error", err)
 	}
 	s.logger.Error("scheduled: message failed", "id", m.ID, "owner", m.Owner, "reason", reason)
+}
+
+// cancelScheduledByID cancels one scheduled message for owner: it removes the
+// Scheduled-folder projection and the canonical record so the send never fires.
+// It is the dedicated webmail-cancel path; expunging the projection from the
+// Scheduled folder (IMAP/EWS) cancels the same way. The owner check stops a user
+// from canceling another mailbox's scheduled mail.
+func (s *Server) cancelScheduledByID(owner, id string) error {
+	m, err := s.database.GetScheduledMessage(id)
+	if err != nil {
+		return err
+	}
+	if m.Owner != owner {
+		return fmt.Errorf("scheduled message not found")
+	}
+	if derr := s.storageDB.DeleteMessage(owner, scheduledFolder, m.FolderUID); derr == nil {
+		imap.GetNotificationHub().NotifyMailboxUpdate(owner, scheduledFolder)
+	}
+	return s.database.DeleteScheduledMessage(id)
 }
 
 // cancelScheduledOnExpunge cancels a scheduled send when its Scheduled-folder

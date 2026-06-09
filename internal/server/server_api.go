@@ -88,6 +88,16 @@ func (s *Server) startAPI() {
 	// composed message is actually delivered (local + relay), not just filed in
 	// Sent.
 	s.apiServer.SetMailDeliveryFunc(s.submitMessageWithSieve)
+	// Wire the webmail "send later" hooks to the canonical scheduled-send store:
+	// a future SendAt schedules (source webmail, Sent filed on release), plus the
+	// Scheduled list and per-id cancel for the Scheduled view.
+	s.apiServer.SetScheduledFuncs(
+		func(owner, from string, to []string, data []byte, sendAt time.Time) (string, error) {
+			return s.scheduleSend(owner, from, to, data, sendAt, "webmail", true)
+		},
+		s.scheduledListForOwner,
+		s.cancelScheduledByID,
+	)
 	// Set contacts handler data directory for CardDAV-backed contacts API
 	s.apiServer.SetContactsDataDir(s.cfg().Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API
@@ -307,6 +317,35 @@ func (s *Server) setupOutlookFeatureGates() {
 		"FeatureCanonicalIdentity", gate.IsEnabled(semcore.FeatureCanonicalIdentity),
 		"FeatureMAPIHTTP", gate.IsEnabled(semcore.FeatureMAPIHTTP),
 	)
+}
+
+// scheduledListForOwner builds the webmail Scheduled-view listing from the
+// canonical scheduled-message store, enriching each row's Subject from its
+// Scheduled-folder projection metadata (the record stores envelope fields, not
+// the header subject).
+func (s *Server) scheduledListForOwner(owner string) ([]api.ScheduledMailItem, error) {
+	recs, err := s.database.ListScheduledByOwner(owner)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]api.ScheduledMailItem, 0, len(recs))
+	for _, m := range recs {
+		subject := ""
+		if s.storageDB != nil {
+			if meta, merr := s.storageDB.GetMessageMetadata(owner, scheduledFolder, m.FolderUID); merr == nil && meta != nil {
+				subject = meta.Subject
+			}
+		}
+		items = append(items, api.ScheduledMailItem{
+			ID:      m.ID,
+			To:      m.To,
+			Subject: subject,
+			SendAt:  m.SendAt.UTC().Format(time.RFC3339),
+			Status:  m.Status,
+			Error:   m.LastError,
+		})
+	}
+	return items, nil
 }
 
 // submitMessageWithSieve routes an outbound submitted message (from EWS or

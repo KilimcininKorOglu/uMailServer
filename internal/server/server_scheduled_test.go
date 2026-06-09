@@ -68,6 +68,25 @@ func TestCancelScheduledOnExpunge_FolderGating(t *testing.T) {
 	}
 }
 
+// TestCancelScheduledByID_OwnershipGuard ensures a user cannot cancel another
+// mailbox's scheduled message: a mismatched owner is rejected before any delete,
+// and the record survives.
+func TestCancelScheduledByID_OwnershipGuard(t *testing.T) {
+	srv, d := newScheduledTestServer(t)
+	if err := d.CreateScheduledMessageWithLimit(&db.ScheduledMessage{
+		ID: "owned", Owner: "alice@example.com", From: "alice@example.com",
+		To: []string{"x@y.com"}, SendAt: time.Now().Add(time.Hour), Status: "pending", FolderUID: 5,
+	}, 100); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := srv.cancelScheduledByID("mallory@example.com", "owned"); err == nil {
+		t.Error("canceling another owner's scheduled message must fail")
+	}
+	if _, err := d.GetScheduledMessage("owned"); err != nil {
+		t.Errorf("record must survive a rejected cross-owner cancel; got err %v", err)
+	}
+}
+
 // TestRetryScheduled_BacksOffThenGivesUp verifies a failed release is retried
 // with a forward-pushed SendAt until the attempt cap, after which it is marked
 // failed and LEFT VISIBLE — a give-up must never silently drop the message.

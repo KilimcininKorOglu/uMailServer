@@ -37,6 +37,41 @@ export function withTz(opts: Intl.DateTimeFormatOptions = {}): Intl.DateTimeForm
   return displayTimeZone ? { ...opts, timeZone: displayTimeZone } : opts
 }
 
+// zoneOffsetMs returns timeZone's UTC offset in milliseconds at instant `at`,
+// using Intl (no external dependency). Positive east of UTC.
+function zoneOffsetMs(timeZone: string, at: Date): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  const map: Record<string, number> = {}
+  for (const p of dtf.formatToParts(at)) {
+    if (p.type !== 'literal') map[p.type] = Number(p.value)
+  }
+  const asUTC = Date.UTC(map.year, map.month - 1, map.day, map.hour === 24 ? 0 : map.hour, map.minute, map.second)
+  return asUTC - at.getTime()
+}
+
+// zonedInputToISO converts a <input type="datetime-local"> value (a zoneless
+// wall clock "YYYY-MM-DDTHH:mm") into an absolute RFC3339/ISO instant,
+// interpreting the wall clock in the user's chosen display timezone (falling
+// back to the browser zone when none is set). The compose scheduler uses it so
+// "14:30" means 14:30 in the zone the user actually sees times in. Two passes
+// resolve the zone offset across DST boundaries.
+export function zonedInputToISO(localValue: string): string {
+  if (!localValue) return ''
+  if (!displayTimeZone) {
+    const d = new Date(localValue)
+    return isNaN(d.getTime()) ? '' : d.toISOString()
+  }
+  const target = new Date(localValue + ':00Z') // wall clock treated as UTC
+  if (isNaN(target.getTime())) return ''
+  let utcMs = target.getTime() - zoneOffsetMs(displayTimeZone, target)
+  utcMs = target.getTime() - zoneOffsetMs(displayTimeZone, new Date(utcMs))
+  return new Date(utcMs).toISOString()
+}
+
 // formatDate is the compact relative format used in message lists: time within a
 // day, weekday within a week, otherwise month + day.
 export function formatDate(dateString: string): string {
