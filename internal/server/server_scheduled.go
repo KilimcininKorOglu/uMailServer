@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/imap"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
@@ -29,6 +32,109 @@ const (
 // plus the sequential release loop instead.
 type scheduledClaimer interface {
 	ClaimScheduledMessage(id string, now time.Time) (bool, error)
+}
+
+// fileFolderCopy files raw into folder so the copy is visible on EVERY surface:
+// the content-addressed blob store, the semcore identity store (read by EWS
+// FindItem/GetItem), and the IMAP mailstore index (read by IMAP/POP3/JMAP/
+// webmail). It mirrors the Notes cross-protocol create. role is the folder's
+// distinguished role ("scheduled"/"sent") used to provision the semcore folder;
+// read marks the copy \Seen. Returns the assigned IMAP UID and blob key.
+func (s *Server) fileFolderCopy(owner, folder, role string, raw []byte, read bool) (uint32, string, error) {
+	if s.storageDB == nil {
+		return 0, "", fmt.Errorf("storage backend unavailable")
+	}
+	_ = s.storageDB.CreateMailbox(owner, folder) //nolint:errcheck // idempotent: absent is created, present is fine
+
+	blobKey, err := s.msgStore.StoreMessage(owner, raw)
+	if err != nil {
+		return 0, "", err
+	}
+	now := time.Now()
+
+	// Semcore identity write makes the copy visible to EWS. Best-effort: a
+	// failure is logged but never fails the filing (storageDB is authoritative
+	// for IMAP/webmail; semcore drives EWS visibility only).
+	if s.semcoreStore != nil && s.mutationPipe != nil {
+		id := s.semcoreStore.Identity()
+		if mboxID, merr := id.EnsureMailboxId(owner); merr == nil {
+			if folderID, ferr := id.EnsureFolderId(owner, folder, role); ferr == nil {
+				if _, perr := s.mutationPipe.MutateItem(&semcore.MutationInput{
+					MailboxID:    mboxID,
+					FolderID:     folderID,
+					RawMessage:   raw,
+					InternalDate: now,
+					Actor:        owner,
+					Email:        owner,
+					Source:       semcore.MutationSourceAPI,
+					IsRead:       read,
+				}); perr != nil {
+					s.logger.Warn("scheduled: semcore projection failed", "owner", owner, "folder", folder, "error", perr)
+				}
+			}
+		}
+	}
+
+	// IMAP mailstore index write makes the copy visible to IMAP/POP3/JMAP/webmail.
+	uid, err := s.storageDB.GetNextUID(owner, folder)
+	if err != nil {
+		return 0, "", err
+	}
+	var flags []string
+	if read {
+		flags = []string{"\\Seen"}
+	}
+	subject, date, fromHdr, toHdr := scheduledHeaders(raw)
+	meta := &storage.MessageMetadata{
+		MessageID:    blobKey,
+		UID:          uid,
+		Flags:        flags,
+		InternalDate: now,
+		Size:         int64(len(raw)),
+		Subject:      subject,
+		Date:         date,
+		From:         fromHdr,
+		To:           toHdr,
+	}
+	if err := s.storageDB.StoreMessageMetadata(owner, folder, uid, meta); err != nil {
+		return 0, "", err
+	}
+	return uid, blobKey, nil
+}
+
+// removeFolderCopySemcore removes the semcore identity for a folder copy (matched
+// by blob key) so a released or canceled Scheduled projection does not linger as
+// a ghost in EWS. Best-effort: the storageDB removal is the authoritative cancel.
+func (s *Server) removeFolderCopySemcore(owner, folder, role, blobKey string) {
+	if s.semcoreStore == nil || blobKey == "" {
+		return
+	}
+	id := s.semcoreStore.Identity()
+	folderID, err := id.EnsureFolderId(owner, folder, role)
+	if err != nil {
+		return
+	}
+	items, err := id.ListItemIdentitiesByFolder(folderID)
+	if err != nil {
+		return
+	}
+	for _, it := range items {
+		if it.MsgKey == blobKey {
+			if derr := id.DeleteItemIdentity(it.ItemID); derr != nil {
+				s.logger.Warn("scheduled: semcore cleanup failed", "owner", owner, "folder", folder, "error", derr)
+			}
+		}
+	}
+}
+
+// scheduledHeaders parses Subject/Date/From/To from a raw RFC 5322 message for the
+// mailstore metadata, returning empties when the message cannot be parsed.
+func scheduledHeaders(raw []byte) (subject, date, from, to string) {
+	msg, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return "", "", "", ""
+	}
+	return msg.Header.Get("Subject"), msg.Header.Get("Date"), msg.Header.Get("From"), msg.Header.Get("To")
 }
 
 // scheduleSend records a message for future delivery, or sends it immediately
@@ -51,16 +157,16 @@ func (s *Server) scheduleSend(owner, from string, to []string, data []byte, send
 			return "", err
 		}
 		if fileSent {
-			if _, _, err := storage.FileMessage(s.msgStore, s.storageDB, owner, "Sent", data, []string{"\\Seen"}); err != nil {
+			if _, _, err := s.fileFolderCopy(owner, "Sent", "sent", data, true); err != nil {
 				s.logger.Warn("scheduled: immediate-send Sent filing failed", "owner", owner, "error", err)
 			}
 		}
 		return "", nil
 	}
 
-	// File the visible Scheduled projection (content blob + folder metadata) so
-	// the pending message shows on webmail/IMAP/EWS.
-	uid, blobKey, err := storage.FileMessage(s.msgStore, s.storageDB, owner, scheduledFolder, data, nil)
+	// File the visible Scheduled projection (content blob + cross-protocol folder
+	// metadata) so the pending message shows on webmail/IMAP/JMAP and EWS.
+	uid, blobKey, err := s.fileFolderCopy(owner, scheduledFolder, "scheduled", data, false)
 	if err != nil {
 		return "", fmt.Errorf("file scheduled projection: %w", err)
 	}
@@ -77,8 +183,9 @@ func (s *Server) scheduleSend(owner, from string, to []string, data []byte, send
 		BlobKey:   blobKey,
 	}
 	if err := s.database.CreateScheduledMessageWithLimit(m, sc.MaxPerUser); err != nil {
-		// Roll back the projection so a rejected schedule leaves no orphan entry.
+		// Roll back the projection (both stores) so a rejected schedule leaves no orphan.
 		_ = s.storageDB.DeleteMessage(owner, scheduledFolder, uid) //nolint:errcheck // best-effort rollback
+		s.removeFolderCopySemcore(owner, scheduledFolder, "scheduled", blobKey)
 		return "", err
 	}
 	imap.GetNotificationHub().NotifyNewMessage(owner, scheduledFolder, uid, uid)
@@ -170,15 +277,18 @@ func (s *Server) releaseDueScheduled() {
 		}
 		// On its way: move the projection to Sent (when requested) and clear the record.
 		if m.FileSent {
-			if uid, _, ferr := storage.FileMessage(s.msgStore, s.storageDB, m.Owner, "Sent", raw, []string{"\\Seen"}); ferr != nil {
+			if uid, _, ferr := s.fileFolderCopy(m.Owner, "Sent", "sent", raw, true); ferr != nil {
 				s.logger.Warn("scheduled: Sent filing failed", "owner", m.Owner, "error", ferr)
 			} else {
 				imap.GetNotificationHub().NotifyNewMessage(m.Owner, "Sent", uid, uid)
 			}
 		}
+		// Remove the Scheduled projection from BOTH stores so the released message
+		// stops showing as pending on every surface (no EWS ghost).
 		if derr := s.storageDB.DeleteMessage(m.Owner, scheduledFolder, m.FolderUID); derr == nil {
 			imap.GetNotificationHub().NotifyMailboxUpdate(m.Owner, scheduledFolder)
 		}
+		s.removeFolderCopySemcore(m.Owner, scheduledFolder, "scheduled", m.BlobKey)
 		if derr := s.database.DeleteScheduledMessage(m.ID); derr != nil {
 			s.logger.Warn("scheduled: delete record failed", "id", m.ID, "error", derr)
 		}
@@ -250,12 +360,17 @@ func (s *Server) cancelScheduledByID(owner, id string) error {
 	if derr := s.storageDB.DeleteMessage(owner, scheduledFolder, m.FolderUID); derr == nil {
 		imap.GetNotificationHub().NotifyMailboxUpdate(owner, scheduledFolder)
 	}
+	s.removeFolderCopySemcore(owner, scheduledFolder, "scheduled", m.BlobKey)
 	return s.database.DeleteScheduledMessage(id)
 }
 
 // cancelScheduledOnExpunge cancels a scheduled send when its Scheduled-folder
 // projection is expunged from any surface (IMAP/EWS), so deleting the visible
-// message cancels the send. It is a no-op for other folders.
+// message cancels the send. It is a no-op for other folders. The expunging
+// surface removes its own store view (IMAP the mailstore index, EWS both); the
+// canonical record is removed here. A lingering semcore item after a bare IMAP
+// EXPUNGE follows the same delete semantics the project already has for any
+// IMAP-expunged message (the dedicated webmail/EWS cancel paths clean both stores).
 func (s *Server) cancelScheduledOnExpunge(owner, mailbox string, uid uint32) {
 	if !strings.EqualFold(mailbox, scheduledFolder) {
 		return
