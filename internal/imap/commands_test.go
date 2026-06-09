@@ -3451,24 +3451,74 @@ func TestAppendUIDCode(t *testing.T) {
 	}
 }
 
-// TestExtractChangedSince verifies the RFC 7162 (CHANGEDSINCE n) FETCH modifier
-// is split off the item list, leaving the items intact.
+// TestExtractChangedSince verifies the RFC 7162 (CHANGEDSINCE n [VANISHED])
+// FETCH modifier is split off the item list, leaving the items intact.
 func TestExtractChangedSince(t *testing.T) {
-	items, ms, ok := extractChangedSince([]string{"(FLAGS)", "(CHANGEDSINCE", "12345)"})
+	items, ms, ok, vanished := extractChangedSince([]string{"(FLAGS)", "(CHANGEDSINCE", "12345)"})
 	if !ok || ms != 12345 {
 		t.Fatalf("extractChangedSince modseq = %d ok=%v, want 12345 true", ms, ok)
+	}
+	if vanished {
+		t.Errorf("no VANISHED keyword should yield vanished=false")
 	}
 	if len(items) != 1 || items[0] != "(FLAGS)" {
 		t.Errorf("item args = %v, want [(FLAGS)]", items)
 	}
 
+	// VANISHED option present alongside CHANGEDSINCE.
+	_, ms2, ok2, vanished2 := extractChangedSince([]string{"(UID)", "(CHANGEDSINCE", "10", "VANISHED)"})
+	if !ok2 || ms2 != 10 || !vanished2 {
+		t.Errorf("CHANGEDSINCE 10 VANISHED = (ms=%d ok=%v vanished=%v), want (10 true true)", ms2, ok2, vanished2)
+	}
+
 	// No modifier present: items are returned unchanged, ok is false.
-	items2, _, ok2 := extractChangedSince([]string{"(FLAGS", "UID)"})
-	if ok2 {
+	items3, _, ok3, _ := extractChangedSince([]string{"(FLAGS", "UID)"})
+	if ok3 {
 		t.Errorf("no CHANGEDSINCE should yield ok=false")
 	}
-	if len(items2) != 2 {
-		t.Errorf("item args should be unchanged, got %v", items2)
+	if len(items3) != 2 {
+		t.Errorf("item args should be unchanged, got %v", items3)
+	}
+}
+
+// TestParseQResyncParam verifies the RFC 7162 SELECT/EXAMINE QRESYNC parameter
+// is parsed into its UIDVALIDITY, mod-sequence, and optional known-uid set.
+func TestParseQResyncParam(t *testing.T) {
+	uv, ms, known, ok := parseQResyncParam([]string{"(QRESYNC", "(1234567", "89", "1:100,200))"})
+	if !ok || uv != 1234567 || ms != 89 || known != "1:100,200" {
+		t.Errorf("parseQResyncParam = (uv=%d ms=%d known=%q ok=%v), want (1234567 89 \"1:100,200\" true)", uv, ms, known, ok)
+	}
+	// Without the optional known-uid set.
+	uv, ms, known, ok = parseQResyncParam([]string{"(QRESYNC", "(42", "7))"})
+	if !ok || uv != 42 || ms != 7 || known != "" {
+		t.Errorf("parseQResyncParam (no known) = (uv=%d ms=%d known=%q ok=%v), want (42 7 \"\" true)", uv, ms, known, ok)
+	}
+	// No QRESYNC parameter at all.
+	if _, _, _, got := parseQResyncParam([]string{}); got {
+		t.Errorf("empty args should yield ok=false")
+	}
+}
+
+// TestFilterUIDsInSet verifies UID-set membership filtering used by the QRESYNC
+// known-uid restriction.
+func TestFilterUIDsInSet(t *testing.T) {
+	eq := func(got, want []uint32) bool {
+		if len(got) != len(want) {
+			return false
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				return false
+			}
+		}
+		return true
+	}
+	if got := filterUIDsInSet([]uint32{1, 5, 10, 20}, "5:10,20"); !eq(got, []uint32{5, 10, 20}) {
+		t.Errorf("filterUIDsInSet = %v, want [5 10 20]", got)
+	}
+	// An unparseable set returns the input unchanged (never over-filters).
+	if got := filterUIDsInSet([]uint32{1, 2}, ""); !eq(got, []uint32{1, 2}) {
+		t.Errorf("filterUIDsInSet with empty set = %v, want [1 2]", got)
 	}
 }
 

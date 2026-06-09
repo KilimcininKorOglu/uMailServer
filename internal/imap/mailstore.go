@@ -595,6 +595,13 @@ func (m *BboltMailstore) recordExpunged(user, mailbox string, uids []uint32) {
 	m.db.RecordExpungedUIDs(user, mailbox, uids, modSeq)
 }
 
+// ExpungedUIDsSince reports the UIDs expunged from the mailbox since sinceModSeq
+// (RFC 7162 QRESYNC VANISHED EARLIER), delegating to the metadata store's
+// tombstones.
+func (m *BboltMailstore) ExpungedUIDsSince(user, mailbox string, sinceModSeq uint64) ([]uint32, error) {
+	return m.db.ExpungedUIDsSince(user, mailbox, sinceModSeq)
+}
+
 // ExpungeUIDs removes messages that carry the \Deleted flag AND whose UID is
 // contained in the given UID ranges (RFC 4315 UID EXPUNGE). It returns the
 // message sequence numbers (1-based position in the ascending UID order, for

@@ -648,6 +648,10 @@ func (f *failingMailstore) AppendMessage(user, mailbox string, flags []string, d
 	return f.mockMailstore.AppendMessage(user, mailbox, flags, date, data)
 }
 
+func (f *failingMailstore) ExpungedUIDsSince(user, mailbox string, sinceModSeq uint64) ([]uint32, error) {
+	return f.mockMailstore.ExpungedUIDsSince(user, mailbox, sinceModSeq)
+}
+
 func (f *failingMailstore) Expunge(user, mailbox string) error {
 	if f.expungeErr != nil {
 		return f.expungeErr

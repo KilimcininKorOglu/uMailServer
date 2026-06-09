@@ -118,6 +118,9 @@ type Mailstore interface {
 	// APPENDUID mapping (the assigned UID with the mailbox UIDVALIDITY).
 	AppendMessage(user, mailbox string, flags []string, date time.Time, data []byte) (AppendUID, error)
 	SearchMessages(user, mailbox string, criteria SearchCriteria) ([]uint32, error)
+	// ExpungedUIDsSince returns the UIDs expunged from the mailbox at a
+	// mod-sequence greater than sinceModSeq (RFC 7162 QRESYNC VANISHED EARLIER).
+	ExpungedUIDsSince(user, mailbox string, sinceModSeq uint64) ([]uint32, error)
 	// CopyMessages copies the messages to destMailbox and returns the RFC 4315
 	// COPYUID mapping (source UID -> destination UID, with the dest UIDVALIDITY).
 	CopyMessages(user, sourceMailbox, destMailbox string, seqSet string) (CopyUIDs, error)

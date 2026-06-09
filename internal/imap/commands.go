@@ -589,6 +589,113 @@ func (s *Session) handleLogin(args []string) error {
 }
 
 // SELECT command
+// parseQResyncParam extracts the RFC 7162 SELECT/EXAMINE parameter
+// "(QRESYNC (uidvalidity highestmodseq [known-uids [seq-match-data]]))" from the
+// arguments after the mailbox name. It returns the client's UIDVALIDITY and
+// mod-sequence, the optional known-uid set, and whether a QRESYNC param was
+// present and well-formed.
+func parseQResyncParam(args []string) (uidValidity uint32, modSeq uint64, knownUIDs string, ok bool) {
+	joined := strings.Join(args, " ")
+	qi := strings.Index(strings.ToUpper(joined), "QRESYNC")
+	if qi < 0 {
+		return 0, 0, "", false
+	}
+	rest := joined[qi+len("QRESYNC"):]
+	open := strings.Index(rest, "(")
+	if open < 0 {
+		return 0, 0, "", false
+	}
+	depth, end := 0, -1
+	for i := open; i < len(rest); i++ {
+		switch rest[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				end = i
+			}
+		}
+		if end >= 0 {
+			break
+		}
+	}
+	if end < 0 {
+		return 0, 0, "", false
+	}
+	fields := strings.Fields(rest[open+1 : end])
+	if len(fields) < 2 {
+		return 0, 0, "", false
+	}
+	uv, err1 := strconv.ParseUint(fields[0], 10, 32)
+	ms, err2 := strconv.ParseUint(fields[1], 10, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, "", false
+	}
+	if len(fields) >= 3 {
+		knownUIDs = fields[2]
+	}
+	return uint32(uv), ms, knownUIDs, true
+}
+
+// filterUIDsInSet keeps only the UIDs contained in the IMAP sequence-set string.
+// On a parse failure it returns the input unchanged (never over-filters).
+func filterUIDsInSet(uids []uint32, set string) []uint32 {
+	ranges, err := ParseSequenceSet(set)
+	if err != nil || len(ranges) == 0 {
+		return uids
+	}
+	maxUID := uint32(0)
+	for _, u := range uids {
+		if u > maxUID {
+			maxUID = u
+		}
+	}
+	var out []uint32
+	for _, u := range uids {
+		for _, r := range ranges {
+			if r.Contains(u, maxUID) {
+				out = append(out, u)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// emitQResync replays an RFC 7162 QRESYNC SELECT/EXAMINE resync: VANISHED
+// (EARLIER) for UIDs expunged since the client's mod-sequence (restricted to the
+// client's known-uid set when given) and an unsolicited FETCH for messages whose
+// flags changed since then. It is a no-op unless QRESYNC is enabled and the
+// client's UIDVALIDITY still matches the mailbox.
+func (s *Session) emitQResync(mailbox *Mailbox, clientUIDValidity uint32, clientModSeq uint64, knownUIDs string) {
+	if !s.enabledCaps["QRESYNC"] || clientUIDValidity != mailbox.UIDValidity {
+		return
+	}
+
+	// VANISHED (EARLIER): UIDs expunged at a mod-sequence above the client's.
+	if vanished, err := s.server.mailstore.ExpungedUIDsSince(s.user, mailbox.Name, clientModSeq); err == nil && len(vanished) > 0 {
+		if knownUIDs != "" {
+			vanished = filterUIDsInSet(vanished, knownUIDs)
+		}
+		if len(vanished) > 0 {
+			s.WriteData("VANISHED (EARLIER) " + uidSetString(vanished))
+		}
+	}
+
+	// Flag changes since the client's mod-sequence.
+	msgs, err := s.server.mailstore.FetchMessages(s.user, mailbox.Name, "1:*", []string{"FLAGS", "UID"})
+	if err != nil {
+		return
+	}
+	for _, m := range msgs {
+		if m.ModSeq > clientModSeq {
+			s.WriteData(fmt.Sprintf("%d FETCH (UID %d FLAGS (%s) MODSEQ (%d))",
+				m.SeqNum, m.UID, strings.Join(m.Flags, " "), m.ModSeq))
+		}
+	}
+}
+
 func (s *Session) handleSelect(args []string) error {
 	ctx := context.Background()
 
@@ -658,6 +765,12 @@ func (s *Session) handleSelect(args []string) error {
 	s.WriteData("FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)")
 	s.WriteData("OK [PERMANENTFLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft \\*)] Flags permitted")
 
+	// RFC 7162 QRESYNC: replay VANISHED (EARLIER) + changed flags for a client
+	// resuming from a known UIDVALIDITY/mod-sequence.
+	if uv, cms, known, qok := parseQResyncParam(args[1:]); qok {
+		s.emitQResync(mailbox, uv, cms, known)
+	}
+
 	if span != nil {
 		tracing.SetIntAttribute(span, "mailbox.exists", mailbox.Exists)
 		tracing.SetIntAttribute(span, "mailbox.recent", mailbox.Recent)
@@ -711,6 +824,12 @@ func (s *Session) handleExamine(args []string) error {
 
 	s.WriteData("FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)")
 	s.WriteData("OK [PERMANENTFLAGS ()] No permanent flags permitted")
+
+	// RFC 7162 QRESYNC: replay VANISHED (EARLIER) + changed flags for a client
+	// resuming from a known UIDVALIDITY/mod-sequence.
+	if uv, cms, known, qok := parseQResyncParam(args[1:]); qok {
+		s.emitQResync(mailbox, uv, cms, known)
+	}
 
 	s.WriteResponse(s.tag, "OK [READ-ONLY] EXAMINE completed")
 	return nil
@@ -1462,6 +1581,22 @@ func (s *Session) handleClose() error {
 	return nil
 }
 
+// writeExpungeResponses emits the untagged responses for an expunge. With
+// QRESYNC enabled (RFC 7162 §3.2.5.2) it sends a single VANISHED carrying the
+// expunged UIDs; otherwise per-message "* N EXPUNGE" in highest-sequence-first
+// order so the remaining sequence numbers stay valid during output.
+func (s *Session) writeExpungeResponses(seqs, uids []uint32) {
+	if s.enabledCaps["QRESYNC"] {
+		if len(uids) > 0 {
+			s.WriteData("VANISHED " + uidSetString(uids))
+		}
+		return
+	}
+	for i := len(seqs) - 1; i >= 0; i-- {
+		s.WriteData(fmt.Sprintf("%d EXPUNGE", seqs[i]))
+	}
+}
+
 // EXPUNGE command
 func (s *Session) handleExpunge() error {
 	ctx := context.Background()
@@ -1502,6 +1637,21 @@ func (s *Session) handleExpunge() error {
 		tracing.SetIntAttribute(span, "expunge.deleted_count", len(deletedSeqs))
 	}
 
+	// Capture the \Deleted messages' UIDs before expunging — a QRESYNC VANISHED
+	// response reports UIDs, which are gone from the index after Expunge.
+	var deletedUIDs []uint32
+	if s.enabledCaps["QRESYNC"] && len(deletedSeqs) > 0 {
+		seqList := make([]string, len(deletedSeqs))
+		for i, sn := range deletedSeqs {
+			seqList[i] = fmt.Sprintf("%d", sn)
+		}
+		if msgs, ferr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, strings.Join(seqList, ","), []string{"UID"}); ferr == nil {
+			for _, m := range msgs {
+				deletedUIDs = append(deletedUIDs, m.UID)
+			}
+		}
+	}
+
 	err = s.server.mailstore.Expunge(s.user, s.selected.Name)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
@@ -1522,11 +1672,8 @@ func (s *Session) handleExpunge() error {
 		}
 	}
 
-	// Send untagged EXPUNGE responses in reverse order (highest seq first)
-	// so that subsequent sequence numbers remain valid during output.
-	for i := len(deletedSeqs) - 1; i >= 0; i-- {
-		s.WriteData(fmt.Sprintf("%d EXPUNGE", deletedSeqs[i]))
-	}
+	// Untagged EXPUNGE (or VANISHED under QRESYNC) for the removed messages.
+	s.writeExpungeResponses(deletedSeqs, deletedUIDs)
 
 	if span != nil {
 		tracing.SetStatus(span, tracing.StatusOk, "")
@@ -2083,10 +2230,13 @@ func (s *Session) handleFetch(args []string, line string, byUID bool) error {
 	}
 
 	seqSet := args[0]
-	// RFC 7162 §3.1.4: an optional trailing "(CHANGEDSINCE <modseq>)" modifier
-	// restricts the response to messages changed since <modseq> and implicitly
-	// forces MODSEQ into the response (and enables CONDSTORE).
-	itemArgs, changedSince, hasChangedSince := extractChangedSince(args[1:])
+	origUIDSet := args[0] // the requested UID set, before seq translation (UID FETCH)
+	// RFC 7162 §3.1.4 / §3.2.5.1: an optional trailing
+	// "(CHANGEDSINCE <modseq> [VANISHED])" modifier restricts the response to
+	// messages changed since <modseq>, implicitly forces MODSEQ into the response
+	// (and enables CONDSTORE), and — with VANISHED on a UID FETCH — replays the
+	// UIDs in the set expunged since <modseq> as VANISHED (EARLIER).
+	itemArgs, changedSince, hasChangedSince, wantVanished := extractChangedSince(args[1:])
 	fetchItems := parseFetchItems(itemArgs)
 	if hasChangedSince {
 		s.enabledCaps["CONDSTORE"] = true
@@ -2145,6 +2295,17 @@ func (s *Session) handleFetch(args []string, line string, byUID bool) error {
 			}
 		}
 		messages = filtered
+	}
+
+	// RFC 7162 §3.2.5.1: with the VANISHED modifier on a UID FETCH, report the
+	// UIDs in the requested set expunged since <modseq> as VANISHED (EARLIER),
+	// ahead of the FETCH data responses.
+	if byUID && wantVanished && hasChangedSince {
+		if exp, eerr := s.server.mailstore.ExpungedUIDsSince(s.user, s.selected.Name, changedSince); eerr == nil && len(exp) > 0 {
+			if vset := filterUIDsInSet(exp, origUIDSet); len(vset) > 0 {
+				s.WriteData("VANISHED (EARLIER) " + uidSetString(vset))
+			}
+		}
 	}
 
 	for _, msg := range messages {
@@ -2489,9 +2650,7 @@ func (s *Session) handleMove(args []string, byUID bool) error {
 			s.server.onExpunge(s.user, s.selected.Name, uid)
 		}
 	}
-	for i := len(expungedSeqs) - 1; i >= 0; i-- {
-		s.WriteData(fmt.Sprintf("%d EXPUNGE", expungedSeqs[i]))
-	}
+	s.writeExpungeResponses(expungedSeqs, expungedUIDs)
 
 	s.WriteResponse(s.tag, "OK MOVE completed")
 	return nil
@@ -2634,11 +2793,8 @@ func (s *Session) handleUIDExpunge(args []string) error {
 		}
 	}
 
-	// Send untagged EXPUNGE responses in reverse order (highest sequence number
-	// first) so that the remaining sequence numbers stay valid during output.
-	for i := len(expungedSeqs) - 1; i >= 0; i-- {
-		s.WriteData(fmt.Sprintf("%d EXPUNGE", expungedSeqs[i]))
-	}
+	// Untagged EXPUNGE (or VANISHED under QRESYNC) for the removed messages.
+	s.writeExpungeResponses(expungedSeqs, expungedUIDs)
 
 	s.WriteResponse(s.tag, "OK UID EXPUNGE completed")
 	return nil
@@ -3078,10 +3234,11 @@ func parseIMAPDate(dateStr string) (time.Time, error) {
 }
 
 // extractChangedSince splits the FETCH item args from a trailing
-// "(CHANGEDSINCE <modseq>)" modifier (RFC 7162 §3.1.4), which always follows the
-// item list. It returns the item args with the modifier removed, the modseq, and
-// whether one was present.
-func extractChangedSince(args []string) ([]string, uint64, bool) {
+// "(CHANGEDSINCE <modseq> [VANISHED])" modifier (RFC 7162 §3.1.4 / §3.2.5.1),
+// which always follows the item list. It returns the item args with the modifier
+// removed, the modseq, whether a CHANGEDSINCE was present, and whether the
+// VANISHED option was requested alongside it.
+func extractChangedSince(args []string) (items []string, modSeq uint64, ok bool, vanished bool) {
 	for i := 0; i < len(args); i++ {
 		if !strings.HasPrefix(strings.ToUpper(strings.TrimLeft(args[i], "(")), "CHANGEDSINCE") {
 			continue
@@ -3093,14 +3250,19 @@ func extractChangedSince(args []string) ([]string, uint64, bool) {
 				break
 			}
 		}
-		if len(mod) >= 2 {
-			if n, err := strconv.ParseUint(mod[1], 10, 64); err == nil {
-				return args[:i], n, true
+		for _, t := range mod {
+			if strings.EqualFold(t, "VANISHED") {
+				vanished = true
 			}
 		}
-		return args[:i], 0, false
+		if len(mod) >= 2 {
+			if n, err := strconv.ParseUint(mod[1], 10, 64); err == nil {
+				return args[:i], n, true, vanished
+			}
+		}
+		return args[:i], 0, false, vanished
 	}
-	return args, 0, false
+	return args, 0, false, false
 }
 
 // appendItemIfAbsent appends want to items unless a case-insensitive match is

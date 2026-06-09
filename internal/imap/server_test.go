@@ -71,6 +71,10 @@ func (m *mockMailstore) AppendMessage(user, mailbox string, flags []string, date
 	return AppendUID{}, nil
 }
 
+func (m *mockMailstore) ExpungedUIDsSince(user, mailbox string, sinceModSeq uint64) ([]uint32, error) {
+	return nil, nil
+}
+
 func (m *mockMailstore) SearchMessages(user, mailbox string, criteria SearchCriteria) ([]uint32, error) {
 	return []uint32{}, nil
 }
