@@ -98,6 +98,10 @@ func (s *Server) startAPI() {
 		s.scheduledListForOwner,
 		s.cancelScheduledByID,
 	)
+	// Make webmail mail mutations cross-protocol: file Sent/Drafts/moved copies
+	// into the semcore identity store too (EWS visibility) and clean it on
+	// delete/move so Outlook sees the same state as IMAP/webmail.
+	s.apiServer.SetMailCrossProtocolFuncs(s.fileFolderCopy, s.removeFolderCopySemcore)
 	// Set contacts handler data directory for CardDAV-backed contacts API
 	s.apiServer.SetContactsDataDir(s.cfg().Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API

@@ -76,6 +76,10 @@ type Server struct {
 	mailSchedule        func(owner, from string, to []string, data []byte, sendAt time.Time) (string, error)
 	mailScheduledList   func(owner string) ([]ScheduledMailItem, error)
 	mailScheduledCancel func(owner, id string) error
+	// Cross-protocol (tri-store) filer + idempotent semcore remover, injected by
+	// the main server; nil leaves webmail filing storageDB-only (EWS-invisible).
+	mailFileCopy   func(owner, folder string, raw []byte, flags []string) (uint32, string, error)
+	mailRemoveCopy func(owner, folder, blobKey string)
 	calendarDeliver     func(from string, to []string, data []byte) error
 	queueMgr            *queue.Manager
 	httpServer          *http.Server
@@ -1485,6 +1489,18 @@ func (s *Server) SetMailDeliveryFunc(fn func(from string, to []string, data []by
 	s.initMailHandler()
 }
 
+// SetMailCrossProtocolFuncs wires the tri-store filer + idempotent semcore
+// remover so webmail mail mutations stay cross-protocol consistent (visible in
+// and removed from EWS, not just IMAP/webmail).
+func (s *Server) SetMailCrossProtocolFuncs(
+	file func(owner, folder string, raw []byte, flags []string) (uint32, string, error),
+	remove func(owner, folder, blobKey string),
+) {
+	s.mailFileCopy = file
+	s.mailRemoveCopy = remove
+	s.initMailHandler()
+}
+
 // SetScheduledFuncs wires the "send later" hooks webmail uses: schedule a future
 // send, list the caller's scheduled messages, and cancel one by id.
 func (s *Server) SetScheduledFuncs(
@@ -1526,6 +1542,9 @@ func (s *Server) applyScheduledFuncs() {
 	}
 	if s.mailScheduledCancel != nil {
 		s.mailHandler.SetScheduledCancelFunc(s.mailScheduledCancel)
+	}
+	if s.mailFileCopy != nil || s.mailRemoveCopy != nil {
+		s.mailHandler.SetCrossProtocolFuncs(s.mailFileCopy, s.mailRemoveCopy)
 	}
 }
 

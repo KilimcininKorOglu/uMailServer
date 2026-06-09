@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/mail"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,10 +38,13 @@ type scheduledClaimer interface {
 // fileFolderCopy files raw into folder so the copy is visible on EVERY surface:
 // the content-addressed blob store, the semcore identity store (read by EWS
 // FindItem/GetItem), and the IMAP mailstore index (read by IMAP/POP3/JMAP/
-// webmail). It mirrors the Notes cross-protocol create. role is the folder's
-// distinguished role ("scheduled"/"sent") used to provision the semcore folder;
-// read marks the copy \Seen. Returns the assigned IMAP UID and blob key.
-func (s *Server) fileFolderCopy(owner, folder, role string, raw []byte, read bool) (uint32, string, error) {
+// webmail). It mirrors the Notes cross-protocol create. The folder's
+// distinguished role is resolved from its name (distinguishedRole); flags is the
+// IMAP flag set applied verbatim ({"\\Seen"} for a read Sent copy, {"\\Draft",
+// "\\Seen"} for a draft, nil for an unseen placeholder). Returns the assigned
+// IMAP UID and blob key.
+func (s *Server) fileFolderCopy(owner, folder string, raw []byte, flags []string) (uint32, string, error) {
+	role := distinguishedRole(folder)
 	if s.storageDB == nil {
 		return 0, "", fmt.Errorf("storage backend unavailable")
 	}
@@ -67,7 +71,8 @@ func (s *Server) fileFolderCopy(owner, folder, role string, raw []byte, read boo
 					Actor:        owner,
 					Email:        owner,
 					Source:       semcore.MutationSourceAPI,
-					IsRead:       read,
+					UserFlags:    flags,
+					IsRead:       slices.Contains(flags, "\\Seen"),
 				}); perr != nil {
 					s.logger.Warn("scheduled: semcore projection failed", "owner", owner, "folder", folder, "error", perr)
 				}
@@ -79,10 +84,6 @@ func (s *Server) fileFolderCopy(owner, folder, role string, raw []byte, read boo
 	uid, err := s.storageDB.GetNextUID(owner, folder)
 	if err != nil {
 		return 0, "", err
-	}
-	var flags []string
-	if read {
-		flags = []string{"\\Seen"}
 	}
 	subject, date, fromHdr, toHdr := scheduledHeaders(raw)
 	meta := &storage.MessageMetadata{
@@ -103,14 +104,16 @@ func (s *Server) fileFolderCopy(owner, folder, role string, raw []byte, read boo
 }
 
 // removeFolderCopySemcore removes the semcore identity for a folder copy (matched
-// by blob key) so a released or canceled Scheduled projection does not linger as
-// a ghost in EWS. Best-effort: the storageDB removal is the authoritative cancel.
-func (s *Server) removeFolderCopySemcore(owner, folder, role, blobKey string) {
+// by blob key) so a released, canceled, deleted, or moved-away item does not
+// linger as a ghost in EWS. Idempotent and best-effort: a blob never written to
+// semcore (or already removed) is a no-op, so it is safe to call from every
+// delete/move site. The folder's role is resolved from its name.
+func (s *Server) removeFolderCopySemcore(owner, folder, blobKey string) {
 	if s.semcoreStore == nil || blobKey == "" {
 		return
 	}
 	id := s.semcoreStore.Identity()
-	folderID, err := id.EnsureFolderId(owner, folder, role)
+	folderID, err := id.EnsureFolderId(owner, folder, distinguishedRole(folder))
 	if err != nil {
 		return
 	}
@@ -157,7 +160,7 @@ func (s *Server) scheduleSend(owner, from string, to []string, data []byte, send
 			return "", err
 		}
 		if fileSent {
-			if _, _, err := s.fileFolderCopy(owner, "Sent", "sent", data, true); err != nil {
+			if _, _, err := s.fileFolderCopy(owner, "Sent", data, []string{"\\Seen"}); err != nil {
 				s.logger.Warn("scheduled: immediate-send Sent filing failed", "owner", owner, "error", err)
 			}
 		}
@@ -166,7 +169,7 @@ func (s *Server) scheduleSend(owner, from string, to []string, data []byte, send
 
 	// File the visible Scheduled projection (content blob + cross-protocol folder
 	// metadata) so the pending message shows on webmail/IMAP/JMAP and EWS.
-	uid, blobKey, err := s.fileFolderCopy(owner, scheduledFolder, "scheduled", data, false)
+	uid, blobKey, err := s.fileFolderCopy(owner, scheduledFolder, data, nil)
 	if err != nil {
 		return "", fmt.Errorf("file scheduled projection: %w", err)
 	}
@@ -185,7 +188,7 @@ func (s *Server) scheduleSend(owner, from string, to []string, data []byte, send
 	if err := s.database.CreateScheduledMessageWithLimit(m, sc.MaxPerUser); err != nil {
 		// Roll back the projection (both stores) so a rejected schedule leaves no orphan.
 		_ = s.storageDB.DeleteMessage(owner, scheduledFolder, uid) //nolint:errcheck // best-effort rollback
-		s.removeFolderCopySemcore(owner, scheduledFolder, "scheduled", blobKey)
+		s.removeFolderCopySemcore(owner, scheduledFolder, blobKey)
 		return "", err
 	}
 	imap.GetNotificationHub().NotifyNewMessage(owner, scheduledFolder, uid, uid)
@@ -277,7 +280,7 @@ func (s *Server) releaseDueScheduled() {
 		}
 		// On its way: move the projection to Sent (when requested) and clear the record.
 		if m.FileSent {
-			if uid, _, ferr := s.fileFolderCopy(m.Owner, "Sent", "sent", raw, true); ferr != nil {
+			if uid, _, ferr := s.fileFolderCopy(m.Owner, "Sent", raw, []string{"\\Seen"}); ferr != nil {
 				s.logger.Warn("scheduled: Sent filing failed", "owner", m.Owner, "error", ferr)
 			} else {
 				imap.GetNotificationHub().NotifyNewMessage(m.Owner, "Sent", uid, uid)
@@ -288,7 +291,7 @@ func (s *Server) releaseDueScheduled() {
 		if derr := s.storageDB.DeleteMessage(m.Owner, scheduledFolder, m.FolderUID); derr == nil {
 			imap.GetNotificationHub().NotifyMailboxUpdate(m.Owner, scheduledFolder)
 		}
-		s.removeFolderCopySemcore(m.Owner, scheduledFolder, "scheduled", m.BlobKey)
+		s.removeFolderCopySemcore(m.Owner, scheduledFolder, m.BlobKey)
 		if derr := s.database.DeleteScheduledMessage(m.ID); derr != nil {
 			s.logger.Warn("scheduled: delete record failed", "id", m.ID, "error", derr)
 		}
@@ -360,7 +363,7 @@ func (s *Server) cancelScheduledByID(owner, id string) error {
 	if derr := s.storageDB.DeleteMessage(owner, scheduledFolder, m.FolderUID); derr == nil {
 		imap.GetNotificationHub().NotifyMailboxUpdate(owner, scheduledFolder)
 	}
-	s.removeFolderCopySemcore(owner, scheduledFolder, "scheduled", m.BlobKey)
+	s.removeFolderCopySemcore(owner, scheduledFolder, m.BlobKey)
 	return s.database.DeleteScheduledMessage(id)
 }
 

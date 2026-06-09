@@ -147,6 +147,15 @@ type MailHandler struct {
 	// cancelScheduled cancels one scheduled message by id for the owner (removing
 	// the record and its Scheduled-folder projection), or nil to disable cancel.
 	cancelScheduled func(owner, id string) error
+	// fileCopy files a message into a folder across ALL surfaces (content blob +
+	// semcore identity for EWS + IMAP mailstore index), so a webmail-filed Sent/
+	// Drafts/moved copy is visible in Outlook too — not just IMAP/webmail. When
+	// nil, send/draft/move fall back to storageDB-only filing (EWS won't see it).
+	fileCopy func(owner, folder string, raw []byte, flags []string) (uint32, string, error)
+	// removeCopy removes a message's semcore identity by blob key (idempotent), so
+	// a webmail-deleted or moved-away message does not ghost in EWS. Call it after
+	// the storageDB DeleteMessage; nil makes it a no-op.
+	removeCopy func(owner, folder, blobKey string)
 	// displayName resolves an email address to a configured account display
 	// name (from the directory), or "" when the address is non-local or has no
 	// display name set. Injected by the server; nil disables resolution.
@@ -191,6 +200,17 @@ func (h *MailHandler) SetScheduledListFunc(fn func(owner string) ([]ScheduledMai
 // SetScheduledCancelFunc wires the per-id cancel source for the Scheduled view.
 func (h *MailHandler) SetScheduledCancelFunc(fn func(owner, id string) error) {
 	h.cancelScheduled = fn
+}
+
+// SetCrossProtocolFuncs wires the cross-protocol (tri-store) filer and the
+// idempotent semcore remover so webmail mail mutations (Sent copy, drafts, move,
+// delete) stay visible/removed in EWS too, not just IMAP/webmail.
+func (h *MailHandler) SetCrossProtocolFuncs(
+	file func(owner, folder string, raw []byte, flags []string) (uint32, string, error),
+	remove func(owner, folder, blobKey string),
+) {
+	h.fileCopy = file
+	h.removeCopy = remove
 }
 
 // SetDisplayNameResolver wires the address→display-name lookup so the mail API
@@ -804,9 +824,18 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store the message
+	// File the Sent copy. Prefer the cross-protocol (tri-store) filer so the copy
+	// is visible in EWS/Outlook too — not just IMAP/webmail; fall back to
+	// storageDB-only filing when the filer is not wired (e.g. unit tests).
 	var msgID string
-	if h.msgStore != nil && h.mailDB != nil {
+	if h.fileCopy != nil {
+		_, blobKey, err := h.fileCopy(userEmail, "Sent", []byte(rawEmail), []string{"\\Seen"})
+		if err != nil {
+			h.sendError(w, http.StatusInternalServerError, "Failed to store message")
+			return
+		}
+		msgID = blobKey
+	} else if h.msgStore != nil && h.mailDB != nil {
 		// Ensure Sent mailbox exists
 		_ = h.mailDB.CreateMailbox(userEmail, "Sent")
 
@@ -1037,6 +1066,25 @@ func (h *MailHandler) findMessage(userEmail, messageID string) (string, uint32, 
 // by user+id and shared across mailboxes, so it is intentionally left in place.
 func (h *MailHandler) moveMessageMetadata(userEmail, src, dst string, srcUID uint32, meta *storage.MessageMetadata) error {
 	if src == dst || meta == nil {
+		return nil
+	}
+	// Cross-protocol move: re-file the blob into dst (semcore identity + IMAP
+	// index) and drop the src entry from BOTH stores, so the move shows in EWS
+	// too. Falls back to a storageDB-only metadata move when unwired.
+	if h.fileCopy != nil && h.msgStore != nil {
+		raw, err := h.msgStore.ReadMessage(userEmail, meta.MessageID)
+		if err != nil {
+			return fmt.Errorf("read message for move: %w", err)
+		}
+		if _, _, err := h.fileCopy(userEmail, dst, raw, meta.Flags); err != nil {
+			return fmt.Errorf("file into %s: %w", dst, err)
+		}
+		if err := h.mailDB.DeleteMessage(userEmail, src, srcUID); err != nil {
+			return err
+		}
+		if h.removeCopy != nil {
+			h.removeCopy(userEmail, src, meta.MessageID)
+		}
 		return nil
 	}
 	if err := h.mailDB.CreateMailbox(userEmail, dst); err != nil {
@@ -1330,6 +1378,11 @@ func (h *MailHandler) handleMailDraft(w http.ResponseWriter, r *http.Request) {
 			if err := h.msgStore.DeleteMessage(userEmail, req.ID); err != nil {
 				fmt.Printf("Warning: failed to delete old draft file: %v\n", err)
 			}
+			// Drop the replaced draft's semcore identity too, so it does not ghost
+			// in EWS (idempotent no-op when not cross-protocol filed).
+			if h.removeCopy != nil {
+				h.removeCopy(userEmail, mailbox, req.ID)
+			}
 		}
 	}
 
@@ -1358,34 +1411,47 @@ func (h *MailHandler) handleMailDraft(w http.ResponseWriter, r *http.Request) {
 	sb.WriteString(req.Body)
 	rawEmail := sb.String()
 
-	if err := h.mailDB.CreateMailbox(userEmail, "Drafts"); err != nil {
-		h.sendError(w, http.StatusInternalServerError, "Failed to ensure Drafts mailbox")
-		return
-	}
-	msgID, err := h.msgStore.StoreMessage(userEmail, []byte(rawEmail))
-	if err != nil || msgID == "" {
-		h.sendError(w, http.StatusInternalServerError, "Failed to store draft")
-		return
-	}
-	uid, err := h.mailDB.GetNextUID(userEmail, "Drafts")
-	if err != nil {
-		h.sendError(w, http.StatusInternalServerError, "Failed to get next UID")
-		return
-	}
-	meta := &storage.MessageMetadata{
-		MessageID:    msgID,
-		UID:          uid,
-		Flags:        []string{"\\Draft", "\\Seen"},
-		InternalDate: now,
-		Size:         int64(len(rawEmail)),
-		Subject:      safeSubject,
-		Date:         dateStr,
-		From:         sender,
-		To:           strings.Join(safeTo, ", "),
-	}
-	if err := h.mailDB.StoreMessageMetadata(userEmail, "Drafts", uid, meta); err != nil {
-		h.sendError(w, http.StatusInternalServerError, "Failed to store draft metadata")
-		return
+	// File the draft. Prefer the cross-protocol (tri-store) filer so the draft is
+	// visible in EWS/Outlook Drafts too; fall back to storageDB-only when unwired.
+	var msgID string
+	if h.fileCopy != nil {
+		_, blobKey, err := h.fileCopy(userEmail, "Drafts", []byte(rawEmail), []string{"\\Draft", "\\Seen"})
+		if err != nil {
+			h.sendError(w, http.StatusInternalServerError, "Failed to store draft")
+			return
+		}
+		msgID = blobKey
+	} else {
+		if err := h.mailDB.CreateMailbox(userEmail, "Drafts"); err != nil {
+			h.sendError(w, http.StatusInternalServerError, "Failed to ensure Drafts mailbox")
+			return
+		}
+		storedID, err := h.msgStore.StoreMessage(userEmail, []byte(rawEmail))
+		if err != nil || storedID == "" {
+			h.sendError(w, http.StatusInternalServerError, "Failed to store draft")
+			return
+		}
+		msgID = storedID
+		uid, err := h.mailDB.GetNextUID(userEmail, "Drafts")
+		if err != nil {
+			h.sendError(w, http.StatusInternalServerError, "Failed to get next UID")
+			return
+		}
+		meta := &storage.MessageMetadata{
+			MessageID:    msgID,
+			UID:          uid,
+			Flags:        []string{"\\Draft", "\\Seen"},
+			InternalDate: now,
+			Size:         int64(len(rawEmail)),
+			Subject:      safeSubject,
+			Date:         dateStr,
+			From:         sender,
+			To:           strings.Join(safeTo, ", "),
+		}
+		if err := h.mailDB.StoreMessageMetadata(userEmail, "Drafts", uid, meta); err != nil {
+			h.sendError(w, http.StatusInternalServerError, "Failed to store draft metadata")
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1414,6 +1480,11 @@ func (h *MailHandler) deleteMessageMetadata(userEmail, messageID string) {
 			}
 			if meta.MessageID == messageID {
 				_ = h.mailDB.DeleteMessage(userEmail, mailbox, uid)
+				// Drop the semcore identity too so a permanently deleted message
+				// disappears from EWS as well (idempotent no-op when not present).
+				if h.removeCopy != nil {
+					h.removeCopy(userEmail, mailbox, messageID)
+				}
 				return
 			}
 		}
