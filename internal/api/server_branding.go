@@ -14,15 +14,20 @@ const (
 	brandingAppNameKey      = "branding.app_name"
 	brandingLogoURLKey      = "branding.logo_url"
 	brandingPrimaryColorKey = "branding.primary_color"
+	brandingTaglineKey      = "branding.tagline"
+	brandingFooterTextKey   = "branding.footer_text"
 	featureKeyPrefix        = "feature."
 )
 
 // brandingDTO is the typed shape webmail and the admin UI exchange. Features map
-// a flag name to its on/off state.
+// a flag name to its on/off state. Tagline and FooterText customize the webmail
+// login screen's subtitle and footer line per tenant.
 type brandingDTO struct {
 	AppName      string          `json:"app_name"`
 	LogoURL      string          `json:"logo_url"`
 	PrimaryColor string          `json:"primary_color"`
+	Tagline      string          `json:"tagline"`
+	FooterText   string          `json:"footer_text"`
 	Features     map[string]bool `json:"features"`
 }
 
@@ -36,6 +41,8 @@ func brandingFromSettings(settings map[string]string) brandingDTO {
 	b.AppName = settings[brandingAppNameKey]
 	b.LogoURL = settings[brandingLogoURLKey]
 	b.PrimaryColor = settings[brandingPrimaryColorKey]
+	b.Tagline = settings[brandingTaglineKey]
+	b.FooterText = settings[brandingFooterTextKey]
 	for k, v := range settings {
 		if name, ok := strings.CutPrefix(k, featureKeyPrefix); ok && name != "" {
 			b.Features[name] = v == "true"
@@ -54,6 +61,8 @@ func applyBrandingToSettings(settings map[string]string, b brandingDTO) map[stri
 	setOrClear(settings, brandingAppNameKey, b.AppName)
 	setOrClear(settings, brandingLogoURLKey, b.LogoURL)
 	setOrClear(settings, brandingPrimaryColorKey, b.PrimaryColor)
+	setOrClear(settings, brandingTaglineKey, b.Tagline)
+	setOrClear(settings, brandingFooterTextKey, b.FooterText)
 	for k := range settings {
 		if strings.HasPrefix(k, featureKeyPrefix) {
 			delete(settings, k)

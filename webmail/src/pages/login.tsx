@@ -7,6 +7,8 @@ interface Branding {
   app_name: string
   logo_url: string
   primary_color: string
+  tagline: string
+  footer_text: string
 }
 
 export function LoginPage() {
@@ -30,7 +32,11 @@ export function LoginPage() {
     fetch(`${window.location.origin}/api/v1/branding?domain=${encodeURIComponent(domain)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((b: Branding | null) => {
-        if (!cancelled) setBranding(b && b.app_name ? b : null)
+        // Apply branding when the tenant set ANY customization, not just an
+        // app name — a tenant may override only the logo, tagline, or footer.
+        const hasBranding =
+          !!b && (!!b.app_name || !!b.logo_url || !!b.primary_color || !!b.tagline || !!b.footer_text)
+        if (!cancelled) setBranding(hasBranding ? b : null)
       })
       .catch(() => {})
     return () => {
@@ -86,7 +92,7 @@ export function LoginPage() {
               </div>
             )}
             <h1 className="text-2xl font-bold text-gray-900">{appName}</h1>
-            <p className="text-gray-500 mt-1">{t('login.subtitle')}</p>
+            <p className="text-gray-500 mt-1">{branding?.tagline || t('login.subtitle')}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -144,7 +150,7 @@ export function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-4">
-          {`uMailServer v1.0 - ${t('login.tagline')}`}
+          {branding?.footer_text || `uMailServer v1.0 - ${t('login.tagline')}`}
         </p>
       </div>
     </div>

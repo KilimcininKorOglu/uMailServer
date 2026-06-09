@@ -18,6 +18,8 @@ func TestBrandingRoundTrip(t *testing.T) {
 		AppName:      "Acme Mail",
 		LogoURL:      "https://acme.test/logo.png",
 		PrimaryColor: "#ff8800",
+		Tagline:      "Secure mail for Acme",
+		FooterText:   "© Acme Corp",
 		Features:     map[string]bool{"calendar": true, "contacts": false},
 	}
 	settings = applyBrandingToSettings(settings, in)
@@ -27,6 +29,9 @@ func TestBrandingRoundTrip(t *testing.T) {
 	out := brandingFromSettings(settings)
 	if out.AppName != in.AppName || out.LogoURL != in.LogoURL || out.PrimaryColor != in.PrimaryColor {
 		t.Errorf("branding fields did not round-trip: %+v", out)
+	}
+	if out.Tagline != in.Tagline || out.FooterText != in.FooterText {
+		t.Errorf("login text fields did not round-trip: tagline=%q footer=%q", out.Tagline, out.FooterText)
 	}
 	if !out.Features["calendar"] || out.Features["contacts"] {
 		t.Errorf("feature flags did not round-trip: %+v", out.Features)

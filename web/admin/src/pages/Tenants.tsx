@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { Building2, RefreshCw, Save, Plus, Trash2, AlertCircle } from "lucide-react";
+import { Building2, RefreshCw, Save, Plus, Trash2, AlertCircle, Image, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -26,8 +27,14 @@ const emptyBranding: TenantBranding = {
   app_name: "",
   logo_url: "",
   primary_color: "",
+  tagline: "",
+  footer_text: "",
   features: {},
 };
+
+// Cap an uploaded logo so the public, pre-auth /api/v1/branding response (which
+// inlines the data URL) stays small.
+const MAX_LOGO_BYTES = 512 * 1024;
 
 export function Tenants() {
   const { t } = useI18n();
@@ -73,6 +80,23 @@ export function Tenants() {
     if (!name) return;
     setBranding((b) => ({ ...b, features: { ...b.features, [name]: true } }));
     setNewFeature("");
+  };
+
+  // handleLogoFile reads a chosen image into a data URL and stores it as the
+  // logo_url, so the login screen renders it without an external host.
+  const handleLogoFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error(t("tenants.logoMustBeImage"));
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      toast.error(t("tenants.logoTooLarge"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setBranding((b) => ({ ...b, logo_url: String(reader.result) }));
+    reader.onerror = () => toast.error(t("tenants.logoReadFailed"));
+    reader.readAsDataURL(file);
   };
 
   const featureNames = Object.keys(branding.features).sort();
@@ -148,13 +172,52 @@ export function Tenants() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="logo_url">{t("tenants.logoUrl")}</Label>
+                  <Label htmlFor="logo_url">{t("tenants.logo")}</Label>
+                  <div className="flex items-center gap-3">
+                    {branding.logo_url ? (
+                      <img
+                        src={branding.logo_url}
+                        alt={t("tenants.logo")}
+                        className="h-12 w-12 rounded-lg object-contain border border-gray-200 bg-white"
+                      />
+                    ) : (
+                      <div className="h-12 w-12 rounded-lg border border-dashed border-gray-300 flex items-center justify-center text-gray-300">
+                        <Image className="h-5 w-5" />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <label className={cn(buttonVariants({ variant: "outline", size: "sm" }), "cursor-pointer")}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        {t("tenants.uploadLogo")}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleLogoFile(f);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      {branding.logo_url && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setBranding((b) => ({ ...b, logo_url: "" }))}
+                        >
+                          {t("common.remove")}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                   <Input
                     id="logo_url"
-                    value={branding.logo_url}
-                    placeholder="https://example.com/logo.png"
+                    value={branding.logo_url.startsWith("data:") ? "" : branding.logo_url}
+                    placeholder={t("tenants.logoUrlPlaceholder")}
                     onChange={(e) => setBranding((b) => ({ ...b, logo_url: e.target.value }))}
                   />
+                  <p className="text-xs text-gray-500">{t("tenants.logoHint")}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -174,6 +237,28 @@ export function Tenants() {
                       className="max-w-[160px]"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="tagline">{t("tenants.loginTagline")}</Label>
+                  <Input
+                    id="tagline"
+                    value={branding.tagline}
+                    placeholder={t("tenants.loginTaglinePlaceholder")}
+                    onChange={(e) => setBranding((b) => ({ ...b, tagline: e.target.value }))}
+                  />
+                  <p className="text-xs text-gray-500">{t("tenants.loginTaglineHint")}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="footer_text">{t("tenants.loginFooter")}</Label>
+                  <Input
+                    id="footer_text"
+                    value={branding.footer_text}
+                    placeholder={t("tenants.loginFooterPlaceholder")}
+                    onChange={(e) => setBranding((b) => ({ ...b, footer_text: e.target.value }))}
+                  />
+                  <p className="text-xs text-gray-500">{t("tenants.loginFooterHint")}</p>
                 </div>
 
                 <div className="space-y-2">

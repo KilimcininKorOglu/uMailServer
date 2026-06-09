@@ -16,6 +16,8 @@ export interface TenantBranding {
   app_name: string;
   logo_url: string;
   primary_color: string;
+  tagline: string;
+  footer_text: string;
   features: Record<string, boolean>;
 }
 
