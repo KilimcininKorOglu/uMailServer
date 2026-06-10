@@ -29,6 +29,7 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/migrations"
 	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/mailexport"
 	"github.com/umailserver/umailserver/internal/mailimport"
 	"github.com/umailserver/umailserver/internal/migratestore"
 	"github.com/umailserver/umailserver/internal/semcore"
@@ -73,6 +74,8 @@ func main() {
 		cmdMigrate(os.Args[2:])
 	case "import":
 		cmdImport(os.Args[2:])
+	case "export":
+		cmdExport(os.Args[2:])
 	case "db":
 		cmdDB(os.Args[2:])
 	case "status":
@@ -110,6 +113,7 @@ Commands:
   restore      Restore from backup
   migrate      Import from other mail servers
   import       Import mbox/.eml/Maildir into a mailbox (server stopped)
+  export       Export a mailbox to mbox/.eml/Maildir (server stopped)
   db           Database management (migrate, status)
   version      Show version
 
@@ -1594,6 +1598,199 @@ func folderRole(name string) string {
 		}
 	}
 	return ""
+}
+
+// cmdExport reads a user's messages from the canonical store and writes them to
+// a standard interchange format: a single mbox file, one .eml per message under
+// a directory, or a Maildir tree. It is the inverse of `umailserver import` and
+// reuses the canonical READ path (no semcore needed for reads). Run with the
+// server STOPPED (bbolt is single-writer).
+func cmdExport(args []string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	user := fs.String("user", "", "Source user email (required)")
+	mboxPath := fs.String("mbox", "", "Write all messages to this mbox file (flat)")
+	emlDir := fs.String("eml", "", "Write one .eml per message under this directory (folder subdirs)")
+	maildirDir := fs.String("maildir", "", "Write a Maildir tree to this directory (folders preserved)")
+	folder := fs.String("folder", "", "Export only this folder (default: every mailbox)")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if *user == "" {
+		fmt.Fprintln(os.Stderr, "export: --user <email> is required")
+		os.Exit(1)
+	}
+	localPart, domain, ok := strings.Cut(*user, "@")
+	if !ok || localPart == "" || domain == "" {
+		fmt.Fprintf(os.Stderr, "export: invalid email %q\n", *user)
+		os.Exit(1)
+	}
+	dstCount := 0
+	for _, s := range []string{*mboxPath, *emlDir, *maildirDir} {
+		if s != "" {
+			dstCount++
+		}
+	}
+	if dstCount != 1 {
+		fmt.Fprintln(os.Stderr, "export: provide exactly one of --mbox, --eml, or --maildir")
+		os.Exit(1)
+	}
+
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.DatabaseBackend() == "postgres" {
+		fmt.Fprintln(os.Stderr, "export currently supports the bbolt backend; database.backend is \"postgres\".")
+		os.Exit(1)
+	}
+
+	database, err := db.Open(cfg.DatabasePath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "export: open database (is the server running? stop it first): %v\n", err)
+		os.Exit(1)
+	}
+	defer closeImportStore("database", database)
+	if account, gerr := database.GetAccount(domain, localPart); gerr != nil || account == nil {
+		fmt.Fprintf(os.Stderr, "export: account %s does not exist\n", *user)
+		os.Exit(1)
+	}
+
+	dataDir := cfg.Server.DataDir
+	msgStore, err := storage.NewMessageStoreWithOptions(filepath.Join(dataDir, "mail", "messages"), cfg.Storage.Sync)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "export: open message store: %v\n", err)
+		os.Exit(1)
+	}
+	storageDB, err := storage.OpenDatabaseWithOptions(filepath.Join(dataDir, "mail", "mail.db"), cfg.Storage.Sync)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "export: open message index (is the server running?): %v\n", err)
+		os.Exit(1)
+	}
+	defer closeImportStore("message index", storageDB)
+
+	email := localPart + "@" + domain
+	folders := []string{*folder}
+	if *folder == "" {
+		folders, err = storageDB.ListMailboxes(email)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "export: list mailboxes: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	msgs := collectMessages(email, folders, storageDB, msgStore)
+	if len(msgs) == 0 {
+		fmt.Println("export: no messages found")
+		return
+	}
+
+	switch {
+	case *mboxPath != "":
+		err = exportMbox(*mboxPath, msgs)
+	case *emlDir != "":
+		err = exportEML(*emlDir, msgs)
+	default:
+		err = exportMaildir(*maildirDir, msgs)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "export: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("export: %d message(s) from %s written\n", len(msgs), email)
+}
+
+// exportedMessage is one message read from the store with its source folder.
+type exportedMessage struct {
+	folder string
+	raw    []byte
+}
+
+// collectMessages reads every message in the given folders from the canonical
+// store, in (folder, UID) order.
+func collectMessages(email string, folders []string, storageDB *storage.Database, msgStore *storage.MessageStore) []exportedMessage {
+	var out []exportedMessage
+	for _, folder := range folders {
+		uids, err := storageDB.GetMessageUIDs(email, folder)
+		if err != nil {
+			continue
+		}
+		for _, uid := range uids {
+			meta, merr := storageDB.GetMessageMetadata(email, folder, uid)
+			if merr != nil {
+				continue
+			}
+			raw, rerr := msgStore.ReadMessage(email, meta.MessageID)
+			if rerr != nil {
+				continue
+			}
+			out = append(out, exportedMessage{folder: folder, raw: raw})
+		}
+	}
+	return out
+}
+
+// exportMbox writes all messages to one mbox file (flat — mbox has no folders).
+func exportMbox(path string, msgs []exportedMessage) error {
+	f, err := os.Create(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("create mbox: %w", err)
+	}
+	defer closeImportStore("mbox file", f)
+	raws := make([][]byte, len(msgs))
+	for i, m := range msgs {
+		raws[i] = m.raw
+	}
+	return mailexport.WriteMbox(f, raws)
+}
+
+// exportEML writes one .eml per message under dir, grouped into folder subdirs.
+func exportEML(dir string, msgs []exportedMessage) error {
+	seq := map[string]int{}
+	for _, m := range msgs {
+		sub := filepath.Join(dir, filepath.FromSlash(m.folder))
+		if err := os.MkdirAll(sub, 0o750); err != nil {
+			return fmt.Errorf("create %q: %w", sub, err)
+		}
+		seq[m.folder]++
+		name := filepath.Join(sub, fmt.Sprintf("%05d.eml", seq[m.folder]))
+		if err := os.WriteFile(name, m.raw, 0o600); err != nil {
+			return fmt.Errorf("write %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// exportMaildir writes a Maildir tree: INBOX at the root, other folders as
+// Maildir++ "." subfolders, each message a cur/ file flagged Seen.
+func exportMaildir(dir string, msgs []exportedMessage) error {
+	seq := 0
+	for _, m := range msgs {
+		box := maildirBox(dir, m.folder)
+		cur := filepath.Join(box, "cur")
+		for _, sub := range []string{cur, filepath.Join(box, "new"), filepath.Join(box, "tmp")} {
+			if err := os.MkdirAll(sub, 0o750); err != nil {
+				return fmt.Errorf("create %q: %w", sub, err)
+			}
+		}
+		seq++
+		name := filepath.Join(cur, fmt.Sprintf("%d.export.umailserver:2,S", seq))
+		if err := os.WriteFile(name, m.raw, 0o600); err != nil {
+			return fmt.Errorf("write %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// maildirBox maps a mailbox name to its Maildir directory: INBOX (or empty) is
+// the root; other folders become Maildir++ "." entries ("Work/Projects" ->
+// ".Work.Projects"), the inverse of mailimport's maildirFolderName.
+func maildirBox(base, folder string) string {
+	if folder == "" || strings.EqualFold(folder, "INBOX") {
+		return base
+	}
+	return filepath.Join(base, "."+strings.ReplaceAll(folder, "/", "."))
 }
 
 func cmdDB(args []string) {
