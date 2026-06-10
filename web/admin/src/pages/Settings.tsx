@@ -445,6 +445,17 @@ export function SettingsPage({
                   <NumberRow label={t("settings.submissionTlsPort")} value={config.smtp.submission_tls.port} onChange={(v) => updSMTP("submission_tls", { port: v })} />
                   <TextRow label={t("settings.submissionTlsBind")} value={config.smtp.submission_tls.bind} onChange={(v) => updSMTP("submission_tls", { bind: v })} />
                 </div>
+                <Separator />
+                <SwitchRow
+                  label={t("settings.lmtp")}
+                  help={t("settings.lmtpHelp")}
+                  checked={config.smtp.lmtp.enabled}
+                  onChange={(v) => updSMTP("lmtp", { enabled: v })}
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <NumberRow label={t("settings.lmtpPort")} value={config.smtp.lmtp.port} onChange={(v) => updSMTP("lmtp", { port: v })} />
+                  <TextRow label={t("settings.lmtpBind")} value={config.smtp.lmtp.bind} onChange={(v) => updSMTP("lmtp", { bind: v })} />
+                </div>
               </SectionCard>
 
               <SectionCard title={t("settings.imap")} icon={<Server className="h-5 w-5" />}>

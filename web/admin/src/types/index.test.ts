@@ -417,6 +417,7 @@ describe('ServerConfig type', () => {
         inbound: { enabled: true, port: 25, bind: '0.0.0.0', max_message_size_mb: 50, max_recipients: 100, max_connections: 100, read_timeout_secs: 600, write_timeout_secs: 600 },
         submission: { enabled: true, port: 587, bind: '0.0.0.0', require_auth: true, require_tls: true, max_connections: 100 },
         submission_tls: { enabled: false, port: 465, bind: '0.0.0.0', require_auth: true, max_connections: 100 },
+        lmtp: { enabled: false, port: 24, bind: '127.0.0.1', max_message_size_mb: 50, max_recipients: 100, max_connections: 100, read_timeout_secs: 600, write_timeout_secs: 600 },
       },
       imap: { enabled: true, port: 993, bind: '0.0.0.0', starttls_port: 143, idle_timeout_secs: 1800, max_connections: 100 },
       pop3: { enabled: false, port: 995, bind: '0.0.0.0', max_connections: 50 },

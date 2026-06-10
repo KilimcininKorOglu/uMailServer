@@ -403,10 +403,22 @@ export interface SubmissionTLSConfig {
   max_connections: number;
 }
 
+export interface LMTPSMTPConfig {
+  enabled: boolean;
+  port: number;
+  bind: string;
+  max_message_size_mb: number;
+  max_recipients: number;
+  max_connections: number;
+  read_timeout_secs: number;
+  write_timeout_secs: number;
+}
+
 export interface SMTPConfig {
   inbound: InboundSMTPConfig;
   submission: SubmissionSMTPConfig;
   submission_tls: SubmissionTLSConfig;
+  lmtp: LMTPSMTPConfig;
 }
 
 export interface IMAPConfig {

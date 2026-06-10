@@ -105,10 +105,22 @@ type submissionTLSSectionDTO struct {
 	MaxConnections int    `json:"max_connections"`
 }
 
+type lmtpSMTPSectionDTO struct {
+	Enabled          bool   `json:"enabled"`
+	Port             int    `json:"port"`
+	Bind             string `json:"bind"`
+	MaxMessageSizeMB int    `json:"max_message_size_mb"`
+	MaxRecipients    int    `json:"max_recipients"`
+	MaxConnections   int    `json:"max_connections"`
+	ReadTimeoutSecs  int    `json:"read_timeout_secs"`
+	WriteTimeoutSecs int    `json:"write_timeout_secs"`
+}
+
 type smtpSectionDTO struct {
 	Inbound       inboundSMTPSectionDTO    `json:"inbound"`
 	Submission    submissionSMTPSectionDTO `json:"submission"`
 	SubmissionTLS submissionTLSSectionDTO  `json:"submission_tls"`
+	LMTP          lmtpSMTPSectionDTO       `json:"lmtp"`
 }
 
 type imapSectionDTO struct {
@@ -525,6 +537,16 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 				RequireAuth:    cfg.SMTP.SubmissionTLS.RequireAuth,
 				MaxConnections: cfg.SMTP.SubmissionTLS.MaxConnections,
 			},
+			LMTP: lmtpSMTPSectionDTO{
+				Enabled:          cfg.SMTP.LMTP.Enabled,
+				Port:             cfg.SMTP.LMTP.Port,
+				Bind:             cfg.SMTP.LMTP.Bind,
+				MaxMessageSizeMB: mbOf(cfg.SMTP.LMTP.MaxMessageSize),
+				MaxRecipients:    cfg.SMTP.LMTP.MaxRecipients,
+				MaxConnections:   cfg.SMTP.LMTP.MaxConnections,
+				ReadTimeoutSecs:  durSecs(cfg.SMTP.LMTP.ReadTimeout),
+				WriteTimeoutSecs: durSecs(cfg.SMTP.LMTP.WriteTimeout),
+			},
 		},
 		IMAP: imapSectionDTO{
 			Enabled:         cfg.IMAP.Enabled,
@@ -769,6 +791,14 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.SMTP.SubmissionTLS.Bind = req.SMTP.SubmissionTLS.Bind
 	cfg.SMTP.SubmissionTLS.RequireAuth = req.SMTP.SubmissionTLS.RequireAuth
 	cfg.SMTP.SubmissionTLS.MaxConnections = req.SMTP.SubmissionTLS.MaxConnections
+	cfg.SMTP.LMTP.Enabled = req.SMTP.LMTP.Enabled
+	cfg.SMTP.LMTP.Port = req.SMTP.LMTP.Port
+	cfg.SMTP.LMTP.Bind = req.SMTP.LMTP.Bind
+	cfg.SMTP.LMTP.MaxMessageSize = mbToSize(req.SMTP.LMTP.MaxMessageSizeMB)
+	cfg.SMTP.LMTP.MaxRecipients = req.SMTP.LMTP.MaxRecipients
+	cfg.SMTP.LMTP.MaxConnections = req.SMTP.LMTP.MaxConnections
+	cfg.SMTP.LMTP.ReadTimeout = secsToDur(req.SMTP.LMTP.ReadTimeoutSecs)
+	cfg.SMTP.LMTP.WriteTimeout = secsToDur(req.SMTP.LMTP.WriteTimeoutSecs)
 
 	cfg.IMAP.Enabled = req.IMAP.Enabled
 	cfg.IMAP.Port = req.IMAP.Port
@@ -1013,6 +1043,7 @@ func validateConfigDTO(req *serverConfigDTO) (string, bool) {
 		{req.SMTP.Inbound.Enabled, req.SMTP.Inbound.Port},
 		{req.SMTP.Submission.Enabled, req.SMTP.Submission.Port},
 		{req.SMTP.SubmissionTLS.Enabled, req.SMTP.SubmissionTLS.Port},
+		{req.SMTP.LMTP.Enabled, req.SMTP.LMTP.Port},
 		{req.IMAP.Enabled, req.IMAP.Port},
 		{req.POP3.Enabled, req.POP3.Port},
 		{req.HTTP.Enabled, req.HTTP.Port},
