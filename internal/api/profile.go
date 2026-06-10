@@ -6,9 +6,12 @@ import (
 )
 
 // handleProfile lets a signed-in user read and update their own directory
-// profile fields (display name, title, department, phone). It deliberately
-// touches ONLY those fields — never admin status, quota, or password — so it is
-// safe to expose outside the admin-gated /accounts routes.
+// profile fields (display name, title, department, phone). Writes deliberately
+// touch ONLY those fields — never admin status, quota, or password — so it is
+// safe to expose outside the admin-gated /accounts routes. The read response
+// additionally surfaces the user's own quota usage and graduated thresholds
+// (read-only) so webmail can render the storage gauge; these are never writable
+// here.
 // GET  /api/v1/profile  → current profile
 // PUT  /api/v1/profile  → update the provided fields
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -27,16 +30,20 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.sendJSON(w, http.StatusOK, map[string]any{
-			"email":        account.Email,
-			"display_name": account.DisplayName,
-			"title":        account.Title,
-			"department":   account.Department,
-			"phone":        account.Phone,
-			"timezone":     account.Timezone,
-			"locale":       account.Locale,
-			"theme":        account.Theme,
-			"onboarded":    account.Onboarded,
-			"has_avatar":   len(account.Avatar) > 0,
+			"email":               account.Email,
+			"display_name":        account.DisplayName,
+			"title":               account.Title,
+			"department":          account.Department,
+			"phone":               account.Phone,
+			"timezone":            account.Timezone,
+			"locale":              account.Locale,
+			"theme":               account.Theme,
+			"onboarded":           account.Onboarded,
+			"has_avatar":          len(account.Avatar) > 0,
+			"quota_used":          account.QuotaUsed,
+			"quota_limit":         account.QuotaLimit,
+			"quota_warn":          account.QuotaWarn,
+			"quota_prohibit_send": account.QuotaProhibitSend,
 		})
 	case http.MethodPut:
 		var req struct {
@@ -92,15 +99,19 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.sendJSON(w, http.StatusOK, map[string]any{
-			"email":        account.Email,
-			"display_name": account.DisplayName,
-			"title":        account.Title,
-			"department":   account.Department,
-			"phone":        account.Phone,
-			"timezone":     account.Timezone,
-			"locale":       account.Locale,
-			"theme":        account.Theme,
-			"onboarded":    account.Onboarded,
+			"email":               account.Email,
+			"display_name":        account.DisplayName,
+			"title":               account.Title,
+			"department":          account.Department,
+			"phone":               account.Phone,
+			"timezone":            account.Timezone,
+			"locale":              account.Locale,
+			"theme":               account.Theme,
+			"onboarded":           account.Onboarded,
+			"quota_used":          account.QuotaUsed,
+			"quota_limit":         account.QuotaLimit,
+			"quota_warn":          account.QuotaWarn,
+			"quota_prohibit_send": account.QuotaProhibitSend,
 		})
 	default:
 		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")

@@ -238,6 +238,8 @@ export function Accounts() {
         is_admin: selectedAccount.is_admin,
         is_active: selectedAccount.is_active,
         quota_limit: selectedAccount.quota_limit,
+        quota_warn: selectedAccount.quota_warn,
+        quota_prohibit_send: selectedAccount.quota_prohibit_send,
         display_name: selectedAccount.display_name ?? "",
         title: selectedAccount.title ?? "",
         department: selectedAccount.department ?? "",
@@ -578,6 +580,40 @@ export function Accounts() {
                   }
                 />
                 <p className="text-sm text-muted-foreground">{t("accounts.quotaUnlimitedHint")}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-quota-warn">{t("accounts.quotaWarnMB")}</Label>
+                  <Input
+                    id="edit-quota-warn"
+                    type="number"
+                    min={0}
+                    value={Math.round(selectedAccount.quota_warn / (1024 * 1024))}
+                    onChange={(e) =>
+                      setSelectedAccount({
+                        ...selectedAccount,
+                        quota_warn: Math.max(0, Number(e.target.value) || 0) * 1024 * 1024,
+                      })
+                    }
+                  />
+                  <p className="text-sm text-muted-foreground">{t("accounts.quotaDisabledHint")}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-quota-prohibit-send">{t("accounts.quotaProhibitSendMB")}</Label>
+                  <Input
+                    id="edit-quota-prohibit-send"
+                    type="number"
+                    min={0}
+                    value={Math.round(selectedAccount.quota_prohibit_send / (1024 * 1024))}
+                    onChange={(e) =>
+                      setSelectedAccount({
+                        ...selectedAccount,
+                        quota_prohibit_send: Math.max(0, Number(e.target.value) || 0) * 1024 * 1024,
+                      })
+                    }
+                  />
+                  <p className="text-sm text-muted-foreground">{t("accounts.quotaDisabledHint")}</p>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">

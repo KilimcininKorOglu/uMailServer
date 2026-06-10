@@ -252,6 +252,14 @@
       "updated": "Profile updated",
       "updateFailed": "Failed to update profile"
     },
+    "storage": {
+      "title": "Storage",
+      "description": "How much of your mailbox quota you are using",
+      "used": "{{used}} of {{limit}} used ({{pct}}%)",
+      "unlimited": "{{used}} used (no quota limit)",
+      "warnAt": "You will be warned at {{size}}.",
+      "blockSendAt": "Sending is disabled at {{size}}."
+    },
     "appearance": {
       "title": "Appearance",
       "description": "Customize how uMail looks on your device",

@@ -252,6 +252,14 @@
       "updated": "Profil güncellendi",
       "updateFailed": "Profil güncellenemedi"
     },
+    "storage": {
+      "title": "Depolama",
+      "description": "Posta kutusu kotanızın ne kadarını kullandığınız",
+      "used": "{{limit}} kotanın {{used}} kadarı kullanıldı (%{{pct}})",
+      "unlimited": "{{used}} kullanıldı (kota sınırı yok)",
+      "warnAt": "{{size}} ulaşıldığında uyarılacaksınız.",
+      "blockSendAt": "{{size}} ulaşıldığında gönderim devre dışı kalır."
+    },
     "appearance": {
       "title": "Görünüm",
       "description": "uMail'in cihazınızda nasıl göründüğünü özelleştirin",

@@ -72,6 +72,10 @@ export function Domains() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editMaxAccounts, setEditMaxAccounts] = useState(0);
+  // Graduated quota defaults, edited in MB (0 = disabled / unlimited).
+  const [editMaxMailboxSizeMB, setEditMaxMailboxSizeMB] = useState(0);
+  const [editQuotaWarnMB, setEditQuotaWarnMB] = useState(0);
+  const [editQuotaProhibitSendMB, setEditQuotaProhibitSendMB] = useState(0);
   const [editCompanyName, setEditCompanyName] = useState("");
   const [editFromInternal, setEditFromInternal] = useState("");
   const [editFromExternal, setEditFromExternal] = useState("");
@@ -128,12 +132,15 @@ export function Domains() {
 
   const handleToggleDomain = async (domain: Domain) => {
     try {
-      // The update endpoint reads max_accounts and is_active together from the
-      // body (non-pointer fields), so omitting max_accounts would reset it to 0.
-      // Send the current value alongside the toggled status to preserve it.
+      // The update endpoint reads its scalar fields together from the body
+      // (non-pointer), so any omitted field resets to 0. Send the current values
+      // alongside the toggled status to preserve max_accounts and the quota tiers.
       await updateDomain(domain.name, {
         is_active: !domain.is_active,
         max_accounts: domain.max_accounts,
+        max_mailbox_size: domain.max_mailbox_size,
+        quota_warn: domain.quota_warn,
+        quota_prohibit_send: domain.quota_prohibit_send,
       });
     } catch (err) {
       toast.error(errorMessage(err, t("domains.updateFailed")));
@@ -147,6 +154,9 @@ export function Domains() {
     try {
       await updateDomain(selectedDomain.name, {
         max_accounts: editMaxAccounts,
+        max_mailbox_size: editMaxMailboxSizeMB * 1024 * 1024,
+        quota_warn: editQuotaWarnMB * 1024 * 1024,
+        quota_prohibit_send: editQuotaProhibitSendMB * 1024 * 1024,
         is_active: selectedDomain.is_active,
         company_name: editCompanyName,
         from_template_internal: editFromInternal,
@@ -302,6 +312,9 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
               onEdit={() => {
                 setSelectedDomain(domain);
                 setEditMaxAccounts(domain.max_accounts);
+                setEditMaxMailboxSizeMB(Math.round(domain.max_mailbox_size / (1024 * 1024)));
+                setEditQuotaWarnMB(Math.round(domain.quota_warn / (1024 * 1024)));
+                setEditQuotaProhibitSendMB(Math.round(domain.quota_prohibit_send / (1024 * 1024)));
                 setEditCompanyName(domain.company_name ?? "");
                 setEditFromInternal(domain.from_template_internal ?? "");
                 setEditFromExternal(domain.from_template_external ?? "");
@@ -345,6 +358,39 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
                 value={editMaxAccounts}
                 onChange={(e) => setEditMaxAccounts(Math.max(0, Number(e.target.value) || 0))}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-max-mailbox-size">{t("domains.maxMailboxSizeMB")}</Label>
+              <Input
+                id="edit-max-mailbox-size"
+                type="number"
+                min={0}
+                value={editMaxMailboxSizeMB}
+                onChange={(e) => setEditMaxMailboxSizeMB(Math.max(0, Number(e.target.value) || 0))}
+              />
+              <p className="text-sm text-muted-foreground">{t("domains.quotaDisabledHint")}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-quota-warn">{t("domains.quotaWarnMB")}</Label>
+                <Input
+                  id="edit-quota-warn"
+                  type="number"
+                  min={0}
+                  value={editQuotaWarnMB}
+                  onChange={(e) => setEditQuotaWarnMB(Math.max(0, Number(e.target.value) || 0))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-quota-prohibit-send">{t("domains.quotaProhibitSendMB")}</Label>
+                <Input
+                  id="edit-quota-prohibit-send"
+                  type="number"
+                  min={0}
+                  value={editQuotaProhibitSendMB}
+                  onChange={(e) => setEditQuotaProhibitSendMB(Math.max(0, Number(e.target.value) || 0))}
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-company-name">{t("domains.companyName")}</Label>

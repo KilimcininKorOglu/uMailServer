@@ -8,6 +8,9 @@ func domainToJSON(d *db.DomainData) map[string]interface{} {
 	result := map[string]interface{}{
 		"name":                   d.Name,
 		"max_accounts":           d.MaxAccounts,
+		"max_mailbox_size":       d.MaxMailboxSize,
+		"quota_warn":             d.QuotaWarn,
+		"quota_prohibit_send":    d.QuotaProhibitSend,
 		"is_active":              d.IsActive,
 		"created_at":             d.CreatedAt,
 		"updated_at":             d.UpdatedAt,
@@ -32,6 +35,8 @@ func accountToJSON(a *db.AccountData) map[string]interface{} {
 		"must_change_password": a.MustChangePassword,
 		"quota_used":           a.QuotaUsed,
 		"quota_limit":          a.QuotaLimit,
+		"quota_warn":           a.QuotaWarn,
+		"quota_prohibit_send":  a.QuotaProhibitSend,
 		"forward_to":           a.ForwardTo,
 		"forward_keep_copy":    a.ForwardKeepCopy,
 		"created_at":           a.CreatedAt,

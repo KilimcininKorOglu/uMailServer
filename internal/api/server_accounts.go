@@ -146,18 +146,20 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	isAdmin, _ := r.Context().Value("isAdmin").(bool)
 
 	var req struct {
-		Email         string `json:"email"`
-		Password      string `json:"password"`
-		IsAdmin       bool   `json:"is_admin"`
-		IsTenantAdmin bool   `json:"is_tenant_admin"`
-		QuotaLimit    *int64 `json:"quota_limit"`
-		Avatar        string `json:"avatar"` // optional data URL profile photo
-		DisplayName   string `json:"display_name"`
-		Title         string `json:"title"`
-		Department    string `json:"department"`
-		Phone         string `json:"phone"`
-		SendPolicy    string `json:"send_policy"`
-		ReceivePolicy string `json:"receive_policy"`
+		Email             string `json:"email"`
+		Password          string `json:"password"`
+		IsAdmin           bool   `json:"is_admin"`
+		IsTenantAdmin     bool   `json:"is_tenant_admin"`
+		QuotaLimit        *int64 `json:"quota_limit"`
+		QuotaWarn         *int64 `json:"quota_warn"`
+		QuotaProhibitSend *int64 `json:"quota_prohibit_send"`
+		Avatar            string `json:"avatar"` // optional data URL profile photo
+		DisplayName       string `json:"display_name"`
+		Title             string `json:"title"`
+		Department        string `json:"department"`
+		Phone             string `json:"phone"`
+		SendPolicy        string `json:"send_policy"`
+		ReceivePolicy     string `json:"receive_policy"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -189,6 +191,14 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	if req.QuotaLimit != nil && *req.QuotaLimit < 0 {
 		s.sendError(w, http.StatusBadRequest, "quota_limit must be non-negative")
+		return
+	}
+	if req.QuotaWarn != nil && *req.QuotaWarn < 0 {
+		s.sendError(w, http.StatusBadRequest, "quota_warn must be non-negative")
+		return
+	}
+	if req.QuotaProhibitSend != nil && *req.QuotaProhibitSend < 0 {
+		s.sendError(w, http.StatusBadRequest, "quota_prohibit_send must be non-negative")
 		return
 	}
 
@@ -255,6 +265,12 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.QuotaLimit != nil {
 		account.QuotaLimit = *req.QuotaLimit
+	}
+	if req.QuotaWarn != nil {
+		account.QuotaWarn = *req.QuotaWarn
+	}
+	if req.QuotaProhibitSend != nil {
+		account.QuotaProhibitSend = *req.QuotaProhibitSend
 	}
 
 	if err := s.db.CreateAccount(account); err != nil {
@@ -338,6 +354,8 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		ForwardTo            *string `json:"forward_to"`
 		ForwardKeepCopy      *bool   `json:"forward_keep_copy"`
 		QuotaLimit           *int64  `json:"quota_limit"`
+		QuotaWarn            *int64  `json:"quota_warn"`
+		QuotaProhibitSend    *int64  `json:"quota_prohibit_send"`
 		VacationSettings     *string `json:"vacation_settings"`
 		CurrentAdminPassword string  `json:"current_admin_password"`
 		DisplayName          *string `json:"display_name"`
@@ -369,7 +387,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 			return
 		}
 		if req.MustChangePassword != nil || req.IsAdmin != nil || req.IsTenantAdmin != nil || req.IsActive != nil || req.ForwardTo != nil ||
-			req.ForwardKeepCopy != nil || req.QuotaLimit != nil || req.VacationSettings != nil ||
+			req.ForwardKeepCopy != nil || req.QuotaLimit != nil || req.QuotaWarn != nil || req.QuotaProhibitSend != nil || req.VacationSettings != nil ||
 			req.CurrentAdminPassword != "" {
 			s.sendError(w, http.StatusForbidden, "only password updates are allowed until the required password change is completed")
 			return
@@ -382,6 +400,14 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 
 	if req.QuotaLimit != nil && *req.QuotaLimit < 0 {
 		s.sendError(w, http.StatusBadRequest, "quota_limit must be non-negative")
+		return
+	}
+	if req.QuotaWarn != nil && *req.QuotaWarn < 0 {
+		s.sendError(w, http.StatusBadRequest, "quota_warn must be non-negative")
+		return
+	}
+	if req.QuotaProhibitSend != nil && *req.QuotaProhibitSend < 0 {
+		s.sendError(w, http.StatusBadRequest, "quota_prohibit_send must be non-negative")
 		return
 	}
 
@@ -473,6 +499,12 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 	}
 	if req.QuotaLimit != nil {
 		account.QuotaLimit = *req.QuotaLimit
+	}
+	if req.QuotaWarn != nil {
+		account.QuotaWarn = *req.QuotaWarn
+	}
+	if req.QuotaProhibitSend != nil {
+		account.QuotaProhibitSend = *req.QuotaProhibitSend
 	}
 	if req.VacationSettings != nil {
 		account.VacationSettings = *req.VacationSettings

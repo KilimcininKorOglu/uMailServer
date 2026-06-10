@@ -107,8 +107,11 @@ func (s *Server) createDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name        string `json:"name"`
-		MaxAccounts int    `json:"max_accounts"`
+		Name              string `json:"name"`
+		MaxAccounts       int    `json:"max_accounts"`
+		MaxMailboxSize    int64  `json:"max_mailbox_size"`
+		QuotaWarn         int64  `json:"quota_warn"`
+		QuotaProhibitSend int64  `json:"quota_prohibit_send"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -118,6 +121,10 @@ func (s *Server) createDomain(w http.ResponseWriter, r *http.Request) {
 
 	if req.Name == "" {
 		s.sendError(w, http.StatusBadRequest, "domain name is required")
+		return
+	}
+	if req.MaxMailboxSize < 0 || req.QuotaWarn < 0 || req.QuotaProhibitSend < 0 {
+		s.sendError(w, http.StatusBadRequest, "quota thresholds must be non-negative")
 		return
 	}
 
@@ -145,11 +152,14 @@ func (s *Server) createDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domain := &db.DomainData{
-		Name:        req.Name,
-		MaxAccounts: req.MaxAccounts,
-		IsActive:    true,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		Name:              req.Name,
+		MaxAccounts:       req.MaxAccounts,
+		MaxMailboxSize:    req.MaxMailboxSize,
+		QuotaWarn:         req.QuotaWarn,
+		QuotaProhibitSend: req.QuotaProhibitSend,
+		IsActive:          true,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
 	}
 
 	// Generate DKIM key pair for the domain
@@ -199,6 +209,9 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 
 	var req struct {
 		MaxAccounts          int    `json:"max_accounts"`
+		MaxMailboxSize       int64  `json:"max_mailbox_size"`
+		QuotaWarn            int64  `json:"quota_warn"`
+		QuotaProhibitSend    int64  `json:"quota_prohibit_send"`
 		IsActive             bool   `json:"is_active"`
 		CompanyName          string `json:"company_name"`
 		FromTemplateInternal string `json:"from_template_internal"`
@@ -219,6 +232,10 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 		s.sendError(w, http.StatusBadRequest, "max_accounts exceeds maximum allowed")
 		return
 	}
+	if req.MaxMailboxSize < 0 || req.QuotaWarn < 0 || req.QuotaProhibitSend < 0 {
+		s.sendError(w, http.StatusBadRequest, "quota thresholds must be non-negative")
+		return
+	}
 
 	// Prevent deactivation if active accounts exist
 	if domain.IsActive && !req.IsActive {
@@ -234,6 +251,9 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 	}
 
 	domain.MaxAccounts = req.MaxAccounts
+	domain.MaxMailboxSize = req.MaxMailboxSize
+	domain.QuotaWarn = req.QuotaWarn
+	domain.QuotaProhibitSend = req.QuotaProhibitSend
 	domain.IsActive = req.IsActive
 	domain.CompanyName = req.CompanyName
 	domain.FromTemplateInternal = req.FromTemplateInternal

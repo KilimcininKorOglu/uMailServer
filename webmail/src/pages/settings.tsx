@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera } from "lucide-react"
+import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera, HardDrive } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { useAuth } from "@/contexts/AuthContext"
 import { useI18n } from "@/hooks/useI18n"
@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Progress } from "@/components/ui/progress"
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,15 @@ const emptyVacation: VacationAutoReply = {
   enabled: false,
   subject: "Out of Office",
   message: "",
+}
+
+// formatStorageBytes renders a byte count with a binary-prefix unit for the
+// storage gauge, falling back to a raw byte count below 1 KiB.
+function formatStorageBytes(n: number): string {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`
+  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${n} B`
 }
 
 export function SettingsPage() {
@@ -105,6 +115,10 @@ export function SettingsPage() {
   const [profile, setProfile] = useState({ display_name: "", title: "", department: "", phone: "" })
   const [profileBusy, setProfileBusy] = useState(false)
 
+  // Read-only storage usage and graduated quota thresholds (absolute bytes,
+  // 0 = disabled/unlimited), surfaced by GET /profile for the storage gauge.
+  const [quota, setQuota] = useState({ used: 0, limit: 0, warn: 0, prohibitSend: 0 })
+
   // Display timezone — the IANA zone every date is rendered in. Empty means
   // "follow this device". Saved on change (like the theme buttons) and applied
   // live across the app via updatePrefs.
@@ -119,6 +133,12 @@ export function SettingsPage() {
           title: p.title ?? "",
           department: p.department ?? "",
           phone: p.phone ?? "",
+        })
+        setQuota({
+          used: p.quota_used ?? 0,
+          limit: p.quota_limit ?? 0,
+          warn: p.quota_warn ?? 0,
+          prohibitSend: p.quota_prohibit_send ?? 0,
         })
         setTimezone(p.timezone ?? "")
       })
@@ -608,6 +628,42 @@ export function SettingsPage() {
           <Button onClick={handleSaveProfile} disabled={profileBusy}>
             {profileBusy ? t("common.saving") : t("settings.profile.save")}
           </Button>
+        </div>
+      </SettingSection>
+
+      {/* Storage usage (read-only) */}
+      <SettingSection
+        icon={HardDrive}
+        title={t("settings.storage.title")}
+        description={t("settings.storage.description")}
+      >
+        <div className="space-y-3">
+          {quota.limit > 0 ? (
+            <>
+              <Progress value={Math.min(100, Math.round((quota.used / quota.limit) * 100))} />
+              <p className="text-sm text-muted-foreground">
+                {t("settings.storage.used", {
+                  used: formatStorageBytes(quota.used),
+                  limit: formatStorageBytes(quota.limit),
+                  pct: String(Math.min(100, Math.round((quota.used / quota.limit) * 100))),
+                })}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {t("settings.storage.unlimited", { used: formatStorageBytes(quota.used) })}
+            </p>
+          )}
+          {quota.warn > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t("settings.storage.warnAt", { size: formatStorageBytes(quota.warn) })}
+            </p>
+          )}
+          {quota.prohibitSend > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t("settings.storage.blockSendAt", { size: formatStorageBytes(quota.prohibitSend) })}
+            </p>
+          )}
         </div>
       </SettingSection>
 

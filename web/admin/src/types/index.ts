@@ -24,6 +24,12 @@ export interface TenantBranding {
 export interface Domain {
   name: string;
   max_accounts: number;
+  // Graduated quota defaults applied to the domain's accounts (absolute bytes,
+  // 0 = disabled). max_mailbox_size is the hard receive cap; quota_warn and
+  // quota_prohibit_send are the warning and send-block tiers below it.
+  max_mailbox_size: number;
+  quota_warn: number;
+  quota_prohibit_send: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -79,6 +85,11 @@ export interface Account {
   must_change_password?: boolean;
   quota_used: number;
   quota_limit: number;
+  // Graduated quota tiers (absolute bytes, 0 = disabled). quota_warn files a
+  // one-time notice; quota_prohibit_send blocks outbound mail; quota_limit is
+  // the hard receive cap (prohibit-send-receive).
+  quota_warn: number;
+  quota_prohibit_send: number;
   forward_to?: string;
   forward_keep_copy?: boolean;
   created_at: string;

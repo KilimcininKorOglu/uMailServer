@@ -26,6 +26,9 @@ describe('Domain type', () => {
     const domain: Domain = {
       name: 'example.com',
       max_accounts: 100,
+      max_mailbox_size: 0,
+      quota_warn: 0,
+      quota_prohibit_send: 0,
       is_active: true,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z',
@@ -39,6 +42,9 @@ describe('Domain type', () => {
     const domain: Domain = {
       name: 'example.com',
       max_accounts: 100,
+      max_mailbox_size: 0,
+      quota_warn: 0,
+      quota_prohibit_send: 0,
       is_active: true,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z',
@@ -58,6 +64,8 @@ describe('Account type', () => {
       is_active: true,
       quota_used: 1024,
       quota_limit: 10240,
+      quota_warn: 0,
+      quota_prohibit_send: 0,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z',
     }
@@ -72,6 +80,8 @@ describe('Account type', () => {
       is_active: true,
       quota_used: 0,
       quota_limit: 10240,
+      quota_warn: 0,
+      quota_prohibit_send: 0,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z',
       forward_to: 'other@example.com',

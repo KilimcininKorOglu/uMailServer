@@ -166,6 +166,13 @@ export interface UserProfile {
   locale?: string
   theme?: string
   onboarded?: boolean
+  // Read-only storage usage and graduated quota thresholds (absolute bytes,
+  // 0 = disabled/unlimited). Surfaced by GET /profile for the storage gauge;
+  // never writable through updateProfile.
+  quota_used?: number
+  quota_limit?: number
+  quota_warn?: number
+  quota_prohibit_send?: number
 }
 
 export interface Category {
