@@ -471,6 +471,77 @@ func TestEffectiveQuotaThresholds(t *testing.T) {
 	}
 }
 
+// TestSetQuotaWarnSent verifies the warn latch flips independently of QuotaUsed.
+// The method exists precisely so a server-layer latch update cannot revert a
+// QuotaUsed that IncrementQuota advanced concurrently: a read-modify-write of the
+// whole account would race, so SetQuotaWarnSent must touch only the flag. The
+// test simulates that race by mutating QuotaUsed (as a delivery would) between
+// the two latch flips and asserting the usage survives.
+func TestSetQuotaWarnSent(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := Open(tmpDir + "/test.db")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+
+	acct := &AccountData{
+		Email: "u@example.com", LocalPart: "u", Domain: "example.com",
+		QuotaUsed: 1000, QuotaWarnSent: false,
+	}
+	if err := db.CreateAccount(acct); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Latch on; usage must be untouched by the flag write.
+	if err := db.SetQuotaWarnSent("example.com", "u", true); err != nil {
+		t.Fatalf("SetQuotaWarnSent(true): %v", err)
+	}
+	got, err := db.GetAccount("example.com", "u")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if !got.QuotaWarnSent {
+		t.Error("QuotaWarnSent not set")
+	}
+	if got.QuotaUsed != 1000 {
+		t.Errorf("QuotaUsed clobbered by latch: got %d, want 1000", got.QuotaUsed)
+	}
+
+	// A concurrent delivery advances usage; then the latch is re-armed. The
+	// re-arm must not roll usage back to its value at the first flip.
+	if err := db.IncrementQuota("example.com", "u", 500); err != nil {
+		t.Fatalf("IncrementQuota: %v", err)
+	}
+	if err := db.SetQuotaWarnSent("example.com", "u", false); err != nil {
+		t.Fatalf("SetQuotaWarnSent(false): %v", err)
+	}
+	got, err = db.GetAccount("example.com", "u")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got.QuotaWarnSent {
+		t.Error("QuotaWarnSent not cleared")
+	}
+	if got.QuotaUsed != 1500 {
+		t.Errorf("re-arm reverted concurrent increment: got %d, want 1500", got.QuotaUsed)
+	}
+
+	// Setting the latch to its current value is a no-op (no error, no change).
+	if err := db.SetQuotaWarnSent("example.com", "u", false); err != nil {
+		t.Fatalf("SetQuotaWarnSent(false) no-op: %v", err)
+	}
+
+	// An absent account is reported as not-found.
+	if err := db.SetQuotaWarnSent("example.com", "ghost", true); err == nil {
+		t.Error("expected error for absent account, got nil")
+	}
+}
+
 func TestRecoverableItemBbolt(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := Open(tmpDir + "/test.db")

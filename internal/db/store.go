@@ -84,6 +84,10 @@ type Store interface {
 	CancelScheduledByFolderRef(owner string, uid uint32) (bool, error)
 	ResetStaleScheduledMessages(before time.Time) (int, error)
 
+	// SetQuotaWarnSent flips the graduated-quota warning latch without touching
+	// the concurrently-incremented QuotaUsed.
+	SetQuotaWarnSent(domain, localPart string, sent bool) error
+
 	// Recoverable Items (soft-delete dumpster) and TTL retention.
 	CreateRecoverableItem(m *RecoverableItem) error
 	GetRecoverableItem(id string) (*RecoverableItem, error)

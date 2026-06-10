@@ -389,6 +389,58 @@ func TestIncrementQuota(t *testing.T) {
 	}
 }
 
+// TestSetQuotaWarnSent verifies the targeted latch update leaves quota_used
+// untouched, mirroring the bbolt contract. The method is a column-scoped UPDATE
+// precisely so a server-layer latch flip cannot clobber a quota_used that
+// IncrementQuota advanced concurrently; the test advances usage between flips and
+// asserts it survives.
+func TestSetQuotaWarnSent(t *testing.T) {
+	d := openTestDB(t)
+	// accounts.domain has a foreign key to domains.name, so the domain must exist
+	// before the account (bbolt enforces no such constraint).
+	if err := d.CreateDomain(&db.DomainData{Name: "example.com", IsActive: true}); err != nil {
+		t.Fatalf("CreateDomain: %v", err)
+	}
+	if err := d.CreateAccount(&db.AccountData{
+		Email: "u@example.com", LocalPart: "u", Domain: "example.com",
+		QuotaUsed: 1000, IsActive: true,
+	}); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if err := d.SetQuotaWarnSent("example.com", "u", true); err != nil {
+		t.Fatalf("SetQuotaWarnSent(true): %v", err)
+	}
+	acc, err := d.GetAccount("example.com", "u")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if !acc.QuotaWarnSent {
+		t.Error("QuotaWarnSent not set")
+	}
+	if acc.QuotaUsed != 1000 {
+		t.Errorf("quota_used clobbered by latch: got %d want 1000", acc.QuotaUsed)
+	}
+
+	// A concurrent delivery advances usage; re-arming the latch must not revert it.
+	if err := d.IncrementQuota("example.com", "u", 500); err != nil {
+		t.Fatalf("IncrementQuota: %v", err)
+	}
+	if err := d.SetQuotaWarnSent("example.com", "u", false); err != nil {
+		t.Fatalf("SetQuotaWarnSent(false): %v", err)
+	}
+	acc, err = d.GetAccount("example.com", "u")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if acc.QuotaWarnSent {
+		t.Error("QuotaWarnSent not cleared")
+	}
+	if acc.QuotaUsed != 1500 {
+		t.Errorf("re-arm reverted concurrent increment: got %d want 1500", acc.QuotaUsed)
+	}
+}
+
 // TestQueueRoundTrip covers enqueue (with recipients), limit, pending read,
 // claim under SKIP LOCKED, update, and dequeue.
 func TestQueueRoundTrip(t *testing.T) {

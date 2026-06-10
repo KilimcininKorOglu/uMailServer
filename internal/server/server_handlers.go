@@ -708,7 +708,108 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 			s.logger.Warn("Background task semaphore full, dropping vacation reply", "email", email)
 		}
 	}
+
+	// Graduated quota: once this delivery pushes usage past the IssueWarning
+	// threshold, drop a one-time notice into the mailbox (and clear the latch when
+	// usage falls back below). Best-effort; never affects the delivery outcome.
+	s.maybeWarnQuota(email)
+
 	return nil
+}
+
+// maybeWarnQuota files a one-time over-quota notice into the mailbox once a
+// delivery pushes usage past the graduated IssueWarning threshold, and clears
+// the latch when usage falls back below it so a later crossing warns again. It
+// is best-effort and never affects the delivery outcome: a failure to file the
+// notice or flip the latch is logged, not propagated. The notice is filed
+// directly into the INBOX (not enqueued), so it neither re-enters quota
+// accounting nor recurses through the delivery pipeline. Accounts with the
+// warning disabled (effective warn == 0) are skipped.
+//
+// The account is re-read here rather than reusing the caller's copy because
+// deliverLocal increments QuotaUsed before this call; the fresh read reflects
+// the post-increment usage that the threshold comparison depends on.
+func (s *Server) maybeWarnQuota(email string) {
+	if s.database == nil {
+		return
+	}
+	user, domain, acct, err := s.loadLocalAccount(email)
+	if err != nil || acct == nil {
+		return
+	}
+	var dom *db.DomainData
+	if d, derr := s.database.GetDomain(domain); derr == nil {
+		dom = d
+	}
+	warn, prohibitSend, hardCap := db.EffectiveQuotaThresholds(acct, dom)
+	if warn == 0 {
+		return // graduated warning disabled for this account
+	}
+
+	switch {
+	case acct.QuotaUsed >= warn && !acct.QuotaWarnSent:
+		raw := buildQuotaWarning(email, domain, acct.QuotaUsed, warn, prohibitSend, hardCap)
+		uid, _, ferr := s.fileFolderCopy(email, "INBOX", raw, nil)
+		if ferr != nil {
+			s.logger.Error("quota: failed to file over-quota warning", "email", email, "error", ferr)
+			return
+		}
+		imap.GetNotificationHub().NotifyNewMessage(email, "INBOX", uid, uid)
+		if serr := s.database.SetQuotaWarnSent(domain, user, true); serr != nil {
+			s.logger.Error("quota: failed to latch warning flag", "email", email, "error", serr)
+		}
+	case acct.QuotaUsed < warn && acct.QuotaWarnSent:
+		// Usage fell back below the warn line; re-arm so the next crossing warns.
+		if serr := s.database.SetQuotaWarnSent(domain, user, false); serr != nil {
+			s.logger.Error("quota: failed to re-arm warning flag", "email", email, "error", serr)
+		}
+	}
+}
+
+// buildQuotaWarning renders the postmaster over-quota notice as a self-contained
+// RFC 5322 message. It states the current usage and the graduated thresholds
+// that apply (sending blocked at prohibitSend, receiving blocked at the hard
+// cap); a zero threshold is reported as not configured.
+func buildQuotaWarning(email, domain string, used, warn, prohibitSend, hardCap int64) []byte {
+	now := time.Now()
+	var body strings.Builder
+	fmt.Fprintf(&body, "Your mailbox has reached its quota warning threshold.\r\n\r\n")
+	fmt.Fprintf(&body, "Current usage: %s\r\n", formatQuotaBytes(used))
+	fmt.Fprintf(&body, "Warning threshold: %s\r\n", formatQuotaBytes(warn))
+	if prohibitSend > 0 {
+		fmt.Fprintf(&body, "Sending is disabled at: %s\r\n", formatQuotaBytes(prohibitSend))
+	}
+	if hardCap > 0 {
+		fmt.Fprintf(&body, "Receiving is disabled at: %s\r\n", formatQuotaBytes(hardCap))
+	}
+	fmt.Fprintf(&body, "\r\nPlease delete unneeded messages to free space.\r\n")
+
+	msg := "From: " + sanitizeHeaderValue("postmaster@"+domain) + "\r\n" +
+		"To: " + sanitizeHeaderValue(email) + "\r\n" +
+		"Subject: Mailbox quota warning\r\n" +
+		"Auto-Submitted: auto-generated\r\n" +
+		"Precedence: bulk\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n" +
+		"Date: " + now.Format(time.RFC1123Z) + "\r\n" +
+		"\r\n" +
+		body.String()
+	return []byte(msg)
+}
+
+// formatQuotaBytes renders a byte count with a binary-prefix unit (KiB/MiB/GiB)
+// for the quota notice, falling back to a raw byte count below 1 KiB.
+func formatQuotaBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.2f GiB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.2f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.2f KiB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 // parseEmail splits an email address into user and domain

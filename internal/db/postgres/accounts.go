@@ -124,6 +124,18 @@ func (d *DB) UpdateAccount(account *db.AccountData) error {
 	return nil
 }
 
+// SetQuotaWarnSent flips an account's quota-warning latch via a targeted column
+// update, so a concurrent IncrementQuota's quota_used is never clobbered.
+func (d *DB) SetQuotaWarnSent(domain, localPart string, sent bool) error {
+	ctx := context.Background()
+	if _, err := d.pool.Exec(ctx,
+		`UPDATE accounts SET quota_warn_sent=$3, updated_at=now() WHERE domain=$1 AND local_part=$2`,
+		domain, localPart, sent); err != nil {
+		return fmt.Errorf("postgres: set quota warn sent %s/%s: %w", domain, localPart, err)
+	}
+	return nil
+}
+
 // DeleteAccount removes the account at (domain, local_part).
 func (d *DB) DeleteAccount(domain, localPart string) error {
 	ctx := context.Background()

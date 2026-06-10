@@ -488,6 +488,38 @@ func (d *DB) IncrementQuota(domain, localPart string, delta int64) error {
 	})
 }
 
+// SetQuotaWarnSent flips an account's quota-warning latch. It re-reads the row
+// inside the transaction and rewrites ONLY the flag (plus UpdatedAt), so it never
+// clobbers a concurrently-incremented QuotaUsed. A no-op when the flag already
+// holds the requested value.
+func (d *DB) SetQuotaWarnSent(domain, localPart string, sent bool) error {
+	key := AccountKey(domain, localPart)
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketAccounts))
+		if b == nil {
+			return fmt.Errorf("bucket not found: %s", BucketAccounts)
+		}
+		data := b.Get([]byte(key))
+		if data == nil {
+			return fmt.Errorf("key not found: %s: %w", key, ErrNotFound)
+		}
+		var account AccountData
+		if err := json.Unmarshal(data, &account); err != nil {
+			return err
+		}
+		if account.QuotaWarnSent == sent {
+			return nil
+		}
+		account.QuotaWarnSent = sent
+		account.UpdatedAt = time.Now()
+		newData, err := json.Marshal(&account)
+		if err != nil {
+			return fmt.Errorf("failed to marshal value: %w", err)
+		}
+		return b.Put([]byte(key), newData)
+	})
+}
+
 // EffectiveQuotaThresholds resolves an account's graduated-quota thresholds by
 // composing the account's own values with its domain's defaults. Each tier is
 // the account value when set (>0), else the domain default, else 0 (disabled).
