@@ -27,6 +27,7 @@
   - `helper-projects/proto_reload.py` (config hot-reload: canlı POP3 kapatma/açma, restart_required sınıflaması, DTO'da sır yok)
   - `helper-projects/proto_tls.py` (STARTTLS değişmezi: SMTP/IMAP/POP3'te ilan ⇔ el sıkışma başarısı, TLS>=1.2, DTO'da özel anahtar yok)
   - `helper-projects/proto_backup.py` (per-user yedek oluştur/listele/doğrula/güvenli geri yükle + push stub negatifleri)
+  - `helper-projects/proto_import.py` (kanonik posta kutusu içe aktarımı: `umailserver import` ile mbox sunucu durdurulmuş koşulda içe aktarılır, idempotent yeniden çalıştırma, IMAP/JMAP/EWS çapraz görünürlük)
   - `helper-projects/proto_metrics_mcp.py` (Prometheus /metrics içeriği + MCP JSON-RPC, token kapıları)
   - `helper-projects/smime_probe.py` (giden S/MIME imzalama — kendi kendine yeten: imzalamayı açar, anahtar üretir, container'ı yeniden oluşturur, sonda eski hâline döndürür)
 - Ek probe'lar: `helper-projects/jmap_probe.py`, `helper-projects/jmap_send_probe.py`, `helper-projects/default_folders_probe.py`.
@@ -481,6 +482,7 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 - `helper-projects/proto_reload.py` — config hot-reload: POP3'ü canlı kapatıp açma, yapısal değişikliğin restart_required sınıflanması, GET DTO'da sır sızıntısı yok
 - `helper-projects/proto_tls.py` — TLS/STARTTLS değişmezi: SMTP(25/587)/IMAP/POP3'te STARTTLS yalnızca el sıkışma başarılı olabilecekse ilan edilir; ilan yokken upgrade komutu reddedilir; min_version 1.2/1.3
 - `helper-projects/proto_backup.py` — yedekleme yaşam döngüsü: per-user oluştur → listele → doğrula → farklı-kullanıcıya güvenli geri yükle → sil; POST /backups; push stub negatifleri (VAPID 503, SSRF koruması, 401/400/403)
+- `helper-projects/proto_import.py` — kanonik posta kutusu içe aktarımı: test mbox'unu mount'lu veri dizinine yazar, `umailserver` container'ını durdurur, tek-seferlik container'da `umailserver import` çalıştırır (idempotensi için iki kez), sunucuyu yeniden başlatır, sonra içe aktarılan mesajların IMAP + JMAP + EWS'de göründüğünü doğrular (semcore identity yazımı = EWS hayalet koruması). Sunucu her durumda yeniden başlatılır.
 - `helper-projects/proto_metrics_mcp.py` — Prometheus /metrics içerik + MCP JSON-RPC (token kapısı, admin araç RBAC'ı)
 - `helper-projects/proto_scheduled.py` — zamanlanmış ("sonra gönder") uçtan uca: webmail `sendAt` → Scheduled klasörü (API + IMAP) → lider-kapılı salıverme → teslim + Sent'e dosyalama; API iptal; Scheduled klasöründen IMAP EXPUNGE ile iptal; SMTP FUTURERELEASE (RFC 4865) EHLO ilanı + MAIL FROM HOLDFOR
 - `helper-projects/proto_ews_scheduled.py` — EWS deferred-send (Outlook "Do not deliver before"): CreateItem'da PidTagDeferredSendTime (0x3FEF) → canonical scheduled store + EWS FindItem ile Scheduled klasöründe görünür + sunucu tarafından salıverilip teslim. NOT: deferred-send yalnızca EWS property seviyesinde simüle edilir; gerçek Outlook masaüstü gönderim yolu bu ortamda doğrulanamaz.

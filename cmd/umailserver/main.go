@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"flag"
 	"fmt"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +29,9 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/migrations"
 	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/mailimport"
 	"github.com/umailserver/umailserver/internal/migratestore"
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/server"
 	"github.com/umailserver/umailserver/internal/storage"
 	"golang.org/x/crypto/bcrypt"
@@ -65,6 +71,8 @@ func main() {
 		cmdRestore(os.Args[2:])
 	case "migrate":
 		cmdMigrate(os.Args[2:])
+	case "import":
+		cmdImport(os.Args[2:])
 	case "db":
 		cmdDB(os.Args[2:])
 	case "status":
@@ -101,6 +109,7 @@ Commands:
   backup       Create backup
   restore      Restore from backup
   migrate      Import from other mail servers
+  import       Import mbox/.eml/Maildir into a mailbox (server stopped)
   db           Database management (migrate, status)
   version      Show version
 
@@ -1265,6 +1274,326 @@ func cmdMigrate(args []string) {
 		fmt.Fprintf(os.Stderr, "Unknown source type: %s\n", *sourceType)
 		os.Exit(1)
 	}
+}
+
+// cmdImport bulk-imports messages from an mbox file, a .eml file/directory, or a
+// Maildir tree into a user's mailbox, writing the canonical store (Maildir blob
+// + IMAP index + semcore identity) so the messages are visible across IMAP,
+// POP3, JMAP, EWS, and webmail. Run with the server STOPPED — the bbolt stores
+// are single-writer. Re-running is idempotent: a message whose content already
+// exists in the target folder is skipped.
+func cmdImport(args []string) {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	user := fs.String("user", "", "Target user email (required)")
+	mboxPath := fs.String("mbox", "", "Path to an mbox file")
+	emlPath := fs.String("eml", "", "Path to a .eml file or a directory of .eml files")
+	maildirPath := fs.String("maildir", "", "Path to a Maildir tree")
+	folder := fs.String("folder", "INBOX", "Target folder for sources without their own (mbox/.eml)")
+	dryRun := fs.Bool("dry-run", false, "Parse and report the message count without writing")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if *user == "" {
+		fmt.Fprintln(os.Stderr, "import: --user <email> is required")
+		os.Exit(1)
+	}
+	localPart, domain, ok := strings.Cut(*user, "@")
+	if !ok || localPart == "" || domain == "" {
+		fmt.Fprintf(os.Stderr, "import: invalid email %q\n", *user)
+		os.Exit(1)
+	}
+	srcCount := 0
+	for _, s := range []string{*mboxPath, *emlPath, *maildirPath} {
+		if s != "" {
+			srcCount++
+		}
+	}
+	if srcCount != 1 {
+		fmt.Fprintln(os.Stderr, "import: provide exactly one of --mbox, --eml, or --maildir")
+		os.Exit(1)
+	}
+
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	// The canonical filing path writes the concrete bbolt message index and
+	// semcore store, so it cannot target the PostgreSQL backend (yet).
+	if cfg.DatabaseBackend() == "postgres" {
+		fmt.Fprintln(os.Stderr, "import currently supports the bbolt backend; database.backend is \"postgres\".")
+		os.Exit(1)
+	}
+
+	// Parse the source BEFORE opening (locking) the stores.
+	messages, err := parseImportSource(*mboxPath, *emlPath, *maildirPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "import: %v\n", err)
+		os.Exit(1)
+	}
+	if len(messages) == 0 {
+		fmt.Println("import: no messages found in source")
+		return
+	}
+	if *dryRun {
+		fmt.Printf("import: %d message(s) would be imported into %s\n", len(messages), *user)
+		return
+	}
+
+	// Open the canonical stores. bbolt is single-writer, so these fail if the
+	// server is running.
+	database, err := db.Open(cfg.DatabasePath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "import: open database (is the server running? stop it first): %v\n", err)
+		os.Exit(1)
+	}
+	defer closeImportStore("database", database)
+
+	if account, gerr := database.GetAccount(domain, localPart); gerr != nil || account == nil {
+		fmt.Fprintf(os.Stderr, "import: account %s does not exist\n", *user)
+		os.Exit(1)
+	}
+
+	dataDir := cfg.Server.DataDir
+	msgStore, err := storage.NewMessageStoreWithOptions(filepath.Join(dataDir, "mail", "messages"), cfg.Storage.Sync)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "import: open message store: %v\n", err)
+		os.Exit(1)
+	}
+	storageDB, err := storage.OpenDatabaseWithOptions(filepath.Join(dataDir, "mail", "mail.db"), cfg.Storage.Sync)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "import: open message index (is the server running?): %v\n", err)
+		os.Exit(1)
+	}
+	defer closeImportStore("message index", storageDB)
+	semStore, err := semcore.NewStore(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "import: open semcore store (is the server running?): %v\n", err)
+		os.Exit(1)
+	}
+	defer closeImportStore("semcore", semStore)
+
+	imp := &mailImporter{
+		email:         localPart + "@" + domain,
+		defaultFolder: *folder,
+		msgStore:      msgStore,
+		storageDB:     storageDB,
+		pipe:          semcore.NewMutationPipeline(semStore.Identity(), semStore.Lifecycle()),
+		seen:          map[string]map[string]bool{},
+	}
+	imported, skipped, failed := imp.run(messages)
+	fmt.Printf("import: %d imported, %d skipped (duplicate), %d failed into %s\n", imported, skipped, failed, imp.email)
+	fmt.Println("Note: full-text search indexes imported mail on the next server start (the index rebuilds from the canonical store).")
+	if failed > 0 {
+		os.Exit(1)
+	}
+}
+
+// closeImportStore closes a store opened by cmdImport, reporting (not hiding) a
+// close error.
+func closeImportStore(name string, closer interface{ Close() error }) {
+	if err := closer.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "import: close %s: %v\n", name, err)
+	}
+}
+
+// parseImportSource dispatches to the right parser for whichever source flag is
+// set. The .eml flag accepts a single file or a directory of .eml files.
+func parseImportSource(mboxPath, emlPath, maildirPath string) ([]mailimport.Message, error) {
+	switch {
+	case mboxPath != "":
+		f, err := os.Open(filepath.Clean(mboxPath))
+		if err != nil {
+			return nil, fmt.Errorf("open mbox: %w", err)
+		}
+		defer closeImportStore("mbox file", f)
+		return mailimport.ReadMbox(f)
+	case emlPath != "":
+		info, err := os.Stat(emlPath)
+		if err != nil {
+			return nil, fmt.Errorf("stat eml: %w", err)
+		}
+		if info.IsDir() {
+			return mailimport.ReadEMLDir(emlPath)
+		}
+		m, err := mailimport.ReadEMLFile(emlPath)
+		if err != nil {
+			return nil, err
+		}
+		return []mailimport.Message{m}, nil
+	default:
+		return mailimport.ReadMaildir(maildirPath)
+	}
+}
+
+// mailImporter files parsed messages into the canonical store with content-hash
+// deduplication per folder.
+type mailImporter struct {
+	email         string
+	defaultFolder string
+	msgStore      *storage.MessageStore
+	storageDB     *storage.Database
+	pipe          *semcore.MutationPipeline
+	seen          map[string]map[string]bool // folder -> set of content-hash IDs already present
+}
+
+// run files every message, returning counts of imported, skipped (duplicate),
+// and failed.
+func (m *mailImporter) run(messages []mailimport.Message) (imported, skipped, failed int) {
+	for _, msg := range messages {
+		folder := msg.Folder
+		if folder == "" {
+			folder = m.defaultFolder
+		}
+		raw := mailimport.NormalizeCRLF(msg.Raw)
+		hash := sha256.Sum256(raw)
+		id := hex.EncodeToString(hash[:])
+		if m.existing(folder)[id] {
+			skipped++
+			continue
+		}
+		if err := m.fileOne(folder, raw); err != nil {
+			fmt.Fprintf(os.Stderr, "import: file message into %s: %v\n", folder, err)
+			failed++
+			continue
+		}
+		m.seen[folder][id] = true
+		imported++
+	}
+	return imported, skipped, failed
+}
+
+// existing returns (loading once) the set of content-hash message IDs already in
+// a folder, so a re-run skips messages already imported.
+func (m *mailImporter) existing(folder string) map[string]bool {
+	if set, ok := m.seen[folder]; ok {
+		return set
+	}
+	set := map[string]bool{}
+	if uids, err := m.storageDB.GetMessageUIDs(m.email, folder); err == nil {
+		for _, uid := range uids {
+			if meta, merr := m.storageDB.GetMessageMetadata(m.email, folder, uid); merr == nil {
+				set[meta.MessageID] = true
+			}
+		}
+	}
+	m.seen[folder] = set
+	return set
+}
+
+// fileOne writes one message to all three canonical layers: semcore identity
+// (EWS visibility), the Maildir blob, and the IMAP index. The three writes
+// mirror server.deliverLocal (minus quota/forwarding/notifications, which do not
+// apply to an offline bulk import).
+func (m *mailImporter) fileOne(folder string, raw []byte) error {
+	internalDate := messageDate(raw)
+
+	// 1. Semcore identity — EWS FindItem reads this, not the IMAP index.
+	mboxID, err := m.pipe.Identity().EnsureMailboxId(m.email)
+	if err != nil {
+		return fmt.Errorf("ensure mailbox identity: %w", err)
+	}
+	fldID, err := m.pipe.Identity().EnsureFolderId(m.email, folder, folderRole(folder))
+	if err != nil {
+		return fmt.Errorf("ensure folder identity: %w", err)
+	}
+	if _, err := m.pipe.MutateItem(&semcore.MutationInput{
+		MailboxID:    mboxID,
+		FolderID:     fldID,
+		RawMessage:   raw,
+		InternalDate: internalDate,
+		Actor:        m.email,
+		Email:        m.email,
+		Source:       semcore.MutationSourceAPI,
+		IsRead:       true,
+	}); err != nil {
+		return fmt.Errorf("semcore mutate: %w", err)
+	}
+
+	// 2. Maildir blob (idempotent by content hash; messageID == contentID).
+	messageID, err := m.msgStore.StoreMessage(m.email, raw)
+	if err != nil {
+		return fmt.Errorf("store blob: %w", err)
+	}
+
+	// 3. IMAP metadata index.
+	if err := m.storageDB.CreateMailbox(m.email, folder); err != nil {
+		return fmt.Errorf("ensure mailbox %q: %w", folder, err)
+	}
+	uid, err := m.storageDB.GetNextUID(m.email, folder)
+	if err != nil {
+		return fmt.Errorf("next uid: %w", err)
+	}
+	hdr := messageHeaders(raw)
+	threadID, _ := m.storageDB.GetOrCreateThreadID(m.email, folder, hdr.subject, hdr.messageID, hdr.inReplyTo, hdr.references) //nolint:errcheck
+	meta := &storage.MessageMetadata{
+		MessageID:    messageID,
+		UID:          uid,
+		Flags:        []string{"\\Seen"},
+		InternalDate: internalDate,
+		Size:         int64(len(raw)),
+		Subject:      hdr.subject,
+		Date:         hdr.date,
+		From:         hdr.from,
+		To:           hdr.to,
+		ThreadID:     threadID,
+		InReplyTo:    hdr.inReplyTo,
+		References:   hdr.references,
+	}
+	if err := m.storageDB.StoreMessageMetadata(m.email, folder, uid, meta); err != nil {
+		return fmt.Errorf("store metadata: %w", err)
+	}
+	return nil
+}
+
+// importHeaders holds the header fields the IMAP index records.
+type importHeaders struct {
+	subject, from, to, date, messageID, inReplyTo string
+	references                                    []string
+}
+
+// messageHeaders parses the header fields needed for the IMAP index.
+func messageHeaders(raw []byte) importHeaders {
+	msg, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return importHeaders{}
+	}
+	return importHeaders{
+		subject:    msg.Header.Get("Subject"),
+		from:       msg.Header.Get("From"),
+		to:         msg.Header.Get("To"),
+		date:       msg.Header.Get("Date"),
+		messageID:  msg.Header.Get("Message-ID"),
+		inReplyTo:  msg.Header.Get("In-Reply-To"),
+		references: strings.Fields(msg.Header.Get("References")),
+	}
+}
+
+// messageDate returns the message's Date header as the internal date, falling
+// back to now when it is missing or unparseable, so imported mail sorts by its
+// original time.
+func messageDate(raw []byte) time.Time {
+	msg, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return time.Now()
+	}
+	if d, derr := mail.ParseDate(msg.Header.Get("Date")); derr == nil {
+		return d
+	}
+	return time.Now()
+}
+
+// folderRole maps a folder name to its distinguished role by inverting the
+// canonical role->name map, so a standard target (e.g. INBOX) converges on the
+// same semcore folder the server uses; a custom folder yields "" (no role).
+func folderRole(name string) string {
+	for _, role := range []string{"inbox", "sent", "drafts", "junk", "trash", "archive", "notes", "scheduled"} {
+		if strings.EqualFold(semcore.CanonicalFolderNameForRole(role), name) {
+			return role
+		}
+	}
+	return ""
 }
 
 func cmdDB(args []string) {
