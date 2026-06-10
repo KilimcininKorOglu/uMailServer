@@ -225,6 +225,14 @@ func (s *Server) startAPI() {
 			s.cancelScheduledOnExpunge(owner, scheduledFolder, uid)
 		})
 
+		// Soft-delete dumpster: an EWS hard delete (DeleteItem/EmptyFolder) files
+		// the message into Recoverable Items first (self-guards on enablement), and
+		// deleting from that folder drops its retention record — symmetric with IMAP.
+		ewsServer.SetRecoverableCapture(s.captureForRecovery)
+		ewsServer.SetRecoverableCancelNotifier(func(owner string, uid uint32) {
+			s.dropRecoverableOnExpunge(owner, recoverableFolder, uid)
+		})
+
 		// Deferred-send (Outlook "Do not deliver before"): a future
 		// PidTagDeferredSendTime routes the message to the canonical scheduled
 		// store instead of submitting now. Source "ews"; fileSent follows

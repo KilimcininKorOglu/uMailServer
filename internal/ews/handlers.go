@@ -66,6 +66,14 @@ type Server struct {
 	// item is removed from the "Scheduled" folder, so deleting a scheduled
 	// message via EWS cancels its send (cross-protocol cancel).
 	scheduledCancelNotifier func(owner string, uid uint32)
+	// recoverableCapture, when set, offers a message about to be EWS-hard-deleted
+	// to the soft-delete dumpster before the canonical delete, so an Outlook/EWS
+	// permanent delete is recoverable like an IMAP/webmail one.
+	recoverableCapture func(owner, srcFolder string, raw []byte) bool
+	// recoverableCancelNotifier, when set, is invoked with the folder uid when an
+	// item is removed from the "Recoverable Items" folder, so emptying the
+	// dumpster via EWS drops its retention record (cross-protocol cleanup).
+	recoverableCancelNotifier func(owner string, uid uint32)
 	// scheduleMessage, when set, records a deferred-send message (Outlook "Do not
 	// deliver before") for future delivery instead of submitting it now,
 	// returning the scheduled-message id. fileSent files a Sent copy on release
@@ -154,6 +162,43 @@ func (s *Server) SetMessageExpungedNotifier(fn func(email, folder string, uid, s
 // via EWS cancels its send.
 func (s *Server) SetScheduledCancelNotifier(fn func(owner string, uid uint32)) {
 	s.scheduledCancelNotifier = fn
+}
+
+// SetRecoverableCapture wires the soft-delete dumpster hook used on EWS hard
+// delete (DeleteItem HardDelete, EmptyFolder HardDelete): the item is filed into
+// Recoverable Items before the canonical delete so it can be restored.
+func (s *Server) SetRecoverableCapture(fn func(owner, srcFolder string, raw []byte) bool) {
+	s.recoverableCapture = fn
+}
+
+// SetRecoverableCancelNotifier wires a callback invoked with the folder uid when
+// an item is removed from the "Recoverable Items" folder, so emptying the
+// dumpster via EWS drops its retention record.
+func (s *Server) SetRecoverableCancelNotifier(fn func(owner string, uid uint32)) {
+	s.recoverableCancelNotifier = fn
+}
+
+// captureBeforeHardDelete offers an item about to be EWS-hard-deleted to the
+// soft-delete dumpster, reading its raw bytes from the message store. Best-effort:
+// a nil hook, unresolvable folder, or unreadable blob is a no-op. The hook
+// self-guards on enablement and on the dumpster folder itself (no recursion).
+func (s *Server) captureBeforeHardDelete(mailboxKey string, folderID semcore.FolderId, email, msgKey string) {
+	if s.recoverableCapture == nil || msgKey == "" {
+		return
+	}
+	srcFolder := s.mailboxNameForFolder(mailboxKey, folderID)
+	if srcFolder == "" {
+		return
+	}
+	owner := email
+	if owner == "" {
+		owner = mailboxKey
+	}
+	raw, err := s.msgStore.ReadMessage(owner, msgKey)
+	if err != nil {
+		return
+	}
+	s.recoverableCapture(owner, srcFolder, raw)
 }
 
 // SetScheduleMessageFunc wires the deferred-send path: a CreateItem carrying a

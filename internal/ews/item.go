@@ -2719,6 +2719,12 @@ func (s *Server) handleDeleteItem(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
+		// On a hard delete, file the message into Recoverable Items first so an
+		// Outlook/EWS permanent delete can be restored within the retention window.
+		if hardDelete {
+			s.captureBeforeHardDelete(mailboxKey, rec.FolderID, rec.Email, rec.MsgKey)
+		}
+
 		// Perform canonical delete mutation.
 		in := &semcore.DeleteInput{
 			ItemID:               itemID,

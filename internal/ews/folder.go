@@ -962,6 +962,11 @@ func (s *Server) emptyFolderItems(mboxID semcore.MailboxId, mailboxKey string, f
 	if s.mutationPipe != nil {
 		if items, err := s.identity.ListItemIdentitiesByFolder(folderID); err == nil {
 			for _, it := range items {
+				// On a hard empty (e.g. emptying Deleted Items), file each message
+				// into Recoverable Items first so it stays restorable.
+				if hardDelete {
+					s.captureBeforeHardDelete(mailboxKey, folderID, it.Email, it.MsgKey)
+				}
 				in := &semcore.DeleteInput{
 					ItemID:     it.ItemID,
 					MailboxID:  mboxID,

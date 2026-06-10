@@ -177,6 +177,11 @@ func (s *Server) mirrorDeleteFromMailstore(mailboxKey string, folderID semcore.F
 	if s.scheduledCancelNotifier != nil && strings.EqualFold(name, "Scheduled") {
 		s.scheduledCancelNotifier(mailboxKey, uid)
 	}
+	// Deleting an item out of the Recoverable Items folder drops its retention
+	// record, so emptying the dumpster via EWS matches an IMAP EXPUNGE.
+	if s.recoverableCancelNotifier != nil && strings.EqualFold(name, "Recoverable Items") {
+		s.recoverableCancelNotifier(mailboxKey, uid)
+	}
 }
 
 // mirrorReadFlagToMailstore syncs an EWS IsRead change onto the mailstore entry's
