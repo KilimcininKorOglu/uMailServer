@@ -43,9 +43,10 @@ type Config struct {
 	Signing       SigningConfig       `yaml:"signing"`
 	OOF           OOFConfig           `yaml:"oof"`
 	Notifications NotificationsConfig `yaml:"notifications"`
-	Cluster       ClusterConfig       `yaml:"cluster"`
-	ScheduledSend ScheduledSendConfig `yaml:"scheduled_send"`
-	Relay         RelayConfig         `yaml:"relay"`
+	Cluster          ClusterConfig          `yaml:"cluster"`
+	ScheduledSend    ScheduledSendConfig    `yaml:"scheduled_send"`
+	RecoverableItems RecoverableItemsConfig `yaml:"recoverable_items"`
+	Relay            RelayConfig            `yaml:"relay"`
 }
 
 // RelayConfig holds outbound relay settings. IPGroups defines named pools of
@@ -483,6 +484,19 @@ type ScheduledSendConfig struct {
 	MaxHorizonDays int  `yaml:"max_horizon_days" json:"max_horizon_days"`
 	TickSeconds    int  `yaml:"tick_seconds" json:"tick_seconds"`
 	MaxPerUser     int  `yaml:"max_per_user" json:"max_per_user"`
+}
+
+// RecoverableItemsConfig controls the soft-delete "Recover Deleted Items"
+// dumpster: when enabled, a permanently deleted message is held in the owner's
+// Recoverable Items folder for RetentionDays so it can be restored, and a
+// leader-gated cleaner (ticking every TickSeconds) purges items past the
+// window. Disabled by default, so permanent deletes behave exactly as before
+// until an operator opts in. Enabled/RetentionDays are read live; a TickSeconds
+// or Enabled change restarts the cleaner via ReloadConfig.
+type RecoverableItemsConfig struct {
+	Enabled       bool `yaml:"enabled" json:"enabled"`
+	RetentionDays int  `yaml:"retention_days" json:"retention_days"`
+	TickSeconds   int  `yaml:"tick_seconds" json:"tick_seconds"`
 }
 
 // PushConfig holds Web Push notification settings (VAPID).
@@ -995,6 +1009,17 @@ func (c *Config) Validate() error {
 		}
 		if c.ScheduledSend.MaxPerUser < 1 {
 			return fmt.Errorf("scheduled_send.max_per_user must be at least 1 when scheduled_send.enabled is true")
+		}
+	}
+
+	// A zero retention or tick would silently break the dumpster (retention 0
+	// purges everything immediately; tick 0 never runs the cleaner), so reject it.
+	if c.RecoverableItems.Enabled {
+		if c.RecoverableItems.RetentionDays < 1 {
+			return fmt.Errorf("recoverable_items.retention_days must be at least 1 when recoverable_items.enabled is true")
+		}
+		if c.RecoverableItems.TickSeconds < 1 {
+			return fmt.Errorf("recoverable_items.tick_seconds must be at least 1 when recoverable_items.enabled is true")
 		}
 	}
 

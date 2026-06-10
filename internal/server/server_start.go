@@ -65,6 +65,10 @@ func (s *Server) Start() error {
 		s.mailstore.SetIdentityStore(s.semcoreStore.Identity())
 	}
 
+	// Wire the soft-delete dumpster so an IMAP/POP3 EXPUNGE files the message into
+	// Recoverable Items before unlinking it (self-guards on recoverable_items.enabled).
+	s.mailstore.SetRecoverableCapture(s.captureForRecovery)
+
 	s.startSMTP()
 
 	// Start search indexing worker pool
@@ -88,6 +92,10 @@ func (s *Server) Start() error {
 	// Start the scheduled-send release loop (delivers "send later" messages at
 	// their time; leader-gated in a cluster).
 	s.startScheduledSender()
+
+	// Start the recoverable-items retention cleaner (purges soft-deleted mail
+	// past its window; leader-gated in a cluster). No-op when disabled.
+	s.startRecoverableItemsCleaner()
 
 	if err := s.startIMAP(s.mailstore); err != nil {
 		return err

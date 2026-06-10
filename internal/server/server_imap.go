@@ -42,6 +42,8 @@ func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
 	imapServer.SetOnExpunge(func(user, mailbox string, uid uint32) {
 		// Expunging a message from the Scheduled folder cancels its send.
 		s.cancelScheduledOnExpunge(user, mailbox, uid)
+		// Expunging from the Recoverable Items folder drops its retention record.
+		s.dropRecoverableOnExpunge(user, mailbox, uid)
 		if s.searchSvc != nil {
 			// IMAP expunge doesn't have ItemId readily available; pass empty
 			// string to use legacy folder:uid removal.

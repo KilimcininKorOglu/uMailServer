@@ -33,6 +33,13 @@ type BboltMailstore struct {
 	// semantic-core is not initialized.
 	identity imapIdentityStore
 
+	// recoverableCapture, when set, is invoked for each message about to be
+	// permanently expunged, with its raw bytes, BEFORE the blob is unlinked. It
+	// returns true when the server captured the message into Recoverable Items,
+	// in which case Expunge MUST NOT unlink the shared blob (the dumpster copy now
+	// references it). Nil unless the dumpster feature is wired + enabled.
+	recoverableCapture func(user, mailbox string, raw []byte) bool
+
 	// MDN tracking
 	mdnSent    map[string]bool // Message-Id -> true if MDN sent
 	mdnSentMu  sync.Mutex
@@ -73,6 +80,30 @@ type imapIdentityStore interface {
 // the same store EWS and JMAP use, so one delete is seen on every surface.
 func (m *BboltMailstore) SetIdentityStore(identity imapIdentityStore) {
 	m.identity = identity
+}
+
+// SetRecoverableCapture wires the soft-delete dumpster hook. When set, a message
+// about to be expunged is first offered to the server, which may file it into
+// Recoverable Items; if it does (returns true), the expunge skips the blob
+// unlink so the dumpster copy survives.
+func (m *BboltMailstore) SetRecoverableCapture(fn func(user, mailbox string, raw []byte) bool) {
+	m.recoverableCapture = fn
+}
+
+// captureBeforeExpunge offers a message about to be permanently expunged to the
+// recoverable-items hook (if wired), reading its raw bytes first. It returns
+// true when the server captured it, meaning the caller MUST NOT unlink the
+// shared blob. Best-effort: a nil hook or an unreadable blob returns false and
+// the caller deletes as before.
+func (m *BboltMailstore) captureBeforeExpunge(user, mailbox, messageID string) bool {
+	if m.recoverableCapture == nil {
+		return false
+	}
+	raw, err := m.msgStore.ReadMessage(user, messageID)
+	if err != nil {
+		return false
+	}
+	return m.recoverableCapture(user, mailbox, raw)
 }
 
 // NewBboltMailstore creates a new mailstore backed by bbolt
@@ -565,8 +596,12 @@ func (m *BboltMailstore) Expunge(user, mailbox string) error {
 
 		// Check if deleted
 		if hasFlag(meta.Flags, "\\Deleted") {
-			// Delete message
-			_ = m.msgStore.DeleteMessage(user, meta.MessageID)
+			// Offer the message to the soft-delete dumpster first; if captured,
+			// the shared blob is retained for the Recoverable Items copy.
+			if !m.captureBeforeExpunge(user, mailbox, meta.MessageID) {
+				//nolint:errcheck // best-effort: a blob-delete failure only orphans the blob, not the mailbox
+				_ = m.msgStore.DeleteMessage(user, meta.MessageID)
+			}
 			_ = m.db.DeleteMessage(user, mailbox, uid)
 			// Drop the semcore identity too so the message does not ghost in
 			// EWS FindItem after it is gone from the IMAP index.
@@ -652,10 +687,13 @@ func (m *BboltMailstore) ExpungeUIDs(user, mailbox string, ranges []SeqRange) (s
 				}
 				continue
 			}
-			// Best-effort blob cleanup; a failure here only orphans the stored
-			// blob and does not affect mailbox correctness.
-			if dErr := m.msgStore.DeleteMessage(user, meta.MessageID); dErr != nil && err == nil {
-				err = dErr
+			// Offer the message to the soft-delete dumpster first; if captured,
+			// the shared blob is retained for the Recoverable Items copy. Best-effort
+			// blob cleanup otherwise; a failure only orphans the blob.
+			if !m.captureBeforeExpunge(user, mailbox, meta.MessageID) {
+				if dErr := m.msgStore.DeleteMessage(user, meta.MessageID); dErr != nil && err == nil {
+					err = dErr
+				}
 			}
 			// Drop the semcore identity too so the message does not ghost in
 			// EWS FindItem after it is gone from the IMAP index.

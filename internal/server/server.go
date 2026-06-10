@@ -128,6 +128,11 @@ type Server struct {
 	// startup and under reloadMu (via restartScheduledSender).
 	scheduledCancel context.CancelFunc
 
+	// recoverableCancel stops the running recoverable-items retention cleaner so a
+	// config change can restart it; nil when the loop is not running. Written only
+	// at startup and under reloadMu (via restartRecoverableItemsCleaner).
+	recoverableCancel context.CancelFunc
+
 	ctx      context.Context
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup

@@ -98,6 +98,13 @@ func (s *Server) ReloadConfig(newCfg *config.Config) (applied, restartRequired [
 		applied = append(applied, "scheduled_send")
 	}
 
+	// The recoverable-items retention cleaner restarts in place to pick up an
+	// enable toggle or a new tick; the retention window is read live per sweep.
+	if changed(old.RecoverableItems, newCfg.RecoverableItems) {
+		s.restartRecoverableItemsCleaner()
+		applied = append(applied, "recoverable_items")
+	}
+
 	// The global rate limiter retunes in place. The remaining Security fields
 	// (auth limits, audit log, secrets) are captured by listeners and the API at
 	// startup, so a change there needs a restart.

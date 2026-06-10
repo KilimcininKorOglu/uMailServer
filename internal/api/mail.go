@@ -156,6 +156,11 @@ type MailHandler struct {
 	// a webmail-deleted or moved-away message does not ghost in EWS. Call it after
 	// the storageDB DeleteMessage; nil makes it a no-op.
 	removeCopy func(owner, folder, blobKey string)
+	// recoverCapture offers a message about to be PERMANENTLY deleted to the
+	// soft-delete dumpster; it returns true when the server filed it into
+	// Recoverable Items, in which case the caller MUST NOT unlink the shared blob.
+	// Nil disables capture (a permanent delete unlinks the blob as before).
+	recoverCapture func(owner, srcFolder string, raw []byte) bool
 	// displayName resolves an email address to a configured account display
 	// name (from the directory), or "" when the address is non-local or has no
 	// display name set. Injected by the server; nil disables resolution.
@@ -211,6 +216,14 @@ func (h *MailHandler) SetCrossProtocolFuncs(
 ) {
 	h.fileCopy = file
 	h.removeCopy = remove
+}
+
+// SetRecoverableCaptureFunc wires the soft-delete dumpster hook used by a webmail
+// permanent delete (see Server.captureForRecovery): when it captures the
+// message, the handler skips the shared-blob unlink so the Recoverable Items
+// copy survives for restore.
+func (h *MailHandler) SetRecoverableCaptureFunc(fn func(owner, srcFolder string, raw []byte) bool) {
+	h.recoverCapture = fn
 }
 
 // SetDisplayNameResolver wires the address→display-name lookup so the mail API
@@ -1071,8 +1084,17 @@ func (h *MailHandler) handleMailDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Permanent delete: remove the shared message file and its metadata.
-	if h.msgStore != nil {
+	// Permanent delete: capture into Recoverable Items first (when the dumpster
+	// is enabled), then remove the shared message file and its metadata. When
+	// captured, the blob is retained for the recoverable copy and only the index/
+	// identity for this folder is dropped.
+	captured := false
+	if h.recoverCapture != nil && h.msgStore != nil && found {
+		if raw, rerr := h.msgStore.ReadMessage(userEmail, messageID); rerr == nil {
+			captured = h.recoverCapture(userEmail, mailbox, raw)
+		}
+	}
+	if !captured && h.msgStore != nil {
 		if err := h.msgStore.DeleteMessage(userEmail, messageID); err != nil {
 			// Log but don't fail - message might already be deleted
 			fmt.Printf("Warning: failed to delete message file: %v\n", err)

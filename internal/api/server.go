@@ -80,7 +80,10 @@ type Server struct {
 	// the main server; nil leaves webmail filing storageDB-only (EWS-invisible).
 	mailFileCopy    func(owner, folder string, raw []byte, flags []string) (uint32, string, error)
 	mailRemoveCopy  func(owner, folder, blobKey string)
-	calendarDeliver func(from string, to []string, data []byte) error
+	// Soft-delete dumpster capture, injected by the main server; nil leaves a
+	// webmail permanent delete unlinking the blob as before.
+	mailRecoverCapture func(owner, srcFolder string, raw []byte) bool
+	calendarDeliver    func(from string, to []string, data []byte) error
 	queueMgr        *queue.Manager
 	httpServer      *http.Server
 	plainHTTPServer *http.Server
@@ -1507,6 +1510,14 @@ func (s *Server) SetMailCrossProtocolFuncs(
 	s.initMailHandler()
 }
 
+// SetRecoverableCaptureFunc wires the soft-delete dumpster capture used by a
+// webmail permanent delete: when it captures the message into Recoverable Items,
+// the handler retains the shared blob for restore.
+func (s *Server) SetRecoverableCaptureFunc(capture func(owner, srcFolder string, raw []byte) bool) {
+	s.mailRecoverCapture = capture
+	s.initMailHandler()
+}
+
 // SetScheduledFuncs wires the "send later" hooks webmail uses: schedule a future
 // send, list the caller's scheduled messages, and cancel one by id.
 func (s *Server) SetScheduledFuncs(
@@ -1551,6 +1562,9 @@ func (s *Server) applyScheduledFuncs() {
 	}
 	if s.mailFileCopy != nil || s.mailRemoveCopy != nil {
 		s.mailHandler.SetCrossProtocolFuncs(s.mailFileCopy, s.mailRemoveCopy)
+	}
+	if s.mailRecoverCapture != nil {
+		s.mailHandler.SetRecoverableCaptureFunc(s.mailRecoverCapture)
 	}
 }
 
