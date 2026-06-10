@@ -30,6 +30,8 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/migrations"
 	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/ews"
+	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mailcheck"
 	"github.com/umailserver/umailserver/internal/mailexport"
 	"github.com/umailserver/umailserver/internal/mailimport"
@@ -550,6 +552,91 @@ func openConfiguredStore() db.Store {
 		os.Exit(1)
 	}
 	return store
+}
+
+// mailCLIStores bundles the canonical stores the offline mail CLI
+// (import/export/check/repair) operates on, opened for the configured backend.
+// Message BODIES are always Maildir files (blob); the metadata index and semcore
+// identity are bbolt (three separate single-writer files) or PostgreSQL (one
+// shared *postgres.DB serving account, index, and identity). The CLI talks to
+// the index and identity through the backend-agnostic imap.MetadataStore and
+// ews.IdentityStore interfaces, which both engines satisfy.
+type mailCLIStores struct {
+	account  db.Store
+	index    imap.MetadataStore
+	blob     *storage.MessageStore
+	identity ews.IdentityStore
+	pipe     *semcore.MutationPipeline
+	close    func()
+}
+
+// Compile-time proof that both backends satisfy the interfaces the mail CLI
+// drives them through (the server enforces the same elsewhere; restated here so
+// the CLI's dependency is explicit).
+var (
+	_ imap.MetadataStore = (*storage.Database)(nil)
+	_ imap.MetadataStore = (*postgres.DB)(nil)
+	_ ews.IdentityStore  = (*semcore.BoltIdentityStore)(nil)
+	_ ews.IdentityStore  = (*postgres.DB)(nil)
+)
+
+// openMailCLIStores opens the account store (via the server's canonical opener,
+// so the backend matches the running server), the Maildir blob store, the
+// message-metadata index, the semcore identity store, and a mutation pipeline,
+// for whichever backend the config selects. bbolt is single-writer, so on that
+// backend these fail if the server is running; run with the server STOPPED.
+// Callers must invoke the returned close func.
+func openMailCLIStores(cfg *config.Config) (*mailCLIStores, error) {
+	dataDir := cfg.Server.DataDir
+	blob, err := storage.NewMessageStoreWithOptions(filepath.Join(dataDir, "mail", "messages"), cfg.Storage.Sync)
+	if err != nil {
+		return nil, fmt.Errorf("open message store: %w", err)
+	}
+	account, err := server.OpenStore(context.Background(), cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg.DatabaseBackend() == "postgres" {
+		pg, ok := account.(*postgres.DB)
+		if !ok {
+			closeImportStore("database", account)
+			return nil, fmt.Errorf("postgres backend: account store is %T, not *postgres.DB", account)
+		}
+		// One *postgres.DB serves account, index, and identity.
+		return &mailCLIStores{
+			account:  pg,
+			index:    pg,
+			blob:     blob,
+			identity: pg,
+			pipe:     semcore.NewMutationPipeline(pg, pg),
+			close:    func() { closeImportStore("database", pg) },
+		}, nil
+	}
+
+	storageDB, err := storage.OpenDatabaseWithOptions(filepath.Join(dataDir, "mail", "mail.db"), cfg.Storage.Sync)
+	if err != nil {
+		closeImportStore("database", account)
+		return nil, fmt.Errorf("open message index (is the server running?): %w", err)
+	}
+	semStore, err := semcore.NewStore(dataDir)
+	if err != nil {
+		closeImportStore("message index", storageDB)
+		closeImportStore("database", account)
+		return nil, fmt.Errorf("open semcore store (is the server running?): %w", err)
+	}
+	return &mailCLIStores{
+		account:  account,
+		index:    storageDB,
+		blob:     blob,
+		identity: semStore.Identity(),
+		pipe:     semcore.NewMutationPipeline(semStore.Identity(), semStore.Lifecycle()),
+		close: func() {
+			closeImportStore("semcore", semStore)
+			closeImportStore("message index", storageDB)
+			closeImportStore("database", account)
+		},
+	}, nil
 }
 
 // requireBboltBackend guards the bbolt-only KV-migration subcommands (db
@@ -1083,45 +1170,22 @@ func cmdCheckMailbox(email string, repair bool) {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
-	if cfg.DatabaseBackend() == "postgres" {
-		fmt.Fprintln(os.Stderr, "check mailbox currently supports the bbolt backend; database.backend is \"postgres\".")
-		os.Exit(1)
-	}
-
-	database, err := db.Open(cfg.DatabasePath())
+	// Open the canonical stores for the configured backend (bbolt or postgres).
+	st, err := openMailCLIStores(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "check mailbox: open database (is the server running? stop it first): %v\n", err)
+		fmt.Fprintf(os.Stderr, "check mailbox: %v\n", err)
 		os.Exit(1)
 	}
-	defer closeImportStore("database", database)
-	if account, gerr := database.GetAccount(domain, localPart); gerr != nil || account == nil {
+	defer st.close()
+	if account, gerr := st.account.GetAccount(domain, localPart); gerr != nil || account == nil {
 		fmt.Fprintf(os.Stderr, "check mailbox: account %s does not exist\n", email)
 		os.Exit(1)
 	}
 
-	dataDir := cfg.Server.DataDir
-	msgStore, err := storage.NewMessageStoreWithOptions(filepath.Join(dataDir, "mail", "messages"), cfg.Storage.Sync)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "check mailbox: open message store: %v\n", err)
-		os.Exit(1)
-	}
-	storageDB, err := storage.OpenDatabaseWithOptions(filepath.Join(dataDir, "mail", "mail.db"), cfg.Storage.Sync)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "check mailbox: open message index (is the server running?): %v\n", err)
-		os.Exit(1)
-	}
-	defer closeImportStore("message index", storageDB)
-	semStore, err := semcore.NewStore(dataDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "check mailbox: open semcore store (is the server running?): %v\n", err)
-		os.Exit(1)
-	}
-	defer closeImportStore("semcore", semStore)
-
 	rep, err := mailcheck.Check(email,
-		mailcheckIndex{db: storageDB},
-		mailcheckBlob{store: msgStore},
-		mailcheckIdent{store: semStore.Identity()},
+		mailcheckIndex{db: st.index},
+		mailcheckBlob{store: st.blob},
+		mailcheckIdent{store: st.identity},
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "check mailbox: %v\n", err)
@@ -1141,12 +1205,11 @@ func cmdCheckMailbox(email string, repair bool) {
 	}
 
 	// --repair: converge the three stores, then re-check to confirm.
-	pipe := semcore.NewMutationPipeline(semStore.Identity(), semStore.Lifecycle())
 	rrep, rerr := mailcheck.Repair(email,
-		mailcheckIndex{db: storageDB},
-		mailcheckBlob{store: msgStore},
-		mailcheckRepairIdent{store: semStore.Identity()},
-		mailcheckRepairer{pipe: pipe, storageDB: storageDB, ident: semStore.Identity()},
+		mailcheckIndex{db: st.index},
+		mailcheckBlob{store: st.blob},
+		mailcheckRepairIdent{store: st.identity},
+		mailcheckRepairer{pipe: st.pipe, index: st.index, ident: st.identity},
 	)
 	if rerr != nil {
 		fmt.Fprintf(os.Stderr, "check mailbox --repair: %v\n", rerr)
@@ -1159,9 +1222,9 @@ func cmdCheckMailbox(email string, repair bool) {
 	}
 
 	post, perr := mailcheck.Check(email,
-		mailcheckIndex{db: storageDB},
-		mailcheckBlob{store: msgStore},
-		mailcheckIdent{store: semStore.Identity()},
+		mailcheckIndex{db: st.index},
+		mailcheckBlob{store: st.blob},
+		mailcheckIdent{store: st.identity},
 	)
 	if perr != nil {
 		fmt.Fprintf(os.Stderr, "check mailbox: re-check after repair: %v\n", perr)
@@ -1178,8 +1241,10 @@ func cmdCheckMailbox(email string, repair bool) {
 	os.Exit(1)
 }
 
-// mailcheckIndex adapts the IMAP metadata index to mailcheck.IndexStore.
-type mailcheckIndex struct{ db *storage.Database }
+// mailcheckIndex adapts the IMAP metadata index to mailcheck.IndexStore. The
+// index is backend-agnostic (bbolt *storage.Database or *postgres.DB) behind
+// imap.MetadataStore.
+type mailcheckIndex struct{ db imap.MetadataStore }
 
 func (a mailcheckIndex) ListMailboxes(user string) ([]string, error) { return a.db.ListMailboxes(user) }
 func (a mailcheckIndex) GetMessageUIDs(user, mailbox string) ([]uint32, error) {
@@ -1204,8 +1269,10 @@ func (a mailcheckBlob) ReadMessage(user, id string) ([]byte, error) {
 
 // mailcheckIdent adapts the semcore identity store to mailcheck.IdentityStore.
 // Folder identities are keyed by the raw email (the server/deliverLocal
-// convention), so that is what is passed to ListFolderIdentitiesForMailbox.
-type mailcheckIdent struct{ store *semcore.BoltIdentityStore }
+// convention), so that is what is passed to ListFolderIdentitiesForMailbox. The
+// store is backend-agnostic (bbolt *semcore.BoltIdentityStore or *postgres.DB)
+// behind ews.IdentityStore.
+type mailcheckIdent struct{ store ews.IdentityStore }
 
 func (a mailcheckIdent) MailboxKey(email string) (string, bool, error) {
 	if _, err := a.store.GetMailboxIDByEmail(email); err != nil {
@@ -1247,8 +1314,8 @@ func (a mailcheckIdent) ItemKeys(folderID string) ([]string, error) {
 // mailcheck.RepairIdentity. Unlike the read-only adapter, it groups items by the
 // stored IMAP folder NAME (resolved via FolderNameByID) so the repair cross-check
 // is per-folder: a message must have an identity in the same folder it is indexed
-// under.
-type mailcheckRepairIdent struct{ store *semcore.BoltIdentityStore }
+// under. Backend-agnostic behind ews.IdentityStore.
+type mailcheckRepairIdent struct{ store ews.IdentityStore }
 
 func (a mailcheckRepairIdent) MailboxKey(email string) (string, bool, error) {
 	if _, err := a.store.GetMailboxIDByEmail(email); err != nil {
@@ -1288,9 +1355,9 @@ func (a mailcheckRepairIdent) FolderItems(mboxKey string) (map[string][]mailchec
 // RecreateIdentity files the semcore-only layer for a message whose blob and IMAP
 // index already exist (the EWS-ghost fix), mirroring step 1 of mailImporter.fileOne.
 type mailcheckRepairer struct {
-	pipe      *semcore.MutationPipeline
-	storageDB *storage.Database
-	ident     *semcore.BoltIdentityStore
+	pipe  *semcore.MutationPipeline
+	index imap.MetadataStore // bbolt *storage.Database or *postgres.DB
+	ident ews.IdentityStore  // bbolt *semcore.BoltIdentityStore or *postgres.DB
 }
 
 func (w mailcheckRepairer) RecreateIdentity(email, mailbox string, raw []byte) error {
@@ -1318,7 +1385,7 @@ func (w mailcheckRepairer) RecreateIdentity(email, mailbox string, raw []byte) e
 }
 
 func (w mailcheckRepairer) DeleteIndexEntry(email, mailbox string, uid uint32) error {
-	return w.storageDB.DeleteMessage(email, mailbox, uid)
+	return w.index.DeleteMessage(email, mailbox, uid)
 }
 
 func (w mailcheckRepairer) DeleteIdentity(itemID string) error {
@@ -1607,12 +1674,6 @@ func cmdImport(args []string) {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
-	// The canonical filing path writes the concrete bbolt message index and
-	// semcore store, so it cannot target the PostgreSQL backend (yet).
-	if cfg.DatabaseBackend() == "postgres" {
-		fmt.Fprintln(os.Stderr, "import currently supports the bbolt backend; database.backend is \"postgres\".")
-		os.Exit(1)
-	}
 
 	// Parse the source BEFORE opening (locking) the stores.
 	messages, err := parseImportSource(*mboxPath, *emlPath, *maildirPath)
@@ -1629,45 +1690,25 @@ func cmdImport(args []string) {
 		return
 	}
 
-	// Open the canonical stores. bbolt is single-writer, so these fail if the
-	// server is running.
-	database, err := db.Open(cfg.DatabasePath())
+	// Open the canonical stores for the configured backend (bbolt or postgres).
+	st, err := openMailCLIStores(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "import: open database (is the server running? stop it first): %v\n", err)
+		fmt.Fprintf(os.Stderr, "import: %v\n", err)
 		os.Exit(1)
 	}
-	defer closeImportStore("database", database)
+	defer st.close()
 
-	if account, gerr := database.GetAccount(domain, localPart); gerr != nil || account == nil {
+	if account, gerr := st.account.GetAccount(domain, localPart); gerr != nil || account == nil {
 		fmt.Fprintf(os.Stderr, "import: account %s does not exist\n", *user)
 		os.Exit(1)
 	}
 
-	dataDir := cfg.Server.DataDir
-	msgStore, err := storage.NewMessageStoreWithOptions(filepath.Join(dataDir, "mail", "messages"), cfg.Storage.Sync)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "import: open message store: %v\n", err)
-		os.Exit(1)
-	}
-	storageDB, err := storage.OpenDatabaseWithOptions(filepath.Join(dataDir, "mail", "mail.db"), cfg.Storage.Sync)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "import: open message index (is the server running?): %v\n", err)
-		os.Exit(1)
-	}
-	defer closeImportStore("message index", storageDB)
-	semStore, err := semcore.NewStore(dataDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "import: open semcore store (is the server running?): %v\n", err)
-		os.Exit(1)
-	}
-	defer closeImportStore("semcore", semStore)
-
 	imp := &mailImporter{
 		email:         localPart + "@" + domain,
 		defaultFolder: *folder,
-		msgStore:      msgStore,
-		storageDB:     storageDB,
-		pipe:          semcore.NewMutationPipeline(semStore.Identity(), semStore.Lifecycle()),
+		msgStore:      st.blob,
+		index:         st.index,
+		pipe:          st.pipe,
 		seen:          map[string]map[string]bool{},
 	}
 	imported, skipped, failed := imp.run(messages)
@@ -1721,7 +1762,7 @@ type mailImporter struct {
 	email         string
 	defaultFolder string
 	msgStore      *storage.MessageStore
-	storageDB     *storage.Database
+	index         imap.MetadataStore // bbolt *storage.Database or *postgres.DB
 	pipe          *semcore.MutationPipeline
 	seen          map[string]map[string]bool // folder -> set of content-hash IDs already present
 }
@@ -1759,9 +1800,9 @@ func (m *mailImporter) existing(folder string) map[string]bool {
 		return set
 	}
 	set := map[string]bool{}
-	if uids, err := m.storageDB.GetMessageUIDs(m.email, folder); err == nil {
+	if uids, err := m.index.GetMessageUIDs(m.email, folder); err == nil {
 		for _, uid := range uids {
-			if meta, merr := m.storageDB.GetMessageMetadata(m.email, folder, uid); merr == nil {
+			if meta, merr := m.index.GetMessageMetadata(m.email, folder, uid); merr == nil {
 				set[meta.MessageID] = true
 			}
 		}
@@ -1806,15 +1847,15 @@ func (m *mailImporter) fileOne(folder string, raw []byte) error {
 	}
 
 	// 3. IMAP metadata index.
-	if err := m.storageDB.CreateMailbox(m.email, folder); err != nil {
+	if err := m.index.CreateMailbox(m.email, folder); err != nil {
 		return fmt.Errorf("ensure mailbox %q: %w", folder, err)
 	}
-	uid, err := m.storageDB.GetNextUID(m.email, folder)
+	uid, err := m.index.GetNextUID(m.email, folder)
 	if err != nil {
 		return fmt.Errorf("next uid: %w", err)
 	}
 	hdr := messageHeaders(raw)
-	threadID, _ := m.storageDB.GetOrCreateThreadID(m.email, folder, hdr.subject, hdr.messageID, hdr.inReplyTo, hdr.references) //nolint:errcheck
+	threadID, _ := m.index.GetOrCreateThreadID(m.email, folder, hdr.subject, hdr.messageID, hdr.inReplyTo, hdr.references) //nolint:errcheck
 	meta := &storage.MessageMetadata{
 		MessageID:    messageID,
 		UID:          uid,
@@ -1829,7 +1870,7 @@ func (m *mailImporter) fileOne(folder string, raw []byte) error {
 		InReplyTo:    hdr.inReplyTo,
 		References:   hdr.references,
 	}
-	if err := m.storageDB.StoreMessageMetadata(m.email, folder, uid, meta); err != nil {
+	if err := m.index.StoreMessageMetadata(m.email, folder, uid, meta); err != nil {
 		return fmt.Errorf("store metadata: %w", err)
 	}
 	return nil
@@ -1925,46 +1966,30 @@ func cmdExport(args []string) {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
-	if cfg.DatabaseBackend() == "postgres" {
-		fmt.Fprintln(os.Stderr, "export currently supports the bbolt backend; database.backend is \"postgres\".")
-		os.Exit(1)
-	}
 
-	database, err := db.Open(cfg.DatabasePath())
+	// Open the canonical stores for the configured backend (bbolt or postgres).
+	st, err := openMailCLIStores(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "export: open database (is the server running? stop it first): %v\n", err)
+		fmt.Fprintf(os.Stderr, "export: %v\n", err)
 		os.Exit(1)
 	}
-	defer closeImportStore("database", database)
-	if account, gerr := database.GetAccount(domain, localPart); gerr != nil || account == nil {
+	defer st.close()
+	if account, gerr := st.account.GetAccount(domain, localPart); gerr != nil || account == nil {
 		fmt.Fprintf(os.Stderr, "export: account %s does not exist\n", *user)
 		os.Exit(1)
 	}
 
-	dataDir := cfg.Server.DataDir
-	msgStore, err := storage.NewMessageStoreWithOptions(filepath.Join(dataDir, "mail", "messages"), cfg.Storage.Sync)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "export: open message store: %v\n", err)
-		os.Exit(1)
-	}
-	storageDB, err := storage.OpenDatabaseWithOptions(filepath.Join(dataDir, "mail", "mail.db"), cfg.Storage.Sync)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "export: open message index (is the server running?): %v\n", err)
-		os.Exit(1)
-	}
-	defer closeImportStore("message index", storageDB)
-
 	email := localPart + "@" + domain
 	folders := []string{*folder}
 	if *folder == "" {
-		folders, err = storageDB.ListMailboxes(email)
+		folders, err = st.index.ListMailboxes(email)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "export: list mailboxes: %v\n", err)
 			os.Exit(1)
 		}
 	}
 
-	msgs := collectMessages(email, folders, storageDB, msgStore)
+	msgs := collectMessages(email, folders, st.index, st.blob)
 	if len(msgs) == 0 {
 		fmt.Println("export: no messages found")
 		return
@@ -1993,15 +2018,15 @@ type exportedMessage struct {
 
 // collectMessages reads every message in the given folders from the canonical
 // store, in (folder, UID) order.
-func collectMessages(email string, folders []string, storageDB *storage.Database, msgStore *storage.MessageStore) []exportedMessage {
+func collectMessages(email string, folders []string, index imap.MetadataStore, msgStore *storage.MessageStore) []exportedMessage {
 	var out []exportedMessage
 	for _, folder := range folders {
-		uids, err := storageDB.GetMessageUIDs(email, folder)
+		uids, err := index.GetMessageUIDs(email, folder)
 		if err != nil {
 			continue
 		}
 		for _, uid := range uids {
-			meta, merr := storageDB.GetMessageMetadata(email, folder, uid)
+			meta, merr := index.GetMessageMetadata(email, folder, uid)
 			if merr != nil {
 				continue
 			}
