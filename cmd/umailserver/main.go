@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"net/mail"
@@ -29,6 +30,7 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/db/migrations"
 	"github.com/umailserver/umailserver/internal/db/postgres"
+	"github.com/umailserver/umailserver/internal/mailcheck"
 	"github.com/umailserver/umailserver/internal/mailexport"
 	"github.com/umailserver/umailserver/internal/mailimport"
 	"github.com/umailserver/umailserver/internal/migratestore"
@@ -107,7 +109,7 @@ Commands:
   domain       Domain management (add, list, dns)
   account      Account management (add, password, list, delete)
   queue        Queue management (list, retry, flush, drop)
-  check        Diagnostics (dns, tls, deliverability)
+  check        Diagnostics (dns, tls, deliverability, mailbox)
   test         Test utilities (send)
   backup       Create backup
   restore      Restore from backup
@@ -979,11 +981,22 @@ func cmdQueue(args []string) {
 func cmdCheck(args []string) {
 	if len(args) < 1 {
 		fmt.Println("Usage: umailserver check <type>")
-		fmt.Println("Types: dns, tls, deliverability")
+		fmt.Println("Types: dns, tls, deliverability, mailbox")
 		os.Exit(1)
 	}
 
 	checkType := args[0]
+
+	// Mailbox consistency (mbck) reads the local canonical store rather than
+	// running a network diagnostic, so it is handled before the diagnostics setup.
+	if checkType == "mailbox" {
+		if len(args) < 2 {
+			fmt.Println("Usage: umailserver check mailbox <email>")
+			os.Exit(1)
+		}
+		cmdCheckMailbox(args[1])
+		return
+	}
 
 	// Load config
 	cfg, err := loadCLIConfig()
@@ -1043,6 +1056,139 @@ func cmdCheck(args []string) {
 		fmt.Fprintf(os.Stderr, "Unknown check type: %s\n", checkType)
 		os.Exit(1)
 	}
+}
+
+// cmdCheckMailbox runs a read-only consistency check (mbck) over a user's
+// canonical store, reporting messages whose Maildir blob, IMAP index, and
+// semcore identity disagree (the "ghost in EWS" class, dangling entries, etc.).
+// Run with the server STOPPED (bbolt is single-writer). Exits non-zero when any
+// inconsistency is found.
+func cmdCheckMailbox(email string) {
+	localPart, domain, ok := strings.Cut(email, "@")
+	if !ok || localPart == "" || domain == "" {
+		fmt.Fprintf(os.Stderr, "check mailbox: invalid email %q\n", email)
+		os.Exit(1)
+	}
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.DatabaseBackend() == "postgres" {
+		fmt.Fprintln(os.Stderr, "check mailbox currently supports the bbolt backend; database.backend is \"postgres\".")
+		os.Exit(1)
+	}
+
+	database, err := db.Open(cfg.DatabasePath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "check mailbox: open database (is the server running? stop it first): %v\n", err)
+		os.Exit(1)
+	}
+	defer closeImportStore("database", database)
+	if account, gerr := database.GetAccount(domain, localPart); gerr != nil || account == nil {
+		fmt.Fprintf(os.Stderr, "check mailbox: account %s does not exist\n", email)
+		os.Exit(1)
+	}
+
+	dataDir := cfg.Server.DataDir
+	msgStore, err := storage.NewMessageStoreWithOptions(filepath.Join(dataDir, "mail", "messages"), cfg.Storage.Sync)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "check mailbox: open message store: %v\n", err)
+		os.Exit(1)
+	}
+	storageDB, err := storage.OpenDatabaseWithOptions(filepath.Join(dataDir, "mail", "mail.db"), cfg.Storage.Sync)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "check mailbox: open message index (is the server running?): %v\n", err)
+		os.Exit(1)
+	}
+	defer closeImportStore("message index", storageDB)
+	semStore, err := semcore.NewStore(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "check mailbox: open semcore store (is the server running?): %v\n", err)
+		os.Exit(1)
+	}
+	defer closeImportStore("semcore", semStore)
+
+	rep, err := mailcheck.Check(email,
+		mailcheckIndex{db: storageDB},
+		mailcheckBlob{store: msgStore},
+		mailcheckIdent{store: semStore.Identity()},
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "check mailbox: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("check mailbox %s: scanned %d IMAP index entries, %d semcore identities\n", email, rep.IndexCount, rep.SemcoreCount)
+	if rep.Clean() {
+		fmt.Println("OK: no inconsistencies found")
+		return
+	}
+	fmt.Printf("FOUND %d inconsistency(ies):\n", len(rep.Issues))
+	for _, iss := range rep.Issues {
+		fmt.Printf("  %s\n", iss.String())
+	}
+	os.Exit(1)
+}
+
+// mailcheckIndex adapts the IMAP metadata index to mailcheck.IndexStore.
+type mailcheckIndex struct{ db *storage.Database }
+
+func (a mailcheckIndex) ListMailboxes(user string) ([]string, error) { return a.db.ListMailboxes(user) }
+func (a mailcheckIndex) GetMessageUIDs(user, mailbox string) ([]uint32, error) {
+	return a.db.GetMessageUIDs(user, mailbox)
+}
+func (a mailcheckIndex) MessageID(user, mailbox string, uid uint32) (string, error) {
+	meta, err := a.db.GetMessageMetadata(user, mailbox, uid)
+	if err != nil {
+		return "", err
+	}
+	return meta.MessageID, nil
+}
+
+// mailcheckBlob adapts the Maildir blob store to mailcheck.BlobStore.
+type mailcheckBlob struct{ store *storage.MessageStore }
+
+func (a mailcheckBlob) MessageExists(user, id string) bool { return a.store.MessageExists(user, id) }
+
+// mailcheckIdent adapts the semcore identity store to mailcheck.IdentityStore.
+// Folder identities are keyed by the raw email (the server/deliverLocal
+// convention), so that is what is passed to ListFolderIdentitiesForMailbox.
+type mailcheckIdent struct{ store *semcore.BoltIdentityStore }
+
+func (a mailcheckIdent) MailboxKey(email string) (string, bool, error) {
+	if _, err := a.store.GetMailboxIDByEmail(email); err != nil {
+		if errors.Is(err, semcore.ErrMailboxNotFound) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return email, true, nil
+}
+func (a mailcheckIdent) FolderIDs(mboxKey string) ([]string, error) {
+	folders, err := a.store.ListFolderIdentitiesForMailbox(mboxKey)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(folders))
+	for i, f := range folders {
+		out[i] = f.FolderID.String()
+	}
+	return out, nil
+}
+func (a mailcheckIdent) ItemKeys(folderID string) ([]string, error) {
+	fid, err := semcore.NewFolderId(folderID)
+	if err != nil {
+		return nil, err
+	}
+	items, err := a.store.ListItemIdentitiesByFolder(fid)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.MsgKey)
+	}
+	return out, nil
 }
 
 func cmdTest(args []string) {
