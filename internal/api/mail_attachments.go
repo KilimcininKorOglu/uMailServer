@@ -10,6 +10,8 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
+
+	"github.com/umailserver/umailserver/internal/tnef"
 )
 
 // AttachmentInfo is the JSON listing of one attachment on a received message.
@@ -39,7 +41,22 @@ func collectAttachments(raw []byte) []attachmentPart {
 		return nil
 	}
 	mediaType, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
-	if err != nil || !strings.HasPrefix(mediaType, "multipart/") || params["boundary"] == "" {
+	if err != nil {
+		return nil
+	}
+	// A top-level TNEF message (application/ms-tnef) carries its attachments
+	// inside the winmail.dat stream rather than as MIME parts.
+	if isTNEFMediaType(mediaType) {
+		body, rerr := io.ReadAll(msg.Body)
+		if rerr != nil {
+			return nil
+		}
+		decoded := decodeBody(body, msg.Header.Get("Content-Transfer-Encoding"))
+		var out []attachmentPart
+		expandTNEFInto(&out, []byte(decoded))
+		return out
+	}
+	if !strings.HasPrefix(mediaType, "multipart/") || params["boundary"] == "" {
 		return nil
 	}
 	var out []attachmentPart
@@ -84,6 +101,14 @@ func walkMultipart(body io.Reader, boundary string, out *[]attachmentPart) {
 			continue
 		}
 		decoded := decodeBody(raw, p.Header.Get("Content-Transfer-Encoding"))
+		// A winmail.dat / application/ms-tnef part is a container: replace it with
+		// the real files it carries. If it is not parseable TNEF, fall through and
+		// surface the original part so nothing is lost.
+		if isTNEFMediaType(mt) || strings.EqualFold(filename, "winmail.dat") {
+			if expandTNEFInto(out, []byte(decoded)) {
+				continue
+			}
+		}
 		if mt == "" {
 			mt = "application/octet-stream"
 		}
@@ -173,4 +198,75 @@ func (h *MailHandler) handleMailAttachment(w http.ResponseWriter, r *http.Reques
 	if _, err := w.Write(part.data); err != nil {
 		return
 	}
+}
+
+// isTNEFMediaType reports whether a MIME media type is the Microsoft TNEF
+// (winmail.dat) container type.
+func isTNEFMediaType(mt string) bool {
+	switch strings.ToLower(mt) {
+	case "application/ms-tnef", "application/vnd.ms-tnef":
+		return true
+	default:
+		return false
+	}
+}
+
+// expandTNEFInto decodes a TNEF (winmail.dat) blob and appends its contained
+// files to out. It returns false (appending nothing) when the bytes are not
+// parseable TNEF or carry no attachments, so the caller can keep the original
+// part instead of dropping it.
+func expandTNEFInto(out *[]attachmentPart, data []byte) bool {
+	if !tnef.IsTNEF(data) {
+		return false
+	}
+	msg, _, err := tnef.Parse(data)
+	if err != nil || len(msg.Attachments) == 0 {
+		return false
+	}
+	for i, a := range msg.Attachments {
+		name := a.Filename
+		if name == "" {
+			name = fmt.Sprintf("attachment-%d", i+1)
+		}
+		ct := a.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		*out = append(*out, attachmentPart{filename: name, contentType: ct, data: a.Data})
+	}
+	return true
+}
+
+// tnefBody returns the decoded body of a top-level application/ms-tnef message
+// (the case where the human-readable body lives only inside winmail.dat). It
+// returns ok=false for non-TNEF, multipart, or unparseable messages, leaving the
+// normal body extraction in charge.
+func tnefBody(raw []byte) (string, bool) {
+	msg, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return "", false
+	}
+	mediaType, _, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+	if err != nil || !isTNEFMediaType(mediaType) {
+		return "", false
+	}
+	body, err := io.ReadAll(msg.Body)
+	if err != nil {
+		return "", false
+	}
+	decoded := []byte(decodeBody(body, msg.Header.Get("Content-Transfer-Encoding")))
+	if !tnef.IsTNEF(decoded) {
+		return "", false
+	}
+	m, _, perr := tnef.Parse(decoded)
+	if perr != nil {
+		return "", false
+	}
+	if m.BodyText != "" {
+		return m.BodyText, true
+	}
+	if m.BodyHTML != "" {
+		return m.BodyHTML, true
+	}
+	return "", false
 }

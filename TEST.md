@@ -16,6 +16,7 @@
   - `helper-projects/proto_caldav.py` (CalDAV), `proto_carddav.py` (CardDAV) + `proto_dav_ext.py` (ETag/CTag, If-Match 412, PROPPATCH, OPTIONS, VTODO, çapraz yüzey)
   - `helper-projects/proto_mapi.py` (MAPI/HTTP — NSPI + OAB) + `proto_mapi_ext.py` (GetGAL, object_class, 100 kaydı sınırı, HiddenFromGAL, OAB artımlı)
   - `helper-projects/proto_notes.py` (Outlook Notes) + `proto_notes_ext.py` (JMAP yazma yolu + ters görünürlük)
+  - `helper-projects/proto_tnef.py` (gelen TNEF/winmail.dat çözümü: application/ms-tnef ekleri gerçek dosyalara açılır, üst-düzey TNEF gövdesi çözülür)
   - `helper-projects/proto_jmap.py` (JMAP) + `proto_jmap_ext.py` (Thread/Identity/VacationResponse, Mailbox/Email değişiklikleri, blob, EventSource, SearchSnippet, takvim/kişi/not metotları)
   - `helper-projects/proto_autodiscover.py` (Autodiscover + Autoconfig) + `proto_autodiscover_ext.py` (EWS/MAPI/NSPI/OAB girdileri, devre dışı hesap 403)
   - `helper-projects/proto_ews_ext.py` (EWS derinliği: klasör yönetimi, Sync*, Subscribe/GetEvents, Availability, rooms, ExpandDL, MailTips, UserConfiguration, ConvertId, Persona/Photo)
@@ -472,6 +473,7 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 - `helper-projects/proto_dav_ext.py` — CalDAV/CardDAV derinliği: ETag/CTag değişimi, If-Match/If-None-Match 412, PROPPATCH, OPTIONS, VTODO, çapraz yüzey görünürlüğü
 - `helper-projects/proto_mapi_ext.py` — MAPI/HTTP derinliği: GetGAL, object_class, 100 kayıt sınırı, HiddenFromGAL, OAB artımlı indirme
 - `helper-projects/proto_notes_ext.py` — Notes JMAP yazma yolu + EWS/JMAP ters görünürlük
+- `helper-projects/proto_tnef.py` — gelen TNEF (winmail.dat) çözümü: multipart/mixed içindeki application/ms-tnef ekleri gerçek dosyalara açılır (winmail.dat blob'u gizlenir, indirilen baytlar eşleşir), üst-düzey application/ms-tnef mesajın gövdesi çözülür
 - `helper-projects/proto_autodiscover_ext.py` — Autodiscover derinliği: EWS/MAPI/NSPI/OAB girdileri, devre dışı hesap 403, autoconfig auth/socket alanları
 - `helper-projects/proto_ews_ext.py` — EWS derinliği: klasör yönetimi (oluştur/yeniden adlandır/sil), SyncFolderHierarchy/Items, Subscribe/GetEvents, GetUserAvailability, oda listeleri, ExpandDL, MailTips, UserConfiguration, ConvertId, GetPersona/GetUserPhoto
 - `helper-projects/proto_auth.py` — kimlik doğrulama derinliği: login kilitleme 429, TOTP kurulum/doğrulama/kapatma + TOTP'li login, JWT refresh/logout kara listesi, parola değişimi

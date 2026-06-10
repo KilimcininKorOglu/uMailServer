@@ -514,6 +514,11 @@ func (h *MailHandler) getEmailsFromStorage(userEmail, mailbox string) ([]Mail, e
 
 // extractBody extracts the body from a raw email message
 func (h *MailHandler) extractBody(raw string) string {
+	// A top-level TNEF message keeps its body inside winmail.dat; decode it so
+	// the client shows readable text instead of the raw stream.
+	if body, ok := tnefBody([]byte(raw)); ok {
+		return body
+	}
 	// Find the header/body separator
 	sep := "\r\n\r\n"
 	idx := strings.Index(raw, sep)
