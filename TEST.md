@@ -26,6 +26,7 @@
   - `helper-projects/proto_auth.py` (login kilitleme 429, TOTP yaşam döngüsü, JWT refresh/logout kara listesi, parola değişimi)
   - `helper-projects/proto_admin.py` (admin REST: domain/alias/grup CRUD, kuyruk, tenant, 401/403 kapıları)
   - `helper-projects/proto_reload.py` (config hot-reload: canlı POP3 kapatma/açma, restart_required sınıflaması, DTO'da sır yok)
+  - `helper-projects/proto_recoverable.py` (Recoverable Items soft-delete dumpster: admin config ile aç, kalıcı sil → "Recoverable Items" klasöründe webmail+IMAP'te görün, INBOX'tan kalk, `/mail/recover` ile geri yükle; dumpster açılamazsa zarif SKIP)
   - `helper-projects/proto_tls.py` (STARTTLS değişmezi: SMTP/IMAP/POP3'te ilan ⇔ el sıkışma başarısı, TLS>=1.2, DTO'da özel anahtar yok)
   - `helper-projects/proto_backup.py` (per-user yedek oluştur/listele/doğrula/güvenli geri yükle + push stub negatifleri)
   - `helper-projects/proto_import.py` (kanonik posta kutusu içe aktarımı: `umailserver import` ile mbox sunucu durdurulmuş koşulda içe aktarılır, idempotent yeniden çalıştırma, IMAP/JMAP/EWS çapraz görünürlük)
@@ -477,6 +478,7 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 - `helper-projects/proto_imap_ext.py` — IMAP derinliği: IDLE bildirimi, CONDSTORE/HIGHESTMODSEQ, MOVE/UIDPLUS, SORT/THREAD, SEARCH/ESEARCH, MULTIAPPEND, ENABLE, NAMESPACE, ID, COMPRESS, ACL, AUTHENTICATE
 - `helper-projects/proto_smtp_security.py` — gelen SPF/DKIM/DMARC/ARC `Authentication-Results`, giden DKIM imzası, DSN, BDAT/CHUNKING, AUTH mekanizmaları
 - `helper-projects/proto_lmtp.py` — LMTP (RFC 2033) yerel teslim: 220 selamı sonrası EHLO 500 ile reddedilir (LMTP yalnız LHLO konuşur), LHLO 250 yetenekleriyle kabul edilir, MAIL FROM/RCPT TO (yerel alıcı)/DATA, nokta sonrası alıcı-başına tam bir 2xx yanıt, mesaj alıcının posta kutusuna düşer (API ile doğrulanır); LMTP portu erişilemezse (varsayılan kapalı) zarif SKIP
+- `helper-projects/proto_recoverable.py` — Recoverable Items soft-delete dumpster ("Recover Deleted Items From Server"): admin config API ile `recoverable_items` açılır, bob'a teslim edilen mesaj kalıcı silinir (webmail permanent delete) → cross-protocol "Recoverable Items" klasöründe HEM webmail API HEM IMAP'te görünür ve INBOX'tan kalkar; `POST /api/v1/mail/recover` ile INBOX'a geri yüklenir ve dumpster'dan temizlenir; sonunda özgün config geri yüklenir. Retention CLEANER'ın zaman-tabanlı purge'ü burada sınanmaz (retention tam-gün; saniyede yaşlandırılamaz — expiry filtresi `internal/db` `ListExpiredRecoverableItems` birim testiyle kapsanır). Dumpster açılamazsa (admin login yoksa) zarif SKIP
 - `helper-projects/proto_sieve_exec.py` — Sieve aksiyonlarının teslimde yürütülmesi: fileinto/redirect/discard/reject/imap4flags/vacation (tek otomatik yanıt)
 - `helper-projects/proto_jmap_ext.py` — JMAP derinliği: Thread/Identity/VacationResponse, Mailbox query+set+changes, Email changes+import, blob upload/download, EventSource, SearchSnippet, takvim/kişi/not metotları
 - `helper-projects/proto_pop3_ext.py` — POP3 derinliği: CAPA/NOOP, kimlik kilitleme, DELE+QUIT kalıcılığı
