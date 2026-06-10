@@ -1,6 +1,9 @@
 package mailcheck
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // --- in-memory fakes (single user) -----------------------------------------
 
@@ -21,6 +24,42 @@ func (f *fakeIndex) MessageID(_, mailbox string, uid uint32) (string, error) {
 type fakeBlob struct{ present map[string]bool }
 
 func (f *fakeBlob) MessageExists(_, id string) bool { return f.present[id] }
+func (f *fakeBlob) ReadMessage(_, id string) ([]byte, error) {
+	if f.present[id] {
+		return []byte("raw-" + id), nil
+	}
+	return nil, fmt.Errorf("blob %s not found", id)
+}
+
+type fakeRepairer struct {
+	recreated    []string // mailbox per recreate
+	deletedIndex []string // "mailbox/uid"
+	deletedIdent []string // item id
+}
+
+func (f *fakeRepairer) RecreateIdentity(_, mailbox string, _ []byte) error {
+	f.recreated = append(f.recreated, mailbox)
+	return nil
+}
+func (f *fakeRepairer) DeleteIndexEntry(_, mailbox string, uid uint32) error {
+	f.deletedIndex = append(f.deletedIndex, fmt.Sprintf("%s/%d", mailbox, uid))
+	return nil
+}
+func (f *fakeRepairer) DeleteIdentity(itemID string) error {
+	f.deletedIdent = append(f.deletedIdent, itemID)
+	return nil
+}
+
+type fakeRepairIdent struct {
+	key         string
+	hasMbox     bool
+	folderItems map[string][]ItemRef
+}
+
+func (f *fakeRepairIdent) MailboxKey(string) (string, bool, error) { return f.key, f.hasMbox, nil }
+func (f *fakeRepairIdent) FolderItems(string) (map[string][]ItemRef, error) {
+	return f.folderItems, nil
+}
 
 type fakeIdent struct {
 	key     string
@@ -156,5 +195,118 @@ func TestCheckEmptyMailboxIsClean(t *testing.T) {
 	}
 	if !rep.Clean() {
 		t.Errorf("empty mailbox should be clean, got %v", rep.Issues)
+	}
+}
+
+// --- Repair tests -----------------------------------------------------------
+
+// healthyRepair mirrors healthy() but for the Repair interfaces: semcore items
+// are grouped under the IMAP folder name ("INBOX"), each carrying an ItemID and
+// its blob key, so the per-folder cross-check matches the index.
+func healthyRepair() (*fakeIndex, *fakeBlob, *fakeRepairIdent) {
+	idx := &fakeIndex{
+		mailboxes: []string{"INBOX"},
+		uids:      map[string][]uint32{"INBOX": {1, 2}},
+		ids:       map[string]map[uint32]string{"INBOX": {1: "aaa", 2: "bbb"}},
+	}
+	blob := &fakeBlob{present: map[string]bool{"aaa": true, "bbb": true}}
+	ident := &fakeRepairIdent{
+		key:     "u@x",
+		hasMbox: true,
+		folderItems: map[string][]ItemRef{
+			"INBOX": {{ItemID: "i-aaa", MsgKey: "aaa"}, {ItemID: "i-bbb", MsgKey: "bbb"}},
+		},
+	}
+	return idx, blob, ident
+}
+
+func mustRepair(t *testing.T, idx IndexStore, blob RepairBlob, ident RepairIdentity, w Repairer) *RepairReport {
+	t.Helper()
+	rep, err := Repair("u@x", idx, blob, ident, w)
+	if err != nil {
+		t.Fatalf("Repair: %v", err)
+	}
+	return rep
+}
+
+func TestRepairHealthyNoop(t *testing.T) {
+	idx, blob, ident := healthyRepair()
+	w := &fakeRepairer{}
+	rep := mustRepair(t, idx, blob, ident, w)
+	if !rep.Clean() {
+		t.Errorf("healthy mailbox should need no repair, got %+v", rep)
+	}
+	if len(w.recreated)+len(w.deletedIndex)+len(w.deletedIdent) != 0 {
+		t.Errorf("no writes expected, got recreated=%v delIdx=%v delIdent=%v",
+			w.recreated, w.deletedIndex, w.deletedIdent)
+	}
+}
+
+func TestRepairRecreatesGhost(t *testing.T) {
+	idx, blob, ident := healthyRepair()
+	// "bbb" is in the IMAP index with its blob present, but has no semcore
+	// identity in INBOX -> EWS-ghost the repairer must refile.
+	ident.folderItems["INBOX"] = []ItemRef{{ItemID: "i-aaa", MsgKey: "aaa"}}
+	w := &fakeRepairer{}
+	rep := mustRepair(t, idx, blob, ident, w)
+	if rep.Recreated != 1 {
+		t.Errorf("Recreated = %d, want 1 (actions: %v)", rep.Recreated, rep.Actions)
+	}
+	if len(w.recreated) != 1 || w.recreated[0] != "INBOX" {
+		t.Errorf("recreated mailbox = %v, want [INBOX]", w.recreated)
+	}
+	if rep.DeletedIndex != 0 || rep.DeletedIdentity != 0 {
+		t.Errorf("unexpected deletes: %+v", rep)
+	}
+}
+
+func TestRepairDeletesOrphanIndex(t *testing.T) {
+	idx, blob, ident := healthyRepair()
+	// "bbb" blob is gone -> its IMAP index entry (uid 2) is a dangling orphan.
+	delete(blob.present, "bbb")
+	// Its semcore identity is gone too (so only the index entry remains).
+	ident.folderItems["INBOX"] = []ItemRef{{ItemID: "i-aaa", MsgKey: "aaa"}}
+	w := &fakeRepairer{}
+	rep := mustRepair(t, idx, blob, ident, w)
+	if rep.DeletedIndex != 1 {
+		t.Errorf("DeletedIndex = %d, want 1 (actions: %v)", rep.DeletedIndex, rep.Actions)
+	}
+	if len(w.deletedIndex) != 1 || w.deletedIndex[0] != "INBOX/2" {
+		t.Errorf("deletedIndex = %v, want [INBOX/2]", w.deletedIndex)
+	}
+	if rep.Recreated != 0 {
+		t.Errorf("should not recreate an entry with a missing blob: %+v", rep)
+	}
+}
+
+func TestRepairDeletesOrphanIdentity(t *testing.T) {
+	idx, blob, ident := healthyRepair()
+	// "bbb" blob is gone, but a semcore identity for it lingers -> orphan
+	// identity the repairer must delete. The index entry for "bbb" is also
+	// orphaned, but this test asserts the identity-side deletion.
+	delete(blob.present, "bbb")
+	w := &fakeRepairer{}
+	rep := mustRepair(t, idx, blob, ident, w)
+	if rep.DeletedIdentity != 1 {
+		t.Errorf("DeletedIdentity = %d, want 1 (actions: %v)", rep.DeletedIdentity, rep.Actions)
+	}
+	if len(w.deletedIdent) != 1 || w.deletedIdent[0] != "i-bbb" {
+		t.Errorf("deletedIdent = %v, want [i-bbb]", w.deletedIdent)
+	}
+	// The dangling index entry for the same message is also cleaned up.
+	if rep.DeletedIndex != 1 {
+		t.Errorf("DeletedIndex = %d, want 1 (orphan index for the same blob)", rep.DeletedIndex)
+	}
+}
+
+func TestRepairNoSemcoreMailboxRecreatesAll(t *testing.T) {
+	idx, blob, ident := healthyRepair()
+	// No semcore mailbox at all -> every indexed message is an EWS-ghost.
+	ident.hasMbox = false
+	ident.folderItems = nil
+	w := &fakeRepairer{}
+	rep := mustRepair(t, idx, blob, ident, w)
+	if rep.Recreated != 2 {
+		t.Errorf("Recreated = %d, want 2 (actions: %v)", rep.Recreated, rep.Actions)
 	}
 }

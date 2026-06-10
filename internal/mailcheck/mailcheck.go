@@ -159,3 +159,137 @@ func Check(email string, idx IndexStore, blob BlobStore, ident IdentityStore) (*
 	}
 	return rep, nil
 }
+
+// ---------------------------------------------------------------------------
+// Repair (Phase 2) — writes to the canonical store
+// ---------------------------------------------------------------------------
+
+// ItemRef pairs a semcore item's id with its blob key.
+type ItemRef struct {
+	ItemID string
+	MsgKey string
+}
+
+// RepairBlob extends BlobStore with reading, needed to recreate an identity from
+// an existing message.
+type RepairBlob interface {
+	BlobStore
+	ReadMessage(user, messageID string) ([]byte, error)
+}
+
+// RepairIdentity exposes semcore items grouped by their IMAP folder name, so the
+// cross-check is per-folder (a message must have an identity in the SAME folder
+// it is indexed under).
+type RepairIdentity interface {
+	MailboxKey(email string) (key string, ok bool, err error)
+	// FolderItems maps each folder's IMAP name to the items it holds.
+	FolderItems(mboxKey string) (map[string][]ItemRef, error)
+}
+
+// Repairer applies fixes to the canonical store.
+type Repairer interface {
+	// RecreateIdentity files a semcore identity for an existing (mailbox, raw)
+	// message so it becomes EWS-visible again.
+	RecreateIdentity(email, mailbox string, raw []byte) error
+	// DeleteIndexEntry removes a dangling IMAP index entry.
+	DeleteIndexEntry(email, mailbox string, uid uint32) error
+	// DeleteIdentity removes a dangling semcore identity.
+	DeleteIdentity(itemID string) error
+}
+
+// RepairReport summarizes the fixes applied.
+type RepairReport struct {
+	Recreated       int // semcore identities recreated (ghost fixes)
+	DeletedIndex    int // orphan IMAP index entries removed
+	DeletedIdentity int // orphan semcore identities removed
+	Actions         []string
+}
+
+// Clean reports whether nothing needed fixing.
+func (r *RepairReport) Clean() bool {
+	return r.Recreated+r.DeletedIndex+r.DeletedIdentity == 0
+}
+
+// Repair fixes the divergences Check detects: it recreates a missing semcore
+// identity for a message present in the IMAP index + blob (the EWS-ghost), and
+// deletes dangling IMAP index entries and semcore identities whose blob is gone.
+// It does NOT touch orphan-semcore (a semcore identity with a live blob but no
+// index entry) — that reverse case is left to a future phase. Run with the
+// server stopped.
+func Repair(email string, idx IndexStore, blob RepairBlob, ident RepairIdentity, w Repairer) (*RepairReport, error) {
+	rep := &RepairReport{}
+
+	// semcore side: per-folder live-key sets; delete identities whose blob is gone.
+	semByFolder := map[string]map[string]bool{}
+	mboxKey, ok, err := ident.MailboxKey(email)
+	if err != nil {
+		return nil, fmt.Errorf("mailcheck: resolve mailbox identity: %w", err)
+	}
+	if ok {
+		folderItems, ferr := ident.FolderItems(mboxKey)
+		if ferr != nil {
+			return nil, fmt.Errorf("mailcheck: folder items: %w", ferr)
+		}
+		for folder, items := range folderItems {
+			set := map[string]bool{}
+			for _, it := range items {
+				if it.MsgKey == "" {
+					continue
+				}
+				if !blob.MessageExists(email, it.MsgKey) {
+					if derr := w.DeleteIdentity(it.ItemID); derr != nil {
+						return nil, fmt.Errorf("mailcheck: delete identity %s: %w", it.ItemID, derr)
+					}
+					rep.DeletedIdentity++
+					rep.Actions = append(rep.Actions, fmt.Sprintf("deleted orphan semcore identity %s in %s (blob gone)", it.ItemID, folder))
+					continue
+				}
+				set[it.MsgKey] = true
+			}
+			semByFolder[folder] = set
+		}
+	}
+
+	// IMAP side: delete orphan index entries; recreate EWS-ghosts.
+	mailboxes, err := idx.ListMailboxes(email)
+	if err != nil {
+		return nil, fmt.Errorf("mailcheck: list mailboxes: %w", err)
+	}
+	for _, mailbox := range mailboxes {
+		uids, uerr := idx.GetMessageUIDs(email, mailbox)
+		if uerr != nil {
+			return nil, fmt.Errorf("mailcheck: uids for %q: %w", mailbox, uerr)
+		}
+		for _, uid := range uids {
+			id, merr := idx.MessageID(email, mailbox, uid)
+			if merr != nil || id == "" {
+				continue
+			}
+			if !blob.MessageExists(email, id) {
+				if derr := w.DeleteIndexEntry(email, mailbox, uid); derr != nil {
+					return nil, fmt.Errorf("mailcheck: delete index %s/%d: %w", mailbox, uid, derr)
+				}
+				rep.DeletedIndex++
+				rep.Actions = append(rep.Actions, fmt.Sprintf("deleted orphan IMAP index entry %s uid %d (blob gone)", mailbox, uid))
+				continue
+			}
+			if semByFolder[mailbox][id] {
+				continue // already has a semcore identity in this folder
+			}
+			raw, rerr := blob.ReadMessage(email, id)
+			if rerr != nil {
+				return nil, fmt.Errorf("mailcheck: read blob %s: %w", id, rerr)
+			}
+			if rcerr := w.RecreateIdentity(email, mailbox, raw); rcerr != nil {
+				return nil, fmt.Errorf("mailcheck: recreate identity %s in %s: %w", id, mailbox, rcerr)
+			}
+			rep.Recreated++
+			rep.Actions = append(rep.Actions, fmt.Sprintf("recreated semcore identity for %s in %s (was EWS-ghost)", id, mailbox))
+			if semByFolder[mailbox] == nil {
+				semByFolder[mailbox] = map[string]bool{}
+			}
+			semByFolder[mailbox][id] = true
+		}
+	}
+	return rep, nil
+}

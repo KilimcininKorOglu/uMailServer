@@ -990,11 +990,18 @@ func cmdCheck(args []string) {
 	// Mailbox consistency (mbck) reads the local canonical store rather than
 	// running a network diagnostic, so it is handled before the diagnostics setup.
 	if checkType == "mailbox" {
-		if len(args) < 2 {
-			fmt.Println("Usage: umailserver check mailbox <email>")
+		rest := args[1:]
+		if len(rest) < 1 {
+			fmt.Println("Usage: umailserver check mailbox <email> [--repair]")
 			os.Exit(1)
 		}
-		cmdCheckMailbox(args[1])
+		email := rest[0]
+		fs := flag.NewFlagSet("check mailbox", flag.ExitOnError)
+		repair := fs.Bool("repair", false, "fix detected inconsistencies (recreate missing semcore identities, delete orphan index/identity entries); run with the server stopped")
+		if err := fs.Parse(rest[1:]); err != nil {
+			os.Exit(1)
+		}
+		cmdCheckMailbox(email, *repair)
 		return
 	}
 
@@ -1058,12 +1065,14 @@ func cmdCheck(args []string) {
 	}
 }
 
-// cmdCheckMailbox runs a read-only consistency check (mbck) over a user's
-// canonical store, reporting messages whose Maildir blob, IMAP index, and
-// semcore identity disagree (the "ghost in EWS" class, dangling entries, etc.).
-// Run with the server STOPPED (bbolt is single-writer). Exits non-zero when any
-// inconsistency is found.
-func cmdCheckMailbox(email string) {
+// cmdCheckMailbox runs a consistency check (mbck) over a user's canonical store,
+// reporting messages whose Maildir blob, IMAP index, and semcore identity
+// disagree (the "ghost in EWS" class, dangling entries, etc.). When repair is
+// true it then converges the stores: it recreates missing semcore identities for
+// indexed messages (the EWS-ghost fix) and deletes orphan IMAP index and semcore
+// identity entries whose blob is gone. Run with the server STOPPED (bbolt is
+// single-writer). Exits non-zero when any inconsistency remains.
+func cmdCheckMailbox(email string, repair bool) {
 	localPart, domain, ok := strings.Cut(email, "@")
 	if !ok || localPart == "" || domain == "" {
 		fmt.Fprintf(os.Stderr, "check mailbox: invalid email %q\n", email)
@@ -1127,6 +1136,45 @@ func cmdCheckMailbox(email string) {
 	for _, iss := range rep.Issues {
 		fmt.Printf("  %s\n", iss.String())
 	}
+	if !repair {
+		os.Exit(1)
+	}
+
+	// --repair: converge the three stores, then re-check to confirm.
+	pipe := semcore.NewMutationPipeline(semStore.Identity(), semStore.Lifecycle())
+	rrep, rerr := mailcheck.Repair(email,
+		mailcheckIndex{db: storageDB},
+		mailcheckBlob{store: msgStore},
+		mailcheckRepairIdent{store: semStore.Identity()},
+		mailcheckRepairer{pipe: pipe, storageDB: storageDB, ident: semStore.Identity()},
+	)
+	if rerr != nil {
+		fmt.Fprintf(os.Stderr, "check mailbox --repair: %v\n", rerr)
+		os.Exit(1)
+	}
+	fmt.Printf("repaired: recreated %d identity(ies), deleted %d orphan index entry(ies), %d orphan identity(ies)\n",
+		rrep.Recreated, rrep.DeletedIndex, rrep.DeletedIdentity)
+	for _, act := range rrep.Actions {
+		fmt.Printf("  %s\n", act)
+	}
+
+	post, perr := mailcheck.Check(email,
+		mailcheckIndex{db: storageDB},
+		mailcheckBlob{store: msgStore},
+		mailcheckIdent{store: semStore.Identity()},
+	)
+	if perr != nil {
+		fmt.Fprintf(os.Stderr, "check mailbox: re-check after repair: %v\n", perr)
+		os.Exit(1)
+	}
+	if post.Clean() {
+		fmt.Println("OK: mailbox consistent after repair")
+		return
+	}
+	fmt.Printf("STILL %d inconsistency(ies) after repair:\n", len(post.Issues))
+	for _, iss := range post.Issues {
+		fmt.Printf("  %s\n", iss.String())
+	}
 	os.Exit(1)
 }
 
@@ -1145,10 +1193,14 @@ func (a mailcheckIndex) MessageID(user, mailbox string, uid uint32) (string, err
 	return meta.MessageID, nil
 }
 
-// mailcheckBlob adapts the Maildir blob store to mailcheck.BlobStore.
+// mailcheckBlob adapts the Maildir blob store to mailcheck.BlobStore (and, via
+// ReadMessage, mailcheck.RepairBlob).
 type mailcheckBlob struct{ store *storage.MessageStore }
 
 func (a mailcheckBlob) MessageExists(user, id string) bool { return a.store.MessageExists(user, id) }
+func (a mailcheckBlob) ReadMessage(user, id string) ([]byte, error) {
+	return a.store.ReadMessage(user, id)
+}
 
 // mailcheckIdent adapts the semcore identity store to mailcheck.IdentityStore.
 // Folder identities are keyed by the raw email (the server/deliverLocal
@@ -1189,6 +1241,92 @@ func (a mailcheckIdent) ItemKeys(folderID string) ([]string, error) {
 		out = append(out, it.MsgKey)
 	}
 	return out, nil
+}
+
+// mailcheckRepairIdent adapts the semcore identity store to
+// mailcheck.RepairIdentity. Unlike the read-only adapter, it groups items by the
+// stored IMAP folder NAME (resolved via FolderNameByID) so the repair cross-check
+// is per-folder: a message must have an identity in the same folder it is indexed
+// under.
+type mailcheckRepairIdent struct{ store *semcore.BoltIdentityStore }
+
+func (a mailcheckRepairIdent) MailboxKey(email string) (string, bool, error) {
+	if _, err := a.store.GetMailboxIDByEmail(email); err != nil {
+		if errors.Is(err, semcore.ErrMailboxNotFound) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return email, true, nil
+}
+
+func (a mailcheckRepairIdent) FolderItems(mboxKey string) (map[string][]mailcheck.ItemRef, error) {
+	folders, err := a.store.ListFolderIdentitiesForMailbox(mboxKey)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]mailcheck.ItemRef, len(folders))
+	for _, f := range folders {
+		name, nerr := a.store.FolderNameByID(mboxKey, f.FolderID)
+		if nerr != nil {
+			return nil, nerr
+		}
+		items, ierr := a.store.ListItemIdentitiesByFolder(f.FolderID)
+		if ierr != nil {
+			return nil, ierr
+		}
+		refs := make([]mailcheck.ItemRef, 0, len(items))
+		for _, it := range items {
+			refs = append(refs, mailcheck.ItemRef{ItemID: it.ItemID.String(), MsgKey: it.MsgKey})
+		}
+		out[name] = refs
+	}
+	return out, nil
+}
+
+// mailcheckRepairer adapts the canonical write paths to mailcheck.Repairer.
+// RecreateIdentity files the semcore-only layer for a message whose blob and IMAP
+// index already exist (the EWS-ghost fix), mirroring step 1 of mailImporter.fileOne.
+type mailcheckRepairer struct {
+	pipe      *semcore.MutationPipeline
+	storageDB *storage.Database
+	ident     *semcore.BoltIdentityStore
+}
+
+func (w mailcheckRepairer) RecreateIdentity(email, mailbox string, raw []byte) error {
+	mboxID, err := w.ident.EnsureMailboxId(email)
+	if err != nil {
+		return fmt.Errorf("ensure mailbox identity: %w", err)
+	}
+	fldID, err := w.ident.EnsureFolderId(email, mailbox, folderRole(mailbox))
+	if err != nil {
+		return fmt.Errorf("ensure folder identity: %w", err)
+	}
+	if _, err := w.pipe.MutateItem(&semcore.MutationInput{
+		MailboxID:    mboxID,
+		FolderID:     fldID,
+		RawMessage:   raw,
+		InternalDate: messageDate(raw),
+		Actor:        email,
+		Email:        email,
+		Source:       semcore.MutationSourceAPI,
+		IsRead:       true,
+	}); err != nil {
+		return fmt.Errorf("semcore mutate: %w", err)
+	}
+	return nil
+}
+
+func (w mailcheckRepairer) DeleteIndexEntry(email, mailbox string, uid uint32) error {
+	return w.storageDB.DeleteMessage(email, mailbox, uid)
+}
+
+func (w mailcheckRepairer) DeleteIdentity(itemID string) error {
+	id, err := semcore.NewItemId(itemID)
+	if err != nil {
+		return fmt.Errorf("parse item id %q: %w", itemID, err)
+	}
+	return w.ident.DeleteItemIdentity(id)
 }
 
 func cmdTest(args []string) {
