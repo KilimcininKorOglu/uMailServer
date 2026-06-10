@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS domains (
     tenant_id              TEXT        REFERENCES tenants (id) ON DELETE RESTRICT,
     max_accounts           INTEGER     NOT NULL DEFAULT 0,
     max_mailbox_size       BIGINT      NOT NULL DEFAULT 0,
+    quota_warn             BIGINT      NOT NULL DEFAULT 0,
+    quota_prohibit_send    BIGINT      NOT NULL DEFAULT 0,
     dkim_selector          TEXT        NOT NULL DEFAULT '',
     dkim_public_key        TEXT        NOT NULL DEFAULT '',
     dkim_private_key       TEXT        NOT NULL DEFAULT '',
@@ -51,6 +53,8 @@ CREATE TABLE IF NOT EXISTS domains (
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_domains_tenant ON domains (tenant_id);
+ALTER TABLE domains ADD COLUMN IF NOT EXISTS quota_warn          BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE domains ADD COLUMN IF NOT EXISTS quota_prohibit_send BIGINT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS domain_settings (
     domain TEXT NOT NULL REFERENCES domains (name) ON DELETE CASCADE,
@@ -71,6 +75,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     totp_last_used_step  BIGINT      NOT NULL DEFAULT 0,
     quota_used           BIGINT      NOT NULL DEFAULT 0,
     quota_limit          BIGINT      NOT NULL DEFAULT 0,
+    quota_warn           BIGINT      NOT NULL DEFAULT 0,
+    quota_prohibit_send  BIGINT      NOT NULL DEFAULT 0,
+    quota_warn_sent      BOOLEAN     NOT NULL DEFAULT FALSE,
     max_message_size     BIGINT      NOT NULL DEFAULT 0,
     forward_to           TEXT        NOT NULL DEFAULT '',
     forward_keep_copy    BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -106,6 +113,9 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS theme          TEXT    NOT NULL DE
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS onboarded      BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS send_policy    TEXT    NOT NULL DEFAULT '';
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS receive_policy TEXT    NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS quota_warn          BIGINT  NOT NULL DEFAULT 0;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS quota_prohibit_send BIGINT  NOT NULL DEFAULT 0;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS quota_warn_sent     BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Aliases. The alias column holds the local part (e.g. "info"); identity is
 -- (domain, local part). Matching the bbolt store, the key is case-insensitive

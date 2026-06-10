@@ -409,6 +409,68 @@ func TestScheduledMessageBbolt(t *testing.T) {
 	}
 }
 
+func TestEffectiveQuotaThresholds(t *testing.T) {
+	const gb = int64(1) << 30
+	cases := []struct {
+		name                           string
+		acct                           *AccountData
+		dom                            *DomainData
+		wantWarn, wantProhib, wantHard int64
+	}{
+		{
+			name:     "account values used directly",
+			acct:     &AccountData{QuotaLimit: 10 * gb, QuotaWarn: 8 * gb, QuotaProhibitSend: 9 * gb},
+			dom:      &DomainData{},
+			wantWarn: 8 * gb, wantProhib: 9 * gb, wantHard: 10 * gb,
+		},
+		{
+			name:     "domain defaults fill unset account thresholds",
+			acct:     &AccountData{QuotaLimit: 10 * gb},
+			dom:      &DomainData{QuotaWarn: 7 * gb, QuotaProhibitSend: 9 * gb},
+			wantWarn: 7 * gb, wantProhib: 9 * gb, wantHard: 10 * gb,
+		},
+		{
+			name:     "account overrides domain default",
+			acct:     &AccountData{QuotaLimit: 10 * gb, QuotaWarn: 6 * gb},
+			dom:      &DomainData{QuotaWarn: 7 * gb, QuotaProhibitSend: 9 * gb},
+			wantWarn: 6 * gb, wantProhib: 9 * gb, wantHard: 10 * gb,
+		},
+		{
+			name:     "hardCap is the tighter of account limit and domain max",
+			acct:     &AccountData{QuotaLimit: 10 * gb},
+			dom:      &DomainData{MaxMailboxSize: 4 * gb},
+			wantWarn: 0, wantProhib: 0, wantHard: 4 * gb,
+		},
+		{
+			name:     "thresholds clamp to the hard cap",
+			acct:     &AccountData{QuotaLimit: 5 * gb, QuotaWarn: 8 * gb, QuotaProhibitSend: 9 * gb},
+			dom:      &DomainData{},
+			wantWarn: 5 * gb, wantProhib: 5 * gb, wantHard: 5 * gb,
+		},
+		{
+			name:     "all disabled when nothing set",
+			acct:     &AccountData{},
+			dom:      nil,
+			wantWarn: 0, wantProhib: 0, wantHard: 0,
+		},
+		{
+			name:     "no clamp when hard cap is unlimited",
+			acct:     &AccountData{QuotaWarn: 8 * gb, QuotaProhibitSend: 9 * gb},
+			dom:      nil,
+			wantWarn: 8 * gb, wantProhib: 9 * gb, wantHard: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			warn, prohib, hard := EffectiveQuotaThresholds(tc.acct, tc.dom)
+			if warn != tc.wantWarn || prohib != tc.wantProhib || hard != tc.wantHard {
+				t.Errorf("got (warn=%d prohib=%d hard=%d), want (warn=%d prohib=%d hard=%d)",
+					warn, prohib, hard, tc.wantWarn, tc.wantProhib, tc.wantHard)
+			}
+		})
+	}
+}
+
 func TestRecoverableItemBbolt(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := Open(tmpDir + "/test.db")

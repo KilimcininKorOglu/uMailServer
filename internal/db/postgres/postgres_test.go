@@ -192,11 +192,13 @@ func TestDomainRoundTrip(t *testing.T) {
 	d := openTestDB(t)
 
 	dom := &db.DomainData{
-		Name:         "example.com",
-		MaxAccounts:  50,
-		DKIMSelector: "default",
-		IsActive:     true,
-		Settings:     map[string]string{"theme": "dark", "logo": "x.png"},
+		Name:              "example.com",
+		MaxAccounts:       50,
+		DKIMSelector:      "default",
+		IsActive:          true,
+		QuotaWarn:         800 << 20,
+		QuotaProhibitSend: 950 << 20,
+		Settings:          map[string]string{"theme": "dark", "logo": "x.png"},
 	}
 	if err := d.CreateDomain(dom); err != nil {
 		t.Fatalf("CreateDomain: %v", err)
@@ -215,6 +217,9 @@ func TestDomainRoundTrip(t *testing.T) {
 	if got.MaxAccounts != 50 || got.DKIMSelector != "default" || !got.IsActive {
 		t.Errorf("domain fields mismatch: %+v", got)
 	}
+	if got.QuotaWarn != 800<<20 || got.QuotaProhibitSend != 950<<20 {
+		t.Errorf("domain quota thresholds mismatch: warn=%d prohibit=%d", got.QuotaWarn, got.QuotaProhibitSend)
+	}
 	if got.Settings["theme"] != "dark" || got.Settings["logo"] != "x.png" {
 		t.Errorf("settings mismatch: %+v", got.Settings)
 	}
@@ -225,13 +230,16 @@ func TestDomainRoundTrip(t *testing.T) {
 	}
 
 	acc := &db.AccountData{
-		Email:       "alice@example.com",
-		LocalPart:   "alice",
-		Domain:      "example.com",
-		QuotaLimit:  1 << 30,
-		IsActive:    true,
-		DisplayName: "Alice",
-		LastLoginAt: time.Now().UTC().Truncate(time.Second),
+		Email:             "alice@example.com",
+		LocalPart:         "alice",
+		Domain:            "example.com",
+		QuotaLimit:        1 << 30,
+		QuotaWarn:         700 << 20,
+		QuotaProhibitSend: 900 << 20,
+		QuotaWarnSent:     true,
+		IsActive:          true,
+		DisplayName:       "Alice",
+		LastLoginAt:       time.Now().UTC().Truncate(time.Second),
 	}
 	if err := d.CreateAccount(acc); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
@@ -240,6 +248,10 @@ func TestDomainRoundTrip(t *testing.T) {
 	gotAcc, err := d.GetAccount("example.com", "alice")
 	if err != nil {
 		t.Fatalf("GetAccount: %v", err)
+	}
+	if gotAcc.QuotaWarn != 700<<20 || gotAcc.QuotaProhibitSend != 900<<20 || !gotAcc.QuotaWarnSent {
+		t.Errorf("account quota thresholds mismatch: warn=%d prohibit=%d warnSent=%v",
+			gotAcc.QuotaWarn, gotAcc.QuotaProhibitSend, gotAcc.QuotaWarnSent)
 	}
 	if gotAcc.Email != "alice@example.com" || gotAcc.DisplayName != "Alice" || gotAcc.QuotaLimit != 1<<30 {
 		t.Errorf("account fields mismatch: %+v", gotAcc)

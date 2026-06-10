@@ -45,16 +45,24 @@ type DB struct {
 
 // AccountData holds account information
 type AccountData struct {
-	Email              string    `json:"email"`
-	LocalPart          string    `json:"local_part"`
-	Domain             string    `json:"domain"`
-	PasswordHash       string    `json:"password_hash"`
-	APOPHash           string    `json:"apop_hash,omitempty"` // SHA-256(password) for APOP authentication
-	TOTPSecret         string    `json:"totp_secret,omitempty"`
-	TOTPEnabled        bool      `json:"totp_enabled"`
-	TOTPLastUsedStep   int64     `json:"totp_last_used_step,omitempty"`
-	QuotaUsed          int64     `json:"quota_used"`
-	QuotaLimit         int64     `json:"quota_limit"`
+	Email            string `json:"email"`
+	LocalPart        string `json:"local_part"`
+	Domain           string `json:"domain"`
+	PasswordHash     string `json:"password_hash"`
+	APOPHash         string `json:"apop_hash,omitempty"` // SHA-256(password) for APOP authentication
+	TOTPSecret       string `json:"totp_secret,omitempty"`
+	TOTPEnabled      bool   `json:"totp_enabled"`
+	TOTPLastUsedStep int64  `json:"totp_last_used_step,omitempty"`
+	QuotaUsed        int64  `json:"quota_used"`
+	QuotaLimit       int64  `json:"quota_limit"`
+	// Graduated-quota thresholds (absolute bytes; 0 = inherit the domain default,
+	// then disabled). QuotaWarn fires a one-time warning notification; QuotaProhibitSend
+	// blocks outbound mail; QuotaLimit (composed with the domain's MaxMailboxSize)
+	// stays the hard send+receive cap. QuotaWarnSent latches the warning so it is
+	// emitted once per crossing (reset when usage falls back below the threshold).
+	QuotaWarn          int64     `json:"quota_warn,omitempty"`
+	QuotaProhibitSend  int64     `json:"quota_prohibit_send,omitempty"`
+	QuotaWarnSent      bool      `json:"quota_warn_sent,omitempty"`
 	MaxMessageSize     int64     `json:"max_message_size"`
 	ForwardTo          string    `json:"forward_to,omitempty"`
 	ForwardKeepCopy    bool      `json:"forward_keep_copy"`
@@ -101,14 +109,18 @@ type DomainData struct {
 	// TenantID is the owning tenant. Every domain belongs to exactly one tenant
 	// (a tenant may own many domains). Backfilled at startup for legacy domains:
 	// each gets its own single-domain tenant whose id equals the domain name.
-	TenantID       string            `json:"tenant_id,omitempty"`
-	MaxAccounts    int               `json:"max_accounts"`
-	MaxMailboxSize int64             `json:"max_mailbox_size"`
-	DKIMSelector   string            `json:"dkim_selector"`
-	DKIMPublicKey  string            `json:"dkim_public_key,omitempty"`
-	DKIMPrivateKey string            `json:"dkim_private_key,omitempty"`
-	Settings       map[string]string `json:"settings,omitempty"`
-	CatchAllTarget string            `json:"catch_all_target,omitempty"`
+	TenantID       string `json:"tenant_id,omitempty"`
+	MaxAccounts    int    `json:"max_accounts"`
+	MaxMailboxSize int64  `json:"max_mailbox_size"`
+	// Per-domain graduated-quota defaults (absolute bytes; 0 = disabled), applied
+	// to accounts that do not set their own QuotaWarn/QuotaProhibitSend.
+	QuotaWarn         int64             `json:"quota_warn,omitempty"`
+	QuotaProhibitSend int64             `json:"quota_prohibit_send,omitempty"`
+	DKIMSelector      string            `json:"dkim_selector"`
+	DKIMPublicKey     string            `json:"dkim_public_key,omitempty"`
+	DKIMPrivateKey    string            `json:"dkim_private_key,omitempty"`
+	Settings          map[string]string `json:"settings,omitempty"`
+	CatchAllTarget    string            `json:"catch_all_target,omitempty"`
 	// CompanyName feeds the {company} placeholder; FromTemplateInternal/External
 	// are the From display-name templates applied to outbound mail for local-only
 	// vs. any-external recipients (placeholders: {name} {title} {department}
@@ -474,6 +486,43 @@ func (d *DB) IncrementQuota(domain, localPart string, delta int64) error {
 		}
 		return b.Put([]byte(key), newData)
 	})
+}
+
+// EffectiveQuotaThresholds resolves an account's graduated-quota thresholds by
+// composing the account's own values with its domain's defaults. Each tier is
+// the account value when set (>0), else the domain default, else 0 (disabled).
+// hardCap is the existing send+receive ceiling — the tighter of the account's
+// QuotaLimit and the domain's MaxMailboxSize (0 = unlimited on either side).
+// warn and prohibitSend are clamped to never exceed a positive hardCap (a tier
+// above the hard cap is meaningless). dom may be nil. All values are bytes; 0
+// means that tier is disabled/unlimited.
+func EffectiveQuotaThresholds(acct *AccountData, dom *DomainData) (warn, prohibitSend, hardCap int64) {
+	if acct == nil {
+		return 0, 0, 0
+	}
+	hardCap = acct.QuotaLimit
+	var domWarn, domProhibit, domMax int64
+	if dom != nil {
+		domWarn, domProhibit, domMax = dom.QuotaWarn, dom.QuotaProhibitSend, dom.MaxMailboxSize
+	}
+	if domMax > 0 && (hardCap == 0 || domMax < hardCap) {
+		hardCap = domMax
+	}
+	if warn = acct.QuotaWarn; warn == 0 {
+		warn = domWarn
+	}
+	if prohibitSend = acct.QuotaProhibitSend; prohibitSend == 0 {
+		prohibitSend = domProhibit
+	}
+	if hardCap > 0 {
+		if warn > hardCap {
+			warn = hardCap
+		}
+		if prohibitSend > hardCap {
+			prohibitSend = hardCap
+		}
+	}
+	return warn, prohibitSend, hardCap
 }
 
 // StoreRevokedToken persists a revoked token hash with its expiry time.

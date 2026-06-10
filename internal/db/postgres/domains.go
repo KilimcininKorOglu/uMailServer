@@ -40,12 +40,12 @@ func (d *DB) CreateDomain(domain *db.DomainData) error {
 		INSERT INTO domains (name, tenant_id, max_accounts, max_mailbox_size,
 			dkim_selector, dkim_public_key, dkim_private_key, catch_all_target,
 			company_name, from_template_internal, from_template_external,
-			is_active, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+			is_active, created_at, updated_at, quota_warn, quota_prohibit_send)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 		domain.Name, domain.TenantID, domain.MaxAccounts, domain.MaxMailboxSize,
 		domain.DKIMSelector, domain.DKIMPublicKey, domain.DKIMPrivateKey, domain.CatchAllTarget,
 		domain.CompanyName, domain.FromTemplateInternal, domain.FromTemplateExternal,
-		domain.IsActive, domain.CreatedAt, domain.UpdatedAt,
+		domain.IsActive, domain.CreatedAt, domain.UpdatedAt, domain.QuotaWarn, domain.QuotaProhibitSend,
 	); err != nil {
 		return fmt.Errorf("postgres: insert domain %q: %w", domain.Name, err)
 	}
@@ -90,12 +90,14 @@ func (d *DB) UpdateDomain(domain *db.DomainData) error {
 		UPDATE domains SET tenant_id=$2, max_accounts=$3, max_mailbox_size=$4,
 			dkim_selector=$5, dkim_public_key=$6, dkim_private_key=$7,
 			catch_all_target=$8, company_name=$9, from_template_internal=$10,
-			from_template_external=$11, is_active=$12, updated_at=$13
+			from_template_external=$11, is_active=$12, updated_at=$13,
+			quota_warn=$14, quota_prohibit_send=$15
 		WHERE name=$1`,
 		domain.Name, domain.TenantID, domain.MaxAccounts, domain.MaxMailboxSize,
 		domain.DKIMSelector, domain.DKIMPublicKey, domain.DKIMPrivateKey,
 		domain.CatchAllTarget, domain.CompanyName, domain.FromTemplateInternal,
 		domain.FromTemplateExternal, domain.IsActive, domain.UpdatedAt,
+		domain.QuotaWarn, domain.QuotaProhibitSend,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: update domain %q: %w", domain.Name, err)
@@ -153,7 +155,7 @@ const domainSelect = `
 	SELECT name, tenant_id, max_accounts, max_mailbox_size, dkim_selector,
 		dkim_public_key, dkim_private_key, catch_all_target, company_name,
 		from_template_internal, from_template_external, is_active,
-		created_at, updated_at
+		created_at, updated_at, quota_warn, quota_prohibit_send
 	FROM domains`
 
 // rowScanner is satisfied by both pgx.Row (QueryRow) and pgx.Rows, so scanDomain
@@ -168,7 +170,7 @@ func scanDomain(row rowScanner) (*db.DomainData, error) {
 	if err := row.Scan(&d.Name, &tenantID, &d.MaxAccounts, &d.MaxMailboxSize,
 		&d.DKIMSelector, &d.DKIMPublicKey, &d.DKIMPrivateKey, &d.CatchAllTarget,
 		&d.CompanyName, &d.FromTemplateInternal, &d.FromTemplateExternal,
-		&d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		&d.IsActive, &d.CreatedAt, &d.UpdatedAt, &d.QuotaWarn, &d.QuotaProhibitSend); err != nil {
 		return nil, err
 	}
 	if tenantID != nil {
