@@ -43,8 +43,9 @@ type serverConfigDTO struct {
 	Push          pushSectionDTO          `json:"push"`
 	Signing       signingSectionDTO       `json:"signing"`
 	OOF           oofSectionDTO           `json:"oof"`
-	Notifications notificationsSectionDTO `json:"notifications"`
-	ScheduledSend scheduledSendSectionDTO `json:"scheduled_send"`
+	Notifications    notificationsSectionDTO    `json:"notifications"`
+	ScheduledSend    scheduledSendSectionDTO    `json:"scheduled_send"`
+	RecoverableItems recoverableItemsSectionDTO `json:"recoverable_items"`
 }
 
 type serverSectionDTO struct {
@@ -337,6 +338,12 @@ type scheduledSendSectionDTO struct {
 	MaxHorizonDays int  `json:"max_horizon_days"`
 	TickSeconds    int  `json:"tick_seconds"`
 	MaxPerUser     int  `json:"max_per_user"`
+}
+
+type recoverableItemsSectionDTO struct {
+	Enabled       bool `json:"enabled"`
+	RetentionDays int  `json:"retention_days"`
+	TickSeconds   int  `json:"tick_seconds"`
 }
 
 // configPutResponse reports the outcome of a config update. applied lists the
@@ -724,6 +731,11 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 			TickSeconds:    cfg.ScheduledSend.TickSeconds,
 			MaxPerUser:     cfg.ScheduledSend.MaxPerUser,
 		},
+		RecoverableItems: recoverableItemsSectionDTO{
+			Enabled:       cfg.RecoverableItems.Enabled,
+			RetentionDays: cfg.RecoverableItems.RetentionDays,
+			TickSeconds:   cfg.RecoverableItems.TickSeconds,
+		},
 	}
 }
 
@@ -951,6 +963,9 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.ScheduledSend.MaxHorizonDays = req.ScheduledSend.MaxHorizonDays
 	cfg.ScheduledSend.TickSeconds = req.ScheduledSend.TickSeconds
 	cfg.ScheduledSend.MaxPerUser = req.ScheduledSend.MaxPerUser
+	cfg.RecoverableItems.Enabled = req.RecoverableItems.Enabled
+	cfg.RecoverableItems.RetentionDays = req.RecoverableItems.RetentionDays
+	cfg.RecoverableItems.TickSeconds = req.RecoverableItems.TickSeconds
 }
 
 func applyRateLimitDTO(rl *config.RateLimitConfig, req *rateLimitSectionDTO) {
@@ -1014,6 +1029,7 @@ func changedSections(before, after *config.Config, applied []string) []string {
 		{"oof", before.OOF, after.OOF},
 		{"notifications", before.Notifications, after.Notifications},
 		{"scheduled_send", before.ScheduledSend, after.ScheduledSend},
+		{"recoverable_items", before.RecoverableItems, after.RecoverableItems},
 	} {
 		if _, skip := appliedSet[sec.name]; skip {
 			continue
@@ -1097,6 +1113,12 @@ func validateConfigDTO(req *serverConfigDTO) (string, bool) {
 	}
 	if req.ScheduledSend.MaxPerUser < 1 || req.ScheduledSend.MaxPerUser > 10000 {
 		return "scheduled_send.max_per_user must be between 1 and 10000", false
+	}
+	if req.RecoverableItems.RetentionDays < 1 || req.RecoverableItems.RetentionDays > 3650 {
+		return "recoverable_items.retention_days must be between 1 and 3650", false
+	}
+	if req.RecoverableItems.TickSeconds < 5 || req.RecoverableItems.TickSeconds > 3600 {
+		return "recoverable_items.tick_seconds must be between 5 and 3600", false
 	}
 	return "", true
 }

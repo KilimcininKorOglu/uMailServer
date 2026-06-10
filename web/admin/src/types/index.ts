@@ -629,6 +629,12 @@ export interface NotificationsConfig {
   weekly_reports: boolean;
 }
 
+export interface RecoverableItemsConfig {
+  enabled: boolean;
+  retention_days: number;
+  tick_seconds: number;
+}
+
 export interface ServerSettings {
   hostname: string;
   data_dir: string;
@@ -664,4 +670,5 @@ export interface ServerConfig {
   signing: SigningConfig;
   oof: OOFConfig;
   notifications: NotificationsConfig;
+  recoverable_items: RecoverableItemsConfig;
 }

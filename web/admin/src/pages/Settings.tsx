@@ -608,6 +608,19 @@ export function SettingsPage({
                 />
                 <TextRow label={t("settings.signingKeyDir")} value={config.signing.key_dir} onChange={(v) => upd("signing", { key_dir: v })} />
               </SectionCard>
+
+              <SectionCard title={t("settings.recoverableItems")} icon={<Mail className="h-5 w-5" />}>
+                <SwitchRow
+                  label={t("settings.enableRecoverableItems")}
+                  help={t("settings.recoverableItemsHelp")}
+                  checked={config.recoverable_items.enabled}
+                  onChange={(v) => upd("recoverable_items", { enabled: v })}
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <NumberRow label={t("settings.retentionDays")} value={config.recoverable_items.retention_days} onChange={(v) => upd("recoverable_items", { retention_days: v })} />
+                  <NumberRow label={t("settings.cleanerIntervalSecs")} value={config.recoverable_items.tick_seconds} onChange={(v) => upd("recoverable_items", { tick_seconds: v })} />
+                </div>
+              </SectionCard>
             </>
           )}
           {saveBar}
