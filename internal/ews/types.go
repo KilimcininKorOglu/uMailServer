@@ -162,6 +162,8 @@ var DistinguishedFolderIDs = map[string]string{
 	"tasks":         "tasks",
 	"notes":         "notes",
 	"scheduled":     "scheduled",
+	// Outlook's "Recover Deleted Items From Server" queries this distinguished id.
+	"recoverableitemsdeletions": "recoverableitems",
 }
 
 // DistinguishedFolderIdType represents a DistinguishedFolderId element that can

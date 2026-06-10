@@ -483,6 +483,8 @@ func canonicalFolderNameForRole(role string) string {
 		return "Notes"
 	case "scheduled":
 		return "Scheduled"
+	case "recoverableitems":
+		return "Recoverable Items"
 	default:
 		return ""
 	}

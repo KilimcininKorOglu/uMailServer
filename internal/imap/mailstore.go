@@ -1474,6 +1474,8 @@ func distinguishedRole(folderName string) string {
 		return "outbox"
 	case "SCHEDULED":
 		return "scheduled"
+	case "RECOVERABLE ITEMS":
+		return "recoverableitems"
 	default:
 		return ""
 	}
