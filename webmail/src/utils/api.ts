@@ -1,5 +1,12 @@
 const API_URL = window.location.origin + '/api/v1'
 
+// ownerQuery builds the optional `owner=` query fragment used to target a shared
+// mailbox. `sep` is "?" when the URL has no query yet, otherwise "&". Returns ""
+// when no owner is given (personal mailbox), so the same call serves both.
+function ownerQuery(owner: string | undefined, sep: '?' | '&'): string {
+  return owner ? `${sep}owner=${encodeURIComponent(owner)}` : ''
+}
+
 // ============================================================================
 // Type Definitions
 // ============================================================================
@@ -362,15 +369,27 @@ interface ApiResponse<T = unknown> {
 
 class API {
   private token: string | null
+  // mailboxOwner, when set, makes every mail call target a shared mailbox the
+  // user has access to (the owner's address). MailboxContext sets it on switch
+  // and clears it when returning to the personal mailbox, so page components
+  // need no per-call wiring — they automatically follow the active mailbox.
+  mailboxOwner: string | undefined
 
   constructor() {
     // Token is now stored in HttpOnly cookie by the server
     // No need to read from localStorage (more secure against XSS)
     this.token = null
+    this.mailboxOwner = undefined
   }
 
   setToken(token: string | null): void {
     this.token = token
+  }
+
+  // setMailboxOwner switches the active mailbox for subsequent mail calls.
+  // Pass undefined (or the user's own address) to return to the personal mailbox.
+  setMailboxOwner(owner: string | undefined): void {
+    this.mailboxOwner = owner
   }
 
   async request<T = unknown>(endpoint: string, options: RequestOptions = {}): Promise<T> {
@@ -509,14 +528,15 @@ class API {
     await this.delete(`/sessions/${encodeURIComponent(id)}`)
   }
 
-  // Mail
-  async getMail(folder: string): Promise<{ emails?: Mail[] }> {
-    return this.get<{ emails?: Mail[] }>(`/mail/${folder}`)
+  // Mail. An optional `owner` targets a shared mailbox the caller has access to,
+  // so the same endpoints serve both the personal and shared mailbox views.
+  async getMail(folder: string, owner?: string): Promise<{ emails?: Mail[] }> {
+    return this.get<{ emails?: Mail[] }>(`/mail/${folder}${ownerQuery(owner ?? this.mailboxOwner, '?')}`)
   }
 
   // getMessage fetches a single message by id (resolved across all folders).
-  async getMessage(id: string): Promise<Mail> {
-    return this.get<Mail>(`/mail/message?id=${encodeURIComponent(id)}`)
+  async getMessage(id: string, owner?: string): Promise<Mail> {
+    return this.get<Mail>(`/mail/message?id=${encodeURIComponent(id)}${ownerQuery(owner ?? this.mailboxOwner, '&')}`)
   }
 
   // downloadAttachment fetches one attachment of a received message by index and
@@ -611,8 +631,8 @@ class API {
     return this.post<{ id: string }>('/mail/draft', draft)
   }
 
-  async deleteMail(id: string): Promise<void> {
-    await this.delete(`/mail/delete?id=${id}`)
+  async deleteMail(id: string, owner?: string): Promise<void> {
+    await this.delete(`/mail/delete?id=${encodeURIComponent(id)}${ownerQuery(owner ?? this.mailboxOwner, '&')}`)
   }
 
   // recallMail attempts to unsend a message the caller authored: each local
@@ -623,15 +643,16 @@ class API {
   }
 
   // setFlag sets or clears an IMAP flag (\\Seen for read, \\Flagged for star)
-  // on a message so the state persists server-side.
-  async setFlag(id: string, flag: '\\Seen' | '\\Flagged', value: boolean): Promise<void> {
-    await this.post('/mail/flag', { id, flag, value })
+  // on a message so the state persists server-side. owner targets a shared
+  // mailbox (it rides the query string, which the handler reads for access).
+  async setFlag(id: string, flag: '\\Seen' | '\\Flagged', value: boolean, owner?: string): Promise<void> {
+    await this.post(`/mail/flag${ownerQuery(owner ?? this.mailboxOwner, '?')}`, { id, flag, value })
   }
 
   // moveMail moves a message to another folder (e.g. "inbox" to restore from
   // Trash, or "archive" to archive).
-  async moveMail(id: string, to: string): Promise<void> {
-    await this.post('/mail/move', { id, to })
+  async moveMail(id: string, to: string, owner?: string): Promise<void> {
+    await this.post(`/mail/move${ownerQuery(owner ?? this.mailboxOwner, '?')}`, { id, to })
   }
 
   // Filters

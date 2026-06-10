@@ -319,6 +319,28 @@ func (h *MailHandler) formatFromHeader(senderEmail string) string {
 	return senderEmail
 }
 
+// requireMailboxAccess resolves which mailbox a request operates on. With no
+// `owner` query parameter (or owner == caller) it returns the caller's own
+// mailbox. With a shared `owner` it verifies the caller holds the `required`
+// ACL right on the owner's INBOX — the grant that opens a shared mailbox — and
+// returns the owner so the handler reads/writes the shared store instead. The
+// second return is false when access is denied, and the handler should answer
+// 403. Read views pass storage.ACLRead; management actions pass storage.ACLWrite.
+func (h *MailHandler) requireMailboxAccess(r *http.Request, caller string, required storage.ACLRights) (string, bool) {
+	owner := strings.TrimSpace(r.URL.Query().Get("owner"))
+	if owner == "" || strings.EqualFold(owner, caller) {
+		return caller, true
+	}
+	if h.mailDB == nil {
+		return "", false
+	}
+	rights, err := h.mailDB.GetACL(owner, "INBOX", caller)
+	if err != nil || rights&required != required {
+		return "", false
+	}
+	return owner, true
+}
+
 // sendError sends a JSON error response
 func (h *MailHandler) sendError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -373,6 +395,15 @@ func (h *MailHandler) handleMailList(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
+
+	// Shared mailbox: when ?owner= names a mailbox the caller has read access
+	// to, list that mailbox's folder instead of the caller's own.
+	target, allowed := h.requireMailboxAccess(r, userEmail, storage.ACLRead)
+	if !allowed {
+		h.sendError(w, http.StatusForbidden, "No access to that shared mailbox")
+		return
+	}
+	userEmail = target
 
 	// Parse folder from the query, falling back to the URL path segment
 	// (routes are path-based: /api/v1/mail/<folder>). Without this the path
@@ -519,6 +550,15 @@ func (h *MailHandler) handleMailGet(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
+
+	// Shared mailbox: read another mailbox's message when ?owner= is set and the
+	// caller has read access to it.
+	target, allowed := h.requireMailboxAccess(r, userEmail, storage.ACLRead)
+	if !allowed {
+		h.sendError(w, http.StatusForbidden, "No access to that shared mailbox")
+		return
+	}
+	userEmail = target
 
 	emailID := r.URL.Query().Get("id")
 
@@ -977,6 +1017,15 @@ func (h *MailHandler) handleMailDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	userEmail := userVal.(string)
 
+	// Shared mailbox: delete from another mailbox when ?owner= is set and the
+	// caller has write access to it.
+	target, allowed := h.requireMailboxAccess(r, userEmail, storage.ACLWrite)
+	if !allowed {
+		h.sendError(w, http.StatusForbidden, "No access to that shared mailbox")
+		return
+	}
+	userEmail = target
+
 	// Extract message ID from query string or request body
 	var messageID string
 
@@ -1130,6 +1179,15 @@ func (h *MailHandler) handleMailFlag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Shared mailbox: flag a message in another mailbox when ?owner= is set and
+	// the caller has write access to it.
+	target, allowed := h.requireMailboxAccess(r, userEmail, storage.ACLWrite)
+	if !allowed {
+		h.sendError(w, http.StatusForbidden, "No access to that shared mailbox")
+		return
+	}
+	userEmail = target
+
 	var req flagRequest
 	if err := decodeJSON(r, &req); err != nil {
 		h.sendError(w, http.StatusBadRequest, "Invalid request")
@@ -1273,6 +1331,15 @@ func (h *MailHandler) handleMailMove(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
+
+	// Shared mailbox: move a message within another mailbox when ?owner= is set
+	// and the caller has write access to it.
+	target, allowed := h.requireMailboxAccess(r, userEmail, storage.ACLWrite)
+	if !allowed {
+		h.sendError(w, http.StatusForbidden, "No access to that shared mailbox")
+		return
+	}
+	userEmail = target
 
 	var req moveRequest
 	if err := decodeJSON(r, &req); err != nil {

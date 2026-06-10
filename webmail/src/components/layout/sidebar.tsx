@@ -364,12 +364,11 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
   // Check if we're in a shared mailbox context
   const isInSharedContext = currentMailbox.type === 'shared'
 
-  // Handle switching to a shared mailbox
+  // Handle switching to a shared mailbox: point the mail context at the owner,
+  // then land on the inbox, which now renders the shared mailbox's messages.
   const handleSharedMailboxClick = (mb: SharedMailboxItem) => {
-    // Navigate to the shared mailbox inbox with the context
-    navigate(`/shared/${encodeURIComponent(mb.owner)}/inbox`)
-    // Also update the mailbox context
     switchMailbox(mb.mailbox, mb.owner)
+    navigate('/inbox')
   }
 
   // Handle switching back to personal mailbox

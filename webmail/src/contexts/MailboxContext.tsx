@@ -59,11 +59,13 @@ export function MailboxProvider({ children, personalEmail }: { children: React.R
   const [inboxLoading, setInboxLoading] = useState(true)
 
   // fetchInbox pulls the inbox without toggling the loading flag, so background
-  // polling does not flash the skeleton.
+  // polling does not flash the skeleton. When a shared mailbox is active it
+  // fetches the owner's inbox instead, so switching mailboxes swaps the view.
+  const sharedOwner = currentMailbox.type === 'shared' ? currentMailbox.owner : undefined
   const fetchInbox = useCallback(async () => {
-    const res = await api.getMail('inbox')
+    const res = await api.getMail('inbox', sharedOwner)
     setInboxEmails(res.emails ?? [])
-  }, [])
+  }, [sharedOwner])
 
   const refreshInbox = useCallback(async () => {
     setInboxLoading(true)
@@ -134,7 +136,8 @@ export function MailboxProvider({ children, personalEmail }: { children: React.R
 
   const switchMailbox = useCallback((email: string, owner?: string) => {
     if (owner && owner !== email) {
-      // This is a shared mailbox
+      // This is a shared mailbox: route every subsequent mail call to the owner.
+      api.setMailboxOwner(owner)
       setCurrentMailbox({
         type: 'shared',
         email,
@@ -142,6 +145,7 @@ export function MailboxProvider({ children, personalEmail }: { children: React.R
       })
     } else {
       // Personal mailbox
+      api.setMailboxOwner(undefined)
       setCurrentMailbox({
         type: 'personal',
         email
@@ -150,6 +154,7 @@ export function MailboxProvider({ children, personalEmail }: { children: React.R
   }, [])
 
   const switchToPersonal = useCallback(() => {
+    api.setMailboxOwner(undefined)
     setCurrentMailbox({
       type: 'personal',
       email: personalEmail
