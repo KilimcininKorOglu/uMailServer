@@ -28,9 +28,10 @@
 //
 // This is a decoder (read path) only — it does not generate TNEF. The message
 // body is taken from PR_BODY (plain text) and PR_HTML (HTML); PR_RTF_COMPRESSED
-// is LZFu-decompressed and exposed as Message.RTF, but RTF-to-HTML
-// de-encapsulation is intentionally left to a follow-up and is noted in Report
-// when RTF is the only body carrier.
+// is LZFu-decompressed and exposed as Message.RTF. When PR_HTML is absent and the
+// decompressed RTF is HTML-encapsulated, the original HTML is recovered into
+// Message.BodyHTML per MS-OXRTFEX; a \fromtext or ordinary RTF body is left as
+// Message.RTF only and noted in Report.
 package tnef
 
 import (
@@ -110,10 +111,11 @@ type Message struct {
 	Attachments []Attachment
 	// BodyText is the PR_BODY plain-text body, if present.
 	BodyText string
-	// BodyHTML is the PR_HTML body, if present.
+	// BodyHTML is the HTML body: PR_HTML when present, otherwise the HTML
+	// recovered from HTML-encapsulated PR_RTF_COMPRESSED (MS-OXRTFEX).
 	BodyHTML string
-	// RTF is the LZFu-decompressed PR_RTF_COMPRESSED body, if present. It is not
-	// de-encapsulated to HTML here (see package doc).
+	// RTF is the LZFu-decompressed PR_RTF_COMPRESSED body, if present. When it is
+	// HTML-encapsulated it is also de-encapsulated into BodyHTML (see package doc).
 	RTF []byte
 }
 
@@ -246,6 +248,14 @@ func Parse(b []byte) (*Message, Report, error) {
 	}
 	finish()
 
+	// When the only body carrier is compressed RTF, recover the original HTML if
+	// the RTF is HTML-encapsulated (MS-OXRTFEX); a \fromtext or ordinary RTF body
+	// is left as-is and surfaced in Report below.
+	if msg.BodyHTML == "" && len(msg.RTF) > 0 {
+		if html, ok := deEncapsulateHTML(msg.RTF); ok {
+			msg.BodyHTML = html
+		}
+	}
 	if msg.BodyText == "" && msg.BodyHTML == "" && len(msg.RTF) > 0 {
 		rep.note("body present only as compressed RTF (not de-encapsulated to HTML)")
 	}

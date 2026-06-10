@@ -352,6 +352,93 @@ func TestDecompressRTFBackReference(t *testing.T) {
 	}
 }
 
+func TestDeEncapsulateBasicTagsAndText(t *testing.T) {
+	// The original HTML is split between \*\htmltag destinations (the markup) and
+	// the visible text outside them; a \fonttbl destination produces no output.
+	rtf := []byte(`{\rtf1\ansi\ansicpg1252\fromhtml1\deff0{\fonttbl{\f0\fswiss Arial;}}` +
+		`{\*\htmltag <html><body>}Hello world{\*\htmltag </body></html>}}`)
+	got, ok := deEncapsulateHTML(rtf)
+	if !ok {
+		t.Fatalf("deEncapsulateHTML ok = false, want true")
+	}
+	if want := "<html><body>Hello world</body></html>"; got != want {
+		t.Errorf("html = %q, want %q", got, want)
+	}
+}
+
+func TestDeEncapsulateSuppressesHTMLRTF(t *testing.T) {
+	// Content between \htmlrtf and \htmlrtf0 is RTF-only (approximate formatting)
+	// and MUST NOT be copied to the HTML output.
+	rtf := []byte(`{\rtf1\ansi\fromhtml1{\*\htmltag <p>}Keep\htmlrtf\b\f3 drop\htmlrtf0 me{\*\htmltag </p>}}`)
+	got, ok := deEncapsulateHTML(rtf)
+	if !ok {
+		t.Fatalf("deEncapsulateHTML ok = false, want true")
+	}
+	if want := "<p>Keepme</p>"; got != want {
+		t.Errorf("html = %q, want %q (the \\htmlrtf region must be dropped)", got, want)
+	}
+}
+
+func TestDeEncapsulateConversions(t *testing.T) {
+	cases := []struct {
+		name string
+		rtf  string
+		want string
+		ok   bool
+	}{
+		{"tab", `{\rtf1\fromhtml1 a\tab b}`, "a\tb", true},
+		{"par", `{\rtf1\fromhtml1 a\par b}`, "a\r\nb", true},
+		{"braces", `{\rtf1\fromhtml1 \{x\}}`, "{x}", true},
+		{"backslash", `{\rtf1\fromhtml1 a\\b}`, "a\\b", true},
+		{"quotes", `{\rtf1\fromhtml1 \lquote\rquote\ldblquote\rdblquote}`, "‘’“”", true},
+		{"dashes", `{\rtf1\fromhtml1 \bullet\endash\emdash}`, "•–—", true},
+		{"nbsp", `{\rtf1\fromhtml1 x\~y}`, "x y", true},
+		{"cp1252 hex", `{\rtf1\fromhtml1 \'93hi\'94}`, "“hi”", true},
+		{"unicode with fallback skip", `{\rtf1\fromhtml1\uc1 a\u` + `8217 ?b}`, "a’b", true},
+		{"fromtext is not html", `{\rtf1\fromtext1 hello}`, "", false},
+		{"plain rtf is not html", `{\rtf1\ansi hello}`, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := deEncapsulateHTML([]byte(c.rtf))
+			if ok != c.ok {
+				t.Fatalf("ok = %v, want %v (got %q)", ok, c.ok, got)
+			}
+			if ok && got != c.want {
+				t.Errorf("html = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestParseDeEncapsulatesRTFBody(t *testing.T) {
+	// End to end: a winmail.dat whose only body carrier is HTML-encapsulated
+	// PR_RTF_COMPRESSED must surface the recovered HTML in BodyHTML, with no
+	// "only compressed RTF" note (the body was not lost).
+	raw := []byte(`{\rtf1\fromhtml1{\*\htmltag <p>}Hi{\*\htmltag </p>}}`)
+	stream := tnefStream(
+		buildAttr(0x01, attMsgProps, propBlock(propBinary(0x1009, rtfcpUncompressed(raw)))),
+	)
+	msg, rep, err := Parse(stream)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if want := "<p>Hi</p>"; msg.BodyHTML != want {
+		t.Errorf("BodyHTML = %q, want %q", msg.BodyHTML, want)
+	}
+	if msg.BodyText != "" {
+		t.Errorf("BodyText = %q, want empty", msg.BodyText)
+	}
+	if !bytes.Equal(msg.RTF, raw) {
+		t.Errorf("RTF = %q, want %q", msg.RTF, raw)
+	}
+	for _, n := range rep.Notes {
+		if strings.Contains(n, "compressed RTF") {
+			t.Errorf("unexpected RTF-only note after successful de-encapsulation: %q", n)
+		}
+	}
+}
+
 func TestParseBodyOnlyRTFNoted(t *testing.T) {
 	// When the body exists only as compressed RTF, the decoder exposes the RTF
 	// and records that it was not de-encapsulated (Rule 10: surface, don't drop).
