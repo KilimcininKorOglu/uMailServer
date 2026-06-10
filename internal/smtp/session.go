@@ -161,9 +161,20 @@ func (s *Session) HandleCommand(line string) error {
 	cmd = strings.ToUpper(cmd)
 
 	switch cmd {
+	case "LHLO":
+		if !s.server.config.IsLMTP {
+			return s.WriteResponse(500, "5.5.1 LHLO is only valid for LMTP")
+		}
+		return s.handleEHLO(arg)
 	case "EHLO":
+		if s.server.config.IsLMTP {
+			return s.WriteResponse(500, "5.5.1 This is an LMTP server; use LHLO")
+		}
 		return s.handleEHLO(arg)
 	case "HELO":
+		if s.server.config.IsLMTP {
+			return s.WriteResponse(500, "5.5.1 This is an LMTP server; use LHLO")
+		}
 		return s.handleHELO(arg)
 	case "MAIL":
 		return s.handleMAIL(arg)
@@ -607,6 +618,32 @@ func (s *Session) handleDATA() error {
 		msgID := fmt.Sprintf("Message-ID: <%s@%s>\r\n", s.id, s.server.config.Hostname)
 		data = append([]byte(msgID), data...)
 		s.data = data
+	}
+
+	// LMTP (RFC 2033): deliver to each recipient independently and emit one reply
+	// per recipient, in RCPT order, reusing the sieve delivery hook per recipient.
+	if s.server.config.IsLMTP {
+		for _, rcpt := range s.rcptTo {
+			var derr error
+			switch {
+			case s.server.onDeliverWithSieve != nil:
+				derr = s.server.onDeliverWithSieve(s.mailFrom, []string{rcpt}, s.data, s.sieveActions)
+			case s.server.onDeliver != nil:
+				derr = s.server.onDeliver(s.mailFrom, []string{rcpt}, s.data)
+			}
+			if derr != nil {
+				s.server.logger.Error("LMTP delivery failed", "recipient", rcpt, "error", derr)
+				if werr := s.WriteResponse(450, fmt.Sprintf("4.2.0 <%s> delivery failed", rcpt)); werr != nil {
+					return werr
+				}
+				continue
+			}
+			if werr := s.WriteResponse(250, fmt.Sprintf("2.1.5 <%s> delivered", rcpt)); werr != nil {
+				return werr
+			}
+		}
+		s.resetTransaction()
+		return nil
 	}
 
 	// Deliver now, or hold for a future FUTURERELEASE time.

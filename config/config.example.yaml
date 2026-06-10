@@ -69,6 +69,17 @@ smtp:
     require_auth: true
     max_connections: 10000    # 0 = unlimited
 
+  # LMTP (RFC 2033) local-delivery listener for a front-end MTA (e.g. Postfix).
+  # Local recipients only and unauthenticated, so bind to a trusted address
+  # (loopback). Disabled by default.
+  lmtp:
+    enabled: false
+    bind: "127.0.0.1"
+    port: 24
+    max_message_size: 50MB
+    max_recipients: 100
+    max_connections: 100      # 0 = unlimited
+
 # ============================================
 # IMAP / POP3 / MANAGESIEVE
 # ============================================

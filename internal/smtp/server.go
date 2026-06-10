@@ -243,6 +243,7 @@ type Config struct {
 	RequireAuth  bool // Reject MAIL FROM if not authenticated (submission mode)
 	RequireTLS   bool // Require TLS before AUTH
 	IsSubmission bool // Submission server mode (port 587/465)
+	IsLMTP       bool // LMTP server mode (RFC 2033): LHLO + per-recipient DATA replies
 
 	// FUTURERELEASE (RFC 4865) advertisement. When enabled on a submission
 	// listener, EHLO advertises FUTURERELEASE and MAIL FROM accepts HOLDFOR/

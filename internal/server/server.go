@@ -111,6 +111,7 @@ type Server struct {
 	// Submission SMTP servers (ports 587/465)
 	submissionServer    *smtp.Server
 	submissionTLSServer *smtp.Server
+	lmtpServer          *smtp.Server
 
 	// Search indexing worker pool
 	indexWork chan indexJob

@@ -179,6 +179,12 @@ func (s *Server) restartSMTP() {
 		}
 		s.submissionTLSServer = nil
 	}
+	if s.lmtpServer != nil {
+		if err := s.lmtpServer.Stop(); err != nil {
+			s.logger.Error("reload: failed to stop LMTP server", "error", err)
+		}
+		s.lmtpServer = nil
+	}
 	s.startSMTP()
 }
 

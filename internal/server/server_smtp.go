@@ -281,6 +281,39 @@ func (s *Server) startSMTP() {
 		s.submissionTLSServer = submissionTLSServer
 		s.logger.Info("Submission TLS server started", "addr", submissionTLSAddr)
 	}
+
+	// LMTP server (RFC 2033): final local delivery for a front-end MTA. Local
+	// recipients only (the anti-relay policy), unauthenticated, no TLS — bind it
+	// to a trusted address. Each recipient is delivered through the shared submit
+	// path (which runs the recipient's Sieve and files no Sent copy), and the
+	// session emits one reply per recipient.
+	if s.cfg().SMTP.LMTP.Enabled {
+		lmtpAddr := fmt.Sprintf("%s:%d", s.cfg().SMTP.LMTP.Bind, s.cfg().SMTP.LMTP.Port)
+		lmtpCfg := &smtp.Config{
+			Hostname:       s.cfg().Server.Hostname,
+			MaxMessageSize: int64(s.cfg().SMTP.LMTP.MaxMessageSize),
+			MaxRecipients:  s.cfg().SMTP.LMTP.MaxRecipients,
+			MaxConnections: s.cfg().SMTP.LMTP.MaxConnections,
+			ReadTimeout:    s.cfg().SMTP.LMTP.ReadTimeout.ToDuration(),
+			WriteTimeout:   s.cfg().SMTP.LMTP.WriteTimeout.ToDuration(),
+			IsLMTP:         true,
+		}
+		lmtpServer := smtp.NewServer(lmtpCfg, s.logger)
+		lmtpServer.SetDeliveryHandlerWithSieve(func(from string, to []string, data []byte, _ []string) error {
+			return s.submitMessageWithSieve(from, to, data)
+		})
+		lmtpServer.SetLocalDomainFunc(s.isLocalDomainName)
+		lmtpServer.SetRecipientPolicyFunc(s.checkRecipientPolicy)
+		lmtpServer.SetTracingProvider(s.tracingProvider)
+
+		go func() {
+			if err := lmtpServer.ListenAndServe(lmtpAddr); err != nil {
+				s.logger.Error("LMTP server error", "error", err)
+			}
+		}()
+		s.lmtpServer = lmtpServer
+		s.logger.Info("LMTP server started", "addr", lmtpAddr)
+	}
 }
 
 // isLocalDomainName reports whether the given domain is a locally hosted,

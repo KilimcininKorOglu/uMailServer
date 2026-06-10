@@ -115,10 +115,26 @@ type SMTPConfig struct {
 	Inbound       InboundSMTPConfig    `yaml:"inbound"`
 	Submission    SubmissionSMTPConfig `yaml:"submission"`
 	SubmissionTLS SubmissionTLSConfig  `yaml:"submission_tls"`
+	LMTP          LMTPSMTPConfig       `yaml:"lmtp"`
 }
 
 // InboundSMTPConfig holds MX/inbound SMTP settings
 type InboundSMTPConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	Port           int      `yaml:"port"`
+	Bind           string   `yaml:"bind"`
+	MaxMessageSize Size     `yaml:"max_message_size"`
+	MaxRecipients  int      `yaml:"max_recipients"`
+	MaxConnections int      `yaml:"max_connections"`
+	ReadTimeout    Duration `yaml:"read_timeout"`
+	WriteTimeout   Duration `yaml:"write_timeout"`
+}
+
+// LMTPSMTPConfig holds the LMTP (RFC 2033) local-delivery listener settings. LMTP
+// lets a front-end MTA hand mail off for final local delivery; the listener
+// accepts only local recipients and is unauthenticated, so bind it to a trusted
+// address (loopback by default).
+type LMTPSMTPConfig struct {
 	Enabled        bool     `yaml:"enabled"`
 	Port           int      `yaml:"port"`
 	Bind           string   `yaml:"bind"`
@@ -713,6 +729,9 @@ func (c *Config) Validate() error {
 	if c.SMTP.Submission.Enabled && c.SMTP.Submission.Port <= 0 {
 		return fmt.Errorf("smtp.submission.port must be positive")
 	}
+	if c.SMTP.LMTP.Enabled && c.SMTP.LMTP.Port <= 0 {
+		return fmt.Errorf("smtp.lmtp.port must be positive")
+	}
 	if c.IMAP.Enabled && c.IMAP.Port <= 0 {
 		return fmt.Errorf("imap.port must be positive")
 	}
@@ -1001,6 +1020,9 @@ func (c *Config) checkPortConflicts() error {
 		return err
 	}
 	if err := checkPort(c.SMTP.Submission.Port, "smtp.submission"); err != nil {
+		return err
+	}
+	if err := checkPort(c.SMTP.LMTP.Port, "smtp.lmtp"); err != nil {
 		return err
 	}
 	if err := checkPort(c.SMTP.SubmissionTLS.Port, "smtp.submission_tls"); err != nil {

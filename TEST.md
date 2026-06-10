@@ -12,6 +12,7 @@
   - `helper-projects/proto_imap.py` (IMAP) + `proto_imap_ext.py` (IDLE/CONDSTORE/MOVE/SORT/THREAD/ESEARCH/MULTIAPPEND/ENABLE/NAMESPACE/ID/COMPRESS/ACL derinliği)
   - `helper-projects/proto_pop3.py` (POP3) + `proto_pop3_ext.py` (CAPA/NOOP/kilitlenme + DELE kalıcılığı)
   - `helper-projects/proto_smtp.py` (SMTP submission + inbound) + `proto_smtp_security.py` (SPF/DKIM/DMARC/ARC sonuçları, giden DKIM, DSN, BDAT/CHUNKING, AUTH mekanizmaları)
+  - `helper-projects/proto_lmtp.py` (LMTP yerel teslim: LHLO selamlaması, EHLO'nun reddi, MAIL/RCPT/DATA, nokta sonrası alıcı-başına yanıt, mesajın posta kutusuna düşmesi; LMTP portu kapalıysa zarif SKIP)
   - `helper-projects/proto_managesieve.py` (ManageSieve) + `proto_sieve_exec.py` (fileinto/redirect/discard/reject/imap4flags/vacation'ın teslimde gerçekten çalışması)
   - `helper-projects/proto_caldav.py` (CalDAV), `proto_carddav.py` (CardDAV) + `proto_dav_ext.py` (ETag/CTag, If-Match 412, PROPPATCH, OPTIONS, VTODO, çapraz yüzey)
   - `helper-projects/proto_mapi.py` (MAPI/HTTP — NSPI + OAB) + `proto_mapi_ext.py` (GetGAL, object_class, 100 kaydı sınırı, HiddenFromGAL, OAB artımlı)
@@ -475,6 +476,7 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 - `helper-projects/default_folders_probe.py` — standart klasörlerin tüm protokollerde görünürlüğü
 - `helper-projects/proto_imap_ext.py` — IMAP derinliği: IDLE bildirimi, CONDSTORE/HIGHESTMODSEQ, MOVE/UIDPLUS, SORT/THREAD, SEARCH/ESEARCH, MULTIAPPEND, ENABLE, NAMESPACE, ID, COMPRESS, ACL, AUTHENTICATE
 - `helper-projects/proto_smtp_security.py` — gelen SPF/DKIM/DMARC/ARC `Authentication-Results`, giden DKIM imzası, DSN, BDAT/CHUNKING, AUTH mekanizmaları
+- `helper-projects/proto_lmtp.py` — LMTP (RFC 2033) yerel teslim: 220 selamı sonrası EHLO 500 ile reddedilir (LMTP yalnız LHLO konuşur), LHLO 250 yetenekleriyle kabul edilir, MAIL FROM/RCPT TO (yerel alıcı)/DATA, nokta sonrası alıcı-başına tam bir 2xx yanıt, mesaj alıcının posta kutusuna düşer (API ile doğrulanır); LMTP portu erişilemezse (varsayılan kapalı) zarif SKIP
 - `helper-projects/proto_sieve_exec.py` — Sieve aksiyonlarının teslimde yürütülmesi: fileinto/redirect/discard/reject/imap4flags/vacation (tek otomatik yanıt)
 - `helper-projects/proto_jmap_ext.py` — JMAP derinliği: Thread/Identity/VacationResponse, Mailbox query+set+changes, Email changes+import, blob upload/download, EventSource, SearchSnippet, takvim/kişi/not metotları
 - `helper-projects/proto_pop3_ext.py` — POP3 derinliği: CAPA/NOOP, kimlik kilitleme, DELE+QUIT kalıcılığı
