@@ -17,7 +17,7 @@ func leU32(b *bytes.Buffer, v uint32) {
 // --- spec-faithful builders (independent of the parser's own helpers) --------
 
 // buildAttr emits one TNEF attribute: level, id(u32 LE), len(u32 LE), payload,
-// checksum(u16 LE). It is written from the MS-OXTNEF / Exchange layout directly so
+// checksum(u16 LE). It is written from the MS-OXTNEF layout directly so
 // the parser is validated against the spec, not against itself.
 func buildAttr(level byte, id uint32, payload []byte) []byte {
 	var b bytes.Buffer

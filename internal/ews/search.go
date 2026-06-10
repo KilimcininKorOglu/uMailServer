@@ -84,9 +84,8 @@ type SearchFilter struct {
 	IsLessThanOrEqualTo    *ComparisonFilter `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsLessThanOrEqualTo"`
 }
 
-// ContainsFilter represents the EWS Contains element. Per the EWS schema (and the
-// Exchange reference implementation, the MS-OXWSCDATA schema the contains-match builder/the constant loader),
-// the field is a <t:FieldURI FieldURI="..."/> element and the constant is a
+// ContainsFilter represents the EWS Contains element. Per the EWS schema
+// (MS-OXWSCDATA), the field is a <t:FieldURI FieldURI="..."/> element and the constant is a
 // <t:Constant Value="..."/> element with the value carried as an attribute.
 type ContainsFilter struct {
 	FieldURI         *FieldURI         `xml:"http://schemas.microsoft.com/exchange/services/2006/types FieldURI"`

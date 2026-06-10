@@ -379,7 +379,7 @@ func CompileOOFConditionalVacation(policy *OOFPolicy) string {
 	// as a Sieve `currentdate` test. Our interpreter does not evaluate
 	// `currentdate`, and a static script compiled once cannot re-evaluate the
 	// window at each delivery anyway. Instead the window is enforced at delivery
-	// time via OOFPolicy.IsActiveNow() before the auto-reply is sent — the same
+	// time via OOFPolicy.IsActiveNow() before the auto-reply is sent — the
 	// server-side evaluation model Exchange uses for its autoreply properties.
 
 	// Vacation action

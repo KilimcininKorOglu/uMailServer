@@ -17,7 +17,7 @@ type GetUserPhotoRequest struct {
 }
 
 // handleGetUserPhoto serves a user's profile photo from the account's stored
-// avatar as base64 PictureData. The response shape mirrors Exchange/Exchange:
+// avatar as base64 PictureData. The response shape mirrors Exchange:
 // m:GetUserPhotoResponse with HasChanged (always true) and PictureData.
 func (s *Server) handleGetUserPhoto(_ context.Context, body []byte) []byte {
 	var req GetUserPhotoRequest

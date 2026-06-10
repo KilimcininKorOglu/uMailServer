@@ -6,15 +6,11 @@
 // # Format
 //
 // The byte layout is the Outlook 2016/2019/2021 (and Microsoft 365) rules
-// stream. It is grounded in two independent reverse-engineered sources, which
-// agree byte-for-byte for this version:
-//
-//   - a published Outlook rule-format specification (specification)
-//   - the reference parser (a working TypeScript parser, with byte-level
-//     test constructors in the documented Outlook rule layout)
-//
-// The writer mirrors the reference parser's layout exactly, so its output round-trips
-// through this package's reader and parses with the independent the reference parser.
+// stream. It is grounded in two independent reverse-engineered sources that
+// agree byte-for-byte for this version — a published Outlook rule-format
+// specification and a working reference parser with byte-level test
+// constructors. The writer mirrors that reference layout exactly, so its output
+// round-trips through this package's reader and parses with the reference parser.
 //
 // # Verification limitation (read this)
 //
@@ -70,7 +66,7 @@ const (
 	ruleClassName   = "CRuleElement"
 )
 
-// Element ids we map to/from the canonical model (Exchange condition/action codes).
+// Element ids we map to/from the canonical model (Outlook condition/action codes).
 const (
 	elemUnknown64           = 0x64  // mandatory, no UI meaning
 	elemApplyRule           = 0x190 // mandatory: receive vs send marker

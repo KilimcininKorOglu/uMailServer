@@ -1477,7 +1477,7 @@ func humanBytes(n int64) string {
 // cmdMbsize reports mailbox storage size: per-folder message count and bytes for
 // a single mailbox (plus the QuotaUsed counter vs the computed size and the
 // effective quota), or a one-line-per-account summary for a whole domain / all
-// accounts. It is the read-only counterpart of Exchange mbsize. Run with the server
+// accounts. It is a read-only per-mailbox storage size report. Run with the server
 // STOPPED on bbolt (single-writer); postgres runs concurrently.
 func cmdMbsize(args []string) {
 	fs := flag.NewFlagSet("mbsize", flag.ExitOnError)

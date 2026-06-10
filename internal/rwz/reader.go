@@ -145,7 +145,7 @@ func (r *reader) stringASCIIUntilNUL() string {
 }
 
 // ---------------------------------------------------------------------------
-// PropertyValueArray (= Exchange PropertyValueArray, MS-OXCDATA PropertyValueArray)
+// PropertyValueArray (the MS-OXCDATA PropertyValueArray)
 // ---------------------------------------------------------------------------
 
 // propVal is one decoded property: the kind plus either an inline integer or a

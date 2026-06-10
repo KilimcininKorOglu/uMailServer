@@ -673,8 +673,8 @@ func (s *Server) handleCreateItem(ctx context.Context, body []byte) []byte {
 			msg = s.submitMessageItem(ctx, mboxID, ownerEmail, folderID, item, nil, delegateCtx, itemIsSendOnBehalf, sendAndSaveCopy)
 		case isStickyNoteClass(item.ItemClass):
 			// Outlook notes are IPM.StickyNote messages in the Notes folder
-			// (Exchange-faithful). Store them in the notes folder, not the
-			// CreateItem default (drafts), regardless of SavedItemFolderId.
+			// (matching Exchange's model). Store them in the notes folder, not
+			// the CreateItem default (drafts), regardless of SavedItemFolderId.
 			msg = s.createNoteItem(ctx, mboxID, ownerEmail, req, item, delegateCtx)
 		default:
 			msg = s.createItemInFolder(ctx, mboxID, ownerEmail, folderID, item, delegateCtx, itemIsSendOnBehalf)
@@ -869,7 +869,7 @@ func (s *Server) createItemInFolder(ctx context.Context, mboxID semcore.MailboxI
 
 // isStickyNoteClass reports whether an EWS ItemClass identifies an Outlook note.
 // Matches "IPM.StickyNote" and any subclass ("IPM.StickyNote.*"), mirroring
-// Exchange's the item-class prefix match routing for notes.
+// Exchange's item-class prefix routing for notes.
 func isStickyNoteClass(itemClass string) bool {
 	c := strings.ToLower(strings.TrimSpace(itemClass))
 	return c == "ipm.stickynote" || strings.HasPrefix(c, "ipm.stickynote.")
@@ -1147,7 +1147,7 @@ func generateMessageID() string {
 // present. PidTagDeferredSendTime (0x3FEF, an absolute UTC instant) wins;
 // otherwise the relative PidTagDeferredSendNumber (0x3FEB) is added to now in the
 // unit named by PidTagDeferredSendUnits (0x3FEC: 0=minutes, 1=hours, 2=days,
-// 3=weeks). Semantics mirror MS-OXOMSG / Exchange the deferred-send interval.
+// 3=weeks). Semantics follow MS-OXOMSG (PidTagDeferredSendNumber/Units).
 func deferredSendTime(props []ExtendedPropertyType, now time.Time) time.Time {
 	number, units := 0, 0
 	haveNumber, haveUnits := false, false
@@ -1788,8 +1788,8 @@ func (s *Server) getItemByID(ctx context.Context, mboxID semcore.MailboxId, mbox
 		return errorItemMsg("GetItem", ErrErrorAccessDenied, "item belongs to a different mailbox")
 	}
 
-	// ChangeKey is intentionally NOT validated on reads. Standard EWS (and
-	// Exchange) resolve GetItem purely by item id; the ChangeKey is an
+	// ChangeKey is intentionally NOT validated on reads. Standard EWS resolves
+	// GetItem purely by item id; the ChangeKey is an
 	// optimistic-concurrency token used only by write operations. Validating
 	// it here would reject a client refreshing an item whose ChangeKey was
 	// advanced out of band (e.g. after DeleteAttachment).

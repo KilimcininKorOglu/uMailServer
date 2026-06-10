@@ -45,7 +45,7 @@ func (s *Server) handleSieveVacation(sender, recipient string, vacation sieve.Va
 
 	// Enforce the OOF schedule window at delivery time. The compiled Sieve
 	// script fires whenever OOF is enabled; the actual start/end window is
-	// evaluated here (server-side, like Exchange) so a Scheduled policy only
+	// evaluated here (server-side) so a Scheduled policy only
 	// auto-replies while it is genuinely active. Gate ONLY on an *enabled*
 	// policy that is currently out of window: a disabled OOF policy never
 	// contributes a vacation action to the compiled script, so a vacation

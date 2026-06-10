@@ -5,11 +5,9 @@
 //
 // # Format
 //
-// The wire layout is grounded in the read-only Exchange reference codec:
-//
-//   - the MS-OXTNEF specification  (TNEF attribute + MAPI property
-//     block layout, attribute-id and property-tag constants)
-//   - the MS-OXRTFCP specification (compressed-RTF / LZFu)
+// The wire layout follows the MS-OXTNEF specification (TNEF attribute and MAPI
+// property block layout, attribute-id and property-tag constants) and MS-OXRTFCP
+// (compressed-RTF / LZFu).
 //
 // A TNEF stream is a 6-byte header (signature uint32 0x223e9f78 + key uint16)
 // followed by length-prefixed attributes. Each attribute is:
@@ -48,7 +46,7 @@ import (
 const signature = 0x223e9f78
 
 // Attribute ids (full 32-bit values, type word in the high 16 bits). Names and
-// values mirror Exchange the MS-OXTNEF specification.
+// values follow the MS-OXTNEF attribute definitions.
 const (
 	attBody           = 0x0002800C // message plain-text body (raw payload)
 	attMessageClass   = 0x00078008 // message class (raw payload)
@@ -59,7 +57,7 @@ const (
 	attAttachment     = 0x00069005 // per-attachment MAPI property block
 )
 
-// MAPI property tags, computed as (id<<16)|type per Exchange PROP_TAG. String tags
+// MAPI property tags, computed as (id<<16)|type per the MAPI PROP_TAG convention. String tags
 // are matched by id (high 16 bits) so either the PT_UNICODE or PT_STRING8 form
 // is accepted.
 const (

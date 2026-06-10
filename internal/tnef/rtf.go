@@ -5,9 +5,9 @@ import (
 	"fmt"
 )
 
-// Compressed-RTF magic values (the uint32 at header offset 8), from Exchange
-// the MS-OXRTFCP specification: RTF_COMPRESSED carries an LZFu stream, RTF_UNCOMPRESSED carries
-// raw RTF after the 16-byte header.
+// Compressed-RTF magic values (the uint32 at header offset 8), per MS-OXRTFCP:
+// RTF_COMPRESSED carries an LZFu stream, RTF_UNCOMPRESSED carries raw RTF after
+// the 16-byte header.
 const (
 	rtfCompressed   = 0x75465a4c // "LZFu"
 	rtfUncompressed = 0x414c454d // "MELA"
@@ -20,7 +20,7 @@ const (
 )
 
 // rtfInitDict is the preset dictionary every compressed-RTF stream starts with
-// (Exchange the preset dictionary). Its length must be rtfInitDictLen (asserted in tests).
+// (the MS-OXRTFCP preset dictionary). Its length must be rtfInitDictLen (asserted in tests).
 const rtfInitDict = "{\\rtf1\\ansi\\mac\\deff0\\deftab720{\\fonttbl;}" +
 	"{\\f0\\fnil \\froman \\fswiss \\fmodern \\fscrip" +
 	"t \\fdecor MS Sans SerifSymbolArialTimes Ne" +
@@ -29,8 +29,8 @@ const rtfInitDict = "{\\rtf1\\ansi\\mac\\deff0\\deftab720{\\fonttbl;}" +
 	"\\tx"
 
 // decompressRTF expands a PR_RTF_COMPRESSED value into raw RTF bytes. It handles
-// both the LZFu-compressed and the verbatim ("MELA") forms, mirroring Exchange
-// the RTF decompressor. The 16-byte header is: compressed-size, raw-size, magic, CRC
+// both the LZFu-compressed and the verbatim ("MELA") forms, per the MS-OXRTFCP
+// decompression. The 16-byte header is: compressed-size, raw-size, magic, CRC
 // (all little-endian uint32); the size field must equal len(in)-4.
 func decompressRTF(in []byte) ([]byte, error) {
 	if len(in) < rtfHeaderLen {

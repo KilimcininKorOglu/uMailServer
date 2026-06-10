@@ -1533,9 +1533,9 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 // Returns "" when no such target is present, in which case the caller resolves
 // the authenticated user's own mailbox.
 //
-// Mirrors Exchange the folder spec(const tDistinguishedFolderId&): the target is taken
-// from folder.Mailbox->EmailAddress when present (the MS-OXWSCDATA schema), and
-// otherwise defaults to the authenticated user (the MS-OXWSCORE operations).
+// Per the EWS distinguished-folder-id model: the target is taken from
+// folder.Mailbox->EmailAddress when present, and otherwise defaults to the
+// authenticated user.
 func extractTargetMailbox(body []byte) string {
 	dec := xml.NewDecoder(bytes.NewReader(body))
 	inDist := false

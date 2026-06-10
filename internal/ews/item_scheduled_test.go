@@ -27,7 +27,7 @@ func TestDeferredSendTime_AbsoluteWins(t *testing.T) {
 }
 
 // TestDeferredSendTime_RelativeUnits verifies the relative number/units pair maps
-// minutes/hours/days/weeks per MS-OXOMSG (mirrors Exchange the deferred-send interval).
+// minutes/hours/days/weeks per MS-OXOMSG (PidTagDeferredSendNumber/Units).
 func TestDeferredSendTime_RelativeUnits(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
