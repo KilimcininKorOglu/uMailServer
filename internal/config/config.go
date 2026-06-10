@@ -15,34 +15,34 @@ import (
 
 // Config is the main configuration structure
 type Config struct {
-	Server        ServerConfig        `yaml:"server"`
-	TLS           TLSConfig           `yaml:"tls"`
-	SMTP          SMTPConfig          `yaml:"smtp"`
-	IMAP          IMAPConfig          `yaml:"imap"`
-	POP3          POP3Config          `yaml:"pop3"`
-	HTTP          HTTPConfig          `yaml:"http"`
-	Admin         AdminConfig         `yaml:"admin"`
-	Spam          SpamConfig          `yaml:"spam"`
-	AV            AVConfig            `yaml:"av"`
-	Security      SecurityConfig      `yaml:"security"`
-	LDAP          LDAPConfig          `yaml:"ldap"`
-	MCP           MCPConfig           `yaml:"mcp"`
-	ManageSieve   ManageSieveConfig   `yaml:"managesieve"`
-	Domains       []DomainConfig      `yaml:"domains"`
-	Logging       LoggingConfig       `yaml:"logging"`
-	Metrics       MetricsConfig       `yaml:"metrics"`
-	Tracing       TracingConfig       `yaml:"tracing"`
-	Database      DatabaseConfig      `yaml:"database"`
-	Storage       StorageConfig       `yaml:"storage"`
-	CalDAV        CalDAVConfig        `yaml:"caldav"`
-	CardDAV       CardDAVConfig       `yaml:"carddav"`
-	JMAP          JMAPConfig          `yaml:"jmap"`
-	DMARC         DMARCConfig         `yaml:"dmarc"`
-	Alert         AlertConfig         `yaml:"alert"`
-	Push          PushConfig          `yaml:"push"`
-	Signing       SigningConfig       `yaml:"signing"`
-	OOF           OOFConfig           `yaml:"oof"`
-	Notifications NotificationsConfig `yaml:"notifications"`
+	Server           ServerConfig           `yaml:"server"`
+	TLS              TLSConfig              `yaml:"tls"`
+	SMTP             SMTPConfig             `yaml:"smtp"`
+	IMAP             IMAPConfig             `yaml:"imap"`
+	POP3             POP3Config             `yaml:"pop3"`
+	HTTP             HTTPConfig             `yaml:"http"`
+	Admin            AdminConfig            `yaml:"admin"`
+	Spam             SpamConfig             `yaml:"spam"`
+	AV               AVConfig               `yaml:"av"`
+	Security         SecurityConfig         `yaml:"security"`
+	LDAP             LDAPConfig             `yaml:"ldap"`
+	MCP              MCPConfig              `yaml:"mcp"`
+	ManageSieve      ManageSieveConfig      `yaml:"managesieve"`
+	Domains          []DomainConfig         `yaml:"domains"`
+	Logging          LoggingConfig          `yaml:"logging"`
+	Metrics          MetricsConfig          `yaml:"metrics"`
+	Tracing          TracingConfig          `yaml:"tracing"`
+	Database         DatabaseConfig         `yaml:"database"`
+	Storage          StorageConfig          `yaml:"storage"`
+	CalDAV           CalDAVConfig           `yaml:"caldav"`
+	CardDAV          CardDAVConfig          `yaml:"carddav"`
+	JMAP             JMAPConfig             `yaml:"jmap"`
+	DMARC            DMARCConfig            `yaml:"dmarc"`
+	Alert            AlertConfig            `yaml:"alert"`
+	Push             PushConfig             `yaml:"push"`
+	Signing          SigningConfig          `yaml:"signing"`
+	OOF              OOFConfig              `yaml:"oof"`
+	Notifications    NotificationsConfig    `yaml:"notifications"`
 	Cluster          ClusterConfig          `yaml:"cluster"`
 	ScheduledSend    ScheduledSendConfig    `yaml:"scheduled_send"`
 	RecoverableItems RecoverableItemsConfig `yaml:"recoverable_items"`

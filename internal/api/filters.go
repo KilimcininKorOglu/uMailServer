@@ -25,14 +25,14 @@ type FilterCondition struct {
 // of semcore.RuleAction; Type is the canonical RuleActionKind.String() value so
 // the full rule vocabulary round-trips without loss.
 type FilterAction struct {
-	Type        string `json:"type"` // moveToFolder,copyToFolder,delete,markRead,markImportant,forward,forwardAsAttachment,redirect,reject,addHeader,deleteHeader,flag,stop,vacation
+	Type        string `json:"type"`                  // moveToFolder,copyToFolder,delete,markRead,markImportant,forward,forwardAsAttachment,redirect,reject,addHeader,deleteHeader,flag,stop,vacation
 	Target      string `json:"target,omitempty"`      // folder for move/copy
-	ForwardTo   string `json:"forwardTo,omitempty"`    // address for forward/redirect
-	Message     string `json:"message,omitempty"`      // rejection message
-	HeaderName  string `json:"headerName,omitempty"`   // add/delete header
-	HeaderValue string `json:"headerValue,omitempty"`  // add header
-	FlagName    string `json:"flagName,omitempty"`     // flag action
-	ClearFlag   bool   `json:"clearFlag,omitempty"`    // flag: true = clear, false = set
+	ForwardTo   string `json:"forwardTo,omitempty"`   // address for forward/redirect
+	Message     string `json:"message,omitempty"`     // rejection message
+	HeaderName  string `json:"headerName,omitempty"`  // add/delete header
+	HeaderValue string `json:"headerValue,omitempty"` // add header
+	FlagName    string `json:"flagName,omitempty"`    // flag action
+	ClearFlag   bool   `json:"clearFlag,omitempty"`   // flag: true = clear, false = set
 }
 
 // EmailFilter is a user's inbox filter. It is the webmail-facing projection of

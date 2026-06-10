@@ -17,32 +17,32 @@ import (
 // settings save. Durations are expressed in whole seconds and message sizes in
 // whole megabytes so the values map cleanly onto form inputs.
 type serverConfigDTO struct {
-	Server        serverSectionDTO        `json:"server"`
-	TLS           tlsSectionDTO           `json:"tls"`
-	SMTP          smtpSectionDTO          `json:"smtp"`
-	IMAP          imapSectionDTO          `json:"imap"`
-	POP3          pop3SectionDTO          `json:"pop3"`
-	HTTP          httpSectionDTO          `json:"http"`
-	Admin         adminSectionDTO         `json:"admin"`
-	Spam          spamSectionDTO          `json:"spam"`
-	AV            avSectionDTO            `json:"av"`
-	Security      securitySectionDTO      `json:"security"`
-	LDAP          ldapSectionDTO          `json:"ldap"`
-	MCP           mcpSectionDTO           `json:"mcp"`
-	ManageSieve   serviceSectionDTO       `json:"managesieve"`
-	Logging       loggingSectionDTO       `json:"logging"`
-	Metrics       metricsSectionDTO       `json:"metrics"`
-	Tracing       tracingSectionDTO       `json:"tracing"`
-	Database      databaseSectionDTO      `json:"database"`
-	Storage       storageSectionDTO       `json:"storage"`
-	CalDAV        serviceSectionDTO       `json:"caldav"`
-	CardDAV       serviceSectionDTO       `json:"carddav"`
-	JMAP          jmapSectionDTO          `json:"jmap"`
-	DMARC         dmarcSectionDTO         `json:"dmarc"`
-	Alert         alertSectionDTO         `json:"alert"`
-	Push          pushSectionDTO          `json:"push"`
-	Signing       signingSectionDTO       `json:"signing"`
-	OOF           oofSectionDTO           `json:"oof"`
+	Server           serverSectionDTO           `json:"server"`
+	TLS              tlsSectionDTO              `json:"tls"`
+	SMTP             smtpSectionDTO             `json:"smtp"`
+	IMAP             imapSectionDTO             `json:"imap"`
+	POP3             pop3SectionDTO             `json:"pop3"`
+	HTTP             httpSectionDTO             `json:"http"`
+	Admin            adminSectionDTO            `json:"admin"`
+	Spam             spamSectionDTO             `json:"spam"`
+	AV               avSectionDTO               `json:"av"`
+	Security         securitySectionDTO         `json:"security"`
+	LDAP             ldapSectionDTO             `json:"ldap"`
+	MCP              mcpSectionDTO              `json:"mcp"`
+	ManageSieve      serviceSectionDTO          `json:"managesieve"`
+	Logging          loggingSectionDTO          `json:"logging"`
+	Metrics          metricsSectionDTO          `json:"metrics"`
+	Tracing          tracingSectionDTO          `json:"tracing"`
+	Database         databaseSectionDTO         `json:"database"`
+	Storage          storageSectionDTO          `json:"storage"`
+	CalDAV           serviceSectionDTO          `json:"caldav"`
+	CardDAV          serviceSectionDTO          `json:"carddav"`
+	JMAP             jmapSectionDTO             `json:"jmap"`
+	DMARC            dmarcSectionDTO            `json:"dmarc"`
+	Alert            alertSectionDTO            `json:"alert"`
+	Push             pushSectionDTO             `json:"push"`
+	Signing          signingSectionDTO          `json:"signing"`
+	OOF              oofSectionDTO              `json:"oof"`
 	Notifications    notificationsSectionDTO    `json:"notifications"`
 	ScheduledSend    scheduledSendSectionDTO    `json:"scheduled_send"`
 	RecoverableItems recoverableItemsSectionDTO `json:"recoverable_items"`

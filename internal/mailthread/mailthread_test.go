@@ -9,8 +9,8 @@ func TestStripBrackets(t *testing.T) {
 		{"<only left>", "only left"}, // both ends present -> stripped
 		{"<>", ""},
 		{"  <spaced@example.com>  ", "spaced@example.com"},
-		{"<id", "<id"},   // stray single bracket -> left intact
-		{"id>", "id>"},   // stray single bracket -> left intact
+		{"<id", "<id"}, // stray single bracket -> left intact
+		{"id>", "id>"}, // stray single bracket -> left intact
 		{"", ""},
 	}
 	for _, c := range cases {
@@ -22,11 +22,11 @@ func TestStripBrackets(t *testing.T) {
 
 func TestRootPrecedence(t *testing.T) {
 	cases := []struct {
-		name        string
-		own, irt    string
-		refs        []string
-		wantRoot    string
-		wantIsRoot  bool
+		name       string
+		own, irt   string
+		refs       []string
+		wantRoot   string
+		wantIsRoot bool
 	}{
 		{"references win (last entry)", "<own@x>", "<irt@x>", []string{"<a@x>", "<b@x>"}, "b@x", false},
 		{"in-reply-to when no references", "<own@x>", "<irt@x>", nil, "irt@x", false},

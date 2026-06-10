@@ -78,8 +78,8 @@ type Server struct {
 	mailScheduledCancel func(owner, id string) error
 	// Cross-protocol (tri-store) filer + idempotent semcore remover, injected by
 	// the main server; nil leaves webmail filing storageDB-only (EWS-invisible).
-	mailFileCopy    func(owner, folder string, raw []byte, flags []string) (uint32, string, error)
-	mailRemoveCopy  func(owner, folder, blobKey string)
+	mailFileCopy   func(owner, folder string, raw []byte, flags []string) (uint32, string, error)
+	mailRemoveCopy func(owner, folder, blobKey string)
 	// Soft-delete dumpster capture, injected by the main server; nil leaves a
 	// webmail permanent delete unlinking the blob as before.
 	mailRecoverCapture func(owner, srcFolder string, raw []byte) bool

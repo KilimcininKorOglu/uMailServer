@@ -125,12 +125,12 @@ func (s *Server) handleNoteQuery(user string, call MethodCall) Response {
 	return Response{
 		Name: "Note/query",
 		Args: map[string]interface{}{
-			"accountId":          accountID,
-			"queryState":         fmt.Sprintf("state-%d", time.Now().Unix()),
+			"accountId":           accountID,
+			"queryState":          fmt.Sprintf("state-%d", time.Now().Unix()),
 			"canCalculateChanges": false,
-			"position":           0,
-			"total":              len(ids),
-			"ids":                ids,
+			"position":            0,
+			"total":               len(ids),
+			"ids":                 ids,
 		},
 		ID: call.ID,
 	}
