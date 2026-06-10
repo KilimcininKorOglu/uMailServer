@@ -75,6 +75,7 @@ export function Domains() {
   const [editCompanyName, setEditCompanyName] = useState("");
   const [editFromInternal, setEditFromInternal] = useState("");
   const [editFromExternal, setEditFromExternal] = useState("");
+  const [editEgressIPGroup, setEditEgressIPGroup] = useState("");
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [newDomainName, setNewDomainName] = useState("");
   const [newDomainMaxAccounts, setNewDomainMaxAccounts] = useState(100);
@@ -150,6 +151,7 @@ export function Domains() {
         company_name: editCompanyName,
         from_template_internal: editFromInternal,
         from_template_external: editFromExternal,
+        egress_ip_group: editEgressIPGroup.trim(),
       });
       setIsEditDialogOpen(false);
       setSelectedDomain(null);
@@ -303,6 +305,7 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
                 setEditCompanyName(domain.company_name ?? "");
                 setEditFromInternal(domain.from_template_internal ?? "");
                 setEditFromExternal(domain.from_template_external ?? "");
+                setEditEgressIPGroup(domain.egress_ip_group ?? "");
                 setFormError("");
                 setIsEditDialogOpen(true);
               }}
@@ -374,6 +377,18 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
               />
               <p className="text-xs text-muted-foreground">
                 {t("domains.fromTemplateHelp")}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-egress-ip-group">{t("domains.egressIPGroup")}</Label>
+              <Input
+                id="edit-egress-ip-group"
+                value={editEgressIPGroup}
+                placeholder={t("domains.egressIPGroupPlaceholder")}
+                onChange={(e) => setEditEgressIPGroup(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("domains.egressIPGroupHelp")}
               </p>
             </div>
           </div>

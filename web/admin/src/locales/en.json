@@ -113,7 +113,10 @@
     "dkimKeyTooltip": "A DKIM key exists for this domain. Outgoing mail is only signed when DKIM Signing is enabled in Settings > Security.",
     "dkimKeyConfigured": "DKIM key configured",
     "dnsRecordsFor": "DNS Records for {{name}}",
-    "dnsRecordsDescription": "Add these records to your DNS provider to enable email delivery"
+    "dnsRecordsDescription": "Add these records to your DNS provider to enable email delivery",
+    "egressIPGroup": "Egress IP group",
+    "egressIPGroupPlaceholder": "e.g. marketing (leave empty for default)",
+    "egressIPGroupHelp": "Outbound mail for this domain sends from the named Relay IP group's addresses. Groups are defined in server config; empty uses the default route."
   },
   "accounts": {
     "title": "Accounts",

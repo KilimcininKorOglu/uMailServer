@@ -11,6 +11,28 @@ import (
 	"github.com/umailserver/umailserver/internal/db"
 )
 
+// domainEgressIPGroupKey is the per-domain setting holding the Relay IP-group
+// name the domain's outbound mail egresses from. It mirrors the constant the
+// queue/server relay path reads, so the admin write and the delivery read agree.
+const domainEgressIPGroupKey = "egress.ip_group"
+
+// setDomainEgressIPGroup stores (or clears, when empty) the domain's egress IP
+// group assignment in its Settings map.
+func setDomainEgressIPGroup(domain *db.DomainData, group string) {
+	group = strings.TrimSpace(group)
+	if domain.Settings == nil {
+		if group == "" {
+			return
+		}
+		domain.Settings = map[string]string{}
+	}
+	if group == "" {
+		delete(domain.Settings, domainEgressIPGroupKey)
+		return
+	}
+	domain.Settings[domainEgressIPGroupKey] = group
+}
+
 // handleDomains lists and creates domains
 //
 //	@Summary List domains
@@ -181,6 +203,7 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 		CompanyName          string `json:"company_name"`
 		FromTemplateInternal string `json:"from_template_internal"`
 		FromTemplateExternal string `json:"from_template_external"`
+		EgressIPGroup        string `json:"egress_ip_group"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -215,6 +238,7 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request, name strin
 	domain.CompanyName = req.CompanyName
 	domain.FromTemplateInternal = req.FromTemplateInternal
 	domain.FromTemplateExternal = req.FromTemplateExternal
+	setDomainEgressIPGroup(domain, req.EgressIPGroup)
 	domain.UpdatedAt = time.Now()
 
 	if err := s.db.UpdateDomain(domain); err != nil {

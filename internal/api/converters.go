@@ -14,6 +14,7 @@ func domainToJSON(d *db.DomainData) map[string]interface{} {
 		"company_name":           d.CompanyName,
 		"from_template_internal": d.FromTemplateInternal,
 		"from_template_external": d.FromTemplateExternal,
+		"egress_ip_group":        d.Settings[domainEgressIPGroupKey],
 	}
 	if d.DKIMSelector != "" {
 		result["dkim_selector"] = d.DKIMSelector

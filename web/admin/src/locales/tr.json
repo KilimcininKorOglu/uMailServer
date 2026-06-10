@@ -113,7 +113,10 @@
     "dkimKeyTooltip": "Bu alan adı için bir DKIM anahtarı mevcut. Giden postalar yalnızca Ayarlar > Güvenlik bölümünde DKIM İmzalama etkinleştirildiğinde imzalanır.",
     "dkimKeyConfigured": "DKIM anahtarı yapılandırıldı",
     "dnsRecordsFor": "{{name}} için DNS Kayıtları",
-    "dnsRecordsDescription": "E-posta teslimatını etkinleştirmek için bu kayıtları DNS sağlayıcınıza ekleyin"
+    "dnsRecordsDescription": "E-posta teslimatını etkinleştirmek için bu kayıtları DNS sağlayıcınıza ekleyin",
+    "egressIPGroup": "Çıkış IP grubu",
+    "egressIPGroupPlaceholder": "örn. marketing (varsayılan için boş bırakın)",
+    "egressIPGroupHelp": "Bu domainin giden postası, belirtilen Relay IP grubunun adreslerinden gönderilir. Gruplar sunucu yapılandırmasında tanımlanır; boş bırakılırsa varsayılan rota kullanılır."
   },
   "accounts": {
     "title": "Hesaplar",

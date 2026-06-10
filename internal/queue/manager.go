@@ -83,8 +83,58 @@ type Manager struct {
 	// It returns a net.Conn and is used by deliverToMX.
 	dialSMTP func(addr string) (net.Conn, error)
 
+	// egressIP, if set, maps a sender domain to the source IP its outbound mail
+	// must bind (per-domain IP-group binding). It returns "" to use the default
+	// route. Injected by the server, which resolves the domain's IP group.
+	egressIP func(senderDomain string) string
+
 	// tracingProvider, if set, emits queue.deliver and queue.deliver.mx spans.
 	tracingProvider *tracing.Provider
+}
+
+// SetEgressIPFunc wires the per-domain egress-IP resolver. When set, outbound
+// delivery binds the returned source IP for a message's sender domain, so a
+// multi-IP host can route each domain's mail out a specific address. Returning
+// "" (or leaving this unset) keeps the default route.
+func (m *Manager) SetEgressIPFunc(fn func(senderDomain string) string) {
+	m.egressIP = fn
+}
+
+// resolveEgressIP returns the source IP the given sender address must egress
+// from, or "" for the default route.
+func (m *Manager) resolveEgressIP(from string) string {
+	if m.egressIP == nil {
+		return ""
+	}
+	domain := ""
+	if at := strings.LastIndex(from, "@"); at >= 0 {
+		domain = from[at+1:]
+	}
+	if domain == "" {
+		return ""
+	}
+	return m.egressIP(domain)
+}
+
+// mxPoolKey keys the MX connection pool. Connections bound to different egress
+// IPs must never be mixed, so the egress IP is part of the key when set.
+func mxPoolKey(mx, egressIP string) string {
+	if egressIP == "" {
+		return mx
+	}
+	return mx + "|" + egressIP
+}
+
+// mxDialer builds the dialer for an outbound MX connection. When egressIP parses
+// as a valid IP it is bound as the source address (LocalAddr) so the connection
+// leaves the host on that specific interface; otherwise the default route is
+// used. The 30s timeout matches the previous net.DialTimeout behavior.
+func mxDialer(egressIP string) *net.Dialer {
+	d := &net.Dialer{Timeout: 30 * time.Second}
+	if ip := net.ParseIP(egressIP); ip != nil {
+		d.LocalAddr = &net.TCPAddr{IP: ip}
+	}
+	return d
 }
 
 // SetTracingProvider attaches an OpenTelemetry tracing provider so each
@@ -556,11 +606,14 @@ func (m *Manager) deliverToMXTraced(ctx context.Context, from, to string, messag
 	return err
 }
 
-// getMXPool gets or creates a connection pool for the given MX host
-func (m *Manager) getMXPool(mx string) *mxPool {
+// getMXPool gets or creates a connection pool for the given MX host and egress
+// IP. The pool is keyed by both so connections bound to different source IPs are
+// never reused for each other.
+func (m *Manager) getMXPool(mx, egressIP string) *mxPool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if pool, ok := m.mxPools[mx]; ok {
+	key := mxPoolKey(mx, egressIP)
+	if pool, ok := m.mxPools[key]; ok {
 		return pool
 	}
 	pool := &mxPool{
@@ -569,14 +622,14 @@ func (m *Manager) getMXPool(mx string) *mxPool {
 		idleTimeout: m.mxIdleTimeout,
 		conns:       make([]*mxConn, 0),
 	}
-	m.mxPools[mx] = pool
+	m.mxPools[key] = pool
 	return pool
 }
 
 // acquireMXConn acquires a connection from the pool or creates a new one.
 // Returns (client, fromPool, error).
-func (m *Manager) acquireMXConn(mx string) (*smtp.Client, bool, error) {
-	pool := m.getMXPool(mx)
+func (m *Manager) acquireMXConn(mx, egressIP string) (*smtp.Client, bool, error) {
+	pool := m.getMXPool(mx, egressIP)
 
 	now := time.Now()
 
@@ -611,15 +664,17 @@ func (m *Manager) acquireMXConn(mx string) (*smtp.Client, bool, error) {
 	}
 }
 
-// createMXConn creates a new SMTP connection to the given MX host
-func (m *Manager) createMXConn(mx string) (*smtp.Client, error) {
+// createMXConn creates a new SMTP connection to the given MX host, binding the
+// given egress IP as the source address when one is configured for the sender
+// domain.
+func (m *Manager) createMXConn(mx, egressIP string) (*smtp.Client, error) {
 	addr := mx + ":25"
 	var conn net.Conn
 	var err error
 	if m.dialSMTP != nil {
 		conn, err = m.dialSMTP(addr)
 	} else {
-		conn, err = net.DialTimeout("tcp", addr, 30*time.Second)
+		conn, err = mxDialer(egressIP).Dial("tcp", addr)
 	}
 	if err != nil {
 		return nil, err
@@ -635,12 +690,12 @@ func (m *Manager) createMXConn(mx string) (*smtp.Client, error) {
 }
 
 // releaseMXConn returns a connection to the pool
-func (m *Manager) releaseMXConn(mx string, client *smtp.Client, valid bool) {
+func (m *Manager) releaseMXConn(mx, egressIP string, client *smtp.Client, valid bool) {
 	if client == nil {
 		return
 	}
 
-	pool := m.getMXPool(mx)
+	pool := m.getMXPool(mx, egressIP)
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
@@ -676,13 +731,13 @@ func (m *Manager) deliverToMX(ctx context.Context, from, to string, message []by
 
 // withMXConn acquires an MX connection, calls fn, and guarantees release.
 // It recovers from panics inside fn and returns them as errors.
-func (m *Manager) withMXConn(mx string, fn func(*smtp.Client) error) (err error) {
-	client, fromPool, err := m.acquireMXConn(mx)
+func (m *Manager) withMXConn(mx, egressIP string, fn func(*smtp.Client) error) (err error) {
+	client, fromPool, err := m.acquireMXConn(mx, egressIP)
 	if err != nil {
 		return err
 	}
 	if !fromPool && client == nil {
-		client, err = m.createMXConn(mx)
+		client, err = m.createMXConn(mx, egressIP)
 		if err != nil {
 			return err
 		}
@@ -691,15 +746,15 @@ func (m *Manager) withMXConn(mx string, fn func(*smtp.Client) error) (err error)
 	// For pooled connections: verify with RSET and always release
 	if fromPool {
 		if rerr := client.Reset(); rerr != nil {
-			m.releaseMXConn(mx, client, false)
-			client, err = m.createMXConn(mx)
+			m.releaseMXConn(mx, egressIP, client, false)
+			client, err = m.createMXConn(mx, egressIP)
 			if err != nil {
 				return err
 			}
 		}
 		defer func() {
 			valid := err == nil && recover() == nil
-			m.releaseMXConn(mx, client, valid)
+			m.releaseMXConn(mx, egressIP, client, valid)
 		}()
 	} else {
 		defer func() {
@@ -748,7 +803,11 @@ func (m *Manager) doDeliverToMX(ctx context.Context, from, to string, message []
 		}
 	}
 
-	return m.withMXConn(mx, func(client *smtp.Client) error {
+	// Per-domain egress IP: bind this sender domain's configured source IP for
+	// the outbound connection (empty = default route).
+	egressIP := m.resolveEgressIP(from)
+
+	return m.withMXConn(mx, egressIP, func(client *smtp.Client) error {
 		// Attempt STARTTLS
 		tlsConfig := &tls.Config{
 			ServerName: mx,
@@ -805,13 +864,13 @@ func (m *Manager) doDeliverToMX(ctx context.Context, from, to string, message []
 		err = w.Close()
 		if err != nil {
 			// Return bad connection to pool (will be closed)
-			m.releaseMXConn(mx, client, false)
+			m.releaseMXConn(mx, egressIP, client, false)
 			return err
 		}
 
 		// Successful delivery - return connection to pool for reuse
 		// Skip QUIT since we're keeping the connection alive
-		m.releaseMXConn(mx, client, true)
+		m.releaseMXConn(mx, egressIP, client, true)
 		return nil
 	})
 }

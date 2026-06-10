@@ -45,6 +45,23 @@ type Config struct {
 	Notifications NotificationsConfig `yaml:"notifications"`
 	Cluster       ClusterConfig       `yaml:"cluster"`
 	ScheduledSend ScheduledSendConfig `yaml:"scheduled_send"`
+	Relay         RelayConfig         `yaml:"relay"`
+}
+
+// RelayConfig holds outbound relay settings. IPGroups defines named pools of
+// source (egress) IP addresses; a domain assigned to a group sends its outbound
+// mail bound to one of the group's IPs, so a multi-IP host can separate sending
+// reputation per domain/tenant. With no groups, egress stays on the default route.
+type RelayConfig struct {
+	IPGroups []IPGroupConfig `yaml:"ip_groups"`
+}
+
+// IPGroupConfig is a named set of egress IP addresses. A sender domain bound to
+// this group dials outbound from one of its IPs (chosen stably per domain), so
+// the same domain keeps a consistent source IP for reputation.
+type IPGroupConfig struct {
+	Name string   `yaml:"name"`
+	IPs  []string `yaml:"ips"`
 }
 
 // ServerConfig holds general server settings

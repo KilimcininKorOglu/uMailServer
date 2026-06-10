@@ -34,6 +34,9 @@ export interface Domain {
   company_name?: string;
   from_template_internal?: string;
   from_template_external?: string;
+  // Name of the Relay IP group this domain's outbound mail egresses from
+  // (empty = default route). The group's IPs are defined in server config.
+  egress_ip_group?: string;
 }
 
 export interface Alias {

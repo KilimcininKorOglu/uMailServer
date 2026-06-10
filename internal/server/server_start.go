@@ -36,6 +36,7 @@ func (s *Server) Start() error {
 	s.queue = queue.NewManager(s.database, nil, queueDir, s.logger)
 	s.queue.SetDiskSync(s.cfg().Storage.Sync)
 	s.queue.SetTracingProvider(s.tracingProvider)
+	s.queue.SetEgressIPFunc(s.resolveEgressIP)
 	s.queue.Start(s.ctx)
 	s.logger.Info("Queue manager started")
 

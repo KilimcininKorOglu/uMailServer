@@ -380,3 +380,16 @@ scheduled_send:
   max_horizon_days: 365
   tick_seconds: 30
   max_per_user: 100
+
+# Outbound relay. ip_groups defines named pools of source (egress) IP addresses
+# the host actually has bound. A domain assigned to a group (admin: Domains ->
+# Egress IP group) sends its outbound mail from one of the group's IPs, chosen
+# stably per domain, so a multi-IP host can separate sending reputation per
+# domain/tenant. Each IP must be a real local address on this host. Unassigned
+# domains egress on the default route. Hot-reloaded.
+relay:
+  ip_groups: []
+  #   - name: marketing
+  #     ips: ["203.0.113.10", "203.0.113.11"]
+  #   - name: transactional
+  #     ips: ["203.0.113.20"]
