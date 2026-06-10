@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -167,4 +168,52 @@ func (s *Server) dropRecoverableOnExpunge(owner, mailbox string, uid uint32) {
 	if derr := s.database.DeleteRecoverableItem(rec.ID); derr != nil {
 		s.logger.Warn("recoverable: delete record on expunge failed", "id", rec.ID, "error", derr)
 	}
+}
+
+// recoverDeletedItem restores a soft-deleted message from the owner's Recoverable
+// Items dumpster back to the folder it was deleted from (or INBOX when that
+// folder no longer applies), identified by the message's blob key (the id the
+// webmail shows for the dumpster item). It refiles the retained blob into the
+// destination, removes the dumpster projection (index + identity, NOT the shared
+// blob — the restored copy references it), and deletes the canonical record.
+// Returns the destination folder.
+func (s *Server) recoverDeletedItem(owner, blobKey string) (string, error) {
+	items, err := s.database.ListRecoverableByOwner(owner)
+	if err != nil {
+		return "", err
+	}
+	var rec *db.RecoverableItem
+	for _, it := range items {
+		if it.BlobKey == blobKey {
+			rec = it
+			break
+		}
+	}
+	if rec == nil {
+		return "", fmt.Errorf("recoverable item not found")
+	}
+	dest := rec.OriginalFolder
+	if dest == "" || strings.EqualFold(dest, recoverableFolder) {
+		dest = "INBOX"
+	}
+	raw, err := s.msgStore.ReadMessage(owner, rec.BlobKey)
+	if err != nil {
+		return "", fmt.Errorf("read recoverable blob: %w", err)
+	}
+	uid, _, err := s.fileFolderCopy(owner, dest, raw, nil)
+	if err != nil {
+		return "", fmt.Errorf("refile to %s: %w", dest, err)
+	}
+	imap.GetNotificationHub().NotifyNewMessage(owner, dest, uid, uid)
+	// Remove the dumpster projection (index + identity) but NOT the shared blob,
+	// then drop the canonical record.
+	if derr := s.storageDB.DeleteMessage(owner, recoverableFolder, rec.FolderUID); derr == nil {
+		imap.GetNotificationHub().NotifyMailboxUpdate(owner, recoverableFolder)
+	}
+	s.removeFolderCopySemcore(owner, recoverableFolder, rec.BlobKey)
+	if derr := s.database.DeleteRecoverableItem(rec.ID); derr != nil {
+		s.logger.Warn("recoverable: delete record on restore failed", "id", rec.ID, "error", derr)
+	}
+	s.logger.Info("recoverable: restored item", "id", rec.ID, "owner", owner, "dest", dest)
+	return dest, nil
 }

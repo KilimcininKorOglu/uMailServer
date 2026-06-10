@@ -105,6 +105,8 @@ func (s *Server) startAPI() {
 	// A webmail permanent delete files the message into Recoverable Items first
 	// (self-guards on recoverable_items.enabled) so it can be restored.
 	s.apiServer.SetRecoverableCaptureFunc(s.captureForRecovery)
+	// Restore a soft-deleted message from Recoverable Items back to its origin.
+	s.apiServer.SetRecoverFunc(s.recoverDeletedItem)
 	// Set contacts handler data directory for CardDAV-backed contacts API
 	s.apiServer.SetContactsDataDir(s.cfg().Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API

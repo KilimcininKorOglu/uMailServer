@@ -152,7 +152,10 @@
     "recallPartial": "Recalled from {{recalled}} of {{total}} recipient(s); the rest had already read it or are external",
     "recallNone": "Could not recall: recipients have already read it or are external",
     "recallNoRecipients": "No internal recipients to recall from",
-    "recallFailed": "Failed to recall the message"
+    "recallFailed": "Failed to recall the message",
+    "recover": "Restore",
+    "recovered": "Restored to {{folder}}",
+    "recoverFailed": "Failed to restore the message"
   },
   "compose": {
     "invalidEmail": "Enter a valid email address",

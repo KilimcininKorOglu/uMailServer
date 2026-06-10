@@ -83,7 +83,9 @@ type Server struct {
 	// Soft-delete dumpster capture, injected by the main server; nil leaves a
 	// webmail permanent delete unlinking the blob as before.
 	mailRecoverCapture func(owner, srcFolder string, raw []byte) bool
-	calendarDeliver    func(from string, to []string, data []byte) error
+	// Dumpster restore, injected by the main server; nil when the dumpster is off.
+	mailRecover     func(owner, id string) (string, error)
+	calendarDeliver func(from string, to []string, data []byte) error
 	queueMgr        *queue.Manager
 	httpServer      *http.Server
 	plainHTTPServer *http.Server
@@ -709,6 +711,7 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/scheduled/cancel", http.HandlerFunc(s.mailHandler.handleScheduledCancel).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/delete", http.HandlerFunc(s.mailHandler.handleMailDelete).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/recall", http.HandlerFunc(s.mailHandler.handleMailRecall).ServeHTTP)
+	api.HandleFunc("/api/v1/mail/recover", http.HandlerFunc(s.mailHandler.handleMailRecover).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/flag", http.HandlerFunc(s.mailHandler.handleMailFlag).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/labels", http.HandlerFunc(s.mailHandler.handleMailLabels).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/invite", s.handleMailInvite)
@@ -1518,6 +1521,12 @@ func (s *Server) SetRecoverableCaptureFunc(capture func(owner, srcFolder string,
 	s.initMailHandler()
 }
 
+// SetRecoverFunc wires the dumpster restore path used by POST /api/v1/mail/recover.
+func (s *Server) SetRecoverFunc(fn func(owner, id string) (string, error)) {
+	s.mailRecover = fn
+	s.initMailHandler()
+}
+
 // SetScheduledFuncs wires the "send later" hooks webmail uses: schedule a future
 // send, list the caller's scheduled messages, and cancel one by id.
 func (s *Server) SetScheduledFuncs(
@@ -1565,6 +1574,9 @@ func (s *Server) applyScheduledFuncs() {
 	}
 	if s.mailRecoverCapture != nil {
 		s.mailHandler.SetRecoverableCaptureFunc(s.mailRecoverCapture)
+	}
+	if s.mailRecover != nil {
+		s.mailHandler.SetRecoverFunc(s.mailRecover)
 	}
 }
 

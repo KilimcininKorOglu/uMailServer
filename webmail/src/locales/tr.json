@@ -152,7 +152,10 @@
     "recallPartial": "{{total}} alıcının {{recalled}} tanesinden geri çekildi; kalanlar zaten okumuş ya da dış alıcı",
     "recallNone": "Geri çekilemedi: alıcılar mesajı zaten okumuş ya da dış alıcı",
     "recallNoRecipients": "Geri çekilecek kurum içi alıcı yok",
-    "recallFailed": "Mesaj geri çekilemedi"
+    "recallFailed": "Mesaj geri çekilemedi",
+    "recover": "Geri yükle",
+    "recovered": "{{folder}} klasörüne geri yüklendi",
+    "recoverFailed": "Mesaj geri yüklenemedi"
   },
   "compose": {
     "invalidEmail": "Geçerli bir e-posta adresi girin",

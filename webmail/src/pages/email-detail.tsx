@@ -18,6 +18,7 @@ import {
   Paperclip,
   Download,
   Undo2,
+  RotateCcw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -180,6 +181,17 @@ export function EmailDetailPage() {
       }
     } catch {
       toast.error(t("emailDetail.recallFailed"))
+    }
+  }
+
+  const handleRecover = async () => {
+    if (!email) return
+    try {
+      const res = await api.recoverMail(email.id)
+      toast.success(t("emailDetail.recovered", { folder: res.folder }))
+      navigate("/inbox")
+    } catch {
+      toast.error(t("emailDetail.recoverFailed"))
     }
   }
 
@@ -362,6 +374,12 @@ export function EmailDetailPage() {
                 <Button variant="ghost" size="sm" onClick={handleRecall} title={t("emailDetail.recall")}>
                   <Undo2 className="h-4 w-4 mr-1" />
                   {t("emailDetail.recall")}
+                </Button>
+              )}
+              {email.folder === "Recoverable Items" && (
+                <Button variant="ghost" size="sm" onClick={handleRecover} title={t("emailDetail.recover")}>
+                  <RotateCcw className="h-4 w-4 mr-1" />
+                  {t("emailDetail.recover")}
                 </Button>
               )}
             </div>

@@ -161,6 +161,10 @@ type MailHandler struct {
 	// Recoverable Items, in which case the caller MUST NOT unlink the shared blob.
 	// Nil disables capture (a permanent delete unlinks the blob as before).
 	recoverCapture func(owner, srcFolder string, raw []byte) bool
+	// recoverItem restores a soft-deleted message (by its dumpster blob-key id)
+	// from Recoverable Items back to its original folder, returning the
+	// destination. Nil when the dumpster is unwired.
+	recoverItem func(owner, id string) (string, error)
 	// displayName resolves an email address to a configured account display
 	// name (from the directory), or "" when the address is non-local or has no
 	// display name set. Injected by the server; nil disables resolution.
@@ -224,6 +228,12 @@ func (h *MailHandler) SetCrossProtocolFuncs(
 // copy survives for restore.
 func (h *MailHandler) SetRecoverableCaptureFunc(fn func(owner, srcFolder string, raw []byte) bool) {
 	h.recoverCapture = fn
+}
+
+// SetRecoverFunc wires the dumpster restore path (POST /api/v1/mail/recover):
+// it refiles a soft-deleted message back to its original folder.
+func (h *MailHandler) SetRecoverFunc(fn func(owner, id string) (string, error)) {
+	h.recoverItem = fn
 }
 
 // SetDisplayNameResolver wires the address→display-name lookup so the mail API
@@ -1110,6 +1120,55 @@ func (h *MailHandler) handleMailDelete(w http.ResponseWriter, r *http.Request) {
 		"id":      messageID,
 	}); err != nil {
 		fmt.Printf("ERROR: failed to encode delete confirmation: %v\n", err)
+	}
+}
+
+// handleMailRecover restores a message from the Recoverable Items dumpster back
+// to the folder it was deleted from (POST /api/v1/mail/recover?id=). The id is
+// the dumpster message's id (its blob key). It honors the same ?owner= shared-
+// mailbox gate as the other mail mutations.
+func (h *MailHandler) handleMailRecover(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	userVal := r.Context().Value("user")
+	userEmail, ok := userVal.(string)
+	if !ok {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	target, allowed := h.requireMailboxAccess(r, userEmail, storage.ACLWrite)
+	if !allowed {
+		h.sendError(w, http.StatusForbidden, "No access to that shared mailbox")
+		return
+	}
+	userEmail = target
+
+	if h.recoverItem == nil {
+		h.sendError(w, http.StatusNotImplemented, "Recoverable Items is not enabled")
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		id = r.FormValue("id")
+	}
+	if id == "" {
+		h.sendError(w, http.StatusBadRequest, "Message ID required")
+		return
+	}
+	dest, err := h.recoverItem(userEmail, id)
+	if err != nil {
+		h.sendError(w, http.StatusNotFound, "Message is not recoverable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"message": "Email restored",
+		"id":      id,
+		"folder":  dest,
+	}); err != nil {
+		fmt.Printf("ERROR: failed to encode recover confirmation: %v\n", err)
 	}
 }
 

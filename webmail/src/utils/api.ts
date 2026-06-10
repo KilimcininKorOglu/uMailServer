@@ -642,6 +642,16 @@ class API {
     return this.post<RecallResult>(`/mail/recall?id=${encodeURIComponent(id)}`, {})
   }
 
+  // recoverMail restores a soft-deleted message from the Recoverable Items
+  // dumpster back to the folder it was deleted from; the response carries the
+  // destination folder it was restored to.
+  async recoverMail(id: string, owner?: string): Promise<{ folder: string }> {
+    return this.post<{ folder: string }>(
+      `/mail/recover?id=${encodeURIComponent(id)}${ownerQuery(owner ?? this.mailboxOwner, '&')}`,
+      {},
+    )
+  }
+
   // setFlag sets or clears an IMAP flag (\\Seen for read, \\Flagged for star)
   // on a message so the state persists server-side. owner targets a shared
   // mailbox (it rides the query string, which the handler reads for access).
