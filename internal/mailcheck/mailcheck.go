@@ -191,6 +191,9 @@ type Repairer interface {
 	// RecreateIdentity files a semcore identity for an existing (mailbox, raw)
 	// message so it becomes EWS-visible again.
 	RecreateIdentity(email, mailbox string, raw []byte) error
+	// RecreateIndexEntry files an IMAP index entry for an existing
+	// (mailbox, msgKey, raw) message so it becomes visible over IMAP/POP3 again.
+	RecreateIndexEntry(email, mailbox, msgKey string, raw []byte) error
 	// DeleteIndexEntry removes a dangling IMAP index entry.
 	DeleteIndexEntry(email, mailbox string, uid uint32) error
 	// DeleteIdentity removes a dangling semcore identity.
@@ -200,6 +203,7 @@ type Repairer interface {
 // RepairReport summarizes the fixes applied.
 type RepairReport struct {
 	Recreated       int // semcore identities recreated (ghost fixes)
+	RebuiltIndex    int // IMAP index entries rebuilt (orphan-semcore fixes)
 	DeletedIndex    int // orphan IMAP index entries removed
 	DeletedIdentity int // orphan semcore identities removed
 	Actions         []string
@@ -207,14 +211,14 @@ type RepairReport struct {
 
 // Clean reports whether nothing needed fixing.
 func (r *RepairReport) Clean() bool {
-	return r.Recreated+r.DeletedIndex+r.DeletedIdentity == 0
+	return r.Recreated+r.RebuiltIndex+r.DeletedIndex+r.DeletedIdentity == 0
 }
 
 // Repair fixes the divergences Check detects: it recreates a missing semcore
-// identity for a message present in the IMAP index + blob (the EWS-ghost), and
-// deletes dangling IMAP index entries and semcore identities whose blob is gone.
-// It does NOT touch orphan-semcore (a semcore identity with a live blob but no
-// index entry) — that reverse case is left to a future phase. Run with the
+// identity for a message present in the IMAP index + blob (the EWS-ghost),
+// rebuilds a missing IMAP index entry for a semcore identity with a live blob
+// (orphan-semcore, otherwise invisible over IMAP/POP3), and deletes dangling
+// IMAP index entries and semcore identities whose blob is gone. Run with the
 // server stopped.
 func Repair(email string, idx IndexStore, blob RepairBlob, ident RepairIdentity, w Repairer) (*RepairReport, error) {
 	rep := &RepairReport{}
@@ -250,7 +254,9 @@ func Repair(email string, idx IndexStore, blob RepairBlob, ident RepairIdentity,
 		}
 	}
 
-	// IMAP side: delete orphan index entries; recreate EWS-ghosts.
+	// IMAP side: delete orphan index entries; recreate EWS-ghosts; record which
+	// blob keys are indexed per folder so orphan-semcore can be detected below.
+	idxByFolder := map[string]map[string]bool{}
 	mailboxes, err := idx.ListMailboxes(email)
 	if err != nil {
 		return nil, fmt.Errorf("mailcheck: list mailboxes: %w", err)
@@ -273,6 +279,10 @@ func Repair(email string, idx IndexStore, blob RepairBlob, ident RepairIdentity,
 				rep.Actions = append(rep.Actions, fmt.Sprintf("deleted orphan IMAP index entry %s uid %d (blob gone)", mailbox, uid))
 				continue
 			}
+			if idxByFolder[mailbox] == nil {
+				idxByFolder[mailbox] = map[string]bool{}
+			}
+			idxByFolder[mailbox][id] = true
 			if semByFolder[mailbox][id] {
 				continue // already has a semcore identity in this folder
 			}
@@ -289,6 +299,26 @@ func Repair(email string, idx IndexStore, blob RepairBlob, ident RepairIdentity,
 				semByFolder[mailbox] = map[string]bool{}
 			}
 			semByFolder[mailbox][id] = true
+		}
+	}
+
+	// orphan-semcore: a semcore identity with a live blob but no IMAP index entry
+	// in its folder. Rebuild the index entry so the message is visible over
+	// IMAP/POP3 again (the reverse of the EWS-ghost fix).
+	for folder, keys := range semByFolder {
+		for key := range keys {
+			if idxByFolder[folder][key] {
+				continue
+			}
+			raw, rerr := blob.ReadMessage(email, key)
+			if rerr != nil {
+				return nil, fmt.Errorf("mailcheck: read blob %s: %w", key, rerr)
+			}
+			if ierr := w.RecreateIndexEntry(email, folder, key, raw); ierr != nil {
+				return nil, fmt.Errorf("mailcheck: rebuild index %s in %s: %w", key, folder, ierr)
+			}
+			rep.RebuiltIndex++
+			rep.Actions = append(rep.Actions, fmt.Sprintf("rebuilt IMAP index entry for %s in %s (was orphan-semcore)", key, folder))
 		}
 	}
 	return rep, nil

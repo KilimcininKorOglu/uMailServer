@@ -33,12 +33,17 @@ func (f *fakeBlob) ReadMessage(_, id string) ([]byte, error) {
 
 type fakeRepairer struct {
 	recreated    []string // mailbox per recreate
+	rebuiltIndex []string // "mailbox/msgKey" per index rebuild
 	deletedIndex []string // "mailbox/uid"
 	deletedIdent []string // item id
 }
 
 func (f *fakeRepairer) RecreateIdentity(_, mailbox string, _ []byte) error {
 	f.recreated = append(f.recreated, mailbox)
+	return nil
+}
+func (f *fakeRepairer) RecreateIndexEntry(_, mailbox, msgKey string, _ []byte) error {
+	f.rebuiltIndex = append(f.rebuiltIndex, fmt.Sprintf("%s/%s", mailbox, msgKey))
 	return nil
 }
 func (f *fakeRepairer) DeleteIndexEntry(_, mailbox string, uid uint32) error {
@@ -236,9 +241,9 @@ func TestRepairHealthyNoop(t *testing.T) {
 	if !rep.Clean() {
 		t.Errorf("healthy mailbox should need no repair, got %+v", rep)
 	}
-	if len(w.recreated)+len(w.deletedIndex)+len(w.deletedIdent) != 0 {
-		t.Errorf("no writes expected, got recreated=%v delIdx=%v delIdent=%v",
-			w.recreated, w.deletedIndex, w.deletedIdent)
+	if len(w.recreated)+len(w.rebuiltIndex)+len(w.deletedIndex)+len(w.deletedIdent) != 0 {
+		t.Errorf("no writes expected, got recreated=%v rebuilt=%v delIdx=%v delIdent=%v",
+			w.recreated, w.rebuiltIndex, w.deletedIndex, w.deletedIdent)
 	}
 }
 
@@ -257,6 +262,26 @@ func TestRepairRecreatesGhost(t *testing.T) {
 	}
 	if rep.DeletedIndex != 0 || rep.DeletedIdentity != 0 {
 		t.Errorf("unexpected deletes: %+v", rep)
+	}
+}
+
+func TestRepairRebuildsOrphanSemcore(t *testing.T) {
+	idx, blob, ident := healthyRepair()
+	// "ccc" has a semcore identity in INBOX with its blob present, but no IMAP
+	// index entry -> orphan-semcore the repairer must re-index so it becomes
+	// visible over IMAP/POP3 again.
+	ident.folderItems["INBOX"] = append(ident.folderItems["INBOX"], ItemRef{ItemID: "i-ccc", MsgKey: "ccc"})
+	blob.present["ccc"] = true
+	w := &fakeRepairer{}
+	rep := mustRepair(t, idx, blob, ident, w)
+	if rep.RebuiltIndex != 1 {
+		t.Errorf("RebuiltIndex = %d, want 1 (actions: %v)", rep.RebuiltIndex, rep.Actions)
+	}
+	if len(w.rebuiltIndex) != 1 || w.rebuiltIndex[0] != "INBOX/ccc" {
+		t.Errorf("rebuiltIndex = %v, want [INBOX/ccc]", w.rebuiltIndex)
+	}
+	if rep.Recreated != 0 || rep.DeletedIndex != 0 || rep.DeletedIdentity != 0 {
+		t.Errorf("unexpected other repairs: %+v", rep)
 	}
 }
 

@@ -1100,7 +1100,7 @@ func cmdCheck(args []string) {
 		}
 		email := rest[0]
 		fs := flag.NewFlagSet("check mailbox", flag.ExitOnError)
-		repair := fs.Bool("repair", false, "fix detected inconsistencies (recreate missing semcore identities, delete orphan index/identity entries); run with the server stopped")
+		repair := fs.Bool("repair", false, "fix detected inconsistencies (recreate missing semcore identities, rebuild missing IMAP index entries, delete orphan index/identity entries); run with the server stopped")
 		if err := fs.Parse(rest[1:]); err != nil {
 			os.Exit(1)
 		}
@@ -1172,9 +1172,10 @@ func cmdCheck(args []string) {
 // reporting messages whose Maildir blob, IMAP index, and semcore identity
 // disagree (the "ghost in EWS" class, dangling entries, etc.). When repair is
 // true it then converges the stores: it recreates missing semcore identities for
-// indexed messages (the EWS-ghost fix) and deletes orphan IMAP index and semcore
-// identity entries whose blob is gone. Run with the server STOPPED (bbolt is
-// single-writer). Exits non-zero when any inconsistency remains.
+// indexed messages (the EWS-ghost fix), rebuilds missing IMAP index entries for
+// semcore items with a live blob (the orphan-semcore fix), and deletes orphan
+// IMAP index and semcore identity entries whose blob is gone. Run with the server
+// STOPPED (bbolt is single-writer). Exits non-zero when any inconsistency remains.
 func cmdCheckMailbox(email string, repair bool) {
 	localPart, domain, ok := strings.Cut(email, "@")
 	if !ok || localPart == "" || domain == "" {
@@ -1231,8 +1232,8 @@ func cmdCheckMailbox(email string, repair bool) {
 		fmt.Fprintf(os.Stderr, "check mailbox --repair: %v\n", rerr)
 		os.Exit(1)
 	}
-	fmt.Printf("repaired: recreated %d identity(ies), deleted %d orphan index entry(ies), %d orphan identity(ies)\n",
-		rrep.Recreated, rrep.DeletedIndex, rrep.DeletedIdentity)
+	fmt.Printf("repaired: recreated %d identity(ies), rebuilt %d index entry(ies), deleted %d orphan index entry(ies), %d orphan identity(ies)\n",
+		rrep.Recreated, rrep.RebuiltIndex, rrep.DeletedIndex, rrep.DeletedIdentity)
 	for _, act := range rrep.Actions {
 		fmt.Printf("  %s\n", act)
 	}
@@ -1398,6 +1399,37 @@ func (w mailcheckRepairer) RecreateIdentity(email, mailbox string, raw []byte) e
 		return fmt.Errorf("semcore mutate: %w", err)
 	}
 	return nil
+}
+
+// RecreateIndexEntry files an IMAP index entry for a message whose blob and
+// semcore identity already exist (the orphan-semcore fix), mirroring step 3 of
+// mailImporter.fileOne. The blob key is the content hash, which is the IMAP
+// MessageID, so no re-store is needed.
+func (w mailcheckRepairer) RecreateIndexEntry(email, mailbox, msgKey string, raw []byte) error {
+	if err := w.index.CreateMailbox(email, mailbox); err != nil {
+		return fmt.Errorf("ensure mailbox %q: %w", mailbox, err)
+	}
+	uid, err := w.index.GetNextUID(email, mailbox)
+	if err != nil {
+		return fmt.Errorf("next uid: %w", err)
+	}
+	hdr := messageHeaders(raw)
+	threadID, _ := w.index.GetOrCreateThreadID(email, mailbox, hdr.subject, hdr.messageID, hdr.inReplyTo, hdr.references) //nolint:errcheck
+	meta := &storage.MessageMetadata{
+		MessageID:    msgKey,
+		UID:          uid,
+		Flags:        []string{"\\Seen"},
+		InternalDate: messageDate(raw),
+		Size:         int64(len(raw)),
+		Subject:      hdr.subject,
+		Date:         hdr.date,
+		From:         hdr.from,
+		To:           hdr.to,
+		ThreadID:     threadID,
+		InReplyTo:    hdr.inReplyTo,
+		References:   hdr.references,
+	}
+	return w.index.StoreMessageMetadata(email, mailbox, uid, meta)
 }
 
 func (w mailcheckRepairer) DeleteIndexEntry(email, mailbox string, uid uint32) error {
