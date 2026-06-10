@@ -6,6 +6,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/auth"
 	"github.com/umailserver/umailserver/internal/av"
+	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/smtp"
 	"github.com/umailserver/umailserver/internal/spam"
 )
@@ -388,6 +389,31 @@ func (s *Server) sendPolicyViolation(from string, to []string) string {
 		if !s.isLocalDomainName(rdomain) {
 			return "550 5.7.1 External recipients are not permitted for this account"
 		}
+	}
+	return ""
+}
+
+// quotaProhibitsSend reports a non-empty rejection reason when the local sender's
+// mailbox usage has reached its graduated ProhibitSend threshold; "" means the
+// send is permitted. The effective threshold composes the account's own
+// QuotaWarn/QuotaProhibitSend with its domain defaults and is clamped to the hard
+// cap (db.EffectiveQuotaThresholds); 0 = disabled. It backs the shared submission
+// path so webmail/EWS/JMAP and SMTP submission honor the same outbound block.
+// Unknown/external senders are never gated (fail open).
+func (s *Server) quotaProhibitsSend(from string) string {
+	if s.database == nil {
+		return ""
+	}
+	_, domain, acct, err := s.loadLocalAccount(from)
+	if err != nil || acct == nil {
+		return ""
+	}
+	var dom *db.DomainData
+	if d, derr := s.database.GetDomain(domain); derr == nil {
+		dom = d
+	}
+	if _, prohibitSend, _ := db.EffectiveQuotaThresholds(acct, dom); prohibitSend > 0 && acct.QuotaUsed >= prohibitSend {
+		return "552 5.2.2 Mailbox is over its quota; sending is disabled until space is freed"
 	}
 	return ""
 }

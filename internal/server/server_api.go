@@ -388,6 +388,11 @@ func (s *Server) submitMessageWithSieve(from string, to []string, data []byte) e
 	if reason := s.sendPolicyViolation(from, to); reason != "" {
 		return fmt.Errorf("%s", reason)
 	}
+	// Graduated quota: block the send once the sender's mailbox usage reaches its
+	// ProhibitSend threshold (the hard cap still blocks receipt at IncrementQuota).
+	if reason := s.quotaProhibitsSend(from); reason != "" {
+		return fmt.Errorf("%s", reason)
+	}
 
 	var sieveActions []string
 	if s.sieveManager != nil {
