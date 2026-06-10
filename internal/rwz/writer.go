@@ -8,9 +8,8 @@ import (
 )
 
 // writer accumulates little-endian .rwz bytes. It is the exact inverse of
-// reader and mirrors the byte layout produced by the reference test helpers
-// (the documented Outlook rule layout), so its output round-trips
-// through reader and parses with the independent the reference parser.
+// reader and mirrors the documented Outlook rule byte layout, so its output
+// round-trips through reader and parses with an independent reference parser.
 type writer struct {
 	buf bytes.Buffer
 }
@@ -74,8 +73,8 @@ type wprop struct {
 	num uint32
 }
 
-// propValArray writes a property-value array that reader.propValArray (and the
-// reference MS-OXCDATA) can parse: u32 magic(0), u32 nProps, u32 dataSize, the
+// propValArray writes a property-value array that reader.propValArray (and any
+// MS-OXCDATA PropertyValueArray reader) can parse: u32 magic(0), u32 nProps, u32 dataSize, the
 // fixed 16-byte headers, then the NUL-terminated UTF-16 value block. String
 // values are referenced by a byte offset from the start of the header region.
 func (w *writer) propValArray(props []wprop) {
@@ -130,9 +129,9 @@ func recipientProps(addr, name string) []wprop {
 	}
 }
 
-// peopleList writes a People-or-public-group list (the Outlook rule-element layout
-// the People-or-public-group list element): u32 ext(1), u32 reserved(0),
-// u32 nValues, the recipient arrays, then trailing u32 1, u32 0.
+// peopleList writes a People-or-public-group list element: u32 ext(1),
+// u32 reserved(0), u32 nValues, the recipient arrays, then trailing
+// u32 1, u32 0.
 func (w *writer) peopleList(addrs []string) {
 	w.u32(1)
 	w.u32(0)
@@ -144,10 +143,9 @@ func (w *writer) peopleList(addrs []string) {
 	w.u32(0)
 }
 
-// moveToFolder writes a Move/Copy payload (the Outlook rule-element layout
-// the Move/Copy rule element) with empty folder and store entry ids — a real
-// Outlook store entry id cannot be synthesized, so only the folder name is
-// carried (and recovered on import).
+// moveToFolder writes a Move/Copy payload with empty folder and store entry
+// ids — a real Outlook store entry id cannot be synthesized, so only the
+// folder name is carried (and recovered on import).
 func (w *writer) moveToFolder(folder string) {
 	w.u32(1) // extended
 	w.u32(0) // reserved

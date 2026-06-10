@@ -10,9 +10,9 @@ import (
 // errTruncated is the sticky error set when a read would run past the buffer.
 var errTruncated = errors.New("rwz: unexpected end of data")
 
-// reader is a little-endian cursor over an .rwz byte slice. It mirrors the
-// read semantics of the reference parser the Outlook rule stream layout:
-// every integer is little-endian, strings are length-prefixed UTF-16LE. A sticky
+// reader is a little-endian cursor over an .rwz byte slice. It follows the
+// read semantics of the Outlook rule stream: every integer is little-endian,
+// strings are length-prefixed UTF-16LE. A sticky
 // err is set on the first out-of-bounds read so callers can read a whole element
 // and check the error once; no read ever panics or indexes out of range.
 type reader struct {
@@ -84,8 +84,8 @@ func (r *reader) skip(n int) {
 }
 
 // stringObject reads a length-prefixed UTF-16LE string: a u8 length in UTF-16
-// code units, escaped to a u16 length plus a 2-byte pad when the u8 is 0xff
-// (the Outlook rule stream layout the length-prefixed string reader). No NUL terminator is stored.
+// code units, escaped to a u16 length plus a 2-byte pad when the u8 is 0xff.
+// No NUL terminator is stored.
 func (r *reader) stringObject() string {
 	n := int(r.u8())
 	if n == 0xff {
@@ -117,8 +117,8 @@ func (r *reader) asciiString(n int) string {
 }
 
 // stringUTF16UntilNUL reads UTF-16LE code units until a U+0000 terminator,
-// used for the values inside a PropertyValueArray data block (MS-OXCDATA
-// readStringUntilNullTerminator).
+// used for the values inside a PropertyValueArray data block (the
+// MS-OXCDATA PropertyValueArray value encoding).
 func (r *reader) stringUTF16UntilNUL() string {
 	var u []uint16
 	for r.err == nil {
@@ -212,8 +212,8 @@ func (r *reader) propValArray() []propVal {
 }
 
 // skipEntryID consumes a flat entry id: a u32 size followed by size bytes
-// (the Outlook rule-element layout FolderEntryId/StoreEntryId, which always seek to
-// pos+size+4 regardless of inner content).
+// (the folder/store entry ids, which always advance to pos+size+4 regardless
+// of inner content).
 func (r *reader) skipEntryID() {
 	size := r.u32()
 	r.skip(int(size))

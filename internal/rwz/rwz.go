@@ -181,7 +181,7 @@ func readRule(r *reader, rep *Report) (*semcore.Rule, error) {
 		clsLen := int(r.u16())    // class name length
 		_ = r.asciiString(clsLen) // "CRuleElement"
 	case 0x8001, 0x0000:
-		// 0x8001 for non-first rules; 0 tolerated (matches the reference parser).
+		// 0x8001 for non-first rules; 0 tolerated for compatibility.
 	default:
 		return nil, fmt.Errorf("rwz: bad rule separator 0x%x", sep)
 	}
@@ -370,7 +370,7 @@ func decodeElement(r *reader, id uint32, rep *Report) (*semcore.RuleCondition, *
 }
 
 // ---------------------------------------------------------------------------
-// Element payload consumers (shapes ported from the reference parser the Outlook rule-element layout)
+// Element payload consumers (shapes per the Outlook rule-element layout)
 // ---------------------------------------------------------------------------
 
 func consumeSimple(r *reader)    { _ = r.u32() }                         // ext

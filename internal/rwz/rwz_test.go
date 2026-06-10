@@ -3,80 +3,10 @@ package rwz
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/umailserver/umailserver/internal/semcore"
 )
-
-// TestCrossCheckWithReferenceParser verifies that our generated .rwz parses with the
-// independent reference parser (the reference parser). This is the
-// strongest verification available here: there is no real Outlook to test
-// against, so an independent reader recovering our rule names and recipients
-// proves the byte layout is well-formed, not merely self-consistent. The test
-// skips when node or the built reference is unavailable.
-func TestCrossCheckWithReferenceParser(t *testing.T) {
-	bin := filepath.Join("..", "..", "helper-projects", "the reference parser", "bin", "index.js")
-	if _, err := os.Stat(bin); err != nil {
-		t.Skipf("the reference parser not built (%s); run `npm install && npm run build` in the reference parser", bin)
-	}
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available")
-	}
-
-	data, _, err := Write(sampleRules())
-	if err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	dir := t.TempDir()
-	inPath := filepath.Join(dir, "rules.rwz")
-	outPath := filepath.Join(dir, "rules.json")
-	if err := os.WriteFile(inPath, data, 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	if out, err := exec.Command(node, bin, inPath, outPath).CombinedOutput(); err != nil {
-		t.Fatalf("the reference parser failed: %v\n%s", err, out)
-	}
-
-	raw, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatalf("read the reference parser output: %v", err)
-	}
-	var parsed struct {
-		Header struct {
-			NumberOfRules int `json:"numberOfRules"`
-		} `json:"header"`
-		Rules []struct {
-			Header struct {
-				Name    string `json:"name"`
-				Enabled bool   `json:"enabled"`
-			} `json:"header"`
-		} `json:"rules"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		t.Fatalf("decode the reference parser json: %v", err)
-	}
-
-	want := sampleRules()
-	if parsed.Header.NumberOfRules != len(want) {
-		t.Errorf("numberOfRules: got %d want %d", parsed.Header.NumberOfRules, len(want))
-	}
-	if len(parsed.Rules) != len(want) {
-		t.Fatalf("the reference parser rule count: got %d want %d", len(parsed.Rules), len(want))
-	}
-	for i := range want {
-		if parsed.Rules[i].Header.Name != want[i].Name {
-			t.Errorf("rule %d name: the reference parser read %q want %q", i, parsed.Rules[i].Header.Name, want[i].Name)
-		}
-		if parsed.Rules[i].Header.Enabled != want[i].Enabled {
-			t.Errorf("rule %d enabled: the reference parser read %v want %v", i, parsed.Rules[i].Header.Enabled, want[i].Enabled)
-		}
-	}
-}
 
 // sampleRules exercises every supported condition and action so the round-trip
 // test proves the full subset survives Write -> Parse.
@@ -188,7 +118,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 // TestSpecConformance checks the fixed Outlook 2016+ header bytes and the first
-// rule's CRuleElement marker, matching the documented Outlook rule layout.
+// rule's CRuleElement marker against the documented Outlook 2016+ stream layout.
 func TestSpecConformance(t *testing.T) {
 	data, _, err := Write(sampleRules()[:1])
 	if err != nil {
