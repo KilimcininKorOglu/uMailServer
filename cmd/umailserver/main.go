@@ -2351,6 +2351,7 @@ func cmdExport(args []string) {
 	mboxPath := fs.String("mbox", "", "Write all messages to this mbox file (flat)")
 	emlDir := fs.String("eml", "", "Write one .eml per message under this directory (folder subdirs)")
 	maildirDir := fs.String("maildir", "", "Write a Maildir tree to this directory (folders preserved)")
+	tnefDir := fs.String("tnef", "", "Write one .tnef (winmail.dat) per message under this directory (folder subdirs)")
 	icsPath := fs.String("ics", "", "Write all calendar events to this iCalendar .ics file")
 	vcfPath := fs.String("vcf", "", "Write all contacts to this vCard .vcf file")
 	folder := fs.String("folder", "", "Export only this folder (default: every mailbox)")
@@ -2368,13 +2369,13 @@ func cmdExport(args []string) {
 		os.Exit(1)
 	}
 	dstCount := 0
-	for _, s := range []string{*mboxPath, *emlDir, *maildirDir, *icsPath, *vcfPath} {
+	for _, s := range []string{*mboxPath, *emlDir, *maildirDir, *tnefDir, *icsPath, *vcfPath} {
 		if s != "" {
 			dstCount++
 		}
 	}
 	if dstCount != 1 {
-		fmt.Fprintln(os.Stderr, "export: provide exactly one of --mbox, --eml, --maildir, --ics, or --vcf")
+		fmt.Fprintln(os.Stderr, "export: provide exactly one of --mbox, --eml, --maildir, --tnef, --ics, or --vcf")
 		os.Exit(1)
 	}
 
@@ -2425,6 +2426,8 @@ func cmdExport(args []string) {
 		err = exportMbox(*mboxPath, msgs)
 	case *emlDir != "":
 		err = exportEML(*emlDir, msgs)
+	case *tnefDir != "":
+		err = exportTNEF(*tnefDir, msgs)
 	default:
 		err = exportMaildir(*maildirDir, msgs)
 	}
