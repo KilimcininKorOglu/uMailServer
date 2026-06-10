@@ -145,7 +145,14 @@
     "decline": "Reddet",
     "attachment": "{{count}} ek",
     "attachments": "{{count}} ek",
-    "downloadAttachment": "{{filename}} dosyasını indir"
+    "downloadAttachment": "{{filename}} dosyasını indir",
+    "recall": "Geri çek",
+    "recallConfirm": "Bu mesaj geri çekilsin mi? Okunmamış kopyalar kurum içi alıcıların posta kutularından kaldırılır. Okunmuş kopyalar ve dış alıcılar geri çekilemez.",
+    "recallAll": "{{count}} alıcının tümünden geri çekildi",
+    "recallPartial": "{{total}} alıcının {{recalled}} tanesinden geri çekildi; kalanlar zaten okumuş ya da dış alıcı",
+    "recallNone": "Geri çekilemedi: alıcılar mesajı zaten okumuş ya da dış alıcı",
+    "recallNoRecipients": "Geri çekilecek kurum içi alıcı yok",
+    "recallFailed": "Mesaj geri çekilemedi"
   },
   "compose": {
     "invalidEmail": "Geçerli bir e-posta adresi girin",

@@ -705,6 +705,7 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/scheduled", http.HandlerFunc(s.mailHandler.handleScheduledList).ServeHTTP)
 	api.HandleFunc("/api/v1/scheduled/cancel", http.HandlerFunc(s.mailHandler.handleScheduledCancel).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/delete", http.HandlerFunc(s.mailHandler.handleMailDelete).ServeHTTP)
+	api.HandleFunc("/api/v1/mail/recall", http.HandlerFunc(s.mailHandler.handleMailRecall).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/flag", http.HandlerFunc(s.mailHandler.handleMailFlag).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/labels", http.HandlerFunc(s.mailHandler.handleMailLabels).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/invite", s.handleMailInvite)

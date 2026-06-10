@@ -29,6 +29,16 @@ export interface MailAttachment {
   content: string // base64-encoded file bytes
 }
 
+// RecallResult summarizes a recall attempt: how many recipient copies were
+// pulled, the total recipients tried, and the per-recipient outcome
+// ("recalled" | "read" | "unavailable").
+export interface RecallResult {
+  id: string
+  recalled: number
+  total: number
+  results: { recipient: string; status: 'recalled' | 'read' | 'unavailable' }[]
+}
+
 // AttachmentInfo describes a received message's attachment (metadata only).
 // The bytes are fetched on demand by index.
 export interface AttachmentInfo {
@@ -603,6 +613,13 @@ class API {
 
   async deleteMail(id: string): Promise<void> {
     await this.delete(`/mail/delete?id=${id}`)
+  }
+
+  // recallMail attempts to unsend a message the caller authored: each local
+  // recipient whose copy is still unread has it removed; read copies and
+  // external recipients are reported back as not recalled.
+  async recallMail(id: string): Promise<RecallResult> {
+    return this.post<RecallResult>(`/mail/recall?id=${encodeURIComponent(id)}`, {})
   }
 
   // setFlag sets or clears an IMAP flag (\\Seen for read, \\Flagged for star)

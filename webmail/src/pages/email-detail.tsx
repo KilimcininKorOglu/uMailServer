@@ -17,6 +17,7 @@ import {
   HelpCircle,
   Paperclip,
   Download,
+  Undo2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,6 +58,7 @@ interface EmailDetail {
   flagged: boolean
   labels: string[]
   attachments: AttachmentInfo[]
+  folder: string
 }
 
 export function EmailDetailPage() {
@@ -118,6 +120,7 @@ export function EmailDetailPage() {
             flagged: !!result.starred,
             labels: result.labels ?? [],
             attachments: result.attachments ?? [],
+            folder: result.folder ?? "",
           })
           // Mark the message read on open (server-side) if it was unread, so
           // the unread count reflects reading — standard mail-client behavior.
@@ -158,6 +161,25 @@ export function EmailDetailPage() {
       navigate("/inbox")
     } catch {
       toast.error(t("emailDetail.failedToDelete"))
+    }
+  }
+
+  const handleRecall = async () => {
+    if (!email) return
+    if (!window.confirm(t("emailDetail.recallConfirm"))) return
+    try {
+      const res = await api.recallMail(email.id)
+      if (res.total === 0) {
+        toast.info(t("emailDetail.recallNoRecipients"))
+      } else if (res.recalled === res.total) {
+        toast.success(t("emailDetail.recallAll", { count: String(res.recalled) }))
+      } else if (res.recalled === 0) {
+        toast.warning(t("emailDetail.recallNone"))
+      } else {
+        toast.warning(t("emailDetail.recallPartial", { recalled: String(res.recalled), total: String(res.total) }))
+      }
+    } catch {
+      toast.error(t("emailDetail.recallFailed"))
     }
   }
 
@@ -336,6 +358,12 @@ export function EmailDetailPage() {
                 <Forward className="h-4 w-4 mr-1" />
                 {t("common.forward")}
               </Button>
+              {email.folder === "Sent" && (
+                <Button variant="ghost" size="sm" onClick={handleRecall} title={t("emailDetail.recall")}>
+                  <Undo2 className="h-4 w-4 mr-1" />
+                  {t("emailDetail.recall")}
+                </Button>
+              )}
             </div>
             <div className="flex items-center gap-1">
               <Button

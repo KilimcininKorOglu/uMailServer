@@ -145,7 +145,14 @@
     "decline": "Decline",
     "attachment": "{{count}} attachment",
     "attachments": "{{count}} attachments",
-    "downloadAttachment": "Download {{filename}}"
+    "downloadAttachment": "Download {{filename}}",
+    "recall": "Recall",
+    "recallConfirm": "Recall this message? Unread copies will be removed from internal recipients' mailboxes. Already-read copies and external recipients can't be recalled.",
+    "recallAll": "Recalled from all {{count}} recipient(s)",
+    "recallPartial": "Recalled from {{recalled}} of {{total}} recipient(s); the rest had already read it or are external",
+    "recallNone": "Could not recall: recipients have already read it or are external",
+    "recallNoRecipients": "No internal recipients to recall from",
+    "recallFailed": "Failed to recall the message"
   },
   "compose": {
     "invalidEmail": "Enter a valid email address",

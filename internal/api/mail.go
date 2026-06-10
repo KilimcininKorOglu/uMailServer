@@ -1491,6 +1491,119 @@ func (h *MailHandler) deleteMessageMetadata(userEmail, messageID string) {
 	}
 }
 
+// recallResult reports the per-recipient outcome of a recall attempt.
+type recallResult struct {
+	Recipient string `json:"recipient"`
+	Status    string `json:"status"` // "recalled" | "read" | "unavailable"
+}
+
+// handleMailRecall recalls (unsends) a previously sent message from each LOCAL
+// recipient whose copy is still unread. Because uMailServer owns the
+// recipients' canonical store, an unread copy is genuinely removed across every
+// surface (IMAP/JMAP/EWS/webmail) — unlike the classic client-cooperative
+// Outlook recall, which only asks the recipient's client to delete it. A copy
+// the recipient has already read, and any external recipient, cannot be
+// recalled and is reported as such. Only the original author may recall.
+func (h *MailHandler) handleMailRecall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	sender, ok := r.Context().Value("user").(string)
+	if !ok || sender == "" {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	messageID := r.URL.Query().Get("id")
+	if messageID == "" {
+		messageID = r.FormValue("id")
+	}
+	if messageID == "" {
+		h.sendError(w, http.StatusBadRequest, "Message ID required")
+		return
+	}
+	if h.mailDB == nil || h.msgStore == nil {
+		h.sendError(w, http.StatusServiceUnavailable, "Mail storage not available")
+		return
+	}
+
+	// The caller must own a copy of the message and be its author. Reading the
+	// raw Sent message both proves ownership (the blob is keyed per-user) and
+	// yields the From/To/Cc/Bcc needed to authorize and target the recall.
+	if _, _, _, found := h.findMessage(sender, messageID); !found {
+		h.sendError(w, http.StatusNotFound, "Message not found")
+		return
+	}
+	raw, err := h.msgStore.ReadMessage(sender, messageID)
+	if err != nil {
+		h.sendError(w, http.StatusNotFound, "Message not found")
+		return
+	}
+	parsed, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		h.sendError(w, http.StatusUnprocessableEntity, "Could not parse the message")
+		return
+	}
+	// Authorize: only the message's author may recall it (so a received message
+	// can never be recalled by its recipient).
+	fromEmails, _ := h.resolveAddressList(parsed.Header.Get("From"))
+	if len(fromEmails) == 0 || !strings.EqualFold(fromEmails[0], sender) {
+		h.sendError(w, http.StatusForbidden, "Only the sender may recall this message")
+		return
+	}
+
+	// Collect the unique recipient set (To + Cc + Bcc), excluding the sender.
+	recipients := make([]string, 0, 8)
+	seen := map[string]bool{strings.ToLower(sender): true}
+	for _, header := range []string{"To", "Cc", "Bcc"} {
+		emails, _ := h.resolveAddressList(parsed.Header.Get(header))
+		for _, addr := range emails {
+			key := strings.ToLower(strings.TrimSpace(addr))
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			recipients = append(recipients, addr)
+		}
+	}
+
+	results := make([]recallResult, 0, len(recipients))
+	recalled := 0
+	for _, rcpt := range recipients {
+		mailbox, _, meta, found := h.findMessage(rcpt, messageID)
+		if !found {
+			// External recipient, or the copy is already gone — nothing to pull.
+			results = append(results, recallResult{Recipient: rcpt, Status: "unavailable"})
+			continue
+		}
+		if storage.HasFlag(meta.Flags, "\\Seen") {
+			results = append(results, recallResult{Recipient: rcpt, Status: "read"})
+			continue
+		}
+		// Remove the unread copy via the canonical cross-protocol delete path
+		// (blob + storage index + semcore identity), identical to a permanent
+		// webmail delete, so the recall converges on IMAP/JMAP/EWS/webmail.
+		_ = mailbox // documented: the delete helper re-resolves the owning folder
+		if derr := h.msgStore.DeleteMessage(rcpt, messageID); derr != nil {
+			fmt.Printf("Warning: recall could not delete blob for %s: %v\n", rcpt, derr)
+		}
+		h.deleteMessageMetadata(rcpt, messageID)
+		results = append(results, recallResult{Recipient: rcpt, Status: "recalled"})
+		recalled++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":       messageID,
+		"recalled": recalled,
+		"total":    len(recipients),
+		"results":  results,
+	}); err != nil {
+		fmt.Printf("ERROR: failed to encode recall response: %v\n", err)
+	}
+}
+
 // validateSendAs checks if user has permission to send as the specified identity.
 // Returns (canSend, error). If error is non-nil, it's an auth error. If canSend is false,
 // the user doesn't have send-as or send-on-behalf permission.
