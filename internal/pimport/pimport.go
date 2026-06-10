@@ -170,31 +170,33 @@ func withUID(c *icsComponent) string {
 	return uid
 }
 
-// ReadICS splits an iCalendar stream into one self-contained single-VEVENT
-// VCALENDAR per event (each carrying the source VTIMEZONEs so DTSTART;TZID stays
-// resolvable). skippedTodos counts VTODO components, which are not imported.
-func ReadICS(data []byte) (comps []Component, skippedTodos int, err error) {
+// ReadICS splits an iCalendar stream into one self-contained VCALENDAR per
+// VEVENT (events) and per VTODO (todos) — each carrying the source VTIMEZONEs so
+// DTSTART;TZID stays resolvable. Events file into the calendar folder and todos
+// into the tasks folder; both are keyed by their iCal UID.
+func ReadICS(data []byte) (events, todos []Component, err error) {
 	header, parsed := walkICS(unfold(data))
 	var tzs []icsComponent
-	var events []icsComponent
+	var evs, tds []icsComponent
 	for _, c := range parsed {
 		switch c.Type {
 		case "VTIMEZONE":
 			tzs = append(tzs, c)
 		case "VEVENT":
-			events = append(events, c)
+			evs = append(evs, c)
 		case "VTODO":
-			skippedTodos++
+			tds = append(tds, c)
 		}
 	}
-	for i := range events {
-		uid := withUID(&events[i])
-		comps = append(comps, Component{
-			UID: uid,
-			Raw: buildVCalendar(header, tzs, []icsComponent{events[i]}),
-		})
+	for i := range evs {
+		uid := withUID(&evs[i])
+		events = append(events, Component{UID: uid, Raw: buildVCalendar(header, tzs, []icsComponent{evs[i]})})
 	}
-	return comps, skippedTodos, nil
+	for i := range tds {
+		uid := withUID(&tds[i])
+		todos = append(todos, Component{UID: uid, Raw: buildVCalendar(header, tzs, []icsComponent{tds[i]})})
+	}
+	return events, todos, nil
 }
 
 // ReadVCF splits a vCard stream into individual VCARD components, injecting a
@@ -232,19 +234,19 @@ func ReadVCF(data []byte) ([]Component, error) {
 	return comps, nil
 }
 
-// MergeICS merges stored single-VEVENT VCALENDAR documents into one VCALENDAR
-// (header from the first, VTIMEZONEs deduplicated by TZID, every VEVENT), the
-// canonical interchange shape for export.
+// MergeICS merges stored single-component VCALENDAR documents into one VCALENDAR
+// (header from the first, VTIMEZONEs deduplicated by TZID, every VEVENT and
+// VTODO), the canonical interchange shape for export.
 func MergeICS(docs []string) []byte {
 	var header []string
 	seenTZ := map[string]bool{}
-	var tzs, events []icsComponent
+	var tzs, comps []icsComponent
 	for _, doc := range docs {
-		h, comps := walkICS(unfold([]byte(doc)))
+		h, parsed := walkICS(unfold([]byte(doc)))
 		if header == nil {
 			header = h
 		}
-		for _, c := range comps {
+		for _, c := range parsed {
 			switch c.Type {
 			case "VTIMEZONE":
 				tzid := propValue(c.Lines, "TZID")
@@ -252,12 +254,12 @@ func MergeICS(docs []string) []byte {
 					seenTZ[tzid] = true
 					tzs = append(tzs, c)
 				}
-			case "VEVENT":
-				events = append(events, c)
+			case "VEVENT", "VTODO":
+				comps = append(comps, c)
 			}
 		}
 	}
-	return []byte(buildVCalendar(header, tzs, events))
+	return []byte(buildVCalendar(header, tzs, comps))
 }
 
 // MergeVCF concatenates stored VCARD documents into one vCard file (a .vcf may

@@ -31,53 +31,61 @@ const sampleICS = "BEGIN:VCALENDAR\r\n" +
 	"END:VTODO\r\n" +
 	"END:VCALENDAR\r\n"
 
-func TestReadICSSplitsEventsKeepsTimezoneSkipsTodos(t *testing.T) {
-	comps, todos, err := ReadICS([]byte(sampleICS))
+func TestReadICSSplitsEventsAndTodosKeepsTimezone(t *testing.T) {
+	events, todos, err := ReadICS([]byte(sampleICS))
 	if err != nil {
 		t.Fatalf("ReadICS: %v", err)
 	}
-	if len(comps) != 2 {
-		t.Fatalf("got %d events, want 2", len(comps))
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
 	}
-	if todos != 1 {
-		t.Errorf("skippedTodos = %d, want 1", todos)
+	if len(todos) != 1 {
+		t.Fatalf("got %d todos, want 1", len(todos))
 	}
-	uids := map[string]bool{comps[0].UID: true, comps[1].UID: true}
+	uids := map[string]bool{events[0].UID: true, events[1].UID: true}
 	if !uids["event-one@test"] || !uids["event-two@test"] {
-		t.Errorf("UIDs = %v, want event-one@test + event-two@test", uids)
+		t.Errorf("event UIDs = %v, want event-one@test + event-two@test", uids)
 	}
-	// Each emitted doc must be a self-contained VCALENDAR carrying the source
-	// VTIMEZONE and exactly one VEVENT.
-	for _, c := range comps {
+	if todos[0].UID != "task-one@test" {
+		t.Errorf("todo UID = %q, want task-one@test", todos[0].UID)
+	}
+	// Each event doc must be a self-contained VCALENDAR carrying the source
+	// VTIMEZONE and exactly one VEVENT, with no VTODO leakage.
+	for _, c := range events {
 		if !strings.HasPrefix(c.Raw, "BEGIN:VCALENDAR") || !strings.Contains(c.Raw, "END:VCALENDAR") {
 			t.Errorf("doc not a VCALENDAR: %q", c.Raw)
 		}
 		if !strings.Contains(c.Raw, "TZID:Europe/Istanbul") {
 			t.Errorf("doc dropped the VTIMEZONE: %q", c.Raw)
 		}
-		if strings.Count(c.Raw, "BEGIN:VEVENT") != 1 {
-			t.Errorf("doc should hold exactly one VEVENT: %q", c.Raw)
+		if strings.Count(c.Raw, "BEGIN:VEVENT") != 1 || strings.Contains(c.Raw, "BEGIN:VTODO") {
+			t.Errorf("doc should hold exactly one VEVENT and no VTODO: %q", c.Raw)
 		}
-		if strings.Contains(c.Raw, "BEGIN:VTODO") {
-			t.Errorf("VTODO leaked into an event doc: %q", c.Raw)
-		}
+	}
+	// The todo doc holds the VTODO (and the timezone), no VEVENT.
+	td := todos[0].Raw
+	if strings.Count(td, "BEGIN:VTODO") != 1 || strings.Contains(td, "BEGIN:VEVENT") {
+		t.Errorf("todo doc should hold exactly one VTODO and no VEVENT: %q", td)
+	}
+	if !strings.Contains(td, "TZID:Europe/Istanbul") {
+		t.Errorf("todo doc dropped the VTIMEZONE: %q", td)
 	}
 }
 
 func TestReadICSSynthesizesMissingUID(t *testing.T) {
 	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nSUMMARY:No UID\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-	comps, _, err := ReadICS([]byte(ics))
+	events, _, err := ReadICS([]byte(ics))
 	if err != nil {
 		t.Fatalf("ReadICS: %v", err)
 	}
-	if len(comps) != 1 {
-		t.Fatalf("got %d, want 1", len(comps))
+	if len(events) != 1 {
+		t.Fatalf("got %d, want 1", len(events))
 	}
-	if comps[0].UID == "" {
+	if events[0].UID == "" {
 		t.Fatal("expected a synthesized UID")
 	}
-	if !strings.Contains(comps[0].Raw, "UID:"+comps[0].UID) {
-		t.Errorf("synthesized UID not injected into the doc: %q", comps[0].Raw)
+	if !strings.Contains(events[0].Raw, "UID:"+events[0].UID) {
+		t.Errorf("synthesized UID not injected into the doc: %q", events[0].Raw)
 	}
 }
 
@@ -85,24 +93,25 @@ func TestReadICSUnfoldsContinuationLines(t *testing.T) {
 	// A folded SUMMARY (continuation line begins with a space) must rejoin, and
 	// the UID on its own line must still parse.
 	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:folded@test\r\nSUMMARY:Hello \r\n World\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-	comps, _, err := ReadICS([]byte(ics))
+	events, _, err := ReadICS([]byte(ics))
 	if err != nil {
 		t.Fatalf("ReadICS: %v", err)
 	}
-	if len(comps) != 1 || comps[0].UID != "folded@test" {
-		t.Fatalf("got %+v, want one event uid folded@test", comps)
+	if len(events) != 1 || events[0].UID != "folded@test" {
+		t.Fatalf("got %+v, want one event uid folded@test", events)
 	}
-	if !strings.Contains(comps[0].Raw, "SUMMARY:Hello World") {
-		t.Errorf("folded line not rejoined: %q", comps[0].Raw)
+	if !strings.Contains(events[0].Raw, "SUMMARY:Hello World") {
+		t.Errorf("folded line not rejoined: %q", events[0].Raw)
 	}
 }
 
 func TestMergeICSRoundTrip(t *testing.T) {
-	comps, _, err := ReadICS([]byte(sampleICS))
+	events, todos, err := ReadICS([]byte(sampleICS))
 	if err != nil {
 		t.Fatalf("ReadICS: %v", err)
 	}
-	docs := []string{comps[0].Raw, comps[1].Raw}
+	// Export merges events AND tasks (both iCal components) into one VCALENDAR.
+	docs := []string{events[0].Raw, events[1].Raw, todos[0].Raw}
 	merged := string(MergeICS(docs))
 	if strings.Count(merged, "BEGIN:VCALENDAR") != 1 || strings.Count(merged, "END:VCALENDAR") != 1 {
 		t.Errorf("merged output must be exactly one VCALENDAR: %q", merged)
@@ -110,7 +119,10 @@ func TestMergeICSRoundTrip(t *testing.T) {
 	if strings.Count(merged, "BEGIN:VEVENT") != 2 {
 		t.Errorf("merged output must hold both VEVENTs: %q", merged)
 	}
-	// The shared VTIMEZONE must appear once, not duplicated per event.
+	if strings.Count(merged, "BEGIN:VTODO") != 1 {
+		t.Errorf("merged output must hold the VTODO: %q", merged)
+	}
+	// The shared VTIMEZONE must appear once, not duplicated per component.
 	if got := strings.Count(merged, "BEGIN:VTIMEZONE"); got != 1 {
 		t.Errorf("VTIMEZONE appears %d times, want 1 (dedup by TZID)", got)
 	}
