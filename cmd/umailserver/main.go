@@ -15,6 +15,7 @@ import (
 	"net/mail"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -83,6 +84,8 @@ func main() {
 		cmdImport(os.Args[2:])
 	case "export":
 		cmdExport(os.Args[2:])
+	case "mbsize":
+		cmdMbsize(os.Args[2:])
 	case "db":
 		cmdDB(os.Args[2:])
 	case "status":
@@ -119,8 +122,9 @@ Commands:
   backup       Create backup
   restore      Restore from backup
   migrate      Import from other mail servers
-  import       Import mbox/.eml/Maildir into a mailbox (server stopped)
-  export       Export a mailbox to mbox/.eml/Maildir (server stopped)
+  import       Import mbox/.eml/Maildir/.ics/.vcf into a mailbox (server stopped)
+  export       Export a mailbox to mbox/.eml/Maildir/.ics/.vcf (server stopped)
+  mbsize       Report mailbox storage size (per-folder + quota)
   db           Database management (migrate, status)
   version      Show version
 
@@ -1406,6 +1410,199 @@ func (w mailcheckRepairer) DeleteIdentity(itemID string) error {
 		return fmt.Errorf("parse item id %q: %w", itemID, err)
 	}
 	return w.ident.DeleteItemIdentity(id)
+}
+
+// folderSize is one mailbox folder's message count and total byte size.
+type folderSize struct {
+	name  string
+	count int
+	bytes int64
+}
+
+// mailboxSizes sums each folder's message sizes from the IMAP index (meta.Size
+// is the stored RFC822 size that quota counts), returning per-folder figures
+// plus the grand total. Read-only; works on either backend.
+func mailboxSizes(index imap.MetadataStore, email string) (folders []folderSize, totalBytes int64, totalCount int, err error) {
+	names, err := index.ListMailboxes(email)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("list mailboxes: %w", err)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		uids, uerr := index.GetMessageUIDs(email, name)
+		if uerr != nil {
+			return nil, 0, 0, fmt.Errorf("uids for %q: %w", name, uerr)
+		}
+		fs := folderSize{name: name}
+		for _, uid := range uids {
+			meta, merr := index.GetMessageMetadata(email, name, uid)
+			if merr != nil || meta == nil {
+				continue
+			}
+			fs.count++
+			fs.bytes += meta.Size
+		}
+		folders = append(folders, fs)
+		totalBytes += fs.bytes
+		totalCount += fs.count
+	}
+	return folders, totalBytes, totalCount, nil
+}
+
+// effectiveQuota returns the binding quota limit for an account: the smaller of
+// the account limit and the domain ceiling, with 0 meaning unlimited on either
+// side (mirrors db.IncrementQuota). dom may be nil.
+func effectiveQuota(account *db.AccountData, dom *db.DomainData) int64 {
+	limit := account.QuotaLimit
+	if dom != nil && dom.MaxMailboxSize > 0 && (limit == 0 || dom.MaxMailboxSize < limit) {
+		limit = dom.MaxMailboxSize
+	}
+	return limit
+}
+
+// humanBytes formats a byte count as a human-readable size (binary units).
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// cmdMbsize reports mailbox storage size: per-folder message count and bytes for
+// a single mailbox (plus the QuotaUsed counter vs the computed size and the
+// effective quota), or a one-line-per-account summary for a whole domain / all
+// accounts. It is the read-only counterpart of Exchange mbsize. Run with the server
+// STOPPED on bbolt (single-writer); postgres runs concurrently.
+func cmdMbsize(args []string) {
+	fs := flag.NewFlagSet("mbsize", flag.ExitOnError)
+	all := fs.Bool("all", false, "Report every account in every domain")
+	domainFlag := fs.String("domain", "", "Report every account in this domain")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+	email := fs.Arg(0)
+	if !*all && *domainFlag == "" && email == "" {
+		fmt.Fprintln(os.Stderr, "Usage: umailserver mbsize <email> | --domain <domain> | --all")
+		os.Exit(1)
+	}
+
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	st, err := openMailCLIStores(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mbsize: %v\n", err)
+		os.Exit(1)
+	}
+	defer st.close()
+
+	if *all || *domainFlag != "" {
+		mbsizeBulk(st, *domainFlag)
+		return
+	}
+
+	localPart, domain, ok := strings.Cut(email, "@")
+	if !ok || localPart == "" || domain == "" {
+		fmt.Fprintf(os.Stderr, "mbsize: invalid email %q\n", email)
+		os.Exit(1)
+	}
+	account, gerr := st.account.GetAccount(domain, localPart)
+	if gerr != nil || account == nil {
+		fmt.Fprintf(os.Stderr, "mbsize: account %s does not exist\n", email)
+		os.Exit(1)
+	}
+	folders, totalBytes, totalCount, serr := mailboxSizes(st.index, email)
+	if serr != nil {
+		fmt.Fprintf(os.Stderr, "mbsize: %v\n", serr)
+		os.Exit(1)
+	}
+
+	fmt.Printf("mailbox %s\n", email)
+	for _, f := range folders {
+		fmt.Printf("  %-24s %6d msg  %12s\n", f.name, f.count, humanBytes(f.bytes))
+	}
+	fmt.Printf("  %-24s %6d msg  %12s\n", "TOTAL", totalCount, humanBytes(totalBytes))
+
+	dom, _ := st.account.GetDomain(domain) //nolint:errcheck // absent domain -> nil, no ceiling
+	limit := effectiveQuota(account, dom)
+	limitStr := "unlimited"
+	pct := ""
+	if limit > 0 {
+		limitStr = humanBytes(limit)
+		pct = fmt.Sprintf(" (%.1f%%)", 100*float64(totalBytes)/float64(limit))
+	}
+	fmt.Printf("  quota: computed %s / effective %s%s\n", humanBytes(totalBytes), limitStr, pct)
+	// The QuotaUsed counter is only bumped at inbound/local delivery (not IMAP
+	// APPEND / EWS / JMAP writes), so it can drift from the real size — surface it.
+	if account.QuotaUsed != totalBytes {
+		fmt.Printf("  NOTE: QuotaUsed counter is %s, drifts from computed %s by %s\n",
+			humanBytes(account.QuotaUsed), humanBytes(totalBytes), humanBytes(absInt64(account.QuotaUsed-totalBytes)))
+	}
+}
+
+// absInt64 returns the absolute value of n.
+func absInt64(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// mbsizeBulk prints a one-line-per-account size summary for a single domain (when
+// domain != "") or every domain, plus a grand total.
+func mbsizeBulk(st *mailCLIStores, domain string) {
+	var domains []string
+	if domain != "" {
+		domains = []string{domain}
+	} else {
+		doms, err := st.account.ListDomains()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mbsize: list domains: %v\n", err)
+			os.Exit(1)
+		}
+		for _, d := range doms {
+			domains = append(domains, d.Name)
+		}
+		sort.Strings(domains)
+	}
+
+	fmt.Printf("%-36s %8s %14s %16s\n", "MAILBOX", "MSGS", "SIZE", "QUOTA(used/eff)")
+	var grandBytes int64
+	var grandCount, accounts int
+	for _, dn := range domains {
+		accts, err := st.account.ListAccountsByDomain(dn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mbsize: list accounts for %q: %v\n", dn, err)
+			os.Exit(1)
+		}
+		dom, _ := st.account.GetDomain(dn) //nolint:errcheck // absent -> nil, no ceiling
+		for _, a := range accts {
+			_, totalBytes, totalCount, serr := mailboxSizes(st.index, a.Email)
+			if serr != nil {
+				fmt.Fprintf(os.Stderr, "mbsize: %s: %v\n", a.Email, serr)
+				os.Exit(1)
+			}
+			limit := effectiveQuota(a, dom)
+			limitStr := "unlimited"
+			if limit > 0 {
+				limitStr = humanBytes(limit)
+			}
+			fmt.Printf("%-36s %8d %14s %16s\n", a.Email, totalCount, humanBytes(totalBytes),
+				humanBytes(a.QuotaUsed)+" / "+limitStr)
+			grandBytes += totalBytes
+			grandCount += totalCount
+			accounts++
+		}
+	}
+	fmt.Printf("total: %d account(s), %d msg, %s\n", accounts, grandCount, humanBytes(grandBytes))
 }
 
 func cmdTest(args []string) {
