@@ -25,6 +25,8 @@ import (
 	_ "time/tzdata"
 
 	"github.com/umailserver/umailserver/internal/auth"
+	"github.com/umailserver/umailserver/internal/caldav"
+	"github.com/umailserver/umailserver/internal/carddav"
 	"github.com/umailserver/umailserver/internal/cli"
 	"github.com/umailserver/umailserver/internal/config"
 	"github.com/umailserver/umailserver/internal/db"
@@ -36,6 +38,7 @@ import (
 	"github.com/umailserver/umailserver/internal/mailexport"
 	"github.com/umailserver/umailserver/internal/mailimport"
 	"github.com/umailserver/umailserver/internal/migratestore"
+	"github.com/umailserver/umailserver/internal/pimport"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/server"
 	"github.com/umailserver/umailserver/internal/storage"
@@ -567,6 +570,8 @@ type mailCLIStores struct {
 	blob     *storage.MessageStore
 	identity ews.IdentityStore
 	pipe     *semcore.MutationPipeline
+	cal      *caldav.CollabStore  // canonical calendar store (PIM import/export)
+	card     *carddav.CollabStore // canonical contacts store (PIM import/export)
 	close    func()
 }
 
@@ -603,13 +608,15 @@ func openMailCLIStores(cfg *config.Config) (*mailCLIStores, error) {
 			closeImportStore("database", account)
 			return nil, fmt.Errorf("postgres backend: account store is %T, not *postgres.DB", account)
 		}
-		// One *postgres.DB serves account, index, and identity.
+		// One *postgres.DB serves account, index, identity, and collaboration.
 		return &mailCLIStores{
 			account:  pg,
 			index:    pg,
 			blob:     blob,
 			identity: pg,
 			pipe:     semcore.NewMutationPipeline(pg, pg),
+			cal:      caldav.NewCollabStore(pg, pg),
+			card:     carddav.NewCollabStore(pg, pg),
 			close:    func() { closeImportStore("database", pg) },
 		}, nil
 	}
@@ -631,6 +638,8 @@ func openMailCLIStores(cfg *config.Config) (*mailCLIStores, error) {
 		blob:     blob,
 		identity: semStore.Identity(),
 		pipe:     semcore.NewMutationPipeline(semStore.Identity(), semStore.Lifecycle()),
+		cal:      caldav.NewCollabStore(semStore.Collaboration(), semStore.Identity()),
+		card:     carddav.NewCollabStore(semStore.Collaboration(), semStore.Identity()),
 		close: func() {
 			closeImportStore("semcore", semStore)
 			closeImportStore("message index", storageDB)
@@ -1643,8 +1652,10 @@ func cmdImport(args []string) {
 	mboxPath := fs.String("mbox", "", "Path to an mbox file")
 	emlPath := fs.String("eml", "", "Path to a .eml file or a directory of .eml files")
 	maildirPath := fs.String("maildir", "", "Path to a Maildir tree")
+	icsPath := fs.String("ics", "", "Path to an iCalendar .ics file or a directory of .ics files (calendar events)")
+	vcfPath := fs.String("vcf", "", "Path to a vCard .vcf file or a directory of .vcf files (contacts)")
 	folder := fs.String("folder", "INBOX", "Target folder for sources without their own (mbox/.eml)")
-	dryRun := fs.Bool("dry-run", false, "Parse and report the message count without writing")
+	dryRun := fs.Bool("dry-run", false, "Parse and report the object count without writing")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
@@ -1659,13 +1670,13 @@ func cmdImport(args []string) {
 		os.Exit(1)
 	}
 	srcCount := 0
-	for _, s := range []string{*mboxPath, *emlPath, *maildirPath} {
+	for _, s := range []string{*mboxPath, *emlPath, *maildirPath, *icsPath, *vcfPath} {
 		if s != "" {
 			srcCount++
 		}
 	}
 	if srcCount != 1 {
-		fmt.Fprintln(os.Stderr, "import: provide exactly one of --mbox, --eml, or --maildir")
+		fmt.Fprintln(os.Stderr, "import: provide exactly one of --mbox, --eml, --maildir, --ics, or --vcf")
 		os.Exit(1)
 	}
 
@@ -1673,6 +1684,13 @@ func cmdImport(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Calendar (.ics) and contacts (.vcf) file into the canonical collaboration
+	// store, not the mail index — a separate path.
+	if *icsPath != "" || *vcfPath != "" {
+		cmdImportPIM(cfg, localPart+"@"+domain, localPart, domain, *icsPath, *vcfPath, *dryRun)
+		return
 	}
 
 	// Parse the source BEFORE opening (locking) the stores.
@@ -1753,6 +1771,124 @@ func parseImportSource(mboxPath, emlPath, maildirPath string) ([]mailimport.Mess
 		return []mailimport.Message{m}, nil
 	default:
 		return mailimport.ReadMaildir(maildirPath)
+	}
+}
+
+// readPIMSource reads a .ics/.vcf file OR a directory of them and parses every
+// object via parse. For a directory it parses each matching file and aggregates,
+// so a folder of single-object exports imports in one run.
+func readPIMSource(path, ext string, parse func([]byte) ([]pimport.Component, int, error)) ([]pimport.Component, int, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, 0, fmt.Errorf("stat %s: %w", ext, err)
+	}
+	if !info.IsDir() {
+		data, rerr := os.ReadFile(filepath.Clean(path))
+		if rerr != nil {
+			return nil, 0, fmt.Errorf("read %s: %w", ext, rerr)
+		}
+		return parse(data)
+	}
+	entries, derr := os.ReadDir(path)
+	if derr != nil {
+		return nil, 0, fmt.Errorf("read dir: %w", derr)
+	}
+	var all []pimport.Component
+	skipped := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ext) {
+			continue
+		}
+		data, rerr := os.ReadFile(filepath.Join(path, e.Name()))
+		if rerr != nil {
+			return nil, 0, fmt.Errorf("read %s: %w", e.Name(), rerr)
+		}
+		comps, sk, perr := parse(data)
+		if perr != nil {
+			return nil, 0, fmt.Errorf("parse %s: %w", e.Name(), perr)
+		}
+		all = append(all, comps...)
+		skipped += sk
+	}
+	return all, skipped, nil
+}
+
+// cmdImportPIM files calendar (.ics) events or contacts (.vcf) into the canonical
+// collaboration store the SAME way CalDAV/CardDAV/EWS/webmail write them (keyed
+// by iCal/vCard UID), so imported PIM data is cross-protocol-visible. Re-running
+// is idempotent: an object whose UID already exists is skipped (non-destructive).
+func cmdImportPIM(cfg *config.Config, email, localPart, domain, icsPath, vcfPath string, dryRun bool) {
+	var comps []pimport.Component
+	var skippedTodos int
+	var kind, label string
+	var err error
+	if icsPath != "" {
+		kind, label = "ics", "calendar event"
+		comps, skippedTodos, err = readPIMSource(icsPath, ".ics", pimport.ReadICS)
+	} else {
+		kind, label = "vcf", "contact"
+		comps, _, err = readPIMSource(vcfPath, ".vcf", func(d []byte) ([]pimport.Component, int, error) {
+			c, e := pimport.ReadVCF(d)
+			return c, 0, e
+		})
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "import: %v\n", err)
+		os.Exit(1)
+	}
+	if skippedTodos > 0 {
+		fmt.Printf("import: skipping %d VTODO (task) component(s) — only calendar events are imported\n", skippedTodos)
+	}
+	if len(comps) == 0 {
+		fmt.Printf("import: no %s objects found in source\n", label)
+		return
+	}
+	if dryRun {
+		fmt.Printf("import: %d %s(s) would be imported into %s\n", len(comps), label, email)
+		return
+	}
+
+	st, err := openMailCLIStores(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "import: %v\n", err)
+		os.Exit(1)
+	}
+	defer st.close()
+	if account, gerr := st.account.GetAccount(domain, localPart); gerr != nil || account == nil {
+		fmt.Fprintf(os.Stderr, "import: account %s does not exist\n", email)
+		os.Exit(1)
+	}
+
+	imported, skipped, failed := 0, 0, 0
+	for _, c := range comps {
+		var exists bool
+		var serr error
+		if kind == "ics" {
+			ex, gerr := st.cal.GetEvent(email, "default", c.UID)
+			exists = gerr == nil && ex != ""
+		} else {
+			ex, gerr := st.card.GetContact(email, "default", c.UID)
+			exists = gerr == nil && ex != ""
+		}
+		if exists {
+			skipped++
+			continue
+		}
+		if kind == "ics" {
+			serr = st.cal.SaveEvent(email, "default", &caldav.CalendarEvent{UID: c.UID}, c.Raw)
+		} else {
+			serr = st.card.SaveContact(email, "default", &carddav.Contact{UID: c.UID}, c.Raw)
+		}
+		if serr != nil {
+			fmt.Fprintf(os.Stderr, "import: save %s %s: %v\n", label, c.UID, serr)
+			failed++
+			continue
+		}
+		imported++
+	}
+	fmt.Printf("import: %d imported, %d skipped (duplicate UID), %d failed into %s\n", imported, skipped, failed, email)
+	if failed > 0 {
+		os.Exit(1)
 	}
 }
 
@@ -1936,6 +2072,8 @@ func cmdExport(args []string) {
 	mboxPath := fs.String("mbox", "", "Write all messages to this mbox file (flat)")
 	emlDir := fs.String("eml", "", "Write one .eml per message under this directory (folder subdirs)")
 	maildirDir := fs.String("maildir", "", "Write a Maildir tree to this directory (folders preserved)")
+	icsPath := fs.String("ics", "", "Write all calendar events to this iCalendar .ics file")
+	vcfPath := fs.String("vcf", "", "Write all contacts to this vCard .vcf file")
 	folder := fs.String("folder", "", "Export only this folder (default: every mailbox)")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
@@ -1951,13 +2089,13 @@ func cmdExport(args []string) {
 		os.Exit(1)
 	}
 	dstCount := 0
-	for _, s := range []string{*mboxPath, *emlDir, *maildirDir} {
+	for _, s := range []string{*mboxPath, *emlDir, *maildirDir, *icsPath, *vcfPath} {
 		if s != "" {
 			dstCount++
 		}
 	}
 	if dstCount != 1 {
-		fmt.Fprintln(os.Stderr, "export: provide exactly one of --mbox, --eml, or --maildir")
+		fmt.Fprintln(os.Stderr, "export: provide exactly one of --mbox, --eml, --maildir, --ics, or --vcf")
 		os.Exit(1)
 	}
 
@@ -1980,6 +2118,14 @@ func cmdExport(args []string) {
 	}
 
 	email := localPart + "@" + domain
+
+	// Calendar (.ics) and contacts (.vcf) export reads the canonical collaboration
+	// store, not the mail index — a separate path.
+	if *icsPath != "" || *vcfPath != "" {
+		cmdExportPIM(st, email, *icsPath, *vcfPath)
+		return
+	}
+
 	folders := []string{*folder}
 	if *folder == "" {
 		folders, err = st.index.ListMailboxes(email)
@@ -2008,6 +2154,44 @@ func cmdExport(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("export: %d message(s) from %s written\n", len(msgs), email)
+}
+
+// cmdExportPIM writes the mailbox's calendar events (.ics) or contacts (.vcf)
+// from the canonical collaboration store to one interchange file: a single
+// VCALENDAR holding every event (timezones deduplicated) or a vCard file holding
+// every contact. It is the inverse of `umailserver import --ics|--vcf`.
+func cmdExportPIM(st *mailCLIStores, email, icsPath, vcfPath string) {
+	var out []byte
+	var dst, label string
+	var count int
+	if icsPath != "" {
+		dst, label = icsPath, "calendar event"
+		docs, err := st.cal.GetEvents(email, "default")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "export: read calendar: %v\n", err)
+			os.Exit(1)
+		}
+		count = len(docs)
+		out = pimport.MergeICS(docs)
+	} else {
+		dst, label = vcfPath, "contact"
+		docs, err := st.card.GetContacts(email, "default")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "export: read contacts: %v\n", err)
+			os.Exit(1)
+		}
+		count = len(docs)
+		out = pimport.MergeVCF(docs)
+	}
+	if count == 0 {
+		fmt.Printf("export: no %s objects found\n", label)
+		return
+	}
+	if err := os.WriteFile(filepath.Clean(dst), out, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "export: write %s: %v\n", dst, err)
+		os.Exit(1)
+	}
+	fmt.Printf("export: %d %s(s) from %s written\n", count, label, email)
 }
 
 // exportedMessage is one message read from the store with its source folder.
