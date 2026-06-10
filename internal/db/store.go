@@ -84,6 +84,14 @@ type Store interface {
 	CancelScheduledByFolderRef(owner string, uid uint32) (bool, error)
 	ResetStaleScheduledMessages(before time.Time) (int, error)
 
+	// Recoverable Items (soft-delete dumpster) and TTL retention.
+	CreateRecoverableItem(m *RecoverableItem) error
+	GetRecoverableItem(id string) (*RecoverableItem, error)
+	DeleteRecoverableItem(id string) error
+	ListRecoverableByOwner(owner string) ([]*RecoverableItem, error)
+	ListExpiredRecoverableItems(cutoff time.Time) ([]*RecoverableItem, error)
+	FindRecoverableByFolderRef(owner string, uid uint32) (*RecoverableItem, error)
+
 	// Auth: token blacklist and portal sessions.
 	StoreRevokedToken(tokenHash string, expiry time.Time) error
 	IsTokenRevoked(tokenHash string) (bool, error)

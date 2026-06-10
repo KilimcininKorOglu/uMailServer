@@ -408,3 +408,67 @@ func TestScheduledMessageBbolt(t *testing.T) {
 		t.Errorf("cancel of a non-existent folder ref should report false: ok=%v err=%v", ok, err)
 	}
 }
+
+func TestRecoverableItemBbolt(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := Open(tmpDir + "/test.db")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+
+	old := time.Now().Add(-48 * time.Hour)
+	fresh := time.Now()
+	expired := &RecoverableItem{
+		ID: "r1", Owner: "u@example.com", OriginalFolder: "INBOX",
+		BlobKey: "blob1", FolderUID: 5, DeletedAt: old, Size: 1024, Subject: "old mail",
+	}
+	kept := &RecoverableItem{
+		ID: "r2", Owner: "u@example.com", OriginalFolder: "Archive",
+		BlobKey: "blob2", FolderUID: 6, DeletedAt: fresh, Subject: "recent mail",
+	}
+	if err := db.CreateRecoverableItem(expired); err != nil {
+		t.Fatalf("CreateRecoverableItem expired: %v", err)
+	}
+	if err := db.CreateRecoverableItem(kept); err != nil {
+		t.Fatalf("CreateRecoverableItem kept: %v", err)
+	}
+
+	got, err := db.GetRecoverableItem("r1")
+	if err != nil {
+		t.Fatalf("GetRecoverableItem: %v", err)
+	}
+	if got.OriginalFolder != "INBOX" || got.FolderUID != 5 || got.BlobKey != "blob1" || got.Size != 1024 {
+		t.Errorf("recoverable mismatch: %+v", got)
+	}
+
+	if byOwner, err := db.ListRecoverableByOwner("u@example.com"); err != nil || len(byOwner) != 2 {
+		t.Fatalf("ListRecoverableByOwner: %v len=%d", err, len(byOwner))
+	}
+
+	// Only the 48h-old item is expired against a 24h-ago cutoff; the fresh one is kept.
+	cutoff := time.Now().Add(-24 * time.Hour)
+	expiredList, err := db.ListExpiredRecoverableItems(cutoff)
+	if err != nil || len(expiredList) != 1 || expiredList[0].ID != "r1" {
+		t.Fatalf("ListExpiredRecoverableItems: err=%v %+v", err, expiredList)
+	}
+
+	// FindRecoverableByFolderRef resolves restore/cleanup by the folder projection.
+	if found, err := db.FindRecoverableByFolderRef("u@example.com", 6); err != nil || found == nil || found.ID != "r2" {
+		t.Fatalf("FindRecoverableByFolderRef hit: err=%v %+v", err, found)
+	}
+	if found, err := db.FindRecoverableByFolderRef("u@example.com", 999); err != nil || found != nil {
+		t.Errorf("FindRecoverableByFolderRef miss should be nil: err=%v %+v", err, found)
+	}
+
+	if err := db.DeleteRecoverableItem("r1"); err != nil {
+		t.Fatalf("DeleteRecoverableItem: %v", err)
+	}
+	if _, err := db.GetRecoverableItem("r1"); err == nil {
+		t.Error("GetRecoverableItem after delete should error")
+	}
+}

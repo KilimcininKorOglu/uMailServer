@@ -35,6 +35,7 @@ const (
 	BucketMailGroups     = "mailgroups"
 	BucketTenants        = "tenants"
 	BucketScheduled      = "scheduled"
+	BucketRecoverable    = "recoverable_items"
 )
 
 // DB wraps bbolt database
@@ -184,6 +185,24 @@ type ScheduledMessage struct {
 	LastError   string    `json:"last_error"`
 }
 
+// RecoverableItem is a message that was permanently deleted but is held in the
+// owner's "Recoverable Items" dumpster for a retention window so it can be
+// restored ("Recover Deleted Items From Server"). It is the canonical record the
+// leader-gated retention cleaner reads; the "Recoverable Items" system folder is
+// a visibility projection (FolderUID/BlobKey link the two), so a restore moves
+// the projection back to OriginalFolder and the cleaner purges both once
+// DeletedAt ages past the retention window.
+type RecoverableItem struct {
+	ID             string    `json:"id"`
+	Owner          string    `json:"owner"`           // mailbox that owns the dumpster
+	OriginalFolder string    `json:"original_folder"` // folder the message was deleted from
+	BlobKey        string    `json:"blob_key"`        // message-store key of the projection
+	FolderUID      uint32    `json:"folder_uid"`      // uid in the owner's Recoverable Items folder
+	DeletedAt      time.Time `json:"deleted_at"`      // absolute UTC; retention measured from here
+	Size           int64     `json:"size"`
+	Subject        string    `json:"subject"`
+}
+
 // DSNNotify represents delivery status notification preferences
 type DSNNotify int32
 
@@ -277,6 +296,7 @@ func (d *DB) initBuckets() error {
 		BucketMailGroups,
 		BucketTenants,
 		BucketScheduled,
+		BucketRecoverable,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {
@@ -877,6 +897,84 @@ func (d *DB) ResetStaleScheduledMessages(before time.Time) (int, error) {
 		}
 	}
 	return len(stale), nil
+}
+
+// CreateRecoverableItem persists a recoverable (soft-deleted) item, stamping
+// DeletedAt when unset.
+func (d *DB) CreateRecoverableItem(m *RecoverableItem) error {
+	if m.DeletedAt.IsZero() {
+		m.DeletedAt = time.Now().UTC()
+	}
+	return d.Put(BucketRecoverable, m.ID, m)
+}
+
+// GetRecoverableItem retrieves a recoverable item by id.
+func (d *DB) GetRecoverableItem(id string) (*RecoverableItem, error) {
+	var m RecoverableItem
+	if err := d.Get(BucketRecoverable, id, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// DeleteRecoverableItem removes a recoverable item record.
+func (d *DB) DeleteRecoverableItem(id string) error {
+	return d.Delete(BucketRecoverable, id)
+}
+
+// ListRecoverableByOwner returns all recoverable items owned by the given mailbox.
+func (d *DB) ListRecoverableByOwner(owner string) ([]*RecoverableItem, error) {
+	var out []*RecoverableItem
+	err := d.ForEach(BucketRecoverable, func(_ string, value []byte) error {
+		var m RecoverableItem
+		if err := json.Unmarshal(value, &m); err != nil {
+			return nil // skip malformed
+		}
+		if m.Owner == owner {
+			out = append(out, &m)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// ListExpiredRecoverableItems returns items deleted at or before the cutoff, so
+// the retention cleaner can purge them.
+func (d *DB) ListExpiredRecoverableItems(cutoff time.Time) ([]*RecoverableItem, error) {
+	var out []*RecoverableItem
+	err := d.ForEach(BucketRecoverable, func(_ string, value []byte) error {
+		var m RecoverableItem
+		if err := json.Unmarshal(value, &m); err != nil {
+			return nil // skip malformed
+		}
+		if !m.DeletedAt.After(cutoff) {
+			out = append(out, &m)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// FindRecoverableByFolderRef returns the recoverable item whose Recoverable-Items
+// projection (owner + folder uid) matches, or nil when none does. It backs both
+// webmail restore (it needs OriginalFolder) and the move/expunge-out cleanup.
+func (d *DB) FindRecoverableByFolderRef(owner string, uid uint32) (*RecoverableItem, error) {
+	var found *RecoverableItem
+	err := d.ForEach(BucketRecoverable, func(_ string, value []byte) error {
+		var m RecoverableItem
+		if err := json.Unmarshal(value, &m); err != nil {
+			return nil
+		}
+		if m.Owner == owner && m.FolderUID == uid {
+			cp := m
+			found = &cp
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return found, nil
 }
 
 // GetAlias retrieves an alias by domain and local part

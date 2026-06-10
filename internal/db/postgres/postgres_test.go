@@ -49,7 +49,7 @@ func openTestDB(t *testing.T) *DB {
 	// so the test body runs against the full pool.
 	d.ReleaseInitLock(ctx)
 	if _, err := d.pool.Exec(ctx,
-		`TRUNCATE accounts, aliases, mail_groups, mail_queue, scheduled_messages, domains, tenants,
+		`TRUNCATE accounts, aliases, mail_groups, mail_queue, scheduled_messages, recoverable_items, domains, tenants,
 			user_ui_prefs, user_signatures, user_vacation, ews_user_config,
 			mailboxes, mailbox_subscriptions, messages, threads, mailbox_acl, changes,
 			spam_tokens, spam_stats, ratelimit_quota, backup_jobs, backup_manifests,
@@ -514,6 +514,61 @@ func TestScheduledRoundTrip(t *testing.T) {
 	}
 	if _, err := d.GetScheduledMessage("s1"); err == nil {
 		t.Error("GetScheduledMessage after cancel should error")
+	}
+}
+
+// TestRecoverableRoundTrip proves the relational recoverable-items store matches
+// the bbolt one: create/get/list, expiry filtering against a cutoff, folder-ref
+// lookup, and delete.
+func TestRecoverableRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+	old := time.Now().Add(-48 * time.Hour).UTC()
+	fresh := time.Now().UTC()
+	expired := &db.RecoverableItem{
+		ID: "r1", Owner: "u@example.com", OriginalFolder: "INBOX",
+		BlobKey: "blob1", FolderUID: 5, DeletedAt: old, Size: 1024, Subject: "old mail",
+	}
+	kept := &db.RecoverableItem{
+		ID: "r2", Owner: "u@example.com", OriginalFolder: "Archive",
+		BlobKey: "blob2", FolderUID: 6, DeletedAt: fresh, Subject: "recent mail",
+	}
+	if err := d.CreateRecoverableItem(expired); err != nil {
+		t.Fatalf("CreateRecoverableItem expired: %v", err)
+	}
+	if err := d.CreateRecoverableItem(kept); err != nil {
+		t.Fatalf("CreateRecoverableItem kept: %v", err)
+	}
+
+	got, err := d.GetRecoverableItem("r1")
+	if err != nil {
+		t.Fatalf("GetRecoverableItem: %v", err)
+	}
+	if got.OriginalFolder != "INBOX" || got.FolderUID != 5 || got.BlobKey != "blob1" || got.Size != 1024 {
+		t.Errorf("recoverable mismatch: %+v", got)
+	}
+
+	if byOwner, err := d.ListRecoverableByOwner("u@example.com"); err != nil || len(byOwner) != 2 {
+		t.Fatalf("ListRecoverableByOwner: %v len=%d", err, len(byOwner))
+	}
+
+	cutoff := time.Now().Add(-24 * time.Hour)
+	expiredList, err := d.ListExpiredRecoverableItems(cutoff)
+	if err != nil || len(expiredList) != 1 || expiredList[0].ID != "r1" {
+		t.Fatalf("ListExpiredRecoverableItems: err=%v %+v", err, expiredList)
+	}
+
+	if found, err := d.FindRecoverableByFolderRef("u@example.com", 6); err != nil || found == nil || found.ID != "r2" {
+		t.Fatalf("FindRecoverableByFolderRef hit: err=%v %+v", err, found)
+	}
+	if found, err := d.FindRecoverableByFolderRef("u@example.com", 999); err != nil || found != nil {
+		t.Errorf("FindRecoverableByFolderRef miss should be nil: err=%v %+v", err, found)
+	}
+
+	if err := d.DeleteRecoverableItem("r1"); err != nil {
+		t.Fatalf("DeleteRecoverableItem: %v", err)
+	}
+	if _, err := d.GetRecoverableItem("r1"); err == nil {
+		t.Error("GetRecoverableItem after delete should error")
 	}
 }
 

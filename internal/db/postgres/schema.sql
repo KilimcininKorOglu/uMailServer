@@ -206,6 +206,24 @@ CREATE TABLE IF NOT EXISTS scheduled_message_recipients (
     PRIMARY KEY (scheduled_id, ord)
 );
 
+-- Recoverable Items (soft-delete dumpster) ----------------------------------
+-- A permanently deleted message is held here for a retention window so it can be
+-- restored; the leader-gated cleaner purges rows once deleted_at ages out. The
+-- "Recoverable Items" system folder is the visibility projection (folder_uid +
+-- blob_key link the two).
+CREATE TABLE IF NOT EXISTS recoverable_items (
+    id              TEXT PRIMARY KEY,
+    owner           TEXT        NOT NULL DEFAULT '',
+    original_folder TEXT        NOT NULL DEFAULT '',
+    blob_key        TEXT        NOT NULL DEFAULT '',
+    folder_uid      BIGINT      NOT NULL DEFAULT 0,
+    deleted_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    size            BIGINT      NOT NULL DEFAULT 0,
+    subject         TEXT        NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_recoverable_expiry ON recoverable_items (deleted_at);
+CREATE INDEX IF NOT EXISTS idx_recoverable_owner ON recoverable_items (owner);
+
 -- Auth: token blacklist + portal sessions -----------------------------------
 -- The revoked-token blacklist is canonical DB state today (bbolt); on Postgres
 -- it becomes cluster-shared automatically (the HA reason it is not duplicated
