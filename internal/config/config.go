@@ -491,9 +491,9 @@ type ScheduledSendConfig struct {
 // dumpster: when enabled, a permanently deleted message is held in the owner's
 // Recoverable Items folder for RetentionDays so it can be restored, and a
 // leader-gated cleaner (ticking every TickSeconds) purges items past the
-// window. Disabled by default, so permanent deletes behave exactly as before
-// until an operator opts in. Enabled/RetentionDays are read live; a TickSeconds
-// or Enabled change restarts the cleaner via ReloadConfig.
+// window. Enabled by default, so deletes are recoverable out of the box; an
+// operator opts out with enabled: false. Enabled/RetentionDays are read live; a
+// TickSeconds or Enabled change restarts the cleaner via ReloadConfig.
 type RecoverableItemsConfig struct {
 	Enabled       bool `yaml:"enabled" json:"enabled"`
 	RetentionDays int  `yaml:"retention_days" json:"retention_days"`

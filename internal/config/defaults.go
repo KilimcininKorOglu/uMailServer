@@ -215,7 +215,7 @@ func DefaultConfig() *Config {
 			MaxPerUser:     100,
 		},
 		RecoverableItems: RecoverableItemsConfig{
-			Enabled:       false,
+			Enabled:       true,
 			RetentionDays: 14,
 			TickSeconds:   300,
 		},

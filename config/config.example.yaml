@@ -396,10 +396,10 @@ scheduled_send:
 # message (Trash emptied, IMAP EXPUNGE, EWS HardDelete, webmail permanent delete)
 # is held in the owner's "Recoverable Items" folder for retention_days so it can
 # be restored ("Recover Deleted Items From Server"); a leader-gated cleaner
-# purges items past the window every tick_seconds. Disabled by default: permanent
-# deletes behave exactly as before until an operator opts in. Hot-reloaded.
+# purges items past the window every tick_seconds. Enabled by default so deletes
+# are recoverable out of the box; set enabled: false to opt out. Hot-reloaded.
 recoverable_items:
-  enabled: false
+  enabled: true
   retention_days: 14
   tick_seconds: 300
 
