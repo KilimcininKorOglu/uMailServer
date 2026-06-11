@@ -1,5 +1,8 @@
 dist/
 
+# Local AI-agent coordination channel (Claude <-> Codex), never committed
+chat.md
+
 # Binaries
 /umailserver
 /umailserver.exe
