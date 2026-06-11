@@ -46,6 +46,7 @@ type serverConfigDTO struct {
 	Notifications    notificationsSectionDTO    `json:"notifications"`
 	ScheduledSend    scheduledSendSectionDTO    `json:"scheduled_send"`
 	RecoverableItems recoverableItemsSectionDTO `json:"recoverable_items"`
+	PublicFolders    publicFoldersSectionDTO    `json:"public_folders"`
 }
 
 type serverSectionDTO struct {
@@ -344,6 +345,10 @@ type recoverableItemsSectionDTO struct {
 	Enabled       bool `json:"enabled"`
 	RetentionDays int  `json:"retention_days"`
 	TickSeconds   int  `json:"tick_seconds"`
+}
+
+type publicFoldersSectionDTO struct {
+	Enabled bool `json:"enabled"`
 }
 
 // configPutResponse reports the outcome of a config update. applied lists the
@@ -736,6 +741,9 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 			RetentionDays: cfg.RecoverableItems.RetentionDays,
 			TickSeconds:   cfg.RecoverableItems.TickSeconds,
 		},
+		PublicFolders: publicFoldersSectionDTO{
+			Enabled: cfg.PublicFolders.Enabled,
+		},
 	}
 }
 
@@ -966,6 +974,7 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.RecoverableItems.Enabled = req.RecoverableItems.Enabled
 	cfg.RecoverableItems.RetentionDays = req.RecoverableItems.RetentionDays
 	cfg.RecoverableItems.TickSeconds = req.RecoverableItems.TickSeconds
+	cfg.PublicFolders.Enabled = req.PublicFolders.Enabled
 }
 
 func applyRateLimitDTO(rl *config.RateLimitConfig, req *rateLimitSectionDTO) {
@@ -1030,6 +1039,7 @@ func changedSections(before, after *config.Config, applied []string) []string {
 		{"notifications", before.Notifications, after.Notifications},
 		{"scheduled_send", before.ScheduledSend, after.ScheduledSend},
 		{"recoverable_items", before.RecoverableItems, after.RecoverableItems},
+		{"public_folders", before.PublicFolders, after.PublicFolders},
 	} {
 		if _, skip := appliedSet[sec.name]; skip {
 			continue

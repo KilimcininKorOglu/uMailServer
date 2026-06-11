@@ -839,6 +839,11 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/admin/global-rules", s.adminMiddleware(http.HandlerFunc(s.handleGlobalRules)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/global-rules/", s.adminMiddleware(http.HandlerFunc(s.handleGlobalRuleDetail)).ServeHTTP)
 
+	// Public-folder tree management: list/create/delete per-domain public folders
+	// and edit their ACL grants. Admin-only, served on the admin listener.
+	api.HandleFunc("/api/v1/admin/public-folders", s.adminMiddleware(http.HandlerFunc(s.handlePublicFoldersAdmin)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/public-folders/acl", s.adminMiddleware(http.HandlerFunc(s.handlePublicFolderACL)).ServeHTTP)
+
 	api.HandleFunc("/api/v1/backups", s.adminMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			s.handleBackupCreate(w, r)
