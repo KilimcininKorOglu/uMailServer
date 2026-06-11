@@ -62,13 +62,21 @@ const (
 // are matched by id (high 16 bits) so either the PT_UNICODE or PT_STRING8 form
 // is accepted.
 const (
-	prBody               = 0x1000001F // PT_UNICODE PidTagBody
-	prHTML               = 0x10130102 // PT_BINARY  PidTagHtml
-	prRTFCompressed      = 0x10090102 // PT_BINARY  PidTagRtfCompressed
-	prAttachDataBin      = 0x37010102 // PT_BINARY  PidTagAttachDataBinary
-	prAttachFilename     = 0x3704001F // PT_UNICODE PidTagAttachFilename (8.3)
-	prAttachLongFilename = 0x3707001F // PT_UNICODE PidTagAttachLongFilename
-	prAttachMimeTag      = 0x370E001F // PT_UNICODE PidTagAttachMimeTag
+	prBody                = 0x1000001F // PT_UNICODE PidTagBody
+	prHTML                = 0x10130102 // PT_BINARY  PidTagHtml
+	prRTFCompressed       = 0x10090102 // PT_BINARY  PidTagRtfCompressed
+	prAttachDataBin       = 0x37010102 // PT_BINARY  PidTagAttachDataBinary
+	prAttachFilename      = 0x3704001F // PT_UNICODE PidTagAttachFilename (8.3)
+	prAttachLongFilename  = 0x3707001F // PT_UNICODE PidTagAttachLongFilename
+	prAttachMimeTag       = 0x370E001F // PT_UNICODE PidTagAttachMimeTag
+	prSubject             = 0x0037001F // PT_UNICODE PidTagSubject
+	prSenderName          = 0x0C1A001F // PT_UNICODE PidTagSenderName
+	prSenderEmailAddress  = 0x0C1F001F // PT_UNICODE PidTagSenderEmailAddress
+	prSenderSmtpAddress   = 0x5D01001F // PT_UNICODE PidTagSenderSmtpAddress
+	prSentReprName        = 0x0042001F // PT_UNICODE PidTagSentRepresentingName
+	prSentReprEmailAddr   = 0x0065001F // PT_UNICODE PidTagSentRepresentingEmailAddress
+	prSentReprSmtpAddress = 0x5D02001F // PT_UNICODE PidTagSentRepresentingSmtpAddress
+	prInternetMessageID   = 0x1035001F // PT_UNICODE PidTagInternetMessageId
 )
 
 // MAPI property type codes (low 16 bits of a property tag).
@@ -107,6 +115,16 @@ type Attachment struct {
 
 // Message is the decoded content of a TNEF (winmail.dat) stream.
 type Message struct {
+	// Subject is PR_SUBJECT, if the message property block carries one. A
+	// standalone winmail.dat usually rides inside a MIME envelope that holds the
+	// real headers, so these envelope fields may be empty.
+	Subject string
+	// SenderName / SenderEmail are the best available sender display name and
+	// address (PR_SENDER_* with PR_SENT_REPRESENTING_* fallback).
+	SenderName  string
+	SenderEmail string
+	// MessageID is PR_INTERNET_MESSAGE_ID, if present.
+	MessageID string
 	// Attachments are the files carried in the stream, in document order.
 	Attachments []Attachment
 	// BodyText is the PR_BODY plain-text body, if present.
@@ -226,6 +244,21 @@ func Parse(b []byte) (*Message, Report, error) {
 			if s := props.str(prBody); s != "" {
 				msg.BodyText = s
 			}
+			// Basic envelope fields when the property block carries them (a real
+			// winmail.dat from Outlook/gromox does). Recipients and the full
+			// proptag set are intentionally not expanded.
+			if s := props.str(prSubject); s != "" {
+				msg.Subject = s
+			}
+			if s := firstNonEmpty(props.str(prSenderName), props.str(prSentReprName)); s != "" {
+				msg.SenderName = s
+			}
+			if s := firstNonEmpty(props.str(prSenderSmtpAddress), props.str(prSenderEmailAddress), props.str(prSentReprSmtpAddress), props.str(prSentReprEmailAddr)); s != "" {
+				msg.SenderEmail = s
+			}
+			if s := props.str(prInternetMessageID); s != "" {
+				msg.MessageID = s
+			}
 			if bin, ok := props.bin(prHTML); ok {
 				msg.BodyHTML = string(bin)
 			}
@@ -288,6 +321,16 @@ func checksum(b []byte) uint16 {
 // trimCString drops a trailing NUL and surrounding whitespace from a C string.
 func trimCString(s string) string {
 	return strings.TrimSpace(strings.TrimRight(s, "\x00"))
+}
+
+// firstNonEmpty returns the first non-empty argument, or "".
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------

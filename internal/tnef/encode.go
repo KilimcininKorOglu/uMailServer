@@ -40,6 +40,24 @@ func Encode(msg *Message) ([]byte, error) {
 		writeBinaryProp(&records, prRTFCompressed, rtfVerbatim(msg.RTF))
 		count++
 	}
+	// Basic envelope fields, emitted only when set (kept symmetric with Parse).
+	// Export leaves these empty, so its output is unchanged.
+	if msg.Subject != "" {
+		writeStringProp(&records, prSubject, msg.Subject)
+		count++
+	}
+	if msg.SenderName != "" {
+		writeStringProp(&records, prSenderName, msg.SenderName)
+		count++
+	}
+	if msg.SenderEmail != "" {
+		writeStringProp(&records, prSenderSmtpAddress, msg.SenderEmail)
+		count++
+	}
+	if msg.MessageID != "" {
+		writeStringProp(&records, prInternetMessageID, msg.MessageID)
+		count++
+	}
 	if count > 0 {
 		var block bytes.Buffer
 		wU32(&block, uint32(count))

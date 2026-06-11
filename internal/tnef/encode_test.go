@@ -35,6 +35,39 @@ func TestEncodeRoundTripBody(t *testing.T) {
 	}
 }
 
+// TestEncodeRoundTripEnvelope round-trips the basic envelope fields (Subject,
+// sender name/email, Internet Message-ID) through the attMsgProps block, so an
+// imported winmail.dat can rebuild those headers.
+func TestEncodeRoundTripEnvelope(t *testing.T) {
+	in := &Message{
+		Subject:     "Quarterly report",
+		SenderName:  "Boss Person",
+		SenderEmail: "boss@corp.example",
+		MessageID:   "<abc-123@corp.example>",
+		BodyText:    "body",
+	}
+	raw, err := Encode(in)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	out, _, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if out.Subject != in.Subject {
+		t.Errorf("Subject = %q, want %q", out.Subject, in.Subject)
+	}
+	if out.SenderName != in.SenderName {
+		t.Errorf("SenderName = %q, want %q", out.SenderName, in.SenderName)
+	}
+	if out.SenderEmail != in.SenderEmail {
+		t.Errorf("SenderEmail = %q, want %q", out.SenderEmail, in.SenderEmail)
+	}
+	if out.MessageID != in.MessageID {
+		t.Errorf("MessageID = %q, want %q", out.MessageID, in.MessageID)
+	}
+}
+
 // TestEncodeRoundTripRTF round-trips PR_RTF_COMPRESSED through the verbatim
 // ("MELA") form: the raw RTF bytes survive Encode -> Parse unchanged.
 func TestEncodeRoundTripRTF(t *testing.T) {

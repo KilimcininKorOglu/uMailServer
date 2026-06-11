@@ -44,6 +44,7 @@ import (
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/server"
 	"github.com/umailserver/umailserver/internal/storage"
+	"github.com/umailserver/umailserver/internal/tnef"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
 )
@@ -1874,8 +1875,8 @@ func cmdMigrate(args []string) {
 }
 
 // cmdImport bulk-imports messages from an mbox file, a .eml file/directory, a
-// Maildir tree, or Outlook .msg file(s) into a user's mailbox, writing the
-// canonical store (Maildir blob
+// Maildir tree, Outlook .msg file(s), or TNEF (winmail.dat) file(s) into a
+// user's mailbox, writing the canonical store (Maildir blob
 // + IMAP index + semcore identity) so the messages are visible across IMAP,
 // POP3, JMAP, EWS, and webmail. Run with the server STOPPED — the bbolt stores
 // are single-writer. Re-running is idempotent: a message whose content already
@@ -1887,6 +1888,7 @@ func cmdImport(args []string) {
 	emlPath := fs.String("eml", "", "Path to a .eml file or a directory of .eml files")
 	maildirPath := fs.String("maildir", "", "Path to a Maildir tree")
 	msgPath := fs.String("msg", "", "Path to an Outlook .msg file or a directory of .msg files")
+	tnefPath := fs.String("tnef", "", "Path to a TNEF (winmail.dat/.tnef) file or a directory of them")
 	icsPath := fs.String("ics", "", "Path to an iCalendar .ics file or a directory of .ics files (calendar events)")
 	vcfPath := fs.String("vcf", "", "Path to a vCard .vcf file or a directory of .vcf files (contacts)")
 	folder := fs.String("folder", "INBOX", "Target folder for sources without their own (mbox/.eml)")
@@ -1905,13 +1907,13 @@ func cmdImport(args []string) {
 		os.Exit(1)
 	}
 	srcCount := 0
-	for _, s := range []string{*mboxPath, *emlPath, *maildirPath, *msgPath, *icsPath, *vcfPath} {
+	for _, s := range []string{*mboxPath, *emlPath, *maildirPath, *msgPath, *tnefPath, *icsPath, *vcfPath} {
 		if s != "" {
 			srcCount++
 		}
 	}
 	if srcCount != 1 {
-		fmt.Fprintln(os.Stderr, "import: provide exactly one of --mbox, --eml, --maildir, --msg, --ics, or --vcf")
+		fmt.Fprintln(os.Stderr, "import: provide exactly one of --mbox, --eml, --maildir, --msg, --tnef, --ics, or --vcf")
 		os.Exit(1)
 	}
 
@@ -1929,7 +1931,7 @@ func cmdImport(args []string) {
 	}
 
 	// Parse the source BEFORE opening (locking) the stores.
-	messages, err := parseImportSource(*mboxPath, *emlPath, *maildirPath, *msgPath)
+	messages, err := parseImportSource(*mboxPath, *emlPath, *maildirPath, *msgPath, *tnefPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "import: %v\n", err)
 		os.Exit(1)
@@ -1982,7 +1984,7 @@ func closeImportStore(name string, closer interface{ Close() error }) {
 
 // parseImportSource dispatches to the right parser for whichever source flag is
 // set. The .eml flag accepts a single file or a directory of .eml files.
-func parseImportSource(mboxPath, emlPath, maildirPath, msgPath string) ([]mailimport.Message, error) {
+func parseImportSource(mboxPath, emlPath, maildirPath, msgPath, tnefPath string) ([]mailimport.Message, error) {
 	switch {
 	case mboxPath != "":
 		f, err := os.Open(filepath.Clean(mboxPath))
@@ -2006,6 +2008,8 @@ func parseImportSource(mboxPath, emlPath, maildirPath, msgPath string) ([]mailim
 		return []mailimport.Message{m}, nil
 	case msgPath != "":
 		return readMSGSource(msgPath)
+	case tnefPath != "":
+		return readTNEFSource(tnefPath)
 	default:
 		return mailimport.ReadMaildir(maildirPath)
 	}
@@ -2043,6 +2047,74 @@ func readMSGSource(path string) ([]mailimport.Message, error) {
 		out = append(out, mailimport.Message{Raw: mailimport.NormalizeCRLF(mime)})
 	}
 	return out, nil
+}
+
+// readTNEFSource converts a single TNEF stream (winmail.dat/.tnef), or every
+// *.tnef/*.dat file in a directory, into RFC 5322 messages. Each stream is
+// decoded (internal/tnef: body + attachments + basic envelope) and rebuilt into
+// a deterministic MIME blob, then CRLF-normalized to the stored line ending.
+func readTNEFSource(path string) ([]mailimport.Message, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat tnef: %w", err)
+	}
+	var paths []string
+	if info.IsDir() {
+		entries, derr := os.ReadDir(path)
+		if derr != nil {
+			return nil, fmt.Errorf("read tnef dir: %w", derr)
+		}
+		for _, e := range entries {
+			ext := strings.ToLower(filepath.Ext(e.Name()))
+			if e.IsDir() || (ext != ".tnef" && ext != ".dat") {
+				continue
+			}
+			paths = append(paths, filepath.Join(path, e.Name()))
+		}
+	} else {
+		paths = []string{path}
+	}
+	var out []mailimport.Message
+	for _, p := range paths {
+		mime, merr := tnefFileToMIME(p)
+		if merr != nil {
+			return nil, merr
+		}
+		out = append(out, mailimport.Message{Raw: mailimport.NormalizeCRLF(mime)})
+	}
+	return out, nil
+}
+
+// tnefFileToMIME decodes a winmail.dat/.tnef file and rebuilds it as a
+// deterministic RFC 5322 message, reusing the OXMSG MIME builder so the output
+// is byte-stable (a re-import is deduplicated). A standalone TNEF stream usually
+// carries only content + a partial envelope, so an absent header is just omitted.
+func tnefFileToMIME(path string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, fmt.Errorf("read tnef %q: %w", path, err)
+	}
+	tm, _, perr := tnef.Parse(data)
+	if perr != nil {
+		return nil, fmt.Errorf("parse tnef %q: %w", path, perr)
+	}
+	m := &msg.Message{
+		Subject:   tm.Subject,
+		MessageID: tm.MessageID,
+		BodyText:  tm.BodyText,
+		BodyHTML:  []byte(tm.BodyHTML),
+	}
+	if tm.SenderEmail != "" {
+		m.From = (&mail.Address{Name: tm.SenderName, Address: tm.SenderEmail}).String()
+	}
+	for _, a := range tm.Attachments {
+		m.Attachments = append(m.Attachments, msg.Attachment{
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Data:        a.Data,
+		})
+	}
+	return m.MIME()
 }
 
 // readPIMFiles reads a single .ics/.vcf file OR every matching file in a
