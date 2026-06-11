@@ -112,16 +112,17 @@ func (s *Server) handleGetFolder(ctx context.Context, body []byte) []byte {
 	}
 
 	msgs := make([]FolderResponseMessageType, 0)
+	wantPerms := folderShapeWantsPermissions(req.FolderShape)
 
 	// Process distinguished folder IDs.
 	for _, d := range req.FolderIDs.Distinguished {
-		msg := s.resolveDistinguishedFolder(ctx, mboxID, mboxKey, d.ID)
+		msg := s.resolveDistinguishedFolder(ctx, mboxID, mboxKey, d.ID, wantPerms)
 		msgs = append(msgs, msg)
 	}
 
 	// Process explicit folder IDs.
 	for _, f := range req.FolderIDs.Folder {
-		msg := s.getFolderByID(ctx, mboxID, mboxKey, f.ID, f.ChangeKey)
+		msg := s.getFolderByID(ctx, mboxID, mboxKey, f.ID, f.ChangeKey, wantPerms)
 		msgs = append(msgs, msg)
 	}
 
@@ -133,7 +134,7 @@ func (s *Server) handleGetFolder(ctx context.Context, body []byte) []byte {
 // resolveDistinguishedFolder resolves a distinguished folder by its name.
 // It looks up the folder by its role rather than by folder name.
 // For new accounts, it auto-creates the distinguished folder identity.
-func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.MailboxId, mboxKey, name string) FolderResponseMessageType {
+func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.MailboxId, mboxKey, name string, wantPerms bool) FolderResponseMessageType {
 	role, ok := DistinguishedFolderIDs[name]
 	if !ok {
 		return errorMsg("GetFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+name)
@@ -179,22 +180,22 @@ func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.
 		}
 	}
 
-	return s.buildFolderResponse(ctx, mboxID, mboxKey, folder.FolderID)
+	return s.buildFolderResponse(ctx, mboxID, mboxKey, folder.FolderID, wantPerms)
 }
 
 // getFolderByID resolves an explicit folder by its ID.
-func (s *Server) getFolderByID(ctx context.Context, mboxID semcore.MailboxId, mboxKey, folderIDStr, changeKey string) FolderResponseMessageType {
+func (s *Server) getFolderByID(ctx context.Context, mboxID semcore.MailboxId, mboxKey, folderIDStr, changeKey string, wantPerms bool) FolderResponseMessageType {
 	folderID, err := semcore.NewFolderId(folderIDStr)
 	if err != nil {
 		return errorMsg("GetFolder", ErrErrorInvalidId, err.Error())
 	}
 
-	return s.buildFolderResponse(ctx, mboxID, mboxKey, folderID)
+	return s.buildFolderResponse(ctx, mboxID, mboxKey, folderID, wantPerms)
 }
 
 // buildFolderResponse builds a FolderResponseMessageType for a resolved folder ID.
 // mboxKey is needed for ownership check because stored MailboxId may be the key string.
-func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.MailboxId, mboxKey string, folderID semcore.FolderId) FolderResponseMessageType {
+func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.MailboxId, mboxKey string, folderID semcore.FolderId, wantPerms bool) FolderResponseMessageType {
 	rec, err := s.identity.GetFolderByID(folderID)
 	if err != nil {
 		if errors.Is(err, semcore.ErrFolderNotFound) {
@@ -228,6 +229,10 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 		ChildFolderCount: 0,
 		FolderClass:      folderClassForRole(rec.Role),
 	}
+	// Project the canonical RFC 4314 ACL onto the folder's permission set and the
+	// caller's effective rights. folderName == displayName for distinguished and
+	// top-level folders (the same key IMAP/storage use for the ACL).
+	s.decorateFolderPermissions(ctx, &fxml, checkKey, displayName, wantPerms)
 	msg.Folders = FolderResponseContainer{Folders: []FolderType{fxml}}
 	return msg
 }
@@ -398,6 +403,7 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 
 	// Strip "e:" prefix: folder/identity operations use raw email as mailbox key.
 	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+	wantPerms := folderShapeWantsPermissions(req.FolderShape)
 
 	// Determine the parent folder to enumerate under.
 	var parentID semcore.FolderId
@@ -494,6 +500,9 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 			ChildFolderCount: 0,
 			FolderClass:      folderClassForRole(f.Role),
 		}
+		// mailboxKey is the folder owner here (the caller for own folders, the
+		// public owner in the public tree), which is exactly the ACL owner key.
+		s.decorateFolderPermissions(ctx, &fxml, mailboxKey, displayName, wantPerms)
 		matching = append(matching, fxml)
 	}
 

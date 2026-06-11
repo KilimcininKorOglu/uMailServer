@@ -7,10 +7,70 @@
 package ews
 
 import (
+	"context"
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/storage"
 )
+
+// permissionSetFieldURI is the EWS property a client requests to retrieve a
+// folder's permission set.
+const permissionSetFieldURI = "folder:PermissionSet"
+
+// folderShapeWantsPermissions reports whether a GetFolder/FindFolder shape asks
+// for the folder permission set — either AllProperties or an explicit
+// folder:PermissionSet additional property.
+func folderShapeWantsPermissions(shape FolderResponseShape) bool {
+	if shape.BaseShape == FolderAllProperties {
+		return true
+	}
+	if shape.AdditionalProperties != nil {
+		for _, f := range shape.AdditionalProperties.FieldURIs {
+			if f.URI == permissionSetFieldURI {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// decorateFolderPermissions fills a folder's read-only EffectiveRights (always)
+// and, when wantPerms is set, its PermissionSet from the canonical RFC 4314 ACL
+// store. ownerKey is the folder owner's mailbox key ("e:"+email or raw email);
+// folderName is the storage mailbox name used as the ACL key. The owner of a
+// folder implicitly holds all rights even with no explicit ACL entry.
+func (s *Server) decorateFolderPermissions(ctx context.Context, fxml *FolderType, ownerKey, folderName string, wantPerms bool) {
+	if s.storageDB == nil || folderName == "" {
+		return
+	}
+	owner := strings.TrimPrefix(ownerKey, "e:")
+	caller, _ := ctx.Value("X-Email").(string) //nolint:errcheck // optional auth identity; falls back to owner below
+	caller = strings.ToLower(strings.TrimSpace(caller))
+	if caller == "" {
+		caller = owner
+	}
+
+	var eff storage.ACLRights
+	if caller == owner {
+		eff = storage.ACLAll
+	} else if r, err := storage.ResolveEffectiveRights(s.storageDB.GetACL, caller, owner, folderName); err == nil {
+		eff = r
+	}
+	fxml.EffectiveRights = aclToEffectiveRights(eff)
+
+	if !wantPerms {
+		return
+	}
+	entries, err := s.storageDB.ListACL(owner, folderName)
+	if err != nil {
+		return
+	}
+	ps := &PermissionSetType{Permissions: make([]PermissionType, 0, len(entries))}
+	for _, e := range entries {
+		ps.Permissions = append(ps.Permissions, aclToPermission(e.Grantee, e.Rights))
+	}
+	fxml.PermissionSet = ps
+}
 
 // EWS permission action / read-access values.
 const (
