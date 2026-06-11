@@ -39,6 +39,7 @@ import (
 	"github.com/umailserver/umailserver/internal/mailexport"
 	"github.com/umailserver/umailserver/internal/mailimport"
 	"github.com/umailserver/umailserver/internal/migratestore"
+	"github.com/umailserver/umailserver/internal/msg"
 	"github.com/umailserver/umailserver/internal/pimport"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/server"
@@ -122,7 +123,7 @@ Commands:
   backup       Create backup
   restore      Restore from backup
   migrate      Import from other mail servers
-  import       Import mbox/.eml/Maildir/.ics/.vcf into a mailbox (server stopped)
+  import       Import mbox/.eml/Maildir/.msg/.ics/.vcf into a mailbox (server stopped)
   export       Export a mailbox to mbox/.eml/Maildir/.ics/.vcf (server stopped)
   mbsize       Report mailbox storage size (per-folder + quota)
   db           Database management (migrate, status)
@@ -1872,8 +1873,9 @@ func cmdMigrate(args []string) {
 	}
 }
 
-// cmdImport bulk-imports messages from an mbox file, a .eml file/directory, or a
-// Maildir tree into a user's mailbox, writing the canonical store (Maildir blob
+// cmdImport bulk-imports messages from an mbox file, a .eml file/directory, a
+// Maildir tree, or Outlook .msg file(s) into a user's mailbox, writing the
+// canonical store (Maildir blob
 // + IMAP index + semcore identity) so the messages are visible across IMAP,
 // POP3, JMAP, EWS, and webmail. Run with the server STOPPED — the bbolt stores
 // are single-writer. Re-running is idempotent: a message whose content already
@@ -1884,6 +1886,7 @@ func cmdImport(args []string) {
 	mboxPath := fs.String("mbox", "", "Path to an mbox file")
 	emlPath := fs.String("eml", "", "Path to a .eml file or a directory of .eml files")
 	maildirPath := fs.String("maildir", "", "Path to a Maildir tree")
+	msgPath := fs.String("msg", "", "Path to an Outlook .msg file or a directory of .msg files")
 	icsPath := fs.String("ics", "", "Path to an iCalendar .ics file or a directory of .ics files (calendar events)")
 	vcfPath := fs.String("vcf", "", "Path to a vCard .vcf file or a directory of .vcf files (contacts)")
 	folder := fs.String("folder", "INBOX", "Target folder for sources without their own (mbox/.eml)")
@@ -1902,13 +1905,13 @@ func cmdImport(args []string) {
 		os.Exit(1)
 	}
 	srcCount := 0
-	for _, s := range []string{*mboxPath, *emlPath, *maildirPath, *icsPath, *vcfPath} {
+	for _, s := range []string{*mboxPath, *emlPath, *maildirPath, *msgPath, *icsPath, *vcfPath} {
 		if s != "" {
 			srcCount++
 		}
 	}
 	if srcCount != 1 {
-		fmt.Fprintln(os.Stderr, "import: provide exactly one of --mbox, --eml, --maildir, --ics, or --vcf")
+		fmt.Fprintln(os.Stderr, "import: provide exactly one of --mbox, --eml, --maildir, --msg, --ics, or --vcf")
 		os.Exit(1)
 	}
 
@@ -1926,7 +1929,7 @@ func cmdImport(args []string) {
 	}
 
 	// Parse the source BEFORE opening (locking) the stores.
-	messages, err := parseImportSource(*mboxPath, *emlPath, *maildirPath)
+	messages, err := parseImportSource(*mboxPath, *emlPath, *maildirPath, *msgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "import: %v\n", err)
 		os.Exit(1)
@@ -1979,7 +1982,7 @@ func closeImportStore(name string, closer interface{ Close() error }) {
 
 // parseImportSource dispatches to the right parser for whichever source flag is
 // set. The .eml flag accepts a single file or a directory of .eml files.
-func parseImportSource(mboxPath, emlPath, maildirPath string) ([]mailimport.Message, error) {
+func parseImportSource(mboxPath, emlPath, maildirPath, msgPath string) ([]mailimport.Message, error) {
 	switch {
 	case mboxPath != "":
 		f, err := os.Open(filepath.Clean(mboxPath))
@@ -2001,9 +2004,45 @@ func parseImportSource(mboxPath, emlPath, maildirPath string) ([]mailimport.Mess
 			return nil, err
 		}
 		return []mailimport.Message{m}, nil
+	case msgPath != "":
+		return readMSGSource(msgPath)
 	default:
 		return mailimport.ReadMaildir(maildirPath)
 	}
+}
+
+// readMSGSource converts a single Outlook .msg file, or every *.msg file in a
+// directory, into RFC 5322 messages ready to file. Each .msg is decoded to a
+// MIME blob (internal/msg) and CRLF-normalized to the stored line-ending form.
+func readMSGSource(path string) ([]mailimport.Message, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat msg: %w", err)
+	}
+	var paths []string
+	if info.IsDir() {
+		entries, derr := os.ReadDir(path)
+		if derr != nil {
+			return nil, fmt.Errorf("read msg dir: %w", derr)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".msg") {
+				continue
+			}
+			paths = append(paths, filepath.Join(path, e.Name()))
+		}
+	} else {
+		paths = []string{path}
+	}
+	var out []mailimport.Message
+	for _, p := range paths {
+		mime, merr := msg.FileToMIME(p)
+		if merr != nil {
+			return nil, merr
+		}
+		out = append(out, mailimport.Message{Raw: mailimport.NormalizeCRLF(mime)})
+	}
+	return out, nil
 }
 
 // readPIMFiles reads a single .ics/.vcf file OR every matching file in a
