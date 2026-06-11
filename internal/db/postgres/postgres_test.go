@@ -24,6 +24,48 @@ var (
 	_ queue.Store = (*DB)(nil)
 )
 
+// pgSharedTestLock is the PostgreSQL advisory-lock key that serializes the two
+// test packages sharing one database (this package and internal/migratestore).
+// `go test ./...` runs package binaries in parallel, so both would otherwise
+// TRUNCATE and seed the same tables at once — wiping rows a migration in the
+// other package is mid-copy on (an accounts_domain_fkey violation). Holding this
+// lock for each package's whole run keeps the two from overlapping. The key MUST
+// match the one in internal/migratestore/migratestore_test.go.
+const pgSharedTestLock = 0x756d61696c5f7067 // "umail_pg"
+
+// TestMain serializes this package's PostgreSQL tests against internal/migratestore
+// by holding pgSharedTestLock for the whole run. With no test DSN there is no
+// shared database, so it runs the tests directly.
+func TestMain(m *testing.M) {
+	os.Exit(runWithSharedPGLock(m))
+}
+
+// runWithSharedPGLock acquires the cross-package advisory lock (best effort: if
+// the database is unreachable the tests run anyway and skip on their own) and
+// holds it until every test in the package has finished.
+func runWithSharedPGLock(m *testing.M) int {
+	dsn := os.Getenv("UMAIL_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		return m.Run()
+	}
+	ctx := context.Background()
+	lockDB, err := Open(ctx, dsn)
+	if err != nil {
+		return m.Run()
+	}
+	defer lockDB.Close() //nolint:errcheck // best-effort test lock teardown
+	conn, err := lockDB.Pool().Acquire(ctx)
+	if err != nil {
+		return m.Run()
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", int64(pgSharedTestLock)); err != nil {
+		return m.Run()
+	}
+	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", int64(pgSharedTestLock)) //nolint:errcheck // best-effort unlock
+	return m.Run()
+}
+
 // openTestDB connects to UMAIL_TEST_POSTGRES_DSN, migrates, and truncates the
 // net-surface tables so each test starts clean. It skips when no DSN is set.
 func openTestDB(t *testing.T) *DB {
