@@ -59,6 +59,11 @@ type Server struct {
 
 	sharedFoldersEnabled bool
 
+	// publicFoldersEnabled reports, read live per request, whether the per-domain
+	// public-folder tree is exposed. Unlike sharedFoldersEnabled it is a function
+	// (not a static flag) because the feature is hot-reloaded; nil means off.
+	publicFoldersEnabled func() bool
+
 	// allowPlainAuth permits LOGIN/AUTHENTICATE without TLS. Off by default.
 	// Intended for loopback integration tests where TLS handshake setup adds
 	// no security but considerable boilerplate. Production must leave this false.
@@ -171,6 +176,18 @@ func NewServer(config *Config, mailstore Mailstore) *Server {
 // SetAuthFunc sets the authentication function
 func (s *Server) SetAuthFunc(fn func(username, password string) (bool, error)) {
 	s.authFunc = fn
+}
+
+// SetPublicFoldersEnabledFunc wires the live gate for the per-domain
+// public-folder tree (read per request so a hot-reload toggle applies without a
+// restart). When unset, public folders stay invisible over IMAP.
+func (s *Server) SetPublicFoldersEnabledFunc(fn func() bool) {
+	s.publicFoldersEnabled = fn
+}
+
+// publicFoldersOn reports whether the public-folder tree is exposed right now.
+func (s *Server) publicFoldersOn() bool {
+	return s.publicFoldersEnabled != nil && s.publicFoldersEnabled()
 }
 
 // SetOnExpunge sets a callback invoked when messages are expunged.
@@ -415,6 +432,12 @@ type Session struct {
 	state    State // owned by the session goroutine; do not access from other goroutines
 	user     string
 	selected *Mailbox
+	// selectedOwner is the storage owner of the currently selected mailbox. It is
+	// the user themselves for a personal folder, or the per-domain public-folder
+	// owner when a "Public Folders/" mailbox is selected; every operation on the
+	// selected mailbox keys off it rather than user so a public folder reads and
+	// writes the public store, not the caller's own.
+	selectedOwner string
 
 	// closed is set by Close() (called from Server.Stop() on another goroutine).
 	// It lets Stop() signal shutdown without touching state, which is owned by

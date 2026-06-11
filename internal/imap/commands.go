@@ -674,7 +674,7 @@ func (s *Session) emitQResync(mailbox *Mailbox, clientUIDValidity uint32, client
 	}
 
 	// VANISHED (EARLIER): UIDs expunged at a mod-sequence above the client's.
-	if vanished, err := s.server.mailstore.ExpungedUIDsSince(s.user, mailbox.Name, clientModSeq); err == nil && len(vanished) > 0 {
+	if vanished, err := s.server.mailstore.ExpungedUIDsSince(s.selOwner(), mailbox.Name, clientModSeq); err == nil && len(vanished) > 0 {
 		if knownUIDs != "" {
 			vanished = filterUIDsInSet(vanished, knownUIDs)
 		}
@@ -684,7 +684,7 @@ func (s *Session) emitQResync(mailbox *Mailbox, clientUIDValidity uint32, client
 	}
 
 	// Flag changes since the client's mod-sequence.
-	msgs, err := s.server.mailstore.FetchMessages(s.user, mailbox.Name, "1:*", []string{"FLAGS", "UID"})
+	msgs, err := s.server.mailstore.FetchMessages(s.selOwner(), mailbox.Name, "1:*", []string{"FLAGS", "UID"})
 	if err != nil {
 		return
 	}
@@ -732,7 +732,15 @@ func (s *Session) handleSelect(args []string) error {
 		tracing.SetStringAttribute(span, "mailbox.name", mailboxName)
 	}
 
-	mailbox, err := s.server.mailstore.SelectMailbox(s.user, mailboxName)
+	owner, mbox, ok := s.resolvePublicFolder(mailboxName, uint8(storage.ACLRead))
+	if !ok {
+		s.WriteResponse(s.tag, "NO [NOPERM] Access denied")
+		if span != nil {
+			tracing.SetStatus(span, tracing.StatusError, "public folder access denied")
+		}
+		return nil
+	}
+	mailbox, err := s.server.mailstore.SelectMailbox(owner, mbox)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		if span != nil {
@@ -743,6 +751,7 @@ func (s *Session) handleSelect(args []string) error {
 	}
 
 	s.selected = mailbox
+	s.selectedOwner = owner
 	s.state = StateSelected
 
 	// Send mailbox data
@@ -797,13 +806,19 @@ func (s *Session) handleExamine(args []string) error {
 		return nil
 	}
 
-	mailbox, err := s.server.mailstore.SelectMailbox(s.user, mailboxName)
+	owner, mbox, ok := s.resolvePublicFolder(mailboxName, uint8(storage.ACLRead))
+	if !ok {
+		s.WriteResponse(s.tag, "NO [NOPERM] Access denied")
+		return nil
+	}
+	mailbox, err := s.server.mailstore.SelectMailbox(owner, mbox)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
 	}
 
 	s.selected = mailbox
+	s.selectedOwner = owner
 	s.state = StateSelected
 
 	// Send mailbox data (same as SELECT but read-only)
@@ -845,6 +860,11 @@ func (s *Session) handleCreate(args []string) error {
 	mailboxName := args[0]
 	mailboxName = strings.Trim(mailboxName, "\"'")
 
+	if s.isPublicPath(mailboxName) {
+		s.WriteResponse(s.tag, "NO [NOPERM] Public folders are managed by the administrator")
+		return nil
+	}
+
 	if s.server.mailstore == nil {
 		s.WriteResponse(s.tag, "NO Mailstore not available")
 		return nil
@@ -876,6 +896,11 @@ func (s *Session) handleDelete(args []string) error {
 		return nil
 	}
 
+	if s.isPublicPath(mailboxName) {
+		s.WriteResponse(s.tag, "NO [NOPERM] Public folders are managed by the administrator")
+		return nil
+	}
+
 	if s.server.mailstore == nil {
 		s.WriteResponse(s.tag, "NO Mailstore not available")
 		return nil
@@ -900,6 +925,11 @@ func (s *Session) handleRename(args []string) error {
 
 	oldName := strings.Trim(args[0], "\"'")
 	newName := strings.Trim(args[1], "\"'")
+
+	if s.isPublicPath(oldName) || s.isPublicPath(newName) {
+		s.WriteResponse(s.tag, "NO [NOPERM] Public folders are managed by the administrator")
+		return nil
+	}
 
 	if s.server.mailstore == nil {
 		s.WriteResponse(s.tag, "NO Mailstore not available")
@@ -926,6 +956,11 @@ func (s *Session) handleSubscribe(args []string) error {
 	mailboxName := strings.Trim(args[0], "\"'")
 	if mailboxName == "" {
 		s.WriteResponse(s.tag, "BAD Empty mailbox name")
+		return nil
+	}
+
+	if s.isPublicPath(mailboxName) {
+		s.WriteResponse(s.tag, "NO [NOPERM] Public folders are managed by the administrator")
 		return nil
 	}
 
@@ -970,6 +1005,11 @@ func (s *Session) handleUnsubscribe(args []string) error {
 	mailboxName := strings.Trim(args[0], "\"'")
 	if mailboxName == "" {
 		s.WriteResponse(s.tag, "BAD Empty mailbox name")
+		return nil
+	}
+
+	if s.isPublicPath(mailboxName) {
+		s.WriteResponse(s.tag, "NO [NOPERM] Public folders are managed by the administrator")
 		return nil
 	}
 
@@ -1040,6 +1080,23 @@ func (s *Session) handleList(args []string) error {
 		}
 
 		s.WriteData(fmt.Sprintf("LIST (%s) \"/\" \"%s\"", flags, mbox))
+	}
+
+	// Fold in the per-domain public-folder namespace (ACL-gated) when the LIST
+	// pattern reaches into it: a discovery list ("*") or a namespace-scoped list
+	// ("Public Folders" / "Public Folders/...").
+	if s.server.publicFoldersOn() {
+		if dom := domainOf(s.user); dom != "" &&
+			(fullPattern == "*" || fullPattern == "Public Folders" || strings.HasPrefix(fullPattern, publicFolderPrefix)) {
+			owner := storage.PublicFolderOwner(dom)
+			if pubs, perr := s.server.mailstore.ListMailboxes(owner, "*"); perr == nil {
+				for _, name := range pubs {
+					if s.publicRights(owner, name)&uint8(storage.ACLRead) == uint8(storage.ACLRead) {
+						s.WriteData(fmt.Sprintf("LIST (\\HasNoChildren) \"/\" \"%s%s\"", publicFolderPrefix, name))
+					}
+				}
+			}
+		}
 	}
 
 	s.WriteResponse(s.tag, "OK LIST completed")
@@ -1133,8 +1190,14 @@ func (s *Session) handleStatus(args []string) error {
 		return nil
 	}
 
-	// Get mailbox info
-	mailbox, err := s.server.mailstore.SelectMailbox(s.user, mailboxName)
+	// Get mailbox info (public folders resolve to the per-domain public owner,
+	// gated by read access).
+	owner, mbox, ok := s.resolvePublicFolder(mailboxName, uint8(storage.ACLRead))
+	if !ok {
+		s.WriteResponse(s.tag, "NO [NOPERM] Access denied")
+		return nil
+	}
+	mailbox, err := s.server.mailstore.SelectMailbox(owner, mbox)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
@@ -1194,6 +1257,17 @@ func (s *Session) handleAppend(args []string, line string) error {
 		tracing.SetStringAttribute(span, "append.mailbox", mailboxName)
 	}
 
+	// Posting into a public folder requires write access; a personal folder
+	// resolves to the caller unchanged.
+	owner, mbox, ok := s.resolvePublicFolder(mailboxName, uint8(storage.ACLWrite))
+	if !ok {
+		s.WriteResponse(s.tag, "NO [NOPERM] Access denied")
+		if span != nil {
+			tracing.SetStatus(span, tracing.StatusError, "public folder access denied")
+		}
+		return nil
+	}
+
 	// Limit APPEND message size to 50MB
 	const maxAppendSize = 50 * 1024 * 1024
 
@@ -1248,7 +1322,7 @@ func (s *Session) handleAppend(args []string, line string) error {
 
 	// Append to mailbox
 	if s.server.mailstore != nil {
-		au, err := s.server.mailstore.AppendMessage(s.user, mailboxName, flags, date, data)
+		au, err := s.server.mailstore.AppendMessage(owner, mbox, flags, date, data)
 		if err != nil {
 			s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 			if span != nil {
@@ -1328,7 +1402,7 @@ func (s *Session) handleAppend(args []string, line string) error {
 		}
 
 		if s.server.mailstore != nil {
-			au, err := s.server.mailstore.AppendMessage(s.user, mailboxName, nil, time.Now(), data)
+			au, err := s.server.mailstore.AppendMessage(owner, mbox, nil, time.Now(), data)
 			if err != nil {
 				s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 				return nil
@@ -1392,8 +1466,13 @@ func (s *Session) parseAppendParams(args []string, line string) ([]string, time.
 
 // NAMESPACE command
 func (s *Session) handleNamespace() error {
-	// Personal namespace only
-	s.WriteData("NAMESPACE ((\"\" \"/\")) NIL NIL")
+	// Personal namespace always; advertise the shared "Public Folders/" namespace
+	// (RFC 2342 third element) only when the public-folder tree is exposed.
+	if s.server.publicFoldersOn() {
+		s.WriteData("NAMESPACE ((\"\" \"/\")) NIL ((\"" + publicFolderPrefix + "\" \"/\"))")
+	} else {
+		s.WriteData("NAMESPACE ((\"\" \"/\")) NIL NIL")
+	}
 	s.WriteResponse(s.tag, "OK NAMESPACE completed")
 	return nil
 }
@@ -1528,7 +1607,7 @@ func (s *Session) handleIdle() error {
 
 			case NotificationMailboxUpdate:
 				// Re-fetch mailbox status and send updates
-				if mailbox, err := s.server.mailstore.SelectMailbox(s.user, s.selected.Name); err == nil {
+				if mailbox, err := s.server.mailstore.SelectMailbox(s.selOwner(), s.selected.Name); err == nil {
 					if mailbox.Exists != s.selected.Exists {
 						s.WriteData(fmt.Sprintf("%d EXISTS", mailbox.Exists))
 					}
@@ -1579,9 +1658,10 @@ func (s *Session) handleCheck() error {
 // CLOSE command - RFC 3501: implicit EXPUNGE before deselecting
 func (s *Session) handleClose() error {
 	if s.selected != nil && s.server.mailstore != nil {
-		_ = s.server.mailstore.Expunge(s.user, s.selected.Name)
+		_ = s.server.mailstore.Expunge(s.selOwner(), s.selected.Name) //nolint:errcheck // best-effort: CLOSE deselects regardless of expunge outcome
 	}
 	s.selected = nil
+	s.selectedOwner = ""
 	s.state = StateAuthenticated
 	s.WriteResponse(s.tag, "OK CLOSE completed")
 	return nil
@@ -1629,7 +1709,7 @@ func (s *Session) handleExpunge() error {
 	// Before expunging, find messages with \Deleted flag to report their
 	// sequence numbers via untagged EXPUNGE responses.
 	criteria := SearchCriteria{Deleted: true}
-	deletedSeqs, err := s.server.mailstore.SearchMessages(s.user, s.selected.Name, criteria)
+	deletedSeqs, err := s.server.mailstore.SearchMessages(s.selOwner(), s.selected.Name, criteria)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		if span != nil {
@@ -1651,14 +1731,14 @@ func (s *Session) handleExpunge() error {
 		for i, sn := range deletedSeqs {
 			seqList[i] = fmt.Sprintf("%d", sn)
 		}
-		if msgs, ferr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, strings.Join(seqList, ","), []string{"UID"}); ferr == nil {
+		if msgs, ferr := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, strings.Join(seqList, ","), []string{"UID"}); ferr == nil {
 			for _, m := range msgs {
 				deletedUIDs = append(deletedUIDs, m.UID)
 			}
 		}
 	}
 
-	err = s.server.mailstore.Expunge(s.user, s.selected.Name)
+	err = s.server.mailstore.Expunge(s.selOwner(), s.selected.Name)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		if span != nil {
@@ -1674,7 +1754,7 @@ func (s *Session) handleExpunge() error {
 	// so this is a best-effort cleanup.
 	if s.server.onExpunge != nil {
 		for _, seq := range deletedSeqs {
-			s.server.onExpunge(s.user, s.selected.Name, seq)
+			s.server.onExpunge(s.selOwner(), s.selected.Name, seq)
 		}
 	}
 
@@ -1753,7 +1833,7 @@ func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 		tracing.SetIntAttribute(span, "search.criteria_count", len(searchArgs))
 	}
 
-	uids, err := s.server.mailstore.SearchMessages(s.user, s.selected.Name, criteria)
+	uids, err := s.server.mailstore.SearchMessages(s.selOwner(), s.selected.Name, criteria)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		if span != nil {
@@ -1773,7 +1853,7 @@ func (s *Session) handleSearch(args []string, line string, byUID bool) error {
 		for i, sn := range uids {
 			seqList[i] = fmt.Sprintf("%d", sn)
 		}
-		if msgs, ferr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, strings.Join(seqList, ","), []string{"UID"}); ferr == nil {
+		if msgs, ferr := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, strings.Join(seqList, ","), []string{"UID"}); ferr == nil {
 			for _, mm := range msgs {
 				if mm.ModSeq > highestMatchedModSeq {
 					highestMatchedModSeq = mm.ModSeq
@@ -1899,7 +1979,7 @@ func (s *Session) handleSort(args []string, line string) error {
 	sortFilter := map[uint32]bool(nil)
 	if len(searchArgs) > 0 && strings.ToUpper(strings.Join(searchArgs, " ")) != "ALL" {
 		sc := parseSearchCriteria(searchArgs)
-		if matched, serr := s.server.mailstore.SearchMessages(s.user, s.selected.Name, sc); serr == nil {
+		if matched, serr := s.server.mailstore.SearchMessages(s.selOwner(), s.selected.Name, sc); serr == nil {
 			sortFilter = make(map[uint32]bool, len(matched))
 			for _, sn := range matched {
 				sortFilter[sn] = true
@@ -1908,7 +1988,7 @@ func (s *Session) handleSort(args []string, line string) error {
 	}
 
 	// Get all messages in mailbox with metadata
-	messages, err := s.server.mailstore.FetchMessages(s.user, s.selected.Name, "1:*", []string{"ENVELOPE"})
+	messages, err := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, "1:*", []string{"ENVELOPE"})
 	if err != nil {
 		s.server.logger.Error("imap fetch messages error", "error", err)
 		s.WriteResponse(s.tag, "NO unable to fetch messages")
@@ -1979,7 +2059,7 @@ func (s *Session) handleThread(args []string, line string) error {
 	}
 
 	// Get all messages in mailbox
-	messages, err := s.server.mailstore.FetchMessages(s.user, s.selected.Name, "1:*", []string{"ENVELOPE"})
+	messages, err := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, "1:*", []string{"ENVELOPE"})
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
@@ -2071,7 +2151,7 @@ func (s *Session) handleUIDSort(args []string, line string) error {
 	}
 
 	// Get all messages with UID
-	messages, err := s.server.mailstore.FetchMessages(s.user, s.selected.Name, "1:*", []string{"ENVELOPE"})
+	messages, err := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, "1:*", []string{"ENVELOPE"})
 	if err != nil {
 		s.server.logger.Error("imap fetch messages error", "error", err)
 		s.WriteResponse(s.tag, "NO unable to fetch messages")
@@ -2130,7 +2210,7 @@ func (s *Session) handleUIDThread(args []string, line string) error {
 	}
 
 	// Get all messages
-	messages, err := s.server.mailstore.FetchMessages(s.user, s.selected.Name, "1:*", []string{"ENVELOPE"})
+	messages, err := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, "1:*", []string{"ENVELOPE"})
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
@@ -2277,7 +2357,7 @@ func (s *Session) handleFetch(args []string, line string, byUID bool) error {
 		tracing.SetIntAttribute(span, "fetch.item_count", len(fetchItems))
 	}
 
-	messages, err := s.server.mailstore.FetchMessages(s.user, s.selected.Name, seqSet, fetchItems)
+	messages, err := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, seqSet, fetchItems)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		if span != nil {
@@ -2307,7 +2387,7 @@ func (s *Session) handleFetch(args []string, line string, byUID bool) error {
 	// UIDs in the requested set expunged since <modseq> as VANISHED (EARLIER),
 	// ahead of the FETCH data responses.
 	if byUID && wantVanished && hasChangedSince {
-		if exp, eerr := s.server.mailstore.ExpungedUIDsSince(s.user, s.selected.Name, changedSince); eerr == nil && len(exp) > 0 {
+		if exp, eerr := s.server.mailstore.ExpungedUIDsSince(s.selOwner(), s.selected.Name, changedSince); eerr == nil && len(exp) > 0 {
 			if vset := filterUIDsInSet(exp, origUIDSet); len(vset) > 0 {
 				s.WriteData("VANISHED (EARLIER) " + uidSetString(vset))
 			}
@@ -2402,7 +2482,7 @@ func (s *Session) handleStore(args []string, byUID bool) error {
 				fetchSet = t
 			}
 		}
-		if msgs, ferr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, fetchSet, []string{"FLAGS", "UID"}); ferr == nil {
+		if msgs, ferr := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, fetchSet, []string{"FLAGS", "UID"}); ferr == nil {
 			var allowed []string
 			for _, mmsg := range msgs {
 				if mmsg.ModSeq > unchangedSince {
@@ -2463,7 +2543,7 @@ func (s *Session) handleStore(args []string, byUID bool) error {
 		return nil
 	}
 
-	err := s.server.mailstore.StoreFlags(s.user, s.selected.Name, seqSet, flags, op)
+	err := s.server.mailstore.StoreFlags(s.selOwner(), s.selected.Name, seqSet, flags, op)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		if span != nil {
@@ -2480,7 +2560,7 @@ func (s *Session) handleStore(args []string, byUID bool) error {
 		if byUID {
 			fetchItems = append(fetchItems, "UID")
 		}
-		messages, fetchErr := s.server.mailstore.FetchMessages(s.user, s.selected.Name, seqSet, fetchItems)
+		messages, fetchErr := s.server.mailstore.FetchMessages(s.selOwner(), s.selected.Name, seqSet, fetchItems)
 		if fetchErr == nil {
 			// RFC 7162 §3.2: once CONDSTORE/QRESYNC is enabled, every unsolicited
 			// FETCH (a STORE result included) MUST carry the updated MODSEQ.
@@ -2599,7 +2679,7 @@ func (s *Session) handleCopy(args []string, byUID bool) error {
 		seqSet = translated
 	}
 
-	cu, err := s.server.mailstore.CopyMessages(s.user, s.selected.Name, destMailbox, seqSet)
+	cu, err := s.server.mailstore.CopyMessages(s.selOwner(), s.selected.Name, destMailbox, seqSet)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
@@ -2638,7 +2718,7 @@ func (s *Session) handleMove(args []string, byUID bool) error {
 		seqSet = translated
 	}
 
-	copied, expungedSeqs, expungedUIDs, err := s.server.mailstore.MoveMessages(s.user, s.selected.Name, destMailbox, seqSet)
+	copied, expungedSeqs, expungedUIDs, err := s.server.mailstore.MoveMessages(s.selOwner(), s.selected.Name, destMailbox, seqSet)
 	if err != nil {
 		s.WriteResponse(s.tag, fmt.Sprintf("NO %s", err))
 		return nil
@@ -2653,7 +2733,7 @@ func (s *Session) handleMove(args []string, byUID bool) error {
 	}
 	if s.server.onExpunge != nil {
 		for _, uid := range expungedUIDs {
-			s.server.onExpunge(s.user, s.selected.Name, uid)
+			s.server.onExpunge(s.selOwner(), s.selected.Name, uid)
 		}
 	}
 	s.writeExpungeResponses(expungedSeqs, expungedUIDs)
@@ -2667,7 +2747,7 @@ func (s *Session) handleMove(args []string, byUID bool) error {
 // translate between UID sets and sequence sets for UID-prefixed commands
 // (RFC 3501 §6.4.8).
 func (s *Session) loadUIDOrder(mailbox string) ([]*Message, uint32, error) {
-	msgs, err := s.server.mailstore.FetchMessages(s.user, mailbox, "1:*", []string{"UID"})
+	msgs, err := s.server.mailstore.FetchMessages(s.selOwner(), mailbox, "1:*", []string{"UID"})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -2783,7 +2863,7 @@ func (s *Session) handleUIDExpunge(args []string) error {
 		return nil
 	}
 
-	expungedSeqs, expungedUIDs, err := s.server.mailstore.ExpungeUIDs(s.user, s.selected.Name, ranges)
+	expungedSeqs, expungedUIDs, err := s.server.mailstore.ExpungeUIDs(s.selOwner(), s.selected.Name, ranges)
 	if err != nil {
 		// ExpungeUIDs is best-effort: it removes every message it can and
 		// returns the first error it hit. Log it (fail loud) but still report
@@ -2795,7 +2875,7 @@ func (s *Session) handleUIDExpunge(args []string) error {
 	// folder+uid, so it must receive UIDs (not sequence numbers).
 	if s.server.onExpunge != nil {
 		for _, uid := range expungedUIDs {
-			s.server.onExpunge(s.user, s.selected.Name, uid)
+			s.server.onExpunge(s.selOwner(), s.selected.Name, uid)
 		}
 	}
 
@@ -3059,6 +3139,83 @@ func (s *Session) parseOwnerMailbox(mailbox string) (owner, name string, isShare
 		return parts[0], parts[1], true
 	}
 	return s.user, mailbox, false
+}
+
+// publicFolderPrefix marks an IMAP mailbox path in the shared public-folder
+// namespace advertised by NAMESPACE; the segment after it is the folder name.
+const publicFolderPrefix = "Public Folders/"
+
+// domainOf returns the domain part of an email address ("" when absent).
+func domainOf(email string) string {
+	if at := strings.LastIndexByte(email, '@'); at >= 0 && at < len(email)-1 {
+		return email[at+1:]
+	}
+	return ""
+}
+
+// publicRights resolves the caller's effective rights on a public folder: the
+// union of their own grant and the reserved "anyone" grant. The mailstore's
+// GetACL returns the rights as uint8, so the union is computed in uint8.
+func (s *Session) publicRights(owner, name string) uint8 {
+	own, err := s.server.mailstore.GetACL(owner, name, s.user)
+	if err != nil {
+		return 0
+	}
+	anyone, err := s.server.mailstore.GetACL(owner, name, storage.ACLAnyone)
+	if err != nil {
+		return own
+	}
+	return own | anyone
+}
+
+// resolvePublicFolder maps a "Public Folders/<name>" mailbox to the caller's
+// per-domain public owner, verifying the caller holds at least the required
+// rights (own grant unioned with the "anyone" grant). It returns
+// (owner, name, true) for an authorized public folder. A non-public path returns
+// (s.user, mailbox, true) unchanged. It returns ok=false when public folders are
+// off for a public path, the caller's domain is unknown, the name is empty, or
+// access is denied — the caller answers NO. The owner is always derived from the
+// caller's own domain, so one tenant can never reach another's public tree.
+func (s *Session) resolvePublicFolder(mailbox string, required uint8) (owner, name string, ok bool) {
+	if !strings.HasPrefix(mailbox, publicFolderPrefix) {
+		return s.user, mailbox, true
+	}
+	if !s.server.publicFoldersOn() {
+		return "", "", false
+	}
+	dom := domainOf(s.user)
+	if dom == "" {
+		return "", "", false
+	}
+	owner = storage.PublicFolderOwner(dom)
+	name = strings.TrimPrefix(mailbox, publicFolderPrefix)
+	if name == "" {
+		return "", "", false
+	}
+	if s.publicRights(owner, name)&required != required {
+		return "", "", false
+	}
+	return owner, name, true
+}
+
+// isPublicPath reports whether a mailbox name targets the public-folder
+// namespace (only meaningful when the feature is on). Structural mutations
+// (CREATE/DELETE/RENAME/SUBSCRIBE) on public paths are rejected for regular
+// users — the public tree is administrator-managed.
+func (s *Session) isPublicPath(mailbox string) bool {
+	return s.server.publicFoldersOn() && strings.HasPrefix(mailbox, publicFolderPrefix)
+}
+
+// selOwner returns the storage owner of the selected mailbox: the public-folder
+// owner when a public folder is selected, otherwise the user themselves. It
+// falls back to the user when selectedOwner is unset (e.g. a mailbox selected
+// without going through the SELECT/EXAMINE owner resolution), so personal
+// mailbox operations always key off the user.
+func (s *Session) selOwner() string {
+	if s.selectedOwner != "" {
+		return s.selectedOwner
+	}
+	return s.user
 }
 
 // Helper functions

@@ -36,6 +36,8 @@ func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
 	imapServer.SetMaxConnectionsPerIP(s.cfg().Security.RateLimit.IMAPConnections)
 	imapServer.SetTracingProvider(s.tracingProvider)
 	imapServer.SetLoginResultHandler(s.protoLoginHandler("imap"))
+	// Public folders are read live (hot-reloaded), not captured at startup.
+	imapServer.SetPublicFoldersEnabledFunc(func() bool { return s.cfg().PublicFolders.Enabled })
 	if s.cfg().IMAP.STARTTLSPort <= 0 {
 		imapServer.SetAllowPlainAuth(true)
 	}
