@@ -15,6 +15,11 @@ type IdentityStore interface {
 	MailboxEmailsByID() (map[string]string, error)
 	EnsureFolderId(mboxKey, folderName, role string) (semcore.FolderId, error)
 	GetFolderID(mboxKey, folderName string) (semcore.FolderId, error)
+	GetFolderByID(id semcore.FolderId) (*semcore.StoredFolderIdentity, error)
+	FolderNameByID(mboxKey string, id semcore.FolderId) (string, error)
+	SetFolderSearchDefinition(id semcore.FolderId, def *semcore.SearchFolderDef) error
+	ListSearchFolders(mboxKey string) ([]semcore.StoredFolderIdentity, error)
+	DeleteFolder(id semcore.FolderId) error
 	ListItemIdentitiesByFolder(folderID semcore.FolderId) ([]semcore.StoredItemIdentity, error)
 	DeleteItemIdentity(id semcore.ItemId) error
 }

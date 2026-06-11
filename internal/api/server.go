@@ -745,6 +745,10 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/folders/", s.handleFolderPath)
 	api.HandleFunc("/api/v1/public-folders", s.handlePublicFolders)
 
+	// Saved searches (persistent MAPI-style search folders).
+	api.HandleFunc("/api/v1/search-folders", s.handleSearchFolders)
+	api.HandleFunc("/api/v1/search-folders/", s.handleSearchFolderPath)
+
 	// Mailbox ACL and shared mailbox access
 	api.HandleFunc("/api/v1/mailboxes", s.handleMailboxListOwn)
 	api.HandleFunc("/api/v1/mailboxes/shared", s.handleSharedMailboxesList)
