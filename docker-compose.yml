@@ -102,7 +102,9 @@ services:
     depends_on:
       - umailserver
     ports:
-      - "9090:9090"
+      # Host 9090 is registered to another local stack (see ~/.claude/docker-ports.md);
+      # expose Prometheus on 9092 to avoid a first-come-first-served collision.
+      - "9092:9090"
     volumes:
       - /usr/share/zoneinfo/Europe/Istanbul:/etc/localtime:ro
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro

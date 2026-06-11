@@ -30,7 +30,8 @@ services:
   prometheus:
     image: prom/prometheus:latest
     ports:
-      - "9090:9090"
+      # Host 9090 is registered to another local stack (~/.claude/docker-ports.md); use 9092.
+      - "9092:9090"
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus

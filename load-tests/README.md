@@ -155,7 +155,7 @@ sleep 30
 docker-compose up k6
 
 # View results in Grafana: http://localhost:3000 (admin/admin)
-# View Prometheus: http://localhost:9090
+# View Prometheus: http://localhost:9092
 
 # Cleanup
 docker-compose down -v
