@@ -1,3 +1,5 @@
+name: umailserver
+
 services:
   umailserver:
     image: umailserver:latest

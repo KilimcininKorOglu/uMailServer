@@ -142,16 +142,16 @@ docker-fresh:
 # Run Docker container
 docker-run:
 	@echo "Running Docker container..."
-	docker-compose up -d
+	docker-compose -f umailserver-dev.yml up -d
 
 # Stop Docker container
 docker-stop:
 	@echo "Stopping Docker container..."
-	docker-compose down
+	docker-compose -f umailserver-dev.yml down
 
 # View Docker logs
 docker-logs:
-	docker-compose logs -f
+	docker-compose -f umailserver-dev.yml logs -f
 
 # Build webmail frontend
 build-web:

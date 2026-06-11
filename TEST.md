@@ -46,7 +46,7 @@
   - `helper-projects/smime_probe.py` (giden S/MIME imzalama — kendi kendine yeten: imzalamayı açar, anahtar üretir, container'ı yeniden oluşturur, sonda eski hâline döndürür)
 - Ek probe'lar: `helper-projects/jmap_probe.py`, `helper-projects/jmap_send_probe.py`, `helper-projects/default_folders_probe.py`.
 - Orkestratör: `helper-projects/run_all.py` tüm protokol + yüzey + EWS suite'lerini sırayla çalıştırır ve özet basar (31 suite, hepsi yeşil olmalı).
-- BAĞIMSIZ (run_all dışında): `helper-projects/ha_probe.py` — HA/failover harness'i. Dev stack'i durdurur, `docker-compose.ha-full.yml` topolojisini SIFIRDAN kurar (repmgr+pgpool, Redis Sentinel, 2 düğüm + HAProxy), eşzamanlı boot / kuyruk tek-teslim / düğümler arası OOF dedup / node-kill / Redis failover / PG failover senaryolarını koşar, sonda HA stack'i söküp dev stack'i geri getirir. Host portları dev stack'le çakıştığı için run_all'a dahil değildir.
+- BAĞIMSIZ (run_all dışında): `helper-projects/ha_probe.py` — HA/failover harness'i. Dev stack'i durdurur, `umailserver-ha.yml` topolojisini SIFIRDAN kurar (repmgr+pgpool, Redis Sentinel, 2 düğüm + HAProxy), eşzamanlı boot / kuyruk tek-teslim / düğümler arası OOF dedup / node-kill / Redis failover / PG failover senaryolarını koşar, sonda HA stack'i söküp dev stack'i geri getirir. Host portları dev stack'le çakıştığı için run_all'a dahil değildir.
 
 ## Test hesapları
 
@@ -526,7 +526,7 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
   son kullanıcı suite'i ve (en sonda, kendi kendine yeten) S/MIME imzalama.
   Hepsi yeşil olmalı.
 - HA/failover ayrıca OTOMATİKTİR ama run_all dışındadır: `ha_probe.py`
-  (`docker-compose.ha-full.yml` üzerinde eşzamanlı boot, kuyruk tek-teslim,
+  (`umailserver-ha.yml` üzerinde eşzamanlı boot, kuyruk tek-teslim,
   düğümler arası OOF dedup, node-kill, Redis Sentinel failover, repmgr/pgpool
   PG failover + standby olarak yeniden katılma, sonda dev stack'in geri
   getirilmesi). Host portları dev stack ile çakıştığından ayrı çalıştırılır.

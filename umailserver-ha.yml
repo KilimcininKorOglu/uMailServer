@@ -13,8 +13,10 @@
 #
 # Two stateless uMailServer nodes behind HAProxy round-robin, sharing the data
 # tier + Maildir, complete the picture. Run:
-#   docker compose -f docker-compose.ha-full.yml up -d
-# (stop the dev stack and docker-compose.ha.yml first — same host ports.)
+#   docker compose -f umailserver-ha.yml up -d
+# (stop the dev stack first — same host ports.)
+
+name: umailserver-ha
 
 services:
   # --- PostgreSQL: two-node repmgr cluster with AUTOMATIC failover ---
