@@ -26,12 +26,15 @@ import {
   MessagesSquare,
   ChevronDown,
   ChevronUp,
+  Bookmark,
+  BookmarkPlus,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
@@ -51,7 +54,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import { useI18n } from "@/hooks/useI18n"
-import api from "@/utils/api"
+import api, { type SearchFolder } from "@/utils/api"
 
 interface SidebarProps {
   collapsed: boolean
@@ -90,6 +93,18 @@ const mainNavItems: NavItem[] = [
 // Standard mailboxes already shown in the main nav (or as Spam below); excluded
 // from the dynamic custom-folder list.
 const standardMailboxes = new Set(["inbox", "sent", "drafts", "trash", "junk", "scheduled"])
+
+// EMPTY_SF_FORM is the blank saved-search criteria form (reset on open/create).
+const EMPTY_SF_FORM = {
+  name: "",
+  from: "",
+  subject: "",
+  body: "",
+  dateFrom: "",
+  dateTo: "",
+  hasAttachment: false,
+  baseFolders: "",
+}
 
 const folderItems: NavItem[] = [
   { icon: AlertCircle, label: "nav.spam", path: "/spam", color: "text-red-500" },
@@ -262,6 +277,15 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
   const [folderBusy, setFolderBusy] = useState(false)
   const [folderDeleteTarget, setFolderDeleteTarget] = useState<string | null>(null)
 
+  // Saved searches (persistent search folders) and their structured criteria dialog.
+  const [savedSearches, setSavedSearches] = useState<SearchFolder[]>([])
+  const [sfDialogOpen, setSfDialogOpen] = useState(false)
+  const [sfDialogMode, setSfDialogMode] = useState<"create" | "edit">("create")
+  const [sfEditId, setSfEditId] = useState<string | null>(null)
+  const [sfBusy, setSfBusy] = useState(false)
+  const [sfDeleteTarget, setSfDeleteTarget] = useState<SearchFolder | null>(null)
+  const [sfForm, setSfForm] = useState({ ...EMPTY_SF_FORM })
+
   // loadCustomFolders refreshes the dynamic folder list (also re-run after a
   // create/rename/delete so the sidebar reflects the change immediately).
   const loadCustomFolders = useCallback(async () => {
@@ -273,6 +297,17 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       setCustomFolders(extra)
     } catch {
       setCustomFolders([])
+    }
+  }, [])
+
+  // loadSavedSearches refreshes the persistent saved-search list (re-run after a
+  // create/update/delete so the sidebar reflects the change immediately).
+  const loadSavedSearches = useCallback(async () => {
+    try {
+      const res = await api.listSearchFolders()
+      setSavedSearches(res.search_folders ?? [])
+    } catch {
+      setSavedSearches([])
     }
   }, [])
 
@@ -288,12 +323,13 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
         if (!cancelled) setSpamCount(0)
       }
       await loadCustomFolders()
+      await loadSavedSearches()
     }
     loadCounts()
     return () => {
       cancelled = true
     }
-  }, [loadCustomFolders])
+  }, [loadCustomFolders, loadSavedSearches])
 
   const openCreateFolder = () => {
     setFolderDialogMode("create")
@@ -348,6 +384,84 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       toast.error(err instanceof Error ? err.message : t("sidebar.folderDeleteFailed"))
     } finally {
       setFolderBusy(false)
+    }
+  }
+
+  const openCreateSavedSearch = () => {
+    setSfDialogMode("create")
+    setSfEditId(null)
+    setSfForm({ ...EMPTY_SF_FORM })
+    setSfDialogOpen(true)
+  }
+
+  const openEditSavedSearch = (sf: SearchFolder) => {
+    setSfDialogMode("edit")
+    setSfEditId(sf.id)
+    setSfForm({
+      name: sf.name,
+      from: sf.from ?? "",
+      subject: sf.subject ?? "",
+      body: sf.body ?? "",
+      dateFrom: sf.date_from ?? "",
+      dateTo: sf.date_to ?? "",
+      hasAttachment: sf.has_attachment === true,
+      baseFolders: (sf.base_folders ?? []).join(", "),
+    })
+    setSfDialogOpen(true)
+  }
+
+  const submitSavedSearch = async () => {
+    const name = sfForm.name.trim()
+    if (!name) {
+      toast.error(t("sidebar.savedSearchNameRequired"))
+      return
+    }
+    setSfBusy(true)
+    try {
+      const input = {
+        name,
+        from: sfForm.from.trim() || undefined,
+        subject: sfForm.subject.trim() || undefined,
+        body: sfForm.body.trim() || undefined,
+        date_from: sfForm.dateFrom || undefined,
+        date_to: sfForm.dateTo || undefined,
+        has_attachment: sfForm.hasAttachment ? true : undefined,
+        base_folders: sfForm.baseFolders
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      }
+      if (sfDialogMode === "create") {
+        await api.createSearchFolder(input)
+        toast.success(t("sidebar.savedSearchCreated"))
+      } else if (sfEditId) {
+        await api.updateSearchFolder(sfEditId, input)
+        toast.success(t("sidebar.savedSearchUpdated"))
+      }
+      setSfDialogOpen(false)
+      await loadSavedSearches()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("sidebar.savedSearchSaveFailed"))
+    } finally {
+      setSfBusy(false)
+    }
+  }
+
+  const confirmDeleteSavedSearch = async () => {
+    if (!sfDeleteTarget || sfBusy) return
+    setSfBusy(true)
+    try {
+      await api.deleteSearchFolder(sfDeleteTarget.id)
+      toast.success(t("sidebar.savedSearchDeleted"))
+      if (location.pathname === `/saved-search/${sfDeleteTarget.id}`) {
+        navigate("/inbox")
+      }
+      setSfDeleteTarget(null)
+      await loadSavedSearches()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("sidebar.savedSearchDeleteFailed"))
+    } finally {
+      setSfBusy(false)
     }
   }
 
@@ -594,6 +708,76 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
             </div>
           )
         })}
+
+        {isExpanded && (
+          <>
+            <div className="flex items-center justify-between px-3 pb-2 pt-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                {t("nav.savedSearches")}
+              </p>
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={openCreateSavedSearch}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={t("sidebar.newSavedSearchTitle")}
+                  >
+                    <BookmarkPlus className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{t("sidebar.newSavedSearchTitle")}</TooltipContent>
+              </Tooltip>
+            </div>
+
+            {savedSearches.map((sf) => {
+              const path = `/saved-search/${sf.id}`
+              const isActive = location.pathname === path
+              return (
+                <div
+                  key={sf.id}
+                  className={cn(
+                    "group flex items-center gap-1 rounded-lg pr-1 transition-all",
+                    isActive ? "bg-primary/10" : "hover:bg-accent"
+                  )}
+                >
+                  <NavLink
+                    to={path}
+                    className={cn(
+                      "flex flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium min-w-0",
+                      isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground"
+                    )}
+                  >
+                    <Bookmark className="h-5 w-5 shrink-0" />
+                    <span className="flex-1 truncate">{sf.name}</span>
+                  </NavLink>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground px-1"
+                        aria-label={t("sidebar.savedSearchActions", { name: sf.name })}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEditSavedSearch(sf)}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        {t("common.edit")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => setSfDeleteTarget(sf)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t("common.delete")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )
+            })}
+          </>
+        )}
       </nav>
 
       {/* Create / rename folder dialog */}
@@ -641,6 +825,96 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
               {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={confirmDeleteFolder} disabled={folderBusy}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t("common.delete")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create / edit saved search dialog (structured criteria) */}
+      <Dialog open={sfDialogOpen} onOpenChange={setSfDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {sfDialogMode === "create" ? t("sidebar.newSavedSearchTitle") : t("sidebar.editSavedSearchTitle")}
+            </DialogTitle>
+            <DialogDescription>{t("sidebar.savedSearchDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              autoFocus
+              value={sfForm.name}
+              onChange={(e) => setSfForm({ ...sfForm, name: e.target.value })}
+              placeholder={t("sidebar.savedSearchNamePlaceholder")}
+            />
+            <Input
+              value={sfForm.from}
+              onChange={(e) => setSfForm({ ...sfForm, from: e.target.value })}
+              placeholder={t("sidebar.savedSearchFromPlaceholder")}
+            />
+            <Input
+              value={sfForm.subject}
+              onChange={(e) => setSfForm({ ...sfForm, subject: e.target.value })}
+              placeholder={t("sidebar.savedSearchSubjectPlaceholder")}
+            />
+            <Input
+              value={sfForm.body}
+              onChange={(e) => setSfForm({ ...sfForm, body: e.target.value })}
+              placeholder={t("sidebar.savedSearchBodyPlaceholder")}
+            />
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={sfForm.dateFrom}
+                onChange={(e) => setSfForm({ ...sfForm, dateFrom: e.target.value })}
+                aria-label={t("sidebar.savedSearchDateFrom")}
+              />
+              <Input
+                type="date"
+                value={sfForm.dateTo}
+                onChange={(e) => setSfForm({ ...sfForm, dateTo: e.target.value })}
+                aria-label={t("sidebar.savedSearchDateTo")}
+              />
+            </div>
+            <Input
+              value={sfForm.baseFolders}
+              onChange={(e) => setSfForm({ ...sfForm, baseFolders: e.target.value })}
+              placeholder={t("sidebar.savedSearchFoldersPlaceholder")}
+            />
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={sfForm.hasAttachment}
+                onCheckedChange={(v) => setSfForm({ ...sfForm, hasAttachment: v === true })}
+              />
+              {t("sidebar.savedSearchHasAttachment")}
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSfDialogOpen(false)} disabled={sfBusy}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={submitSavedSearch} disabled={sfBusy}>
+              {sfDialogMode === "create" ? t("common.create") : t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete saved search confirmation */}
+      <Dialog open={sfDeleteTarget !== null} onOpenChange={(open) => { if (!open) setSfDeleteTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("sidebar.deleteSavedSearchTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("sidebar.deleteSavedSearchConfirm", { name: sfDeleteTarget?.name ?? "" })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSfDeleteTarget(null)} disabled={sfBusy}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteSavedSearch} disabled={sfBusy}>
               <Trash2 className="mr-2 h-4 w-4" />
               {t("common.delete")}
             </Button>

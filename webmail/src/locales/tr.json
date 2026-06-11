@@ -18,7 +18,8 @@
     "compose": "Oluştur",
     "folders": "Klasörler",
     "personal": "Kişisel",
-    "newFolder": "Yeni klasör"
+    "newFolder": "Yeni klasör",
+    "savedSearches": "Kayıtlı aramalar"
   },
   "common": {
     "search": "Ara",
@@ -780,7 +781,33 @@
     "folderSaveFailed": "Klasör kaydedilemedi",
     "folderDeleted": "Klasör silindi",
     "folderDeleteFailed": "Klasör silinemedi",
+    "newSavedSearchTitle": "Yeni Kayıtlı Arama",
+    "editSavedSearchTitle": "Kayıtlı Aramayı Düzenle",
+    "savedSearchDescription": "Kriterleri, eşleşen iletilerle dolan sanal bir klasör olarak kaydedin.",
+    "savedSearchNamePlaceholder": "Arama klasörü adı",
+    "savedSearchFromPlaceholder": "Gönderen şunu içerir",
+    "savedSearchSubjectPlaceholder": "Konu şunu içerir",
+    "savedSearchBodyPlaceholder": "Gövde şunu içerir",
+    "savedSearchDateFrom": "Başlangıç tarihi",
+    "savedSearchDateTo": "Bitiş tarihi",
+    "savedSearchFoldersPlaceholder": "Klasörler (virgülle ayrılmış, boş = tümü)",
+    "savedSearchHasAttachment": "Yalnızca ekli iletiler",
+    "savedSearchActions": "{{name}} için kayıtlı arama işlemleri",
+    "savedSearchNameRequired": "Arama klasörü adı gerekli",
+    "savedSearchCreated": "Kayıtlı arama oluşturuldu",
+    "savedSearchUpdated": "Kayıtlı arama güncellendi",
+    "savedSearchSaveFailed": "Kayıtlı arama kaydedilemedi",
+    "savedSearchDeleted": "Kayıtlı arama silindi",
+    "savedSearchDeleteFailed": "Kayıtlı arama silinemedi",
+    "deleteSavedSearchTitle": "Kayıtlı Aramayı Sil",
+    "deleteSavedSearchConfirm": "\"{{name}}\" silinsin mi? Eşleşen iletiler silinmez.",
     "selectLanguage": "Dil seçin"
+  },
+  "savedSearch": {
+    "title": "Kayıtlı Arama",
+    "empty": "Bu kayıtlı aramayla eşleşen ileti yok.",
+    "resultCount": "{{count}} ileti",
+    "resultCountPlural": "{{count}} ileti"
   },
   "welcome": {
     "title": "uMail Webmail'e Hoş Geldiniz",

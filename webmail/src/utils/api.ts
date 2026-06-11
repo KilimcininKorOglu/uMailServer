@@ -314,6 +314,26 @@ export interface SearchResponse {
   query: string
 }
 
+/**
+ * A persistent saved search (MAPI-style search folder). The criteria fields are
+ * optional; an empty field imposes no constraint. base_folders names the
+ * mailboxes to search, or all mailboxes when omitted.
+ */
+export interface SearchFolder {
+  id: string
+  name: string
+  from?: string
+  subject?: string
+  body?: string
+  date_from?: string
+  date_to?: string
+  has_attachment?: boolean
+  base_folders?: string[]
+}
+
+/** SearchFolderInput is the create/update payload (no server-assigned id). */
+export type SearchFolderInput = Omit<SearchFolder, 'id'>
+
 export interface ThreadsResponse {
   threads: Thread[]
 }
@@ -625,6 +645,27 @@ class API {
 
   async deleteFolder(name: string): Promise<void> {
     await this.delete(`/folders/${encodeURIComponent(name)}`)
+  }
+
+  // Saved searches (persistent MAPI-style search folders).
+  async listSearchFolders(): Promise<{ search_folders?: SearchFolder[] }> {
+    return this.get<{ search_folders?: SearchFolder[] }>('/search-folders')
+  }
+
+  async createSearchFolder(input: SearchFolderInput): Promise<SearchFolder> {
+    return this.post<SearchFolder>('/search-folders', input)
+  }
+
+  async updateSearchFolder(id: string, input: SearchFolderInput): Promise<SearchFolder> {
+    return this.put<SearchFolder>(`/search-folders/${encodeURIComponent(id)}`, input)
+  }
+
+  async deleteSearchFolder(id: string): Promise<void> {
+    await this.delete(`/search-folders/${encodeURIComponent(id)}`)
+  }
+
+  async getSearchFolderResults(id: string): Promise<{ emails?: Mail[]; total?: number }> {
+    return this.get<{ emails?: Mail[]; total?: number }>(`/search-folders/${encodeURIComponent(id)}/results`)
   }
 
   async sendMail(mail: SendMailRequest): Promise<void> {

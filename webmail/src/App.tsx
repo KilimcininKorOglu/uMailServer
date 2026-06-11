@@ -16,6 +16,7 @@ import { TasksPage } from "@/pages/tasks"
 import { NotesPage } from "@/pages/notes"
 import { SettingsPage } from "@/pages/settings"
 import { SearchPage } from "@/pages/search"
+import { SavedSearchPage } from "@/pages/saved-search"
 import { SpamPage } from "@/pages/spam"
 import { FolderPage } from "@/pages/folder"
 import { FiltersPage } from "@/pages/filters"
@@ -110,6 +111,7 @@ function AppContent() {
           <Route path="threads" element={<ThreadsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="search" element={<SearchPage />} />
+          <Route path="saved-search/:id" element={<SavedSearchPage />} />
           <Route path="spam" element={<SpamPage />} />
           <Route path="folder/:type" element={<FolderPage />} />
           <Route path="email/:id" element={<EmailDetailPage />} />

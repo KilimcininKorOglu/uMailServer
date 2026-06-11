@@ -18,7 +18,8 @@
     "compose": "Compose",
     "folders": "Folders",
     "personal": "Personal",
-    "newFolder": "New folder"
+    "newFolder": "New folder",
+    "savedSearches": "Saved searches"
   },
   "common": {
     "search": "Search",
@@ -780,7 +781,33 @@
     "folderSaveFailed": "Failed to save folder",
     "folderDeleted": "Folder deleted",
     "folderDeleteFailed": "Failed to delete folder",
+    "newSavedSearchTitle": "New Saved Search",
+    "editSavedSearchTitle": "Edit Saved Search",
+    "savedSearchDescription": "Save criteria as a virtual folder that fills with matching messages.",
+    "savedSearchNamePlaceholder": "Search folder name",
+    "savedSearchFromPlaceholder": "From contains",
+    "savedSearchSubjectPlaceholder": "Subject contains",
+    "savedSearchBodyPlaceholder": "Body contains",
+    "savedSearchDateFrom": "From date",
+    "savedSearchDateTo": "To date",
+    "savedSearchFoldersPlaceholder": "Folders (comma-separated, empty = all)",
+    "savedSearchHasAttachment": "Only messages with attachments",
+    "savedSearchActions": "Saved search actions for {{name}}",
+    "savedSearchNameRequired": "Search folder name is required",
+    "savedSearchCreated": "Saved search created",
+    "savedSearchUpdated": "Saved search updated",
+    "savedSearchSaveFailed": "Failed to save the saved search",
+    "savedSearchDeleted": "Saved search deleted",
+    "savedSearchDeleteFailed": "Failed to delete the saved search",
+    "deleteSavedSearchTitle": "Delete Saved Search",
+    "deleteSavedSearchConfirm": "Delete \"{{name}}\"? The matching messages are not deleted.",
     "selectLanguage": "Select language"
+  },
+  "savedSearch": {
+    "title": "Saved Search",
+    "empty": "No messages match this saved search.",
+    "resultCount": "{{count}} message",
+    "resultCountPlural": "{{count}} messages"
   },
   "welcome": {
     "title": "Welcome to uMail Webmail",
