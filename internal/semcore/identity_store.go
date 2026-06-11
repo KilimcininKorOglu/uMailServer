@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"go.etcd.io/bbolt"
 )
@@ -61,6 +62,93 @@ type StoredFolderIdentity struct {
 	SortOrder     int
 	HighestModSeq uint64
 	IsSubscribed  bool
+	// SearchDefinition, when non-nil, marks this folder as a MAPI/Outlook
+	// search folder (a persistent saved-query virtual folder). It has no items
+	// of its own; its contents are computed dynamically by matching the
+	// definition against the messages in BaseFolders. Plain mail/collab folders
+	// leave this nil. Stored inline so a search folder is one canonical record.
+	SearchDefinition *SearchFolderDef `json:",omitempty"`
+}
+
+// SearchFolderDef is the canonical, surface-agnostic definition of a search
+// folder: the saved criteria plus the folder set they are evaluated over. It is
+// the single source consumed by both the EWS FindItem restriction path and the
+// webmail saved-search scan; each surface extracts message fields in its own
+// way but feeds them to the same Matches decision so behavior cannot drift.
+//
+// Every criterion is optional; an empty field imposes no constraint. Text
+// criteria are case-insensitive substring (contains) matches, mirroring how
+// Outlook search folders and the webmail full-text scan already behave.
+type SearchFolderDef struct {
+	From          string   `json:"from,omitempty"`
+	Subject       string   `json:"subject,omitempty"`
+	Body          string   `json:"body,omitempty"`
+	DateFrom      string   `json:"date_from,omitempty"` // RFC3339 or YYYY-MM-DD; lower bound (inclusive)
+	DateTo        string   `json:"date_to,omitempty"`   // RFC3339 or YYYY-MM-DD; upper bound (inclusive)
+	HasAttachment *bool    `json:"has_attachment,omitempty"`
+	BaseFolders   []string `json:"base_folders,omitempty"` // folder display names; empty = all mail folders
+	Traversal     string   `json:"traversal,omitempty"`    // "Shallow" | "Deep"
+}
+
+// Matches reports whether a message with the given fields satisfies every set
+// criterion in the definition. Callers normalize their message representation
+// into these arguments: from and subject are the header values, body is the
+// plain-text body (pass "" when a Body criterion need not be evaluated), date
+// is the message date (zero time means unknown), and hasAttachment reflects the
+// message's attachment state.
+//
+// An empty criterion is skipped. When a date bound is set but the message date
+// is unknown (zero), the message is excluded, since membership in the bounded
+// range cannot be confirmed. Unparseable date bounds are likewise skipped.
+func (d *SearchFolderDef) Matches(from, subject, body string, date time.Time, hasAttachment bool) bool {
+	if d == nil {
+		return false
+	}
+	if d.From != "" && !strings.Contains(strings.ToLower(from), strings.ToLower(d.From)) {
+		return false
+	}
+	if d.Subject != "" && !strings.Contains(strings.ToLower(subject), strings.ToLower(d.Subject)) {
+		return false
+	}
+	if d.Body != "" && !strings.Contains(strings.ToLower(body), strings.ToLower(d.Body)) {
+		return false
+	}
+	if from := d.DateFrom; from != "" {
+		if lower, ok := parseSearchDate(from); ok {
+			if date.IsZero() || date.Before(lower) {
+				return false
+			}
+		}
+	}
+	if to := d.DateTo; to != "" {
+		if upper, ok := parseSearchDate(to); ok {
+			// A date-only upper bound is inclusive of the whole day.
+			if len(to) == len("2006-01-02") {
+				upper = upper.Add(24*time.Hour - time.Nanosecond)
+			}
+			if date.IsZero() || date.After(upper) {
+				return false
+			}
+		}
+	}
+	if d.HasAttachment != nil && *d.HasAttachment != hasAttachment {
+		return false
+	}
+	return true
+}
+
+// parseSearchDate parses a search-folder date bound, accepting RFC3339 and the
+// date-only YYYY-MM-DD form. It reports false when the value is unparseable so
+// callers can treat the bound as absent rather than excluding everything.
+func parseSearchDate(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
 }
 
 // StoredItemIdentity is what we persist for a canonical ItemId + ChangeKey.
@@ -163,6 +251,15 @@ type IdentityStore interface {
 
 	// GetFolderByMailbox retrieves a folder identity by mailbox key and role.
 	GetFolderByMailbox(mboxKey, role string) (*StoredFolderIdentity, error)
+
+	// SetFolderSearchDefinition sets (or clears, when def is nil) the search
+	// definition on a folder, marking it as a search folder. Returns
+	// ErrFolderNotFound when no folder identity exists for the id.
+	SetFolderSearchDefinition(id FolderId, def *SearchFolderDef) error
+
+	// ListSearchFolders returns the search folders for one mailbox: folder
+	// identities whose SearchDefinition is non-nil.
+	ListSearchFolders(mboxKey string) ([]StoredFolderIdentity, error)
 
 	// --- ItemId operations ---
 
@@ -987,6 +1084,30 @@ func (s *BoltIdentityStore) GetFolderByMailbox(mboxKey, role string) (*StoredFol
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.getFolderByRoleLocked(mboxKey, role)
+}
+
+// SetFolderSearchDefinition implements IdentityStore.
+func (s *BoltIdentityStore) SetFolderSearchDefinition(id FolderId, def *SearchFolderDef) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.updateFolder(id, func(f *StoredFolderIdentity) {
+		f.SearchDefinition = def
+	})
+}
+
+// ListSearchFolders implements IdentityStore.
+func (s *BoltIdentityStore) ListSearchFolders(mboxKey string) ([]StoredFolderIdentity, error) {
+	all, err := s.ListFolderIdentitiesForMailbox(mboxKey)
+	if err != nil {
+		return nil, err
+	}
+	var result []StoredFolderIdentity
+	for _, f := range all {
+		if f.SearchDefinition != nil {
+			result = append(result, f)
+		}
+	}
+	return result, nil
 }
 
 // ---------------------------------------------------------------------------
