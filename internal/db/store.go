@@ -31,6 +31,7 @@ type Store interface {
 	DeleteAccount(domain, localPart string) error
 	ListAccountsByDomain(domain string) ([]*AccountData, error)
 	IncrementQuota(domain, localPart string, delta int64) error
+	SetQuotaUsed(domain, localPart string, used int64) error
 
 	// Domains.
 	CreateDomain(domain *DomainData) error

@@ -97,6 +97,10 @@ func (s *Server) Start() error {
 	// past its window; leader-gated in a cluster). No-op when disabled.
 	s.startRecoverableItemsCleaner()
 
+	// Start the quota reconciler: keeps QuotaUsed in step with the canonical
+	// mailbox size as IMAP/EWS/JMAP writes and deletes change it.
+	s.startQuotaReconciler()
+
 	if err := s.startIMAP(s.mailstore); err != nil {
 		return err
 	}

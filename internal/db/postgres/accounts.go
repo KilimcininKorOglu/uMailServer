@@ -205,6 +205,25 @@ func (d *DB) IncrementQuota(domain, localPart string, delta int64) error {
 	return nil
 }
 
+// SetQuotaUsed sets an account's quota_used to an absolute value. Unlike
+// IncrementQuota it applies NO cap check — it reconciles the counter to the
+// canonical mailbox size (which may legitimately already exceed the limit), so
+// it must never reject.
+func (d *DB) SetQuotaUsed(domain, localPart string, used int64) error {
+	ctx := context.Background()
+	ct, err := d.pool.Exec(ctx,
+		`UPDATE accounts SET quota_used=$3, updated_at=now()
+		 WHERE domain=$1 AND local_part=$2`,
+		domain, localPart, used)
+	if err != nil {
+		return fmt.Errorf("postgres: set quota used %s/%s: %w", domain, localPart, err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("postgres: account %s/%s not found: %w", domain, localPart, db.ErrNotFound)
+	}
+	return nil
+}
+
 const accountSelect = `
 	SELECT email, local_part, domain, password_hash, apop_hash, totp_secret,
 		totp_enabled, totp_last_used_step, quota_used, quota_limit,

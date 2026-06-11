@@ -488,6 +488,39 @@ func (d *DB) IncrementQuota(domain, localPart string, delta int64) error {
 	})
 }
 
+// SetQuotaUsed sets an account's QuotaUsed to an absolute value inside a bbolt
+// transaction, re-reading the row so it never clobbers a concurrently-changed
+// field. Unlike IncrementQuota it applies NO cap check: it reconciles the
+// counter to the canonical mailbox size (which may legitimately already exceed
+// the effective limit), so it must never reject. A no-op when unchanged.
+func (d *DB) SetQuotaUsed(domain, localPart string, used int64) error {
+	key := AccountKey(domain, localPart)
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketAccounts))
+		if b == nil {
+			return fmt.Errorf("bucket not found: %s", BucketAccounts)
+		}
+		data := b.Get([]byte(key))
+		if data == nil {
+			return fmt.Errorf("key not found: %s", key)
+		}
+		var account AccountData
+		if err := json.Unmarshal(data, &account); err != nil {
+			return err
+		}
+		if account.QuotaUsed == used {
+			return nil
+		}
+		account.QuotaUsed = used
+		account.UpdatedAt = time.Now()
+		newData, err := json.Marshal(&account)
+		if err != nil {
+			return fmt.Errorf("failed to marshal value: %w", err)
+		}
+		return b.Put([]byte(key), newData)
+	})
+}
+
 // SetQuotaWarnSent flips an account's quota-warning latch. It re-reads the row
 // inside the transaction and rewrites ONLY the flag (plus UpdatedAt), so it never
 // clobbers a concurrently-incremented QuotaUsed. A no-op when the flag already

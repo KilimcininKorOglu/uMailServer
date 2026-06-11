@@ -99,6 +99,11 @@ func (d *DB) StoreMessageMetadata(user, mailbox string, uid uint32, meta *storag
 			_ = d.RecordChange(user, storage.ChangeTypeThread, tk, meta.ThreadID, "")
 		}
 	}
+	// A NEW message grew the mailbox; reconcile this account's quota counter.
+	// Flag-only updates leave the stored size unchanged, so they are skipped.
+	if !preexisting && d.quotaHook != nil {
+		d.quotaHook(user)
+	}
 	return nil
 }
 
@@ -146,6 +151,10 @@ func (d *DB) DeleteMessage(user, mailbox string, uid uint32) error {
 		if threadID != "" {
 			//nolint:errcheck // best-effort journal
 			_ = d.RecordChange(user, storage.ChangeTypeThread, storage.ChangeKindUpdated, threadID, "")
+		}
+		// The mailbox shrank; reconcile this account's quota counter.
+		if d.quotaHook != nil {
+			d.quotaHook(user)
 		}
 	}
 	return nil

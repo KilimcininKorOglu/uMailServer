@@ -137,6 +137,12 @@ type Server struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	stopOnce sync.Once
+
+	// quotaDirty collects accounts whose mailbox size changed (via the storage
+	// quota hook) since the last reconcile tick; the background reconciler sets
+	// each one's QuotaUsed to its true stored size, coalescing bursts.
+	quotaDirtyMu sync.Mutex
+	quotaDirty   map[string]struct{}
 }
 
 // OpenStore opens the account/metadata store for the configured backend and
@@ -187,6 +193,10 @@ type storageBackend interface {
 	jmap.MailStore
 	api.MailStore
 	ews.MailStore
+	// SetQuotaHook registers the quota-reconcile callback fired on index size
+	// changes; MailboxUsedBytes is the authoritative stored size it reconciles to.
+	SetQuotaHook(func(user string))
+	MailboxUsedBytes(user string) (int64, error)
 }
 
 // openStorage selects the message-metadata backend for the configured engine.
@@ -444,6 +454,9 @@ func New(cfg *config.Config) (*Server, error) {
 	s.storageSharesDB = sharesDB
 	s.quotaStore = quotaStore
 	s.spamStore = spamStore
+	// Drive quota reconciliation from the single index size-change chokepoint so
+	// QuotaUsed stays authoritative across every write/delete surface.
+	storageDB.SetQuotaHook(s.markQuotaDirty)
 
 	// Provision standard folders for every existing account so that accounts
 	// created through any path (admin API, CLI, quickstart, bootstrap, MCP,

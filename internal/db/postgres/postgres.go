@@ -42,6 +42,29 @@ type DB struct {
 	// Close (CLI/shutdown), whichever comes first.
 	initMu   sync.Mutex
 	initConn *pgxpool.Conn
+
+	// quotaHook, when set, fires with the mailbox owner's email whenever a
+	// message is added to or removed from the index, so the server can
+	// reconcile that account's quota counter. Set once at startup.
+	quotaHook func(user string)
+}
+
+// SetQuotaHook registers a callback fired (with the mailbox owner) whenever a
+// message is added to or removed from the index, matching the bbolt store.
+func (d *DB) SetQuotaHook(fn func(user string)) { d.quotaHook = fn }
+
+// MailboxUsedBytes returns the total stored RFC822 size of every message across
+// the mailbox's folders from the canonical index — the authoritative figure
+// the quota counter is reconciled against (a single SUM on the relational store).
+func (d *DB) MailboxUsedBytes(user string) (int64, error) {
+	ctx := context.Background()
+	var total int64
+	if err := d.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(size),0) FROM messages WHERE user_email=$1`,
+		user).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: sum mailbox size %s: %w", user, err)
+	}
+	return total, nil
 }
 
 // Open creates a connection pool for dsn and verifies connectivity. The dsn is a

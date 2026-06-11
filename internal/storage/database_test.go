@@ -264,6 +264,64 @@ func TestDatabaseGetMessageMetadata(t *testing.T) {
 	}
 }
 
+// TestMailboxUsedBytes verifies the quota-reconcile size source sums stored
+// message sizes across folders, and that the quota hook fires on a new message
+// and on a delete (but not on a flag-only update), so quota stays authoritative.
+func TestMailboxUsedBytes(t *testing.T) {
+	database := setupTestDB(t)
+	const user = "u@example.com"
+
+	var hookCalls int
+	database.SetQuotaHook(func(u string) {
+		if u == user {
+			hookCalls++
+		}
+	})
+
+	for _, mb := range []string{"INBOX", "Sent"} {
+		if err := database.CreateMailbox(user, mb); err != nil {
+			t.Fatalf("CreateMailbox %s: %v", mb, err)
+		}
+	}
+	store := func(mb string, uid uint32, size int64) {
+		t.Helper()
+		if err := database.StoreMessageMetadata(user, mb, uid, &MessageMetadata{
+			MessageID: fmt.Sprintf("%s-%d", mb, uid), UID: uid, Size: size,
+		}); err != nil {
+			t.Fatalf("StoreMessageMetadata: %v", err)
+		}
+	}
+	store("INBOX", 1, 100)
+	store("INBOX", 2, 50)
+	store("Sent", 1, 30)
+
+	if got, err := database.MailboxUsedBytes(user); err != nil || got != 180 {
+		t.Fatalf("MailboxUsedBytes = %d (err %v), want 180", got, err)
+	}
+	if hookCalls != 3 {
+		t.Errorf("quota hook fired %d times on 3 new messages, want 3", hookCalls)
+	}
+
+	// A flag-only update must NOT fire the hook (size unchanged).
+	hookCalls = 0
+	store("INBOX", 1, 100) // same uid → preexisting update
+	if hookCalls != 0 {
+		t.Errorf("quota hook fired %d times on a flag-only update, want 0", hookCalls)
+	}
+
+	// A delete shrinks the mailbox and fires the hook.
+	hookCalls = 0
+	if err := database.DeleteMessage(user, "INBOX", 2); err != nil {
+		t.Fatalf("DeleteMessage: %v", err)
+	}
+	if got, err := database.MailboxUsedBytes(user); err != nil || got != 130 {
+		t.Errorf("MailboxUsedBytes after delete = %d (err %v), want 130", got, err)
+	}
+	if hookCalls != 1 {
+		t.Errorf("quota hook fired %d times on a delete, want 1", hookCalls)
+	}
+}
+
 func TestDatabaseStoreMessageMetadata(t *testing.T) {
 	database := setupTestDB(t)
 

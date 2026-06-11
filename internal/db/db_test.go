@@ -477,6 +477,60 @@ func TestEffectiveQuotaThresholds(t *testing.T) {
 // whole account would race, so SetQuotaWarnSent must touch only the flag. The
 // test simulates that race by mutating QuotaUsed (as a delivery would) between
 // the two latch flips and asserting the usage survives.
+// TestSetQuotaUsed verifies the reconcile setter writes an absolute value with
+// NO cap check — it must accept a size above the effective limit (a mailbox can
+// legitimately already be over quota), unlike IncrementQuota which would reject.
+func TestSetQuotaUsed(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := Open(tmpDir + "/test.db")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+
+	acct := &AccountData{
+		Email: "u@example.com", LocalPart: "u", Domain: "example.com",
+		QuotaUsed: 500, QuotaLimit: 1000,
+	}
+	if err := db.CreateAccount(acct); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Reconcile to a value within the limit.
+	if err := db.SetQuotaUsed("example.com", "u", 800); err != nil {
+		t.Fatalf("SetQuotaUsed(800): %v", err)
+	}
+	got, err := db.GetAccount("example.com", "u")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got.QuotaUsed != 800 {
+		t.Errorf("QuotaUsed = %d, want 800", got.QuotaUsed)
+	}
+
+	// Reconcile to a value ABOVE the limit: must NOT reject (no cap check), or
+	// an over-quota mailbox could never have its counter corrected.
+	if err := db.SetQuotaUsed("example.com", "u", 5000); err != nil {
+		t.Fatalf("SetQuotaUsed above limit must not reject: %v", err)
+	}
+	got, err = db.GetAccount("example.com", "u")
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got.QuotaUsed != 5000 {
+		t.Errorf("QuotaUsed = %d, want 5000 (set above limit)", got.QuotaUsed)
+	}
+
+	// A missing account is an error.
+	if err := db.SetQuotaUsed("example.com", "ghost", 1); err == nil {
+		t.Error("SetQuotaUsed on a missing account should error")
+	}
+}
+
 func TestSetQuotaWarnSent(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := Open(tmpDir + "/test.db")

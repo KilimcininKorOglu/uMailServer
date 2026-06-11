@@ -20,6 +20,40 @@ import (
 type Database struct {
 	path string
 	bolt *bbolt.DB
+	// quotaHook, when set, fires with the mailbox owner's email whenever a
+	// message is added to or removed from the index (the canonical size
+	// changed), so the server can reconcile that account's quota counter.
+	quotaHook func(user string)
+}
+
+// SetQuotaHook registers a callback fired (with the mailbox owner) whenever a
+// message is added to or removed from the index, so a stored size change on any
+// protocol surface can drive quota reconciliation. Set once at startup.
+func (db *Database) SetQuotaHook(fn func(user string)) { db.quotaHook = fn }
+
+// MailboxUsedBytes returns the total stored RFC822 size of every message in
+// every folder of the mailbox (meta.Size is the quota unit) from the canonical
+// index — the authoritative figure the quota counter is reconciled against.
+func (db *Database) MailboxUsedBytes(user string) (int64, error) {
+	names, err := db.ListMailboxes(user)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, name := range names {
+		uids, uerr := db.GetMessageUIDs(user, name)
+		if uerr != nil {
+			return 0, uerr
+		}
+		for _, uid := range uids {
+			meta, merr := db.GetMessageMetadata(user, name, uid)
+			if merr != nil || meta == nil {
+				continue
+			}
+			total += meta.Size
+		}
+	}
+	return total, nil
 }
 
 // OpenDatabase opens the bbolt database
@@ -729,6 +763,12 @@ func (db *Database) StoreMessageMetadata(user, mailbox string, uid uint32, meta 
 			_ = db.RecordChange(user, ChangeTypeThread, tk, meta.ThreadID, "")
 		}
 	}
+	// A NEW message grew the mailbox; reconcile this account's quota counter.
+	// Flag-only updates (preexisting) leave the stored size unchanged, so they
+	// are skipped to spare the hot \Seen-toggle path.
+	if err == nil && !preexisting && db.quotaHook != nil {
+		db.quotaHook(user)
+	}
 	return err
 }
 
@@ -860,6 +900,10 @@ func (db *Database) DeleteMessage(user, mailbox string, uid uint32) error {
 		_ = db.RecordChange(user, ChangeTypeEmail, ChangeKindDestroyed, deletedID, mailbox)
 		if deletedThread != "" {
 			_ = db.RecordChange(user, ChangeTypeThread, ChangeKindUpdated, deletedThread, "")
+		}
+		// The mailbox shrank; reconcile this account's quota counter.
+		if db.quotaHook != nil {
+			db.quotaHook(user)
 		}
 	}
 	return err
