@@ -243,6 +243,13 @@ func (s *Server) startAPI() {
 			return s.scheduleSend(owner, from, to, data, sendAt, "ews", fileSent)
 		})
 
+		// Public folders: the publicfoldersroot distinguished folder browses the
+		// per-domain public tree, gated live by config and per-folder ACL.
+		ewsServer.SetPublicFolderAccess(
+			func() bool { return s.cfg().PublicFolders.Enabled },
+			s.storageDB.GetACL,
+		)
+
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 

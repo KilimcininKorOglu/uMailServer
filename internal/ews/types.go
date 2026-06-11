@@ -164,6 +164,9 @@ var DistinguishedFolderIDs = map[string]string{
 	"scheduled":     "scheduled",
 	// Outlook's "Recover Deleted Items From Server" queries this distinguished id.
 	"recoverableitemsdeletions": "recoverableitems",
+	// Outlook browses the organization-wide public-folder tree from this id; it
+	// resolves to the per-domain public owner rather than the caller's mailbox.
+	"publicfoldersroot": "publicfolders",
 }
 
 // DistinguishedFolderIdType represents a DistinguishedFolderId element that can

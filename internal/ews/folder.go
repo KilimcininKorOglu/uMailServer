@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/storage"
 )
 
 // folderDisplayName resolves a folder's human-readable name for EWS responses.
@@ -137,6 +138,12 @@ func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.
 		return errorMsg("GetFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+name)
 	}
 
+	// publicfoldersroot resolves to the per-domain public tree, not the caller's
+	// own mailbox, so it is answered with a synthetic root.
+	if role == publicFoldersRole {
+		return s.resolvePublicFoldersRoot(mboxKey)
+	}
+
 	// Strip "e:" prefix to match the key format used by all other handlers.
 	// resolveMailboxFromBody returns mboxKey = "e:" + email, but folder/identity
 	// operations use the raw email as the mailbox key.
@@ -234,6 +241,81 @@ func folderClassForRole(role string) string {
 	return "IPF.Note"
 }
 
+// publicFoldersRole is the internal role the publicfoldersroot distinguished id
+// maps to. Unlike other roles it names no per-mailbox folder; it selects the
+// per-domain public-folder owner whose tree is browsed in place of the caller's
+// own mailbox.
+const publicFoldersRole = "publicfolders"
+
+// publicOwnerForCaller derives the reserved per-domain public-folder owner from
+// the caller's mailbox key ("e:"+email or a raw email). It returns "" when the
+// domain cannot be determined, which keeps each domain's public tree isolated.
+func publicOwnerForCaller(mboxKey string) string {
+	email := strings.TrimPrefix(mboxKey, "e:")
+	at := strings.LastIndexByte(email, '@')
+	if at <= 0 || at == len(email)-1 {
+		return ""
+	}
+	return storage.PublicFolderOwner(email[at+1:])
+}
+
+// publicFoldersReady reports whether the public-folder feature is wired and
+// enabled, returning the resolved public owner for the caller's domain.
+func (s *Server) publicFoldersReady(mboxKey string) (owner string, ok bool) {
+	if s.publicFoldersEnabled == nil || !s.publicFoldersEnabled() || s.publicFolderACL == nil {
+		return "", false
+	}
+	owner = publicOwnerForCaller(mboxKey)
+	return owner, owner != ""
+}
+
+// callerCanReadPublicFolder reports whether the caller holds at least read rights
+// on a public folder, via the union of its per-user and "anyone" grants.
+func (s *Server) callerCanReadPublicFolder(callerEmail, owner, folder string) bool {
+	rights, err := storage.ResolveEffectiveRights(s.publicFolderACL, callerEmail, owner, folder)
+	if err != nil {
+		return false
+	}
+	return rights&storage.ACLRead == storage.ACLRead
+}
+
+// resolvePublicFoldersRoot answers GetFolder(publicfoldersroot) with a synthetic
+// root for the caller's per-domain public tree. ChildFolderCount counts only the
+// folders the caller may read, so an empty or forbidden tree still resolves but
+// shows nothing to browse into.
+func (s *Server) resolvePublicFoldersRoot(mboxKey string) FolderResponseMessageType {
+	owner, ok := s.publicFoldersReady(mboxKey)
+	if !ok {
+		return errorMsg("GetFolder", ErrErrorFolderNotFound, "public folders are not enabled")
+	}
+	if _, err := s.identity.EnsureMailboxId(owner); err != nil {
+		return errorMsg("GetFolder", ErrErrorInternalServer, err.Error())
+	}
+	callerEmail := strings.TrimPrefix(mboxKey, "e:")
+	folders, err := s.identity.ListFolderIdentitiesForMailbox(owner)
+	if err != nil {
+		return errorMsg("GetFolder", ErrErrorInternalServer, err.Error())
+	}
+	visible := 0
+	for _, f := range folders {
+		if f.Role == "root" {
+			continue
+		}
+		if s.callerCanReadPublicFolder(callerEmail, owner, s.folderDisplayName(owner, f.Role, f.FolderID)) {
+			visible++
+		}
+	}
+	msg := FolderResponseMessageType{ResponseClass: "Success"}
+	msg.ResponseCode.Value = ErrNoError
+	msg.Folders = FolderResponseContainer{Folders: []FolderType{{
+		FolderID:         FolderIdComponents{ID: "publicfoldersroot"},
+		DisplayName:      "Public Folders",
+		FolderClass:      "IPF.Note",
+		ChildFolderCount: visible,
+	}}}
+	return msg
+}
+
 // errorMsg builds an error FolderResponseMessageType.
 func errorMsg(op string, code ErrorCode, message string) FolderResponseMessageType {
 	msg := FolderResponseMessageType{}
@@ -293,19 +375,37 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 	// Determine the parent folder to enumerate under.
 	var parentID semcore.FolderId
 	var enumerateRoot bool
+	// publicTree enumerates the per-domain public-folder owner's tree instead of
+	// the caller's own mailbox; callerEmail keeps the original identity for the
+	// per-folder ACL filter after mailboxKey is rebound to the public owner.
+	var publicTree bool
+	var callerEmail string
 	if len(req.ParentFolderIDs.Distinguished) > 0 {
 		d := req.ParentFolderIDs.Distinguished[0]
 		role, ok := DistinguishedFolderIDs[d.ID]
 		if !ok {
 			return s.errorResponseXML("FindFolder", ErrErrorFolderNotFound, "unknown distinguished folder: "+d.ID)
 		}
-		if role == "root" {
+		switch role {
+		case publicFoldersRole:
+			owner, ready := s.publicFoldersReady(mailboxKey)
+			if !ready {
+				return s.errorResponseXML("FindFolder", ErrErrorFolderNotFound, "public folders are not enabled")
+			}
+			if _, err := s.identity.EnsureMailboxId(owner); err != nil {
+				return s.errorResponseXML("FindFolder", ErrErrorInternalServer, err.Error())
+			}
+			callerEmail = mailboxKey // mailboxKey is the caller's email until rebound below
+			mailboxKey = owner
+			publicTree = true
+			enumerateRoot = true
+		case "root":
 			// The mailbox root has no concrete parent: its children are the
 			// top-level folders, which are stored with a zero parent. Filtering
 			// by the root folder's own id would match nothing, so enumerate the
 			// top level instead (this is what makes msgfolderroot list the tree).
 			enumerateRoot = true
-		} else {
+		default:
 			folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
 			if err == nil {
 				parentID = folder.FolderID
@@ -351,6 +451,12 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		}
 
 		displayName := s.folderDisplayName(mailboxKey, f.Role, f.FolderID)
+
+		// In the public tree, only surface folders the caller may read (per-user
+		// or "anyone" grant); mailboxKey is the public owner here.
+		if publicTree && !s.callerCanReadPublicFolder(callerEmail, mailboxKey, displayName) {
+			continue
+		}
 
 		fxml := FolderType{
 			FolderID:         FolderIdComponents{ID: f.FolderID.String()},

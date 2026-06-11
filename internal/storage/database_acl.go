@@ -252,24 +252,34 @@ func (db *Database) ListACL(owner, mailbox string) ([]ACLEntry, error) {
 	return entries, err
 }
 
-// EffectiveRights returns the rights a user effectively holds on a mailbox: the
-// union of the user's own grant and the reserved "anyone" grant (ACLAnyone). The
-// owner implicitly holds every right. It is the canonical resolver behind
-// CanAccess and the public-folder access gates, so an org-wide "anyone" grant is
-// honored everywhere a per-user grant would be.
-func (db *Database) EffectiveRights(user, owner, mailbox string) (ACLRights, error) {
-	if user == owner {
-		return ACLAll, nil
-	}
-	own, err := db.GetACL(owner, mailbox, user)
+// ResolveEffectiveRights returns the rights a user effectively holds on a mailbox
+// — the union of the user's own grant and the reserved "anyone" grant — using any
+// GetACL implementation. Taking the lookup as a function (rather than a method or
+// interface) lets every backend (the bbolt *Database, the postgres *DB) and every
+// surface (IMAP/EWS/webmail), including an injected GetACL, share one anyone-aware
+// resolution without adding a method to the dual-backend store interfaces.
+func ResolveEffectiveRights(getACL func(owner, mailbox, grantee string) (ACLRights, error), user, owner, mailbox string) (ACLRights, error) {
+	own, err := getACL(owner, mailbox, user)
 	if err != nil {
 		return 0, err
 	}
-	anyone, err := db.GetACL(owner, mailbox, ACLAnyone)
+	anyone, err := getACL(owner, mailbox, ACLAnyone)
 	if err != nil {
 		return 0, err
 	}
 	return own | anyone, nil
+}
+
+// EffectiveRights returns the rights a user effectively holds on a mailbox: the
+// owner implicitly holds every right, otherwise the union of the user's own grant
+// and the reserved "anyone" grant (via ResolveEffectiveRights). It backs
+// CanAccess so an org-wide "anyone" grant is honored everywhere a per-user grant
+// would be.
+func (db *Database) EffectiveRights(user, owner, mailbox string) (ACLRights, error) {
+	if user == owner {
+		return ACLAll, nil
+	}
+	return ResolveEffectiveRights(db.GetACL, user, owner, mailbox)
 }
 
 // CanAccess checks whether user has at least the required rights on a mailbox.

@@ -85,6 +85,13 @@ type Server struct {
 	// supplies a public https URL); tests set it so an httptest/sink on
 	// 127.0.0.1 can receive the POST.
 	allowPrivatePushTargets bool
+	// publicFoldersEnabled reports whether the per-domain public-folder tree is
+	// exposed, and publicFolderACL resolves a grantee's rights on a public folder
+	// (the storage GetACL). Both are injected via SetPublicFolderAccess (same
+	// no-direct-import rationale as the notifiers above); when unset, the
+	// publicfoldersroot distinguished folder reports FolderNotFound.
+	publicFoldersEnabled func() bool
+	publicFolderACL      func(owner, mailbox, grantee string) (storage.ACLRights, error)
 }
 
 // FreeBusyInterval is one busy time range contributed by an external free/busy
@@ -142,6 +149,15 @@ func (s *Server) SetFreeBusyProvider(fn func(email string, from, to time.Time) [
 // IMAP IDLE sessions and the webmail SSE stream pick up the change.
 func (s *Server) SetFolderChangeNotifier(fn func(email, folder string)) {
 	s.folderChangeNotifier = fn
+}
+
+// SetPublicFolderAccess wires the public-folder gate: enabled reports whether the
+// per-domain public-folder tree is exposed, and getACL resolves a grantee's
+// rights on a public folder (the storage GetACL). Without it, the
+// publicfoldersroot distinguished folder stays invisible over EWS.
+func (s *Server) SetPublicFolderAccess(enabled func() bool, getACL func(owner, mailbox, grantee string) (storage.ACLRights, error)) {
+	s.publicFoldersEnabled = enabled
+	s.publicFolderACL = getACL
 }
 
 // SetMessageCreatedNotifier wires a callback invoked after an EWS-created item

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/storage"
 	"go.etcd.io/bbolt"
 )
 
@@ -254,6 +255,94 @@ func TestFindFolder_UserFolders(t *testing.T) {
 	msg := resp.ResponseMessages.Messages[0]
 	if msg.ResponseCode.Value != ErrNoError {
 		t.Errorf("expected no error, got: %s", msg.ResponseCode.Value)
+	}
+}
+
+// publicFoldersFindBody is a FindFolder request over the publicfoldersroot
+// distinguished id (the tree Outlook browses for public folders).
+const publicFoldersFindBody = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+  <soap:Body>
+    <FindFolder xmlns="http://schemas.microsoft.com/exchange/services/2006/messages" Traversal="Shallow">
+      <FolderShape><t:BaseShape>Default</t:BaseShape></FolderShape>
+      <ParentFolderIds><t:DistinguishedFolderId Id="publicfoldersroot"/></ParentFolderIds>
+    </FindFolder>
+  </soap:Body>
+</soap:Envelope>`
+
+// TestFindFolder_PublicFolders verifies that publicfoldersroot browses the
+// per-domain public owner's tree, filtered to the folders the caller may read.
+// "Announcements" is granted to "anyone" so every domain user sees it; "Secret"
+// has no grant and stays hidden — proving the ACL filter, not raw enumeration,
+// drives visibility.
+func TestFindFolder_PublicFolders(t *testing.T) {
+	srv, cleanup := tmpEWSServer(t)
+	defer cleanup()
+
+	owner := storage.PublicFolderOwner("example.com")
+	if _, err := srv.identity.EnsureMailboxId(owner); err != nil {
+		t.Fatalf("EnsureMailboxId: %v", err)
+	}
+	for _, name := range []string{"Announcements", "Secret"} {
+		if _, err := srv.identity.EnsureFolderId(owner, name, ""); err != nil {
+			t.Fatalf("EnsureFolderId %s: %v", name, err)
+		}
+	}
+
+	// "anyone" may read Announcements; nothing grants Secret.
+	getACL := func(o, mailbox, grantee string) (storage.ACLRights, error) {
+		if o == owner && mailbox == "Announcements" && grantee == storage.ACLAnyone {
+			return storage.ACLLookup | storage.ACLRead, nil
+		}
+		return 0, nil
+	}
+
+	names := func() []string {
+		rec := ewsRequest(t, srv, "alice@example.com", publicFoldersFindBody)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status: %d", rec.Code)
+		}
+		var resp FindFolderResponse
+		unmarshalFromBody(t, rec.Body.Bytes(), &resp)
+		if len(resp.ResponseMessages.Messages) == 0 {
+			t.Fatal("expected a response message")
+		}
+		var out []string
+		for _, f := range resp.ResponseMessages.Messages[0].Folders.Folders {
+			out = append(out, f.DisplayName)
+		}
+		return out
+	}
+
+	// Disabled: the publicfoldersroot is not browsable. The FindFolder error path
+	// returns a bare FindFolderResponseMessage (not a FindFolderResponse envelope).
+	srv.SetPublicFolderAccess(func() bool { return false }, getACL)
+	rec := ewsRequest(t, srv, "alice@example.com", publicFoldersFindBody)
+	var disabled FolderResponseMessageType
+	unmarshalFromBody(t, rec.Body.Bytes(), &disabled)
+	if disabled.ResponseCode.Value != ErrErrorFolderNotFound {
+		t.Errorf("disabled public folders should report FolderNotFound, got %s", disabled.ResponseCode.Value)
+	}
+
+	// Enabled: only the readable folder surfaces.
+	srv.SetPublicFolderAccess(func() bool { return true }, getACL)
+	got := names()
+	hasAnnouncements, hasSecret := false, false
+	for _, n := range got {
+		if n == "Announcements" {
+			hasAnnouncements = true
+		}
+		if n == "Secret" {
+			hasSecret = true
+		}
+	}
+	if !hasAnnouncements {
+		t.Errorf("expected Announcements (anyone:read) to be listed, got %v", got)
+	}
+	if hasSecret {
+		t.Errorf("Secret has no grant and must stay hidden, got %v", got)
 	}
 }
 
