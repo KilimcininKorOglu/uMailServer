@@ -151,6 +151,14 @@ func (s *Server) resolveDistinguishedFolder(ctx context.Context, mboxID semcore.
 	// operations use the raw email as the mailbox key.
 	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
 
+	// For the container folders (store root, IPM subtree), bridge the caller's
+	// canonical storage folders into the identity store so the response's
+	// ChildFolderCount reflects the real children (Outlook keys provisioning off
+	// the IPM subtree's child count).
+	if isContainerRole(role) {
+		s.reconcileMailboxFolderIdentities(mailboxKey)
+	}
+
 	// Look up by role — the role is stored in the identity record when
 	// EnsureFolderId was called with a role.
 	folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
@@ -221,12 +229,24 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 	}
 	msg.ResponseCode.Value = ErrNoError
 
+	// Project the flat store onto the Exchange hierarchy for the ParentFolderId.
+	// The store root reports itself as parent — a self-reference signals "no
+	// parent" to EWS clients (exchangelib treats parent==self as None) without an
+	// empty, unresolvable ParentFolderId that strict clients reject.
+	rootID := s.rootFolderID(checkKey)
+	ipmID := s.ipmSubtreeFolderID(checkKey)
+	parentRef := s.effectiveParentID(rec.Role, rec.ParentID, rootID, ipmID)
+	if parentRef.IsZero() {
+		parentRef = folderID
+	}
+	child, total, unread := s.folderCounts(checkKey, folderID, rec.Role, rootID, ipmID, displayName)
 	fxml := FolderType{
 		FolderID:         FolderIdComponents{ID: folderID.String()},
-		ParentFolderID:   FolderIdComponents{ID: rec.ParentID.String()},
+		ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
 		DisplayName:      displayName,
-		TotalCount:       0,
-		ChildFolderCount: 0,
+		TotalCount:       total,
+		UnreadCount:      unread,
+		ChildFolderCount: child,
 		FolderClass:      folderClassForRole(rec.Role),
 	}
 	// Project the canonical RFC 4314 ACL onto the folder's permission set and the
@@ -300,6 +320,147 @@ func (s *Server) reconcilePublicFolderIdentities(owner string) {
 	}
 }
 
+// reconcileMailboxFolderIdentities ensures every folder in the caller's own
+// canonical storage (the same source IMAP/JMAP/webmail read) has a semcore
+// folder identity, so EWS folder enumeration — which is identity-store driven —
+// reflects the real mailbox instead of an empty tree. Unlike
+// reconcilePublicFolderIdentities it INCLUDES the standard folders (INBOX,
+// Sent, ...) and assigns each its distinguished role, so they resolve as the
+// expected distinguished folders. Best-effort and idempotent: EnsureFolderId
+// fast-paths folders that already have an identity.
+func (s *Server) reconcileMailboxFolderIdentities(mailboxKey string) {
+	// Establish the container skeleton (store root + IPM subtree, the latter
+	// parented under the former) so the hierarchy resolves even before any user
+	// folder is touched. Idempotent.
+	s.ipmSubtreeFolderID(mailboxKey)
+	if s.storageDB == nil {
+		return
+	}
+	names, err := s.storageDB.ListMailboxes(mailboxKey)
+	if err != nil {
+		return
+	}
+	for _, name := range names {
+		role := semcore.RoleForCanonicalFolderName(name)
+		if _, err := s.identity.EnsureFolderId(mailboxKey, name, role); err != nil {
+			continue
+		}
+	}
+}
+
+// isContainerRole reports whether a role is one of the synthetic container
+// folders that anchor the mailbox hierarchy and hold no messages of their own:
+// the store root ("root") and the IPM subtree ("ipmsubtree", a.k.a.
+// msgfolderroot, the parent of Inbox/Sent/etc.). Real Exchange exposes these as
+// two distinct folders — the IPM subtree one level below the store root — so
+// EWS clients can resolve the store root independently of the user folders.
+func isContainerRole(role string) bool {
+	return role == "root" || role == "ipmsubtree"
+}
+
+// rootFolderID returns the mailbox store root's identity-store folder id ("root"
+// role), materializing it if absent. Best-effort: returns the zero id if neither
+// lookup nor create succeeds.
+func (s *Server) rootFolderID(mailboxKey string) semcore.FolderId {
+	if rec, err := s.identity.GetFolderByMailbox(mailboxKey, "root"); err == nil {
+		return rec.FolderID
+	}
+	if fid, err := s.identity.EnsureFolderId(mailboxKey, "root", "root"); err == nil {
+		return fid
+	}
+	return semcore.FolderId{}
+}
+
+// ipmSubtreeFolderID returns the IPM subtree's identity-store folder id
+// ("ipmsubtree" role, the EWS msgfolderroot), materializing it under the store
+// root if absent. The IPM subtree is the parent of all user-visible folders.
+// Best-effort: returns the zero id if it cannot be resolved or created.
+func (s *Server) ipmSubtreeFolderID(mailboxKey string) semcore.FolderId {
+	if rec, err := s.identity.GetFolderByMailbox(mailboxKey, "ipmsubtree"); err == nil && !rec.ParentID.IsZero() {
+		return rec.FolderID
+	}
+	fid, err := s.identity.EnsureFolderId(mailboxKey, "msgfolderroot", "ipmsubtree")
+	if err != nil {
+		return semcore.FolderId{}
+	}
+	// Parent the IPM subtree under the store root. Best-effort: a failure leaves
+	// the subtree id valid and is retried on the next (idempotent) reconcile.
+	if rootID := s.rootFolderID(mailboxKey); !rootID.IsZero() {
+		if err := s.identity.SetFolderParent(fid, rootID); err != nil {
+			return fid
+		}
+	}
+	return fid
+}
+
+// effectiveParentID projects the flat identity store onto the Exchange folder
+// hierarchy and returns the parent a folder should report. The store root has no
+// parent (zero); the IPM subtree hangs off the store root; every other top-level
+// folder (stored with a zero parent) hangs off the IPM subtree; folders with a
+// concrete stored parent (nested folders) keep it. rootID/ipmID are resolved once
+// per request and passed in to avoid a store lookup per folder.
+func (s *Server) effectiveParentID(role string, parentID, rootID, ipmID semcore.FolderId) semcore.FolderId {
+	if role == "root" {
+		return semcore.FolderId{}
+	}
+	if !parentID.IsZero() {
+		return parentID
+	}
+	if role == "ipmsubtree" {
+		return rootID
+	}
+	return ipmID
+}
+
+// isFolderUnder reports whether folder f is a (transitive) descendant of the
+// ancestor folder under the projected hierarchy, used for Deep FindFolder
+// traversal. It walks f's effective-parent chain until it reaches the ancestor
+// or the store root. byID resolves each parent id to its record; a depth guard
+// bounds a malformed cyclic chain.
+func (s *Server) isFolderUnder(f semcore.StoredFolderIdentity, ancestor, rootID, ipmID semcore.FolderId, byID map[string]semcore.StoredFolderIdentity) bool {
+	cur := f
+	for i := 0; i < 64; i++ {
+		ep := s.effectiveParentID(cur.Role, cur.ParentID, rootID, ipmID)
+		if ep.IsZero() {
+			return false
+		}
+		if ep.Equal(ancestor) {
+			return true
+		}
+		next, ok := byID[ep.String()]
+		if !ok {
+			return false
+		}
+		cur = next
+	}
+	return false
+}
+
+// folderCounts computes the ChildFolderCount/TotalCount/UnreadCount a folder
+// should report. ChildFolderCount is the top-level folder count for the mailbox
+// root (whose children are stored with a zero parent) and the direct-child count
+// otherwise. TotalCount/UnreadCount come from the canonical message store; the
+// synthetic root holds no messages so it reports zero. Best-effort: a lookup
+// error falls back to zero rather than failing the folder response.
+func (s *Server) folderCounts(mailboxKey string, folderID semcore.FolderId, role string, rootID, ipmID semcore.FolderId, displayName string) (child, total, unread int) {
+	if folders, err := s.identity.ListFolderIdentitiesForMailbox(mailboxKey); err == nil {
+		for _, f := range folders {
+			if f.FolderID.Equal(folderID) {
+				continue
+			}
+			if s.effectiveParentID(f.Role, f.ParentID, rootID, ipmID).Equal(folderID) {
+				child++
+			}
+		}
+	}
+	if !isContainerRole(role) && s.storageDB != nil {
+		if exists, _, unseen, err := s.storageDB.GetMailboxCounts(mailboxKey, displayName); err == nil {
+			total, unread = exists, unseen
+		}
+	}
+	return child, total, unread
+}
+
 // callerCanReadPublicFolder reports whether the caller holds at least read rights
 // on a public folder, via the union of its per-user and "anyone" grants.
 func (s *Server) callerCanReadPublicFolder(callerEmail, owner, folder string) bool {
@@ -363,6 +524,7 @@ func errorMsg(op string, code ErrorCode, message string) FolderResponseMessageTy
 // FindFolderRequest is the EWS FindFolder operation request.
 type FindFolderRequest struct {
 	XMLName               xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindFolder"`
+	Traversal             string              `xml:"Traversal,attr"`
 	FolderShape           FolderResponseShape `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderShape"`
 	IndexedPageFolderView struct {
 		MaxEntriesReturned string `xml:"MaxEntriesReturned,attr"`
@@ -386,7 +548,39 @@ type FindFolderResponse struct {
 
 // FindFolderResponseMessages wraps FindFolder response messages.
 type FindFolderResponseMessages struct {
-	Messages []FolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindFolderResponseMessage"`
+	Messages []FindFolderResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FindFolderResponseMessage"`
+}
+
+// FindFolderResponseMessageType is a single FindFolder response message. Unlike
+// GetFolder (which lists folders directly under the message), FindFolder wraps
+// the matched folders in a <RootFolder> element carrying result-set paging
+// metadata. Outlook and other EWS clients require this wrapper to read the
+// folder list — without it they see an empty mailbox.
+type FindFolderResponseMessageType struct {
+	ResponseClass string               `xml:"ResponseClass,attr"`
+	ResponseCode  ResponseCodeType     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	RootFolder    FindFolderRootFolder `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RootFolder"`
+}
+
+// FindFolderRootFolder is the <RootFolder> wrapper in a FindFolder response: the
+// result-set paging attributes plus the matched folders. (Distinct from FindItem's
+// RootFolderType, which carries items rather than folders.)
+type FindFolderRootFolder struct {
+	XMLName                 xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/messages RootFolder"`
+	TotalItemsInView        int                 `xml:"TotalItemsInView,attr"`
+	IncludesLastItemInRange bool                `xml:"IncludesLastItemInRange,attr"`
+	Folders                 FindFolderContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folders"`
+}
+
+// FindFolderContainer is the <t:Folders> collection inside a FindFolder
+// RootFolder. The EWS schema places this collection in the TYPES namespace —
+// confirmed by the exchangelib FindFolder service, whose element_container_name
+// is {types}Folders — unlike GetFolder's {messages}Folders (FolderResponseContainer).
+// Emitting it in the messages namespace makes strict clients (exchangelib,
+// Outlook) see no folders and treat the mailbox as empty.
+type FindFolderContainer struct {
+	XMLName xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folders"`
+	Folders []FolderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
 }
 
 // handleFindFolder processes a FindFolder EWS SOAP request.
@@ -405,9 +599,14 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
 	wantPerms := folderShapeWantsPermissions(req.FolderShape)
 
+	// Resolve the container ids once; they drive the effective-parent projection
+	// of the flat store onto the Exchange hierarchy.
+	rootID := s.rootFolderID(mailboxKey)
+	ipmID := s.ipmSubtreeFolderID(mailboxKey)
+	deep := strings.EqualFold(req.Traversal, "Deep")
+
 	// Determine the parent folder to enumerate under.
 	var parentID semcore.FolderId
-	var enumerateRoot bool
 	// publicTree enumerates the per-domain public-folder owner's tree instead of
 	// the caller's own mailbox; callerEmail keeps the original identity for the
 	// per-folder ACL filter after mailboxKey is rebound to the public owner.
@@ -432,20 +631,18 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 			callerEmail = mailboxKey // mailboxKey is the caller's email until rebound below
 			mailboxKey = owner
 			publicTree = true
-			enumerateRoot = true
+			// parentID stays zero: the public tree is enumerated flat below.
 		case "root":
-			// The mailbox root has no concrete parent: its children are the
-			// top-level folders, which are stored with a zero parent. Filtering
-			// by the root folder's own id would match nothing, so enumerate the
-			// top level instead (this is what makes msgfolderroot list the tree).
-			enumerateRoot = true
+			parentID = rootID // store root: its child is the IPM subtree
+		case "ipmsubtree":
+			parentID = ipmID // IPM subtree (msgfolderroot): children are the user folders
 		default:
 			folder, err := s.identity.GetFolderByMailbox(mailboxKey, role)
 			if err == nil {
 				parentID = folder.FolderID
 			} else if errors.Is(err, semcore.ErrFolderNotFound) {
-				// Parent distinguished folder doesn't exist yet; enumerate root folders.
-				enumerateRoot = true
+				// Parent distinguished folder doesn't exist yet; enumerate the IPM subtree.
+				parentID = ipmID
 			} else {
 				return s.errorResponseXML("FindFolder", ErrErrorInternalServer, err.Error())
 			}
@@ -456,10 +653,15 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 			return s.errorResponseXML("FindFolder", ErrErrorInvalidId, err.Error())
 		}
 		parentID = fid
+	} else {
+		parentID = ipmID // no parent specified: default to the IPM subtree
 	}
-	// If no parent specified or parent doesn't exist, enumerate root folders.
-	if parentID.IsZero() || enumerateRoot {
-		parentID = semcore.FolderId{} // zero = enumerate root folders
+
+	// Bridge the caller's canonical storage folders into the identity store so
+	// enumeration reflects the real mailbox. Skipped for the public tree, which
+	// has already reconciled its own (non-default) folders above.
+	if !publicTree {
+		s.reconcileMailboxFolderIdentities(mailboxKey)
 	}
 
 	// List all folders for this mailbox.
@@ -468,19 +670,35 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		return s.errorResponseXML("FindFolder", ErrErrorInternalServer, err.Error())
 	}
 
+	// Index folders by id so Deep traversal can walk the effective-parent chain.
+	byID := make(map[string]semcore.StoredFolderIdentity, len(allFolders))
+	for _, f := range allFolders {
+		byID[f.FolderID.String()] = f
+	}
+
 	var matching []FolderType
 	for _, f := range allFolders {
 		// ListFolderIdentitiesForMailbox already filters by mboxKey scope.
-		// The mailbox root represents the top level; never list it as a folder.
+		// The mailbox store root anchors the hierarchy; never list it as a folder.
 		if f.Role == "root" {
-			continue
-		}
-		// Filter to children of the specified parent.
-		if parentID.String() != "" && !f.ParentID.Equal(parentID) {
 			continue
 		}
 		// Skip the parent itself.
 		if f.FolderID.Equal(parentID) {
+			continue
+		}
+
+		// Filter to the requested subtree. The public tree is enumerated flat;
+		// the caller's own mailbox uses the projected Exchange hierarchy.
+		if publicTree {
+			if parentID.String() != "" && !f.ParentID.Equal(parentID) {
+				continue
+			}
+		} else if deep {
+			if !s.isFolderUnder(f, parentID, rootID, ipmID, byID) {
+				continue
+			}
+		} else if !s.effectiveParentID(f.Role, f.ParentID, rootID, ipmID).Equal(parentID) {
 			continue
 		}
 
@@ -492,12 +710,18 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
+		parentRef := f.ParentID
+		if !publicTree {
+			parentRef = s.effectiveParentID(f.Role, f.ParentID, rootID, ipmID)
+		}
+		child, total, unread := s.folderCounts(mailboxKey, f.FolderID, f.Role, rootID, ipmID, displayName)
 		fxml := FolderType{
 			FolderID:         FolderIdComponents{ID: f.FolderID.String()},
-			ParentFolderID:   FolderIdComponents{ID: f.ParentID.String()},
+			ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
 			DisplayName:      displayName,
-			TotalCount:       0,
-			ChildFolderCount: 0,
+			TotalCount:       total,
+			UnreadCount:      unread,
+			ChildFolderCount: child,
 			FolderClass:      folderClassForRole(f.Role),
 		}
 		// mailboxKey is the folder owner here (the caller for own folders, the
@@ -506,14 +730,17 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		matching = append(matching, fxml)
 	}
 
-	msg := FolderResponseMessageType{}
+	msg := FindFolderResponseMessageType{}
 	msg.ResponseClass = "Success"
-	msg.ResponseCode.XMLName = xml.Name{Local: "m:ResponseCode"}
 	msg.ResponseCode.Value = ErrNoError
-	msg.Folders = FolderResponseContainer{Folders: matching}
+	msg.RootFolder = FindFolderRootFolder{
+		TotalItemsInView:        len(matching),
+		IncludesLastItemInRange: true,
+		Folders:                 FindFolderContainer{Folders: matching},
+	}
 
 	resp := FindFolderResponse{}
-	resp.ResponseMessages.Messages = []FolderResponseMessageType{msg}
+	resp.ResponseMessages.Messages = []FindFolderResponseMessageType{msg}
 	return buildResponseEnvelope(resp)
 }
 
@@ -1762,11 +1989,22 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 		}
 	}
 
+	// Folder identities are keyed by the raw email; the "e:" prefix is a
+	// mailbox-resolution artifact. Strip it so enumeration matches how
+	// FindFolder/GetFolder store and read folders, then bridge the caller's
+	// canonical storage folders into the identity store.
+	mailboxKey := strings.TrimPrefix(mboxKey, "e:")
+	s.reconcileMailboxFolderIdentities(mailboxKey)
+
 	// List all folders for this mailbox.
-	allFolders, err := s.identity.ListFolderIdentitiesForMailbox(mboxKey)
+	allFolders, err := s.identity.ListFolderIdentitiesForMailbox(mailboxKey)
 	if err != nil {
 		return s.errorResponseXML("SyncFolderHierarchy", ErrErrorInternalServer, err.Error())
 	}
+
+	// Container ids drive the effective-parent projection onto the Exchange hierarchy.
+	rootID := s.rootFolderID(mailboxKey)
+	ipmID := s.ipmSubtreeFolderID(mailboxKey)
 
 	// Collect deletions since last sync.
 	var deletions []FolderIDOnly
@@ -1785,19 +2023,26 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 	var updates []FolderType
 	for _, f := range allFolders {
 		// ListFolderIdentitiesForMailbox already filters by mboxKey scope.
+		// The mailbox root is the sync anchor, not a child Create; never emit it.
+		if f.Role == "root" {
+			continue
+		}
 		// On incremental sync, skip folders whose modseq hasn't advanced.
 		if req.SyncState != "" && f.HighestModSeq <= folderVersion {
 			continue
 		}
 
-		displayName := s.folderDisplayName(mboxKey, f.Role, f.FolderID)
+		displayName := s.folderDisplayName(mailboxKey, f.Role, f.FolderID)
 
+		parentRef := s.effectiveParentID(f.Role, f.ParentID, rootID, ipmID)
+		child, total, unread := s.folderCounts(mailboxKey, f.FolderID, f.Role, rootID, ipmID, displayName)
 		fxml := FolderType{
 			FolderID:         FolderIdComponents{ID: f.FolderID.String()},
-			ParentFolderID:   FolderIdComponents{ID: f.ParentID.String()},
+			ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
 			DisplayName:      displayName,
-			TotalCount:       0,
-			ChildFolderCount: 0,
+			TotalCount:       total,
+			UnreadCount:      unread,
+			ChildFolderCount: child,
 			FolderClass:      folderClassForRole(f.Role),
 		}
 		updates = append(updates, fxml)

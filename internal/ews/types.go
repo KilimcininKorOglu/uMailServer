@@ -148,7 +148,10 @@ type MailboxType struct {
 // used by CreateCalendarItem/CreateContact. The calendar and contacts folders
 // are backed by the collaboration store (collabStore), not the standard message store.
 var DistinguishedFolderIDs = map[string]string{
-	"msgfolderroot": "root",
+	// msgfolderroot is the IPM subtree (the parent of Inbox/Sent/etc.), a distinct
+	// folder one level below the mailbox store root ("root"). Conflating the two
+	// makes strict EWS clients (exchangelib, Outlook) fail to resolve the store root.
+	"msgfolderroot": "ipmsubtree",
 	"root":          "root",
 	"inbox":         "inbox",
 	"drafts":        "drafts",
@@ -167,10 +170,11 @@ var DistinguishedFolderIDs = map[string]string{
 	// Outlook browses the organization-wide public-folder tree from this id; it
 	// resolves to the per-domain public owner rather than the caller's mailbox.
 	"publicfoldersroot": "publicfolders",
-	// Outlook's Finder root holds the mailbox's search folders. It has no
-	// concrete parent, so it is treated as the top level: search folders created
-	// under it are top-level folders and are enumerated alongside the tree.
-	"searchfolders": "root",
+	// Outlook's Finder root holds the mailbox's search folders. Map it to the IPM
+	// subtree rather than the store root so it never shares the store root's id (a
+	// collision that breaks strict clients' root resolution); search folders
+	// created under it land in the IPM subtree alongside the user folders.
+	"searchfolders": "ipmsubtree",
 }
 
 // DistinguishedFolderIdType represents a DistinguishedFolderId element that can

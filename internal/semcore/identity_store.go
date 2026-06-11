@@ -562,6 +562,37 @@ func CanonicalFolderNameForRole(role string) string {
 	return canonicalFolderNameForRole(role)
 }
 
+// RoleForCanonicalFolderName returns the distinguished role for a canonical IMAP
+// folder name (e.g. "INBOX" -> "inbox", "Trash" -> "trash"), or "" for a folder
+// name that maps to no distinguished role. It is the inverse of
+// CanonicalFolderNameForRole; the two share the same role/name pairs so a
+// standard storage folder reconciled into the identity store carries the role
+// EWS distinguished-folder resolution expects.
+func RoleForCanonicalFolderName(name string) string {
+	switch name {
+	case "INBOX":
+		return "inbox"
+	case "Drafts":
+		return "drafts"
+	case "Sent":
+		return "sent"
+	case "Trash":
+		return "trash"
+	case "Junk":
+		return "junk"
+	case "Archive":
+		return "archive"
+	case "Notes":
+		return "notes"
+	case "Scheduled":
+		return "scheduled"
+	case "Recoverable Items":
+		return "recoverableitems"
+	default:
+		return ""
+	}
+}
+
 func canonicalFolderNameForRole(role string) string {
 	switch role {
 	case "inbox":

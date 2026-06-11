@@ -310,7 +310,7 @@ func TestFindFolder_PublicFolders(t *testing.T) {
 			t.Fatal("expected a response message")
 		}
 		var out []string
-		for _, f := range resp.ResponseMessages.Messages[0].Folders.Folders {
+		for _, f := range resp.ResponseMessages.Messages[0].RootFolder.Folders.Folders {
 			out = append(out, f.DisplayName)
 		}
 		return out
@@ -620,7 +620,10 @@ func TestSyncFolderHierarchy_InitialSync(t *testing.T) {
 	if _, err := srv.identity.EnsureMailboxId("alice@example.com"); err != nil {
 		t.Fatalf("EnsureMailboxId: %v", err)
 	}
-	mboxKey := "e:alice@example.com"
+	// Folder identities are keyed by the raw email, matching how the handler
+	// reads them (resolveMailboxFromBody returns "e:"+email, then handlers strip
+	// the prefix). Seeding under the raw key mirrors the real code path.
+	mboxKey := "alice@example.com"
 
 	for _, name := range []string{"Folder A", "Folder B"} {
 		_, err := srv.identity.EnsureFolderId(mboxKey, name, "")

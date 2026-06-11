@@ -146,6 +146,10 @@ func (s *Server) resolveSearchScope(mailboxKey string, def *semcore.SearchFolder
 		if f.SearchDefinition != nil {
 			continue
 		}
+		// Container folders (store root, IPM subtree) hold no messages of their own.
+		if isContainerRole(f.Role) {
+			continue
+		}
 		switch f.Role {
 		case "calendar", "contacts", "tasks":
 			continue
@@ -164,7 +168,7 @@ func (s *Server) resolveBaseFolderNames(mailboxKey string, ids BaseFolderIDsType
 	var names []string
 	for _, d := range ids.Distinguished {
 		role, ok := DistinguishedFolderIDs[d.ID]
-		if !ok || role == "root" {
+		if !ok || isContainerRole(role) {
 			continue
 		}
 		if name := semcore.CanonicalFolderNameForRole(role); name != "" {

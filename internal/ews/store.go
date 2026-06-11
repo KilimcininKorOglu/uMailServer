@@ -26,6 +26,10 @@ type MailStore interface {
 	// tree reconcile its admin-created folders (stored canonically here) into the
 	// identity store that EWS folder enumeration reads from.
 	ListMailboxes(user string) ([]string, error)
+	// GetMailboxCounts returns the EXISTS/RECENT/UNSEEN message counts for a
+	// folder so EWS GetFolder/FindFolder can report real TotalCount/UnreadCount
+	// instead of zero (which makes Outlook treat the mailbox as empty).
+	GetMailboxCounts(user, mailbox string) (exists, recent, unseen int, err error)
 	// GetACL / SetACL / DeleteACL / ListACL expose the canonical RFC 4314 folder
 	// ACL store so EWS can project it onto the folder:PermissionSet model and
 	// write permission changes back to the one source of truth.
