@@ -11,6 +11,7 @@ import {
   UsersRound,
   ActivitySquare,
   FolderSearch,
+  FolderLock,
   Briefcase,
   Building2,
   ChevronLeft,
@@ -40,6 +41,7 @@ interface SidebarProps {
 const menuItems = [
   { path: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
   { path: "/domains", icon: Globe, labelKey: "nav.domains" },
+  { path: "/public-folders", icon: FolderLock, labelKey: "nav.publicFolders" },
   { path: "/accounts", icon: Users, labelKey: "nav.accounts" },
   { path: "/aliases", icon: AtSign, labelKey: "nav.aliases" },
   { path: "/groups", icon: UsersRound, labelKey: "nav.groups" },

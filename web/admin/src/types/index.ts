@@ -273,6 +273,19 @@ export interface GlobalRuleInput {
   actions: GlobalRuleAction[];
 }
 
+// PublicFolderGrant and PublicFolder mirror the admin public-folder management
+// API (internal/api/public_folders_admin.go): a folder under a domain's
+// reserved public owner and its RFC 4314 ACL grants.
+export interface PublicFolderGrant {
+  grantee: string;
+  rights: string;
+}
+
+export interface PublicFolder {
+  name: string;
+  grants: PublicFolderGrant[];
+}
+
 export interface RateLimitConfig {
   ip_per_minute: number;
   ip_per_hour: number;
@@ -646,6 +659,10 @@ export interface RecoverableItemsConfig {
   tick_seconds: number;
 }
 
+export interface PublicFoldersConfig {
+  enabled: boolean;
+}
+
 export interface ServerSettings {
   hostname: string;
   data_dir: string;
@@ -682,4 +699,5 @@ export interface ServerConfig {
   oof: OOFConfig;
   notifications: NotificationsConfig;
   recoverable_items: RecoverableItemsConfig;
+  public_folders: PublicFoldersConfig;
 }

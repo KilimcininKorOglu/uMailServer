@@ -14,6 +14,7 @@ import type {
   PolicyRule,
   GlobalRule,
   GlobalRuleInput,
+  PublicFolder,
   MailboxDiagnostics,
   SubscriptionInfo,
   ProtocolFailure,
@@ -690,6 +691,68 @@ export function useGlobalRules() {
   }, [fetchGlobalRules]);
 
   return { rules, loading, error, fetchGlobalRules, createGlobalRule, updateGlobalRule, deleteGlobalRule };
+}
+
+// usePublicFolders manages the per-domain public-folder tree
+// (/api/v1/admin/public-folders). Folders live under a domain's reserved
+// public@<domain> owner; grants use the RFC 4314 "anyone" token for org-wide
+// access or a specific in-domain address. Empty rights on setACL clears a grant.
+export function usePublicFolders() {
+  const [owner, setOwner] = useState<string>("");
+  const [folders, setFolders] = useState<PublicFolder[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchPublicFolders = useCallback(async (domain: string) => {
+    if (!domain) {
+      setFolders([]);
+      setOwner("");
+      return [];
+    }
+    setLoading(true);
+    try {
+      const result = await apiRequest<{ owner: string; folders: PublicFolder[] }>(
+        `/admin/public-folders?domain=${encodeURIComponent(domain)}`
+      );
+      setOwner(result.owner ?? "");
+      setFolders(result.folders ?? []);
+      return result.folders ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const createPublicFolder = useCallback(async (domain: string, name: string) => {
+    await apiRequest("/admin/public-folders", {
+      method: "POST",
+      body: JSON.stringify({ domain, name }),
+    });
+    await fetchPublicFolders(domain);
+  }, [fetchPublicFolders]);
+
+  const deletePublicFolder = useCallback(async (domain: string, name: string) => {
+    await apiRequest(
+      `/admin/public-folders?domain=${encodeURIComponent(domain)}&name=${encodeURIComponent(name)}`,
+      { method: "DELETE" }
+    );
+    await fetchPublicFolders(domain);
+  }, [fetchPublicFolders]);
+
+  const setPublicFolderACL = useCallback(
+    async (domain: string, name: string, grantee: string, rights: string) => {
+      await apiRequest("/admin/public-folders/acl", {
+        method: "PUT",
+        body: JSON.stringify({ domain, name, grantee, rights }),
+      });
+      await fetchPublicFolders(domain);
+    },
+    [fetchPublicFolders]
+  );
+
+  return { owner, folders, loading, error, fetchPublicFolders, createPublicFolder, deletePublicFolder, setPublicFolderACL };
 }
 
 // Rate-limit config (flat, read-only display) API hook

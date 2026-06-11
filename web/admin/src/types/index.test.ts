@@ -458,6 +458,7 @@ describe('ServerConfig type', () => {
       oof: { default_enabled: false, internal_only: false, default_subject: 'Out of Office', default_message: 'I am away.' },
       notifications: { queue_alerts: true, security_alerts: true, weekly_reports: false },
       recoverable_items: { enabled: false, retention_days: 14, tick_seconds: 300 },
+      public_folders: { enabled: false },
     }
     expect(cfg.server.hostname).toBe('mail.example.com')
     expect(cfg.smtp.inbound.port).toBe(25)

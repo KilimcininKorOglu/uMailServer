@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   KeyRound,
   RefreshCw,
+  FolderLock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -620,6 +621,15 @@ export function SettingsPage({
                   <NumberRow label={t("settings.retentionDays")} value={config.recoverable_items.retention_days} onChange={(v) => upd("recoverable_items", { retention_days: v })} />
                   <NumberRow label={t("settings.cleanerIntervalSecs")} value={config.recoverable_items.tick_seconds} onChange={(v) => upd("recoverable_items", { tick_seconds: v })} />
                 </div>
+              </SectionCard>
+
+              <SectionCard title={t("settings.publicFolders")} icon={<FolderLock className="h-5 w-5" />}>
+                <SwitchRow
+                  label={t("settings.enablePublicFolders")}
+                  help={t("settings.publicFoldersHelp")}
+                  checked={config.public_folders.enabled}
+                  onChange={(v) => upd("public_folders", { enabled: v })}
+                />
               </SectionCard>
             </>
           )}

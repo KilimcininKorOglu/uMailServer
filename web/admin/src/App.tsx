@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Login } from "@/pages/Login";
 import { Dashboard } from "@/pages/Dashboard";
 import { Domains } from "@/pages/Domains";
+import { PublicFolders } from "@/pages/PublicFolders";
 import { Accounts } from "@/pages/Accounts";
 import { Aliases } from "@/pages/Aliases";
 import { Groups } from "@/pages/Groups";
@@ -202,6 +203,7 @@ function App() {
               }
             />
             <Route path="/domains" element={<Domains />} />
+            <Route path="/public-folders" element={<PublicFolders />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/aliases" element={<Aliases />} />
             <Route path="/groups" element={<Groups />} />
