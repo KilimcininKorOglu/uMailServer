@@ -4,11 +4,39 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/vacation"
 )
+
+// parseVacationAudience maps the webmail audience selector to the canonical OOF
+// audience. An empty value defaults to "all" so a webmail auto-reply replies to
+// everyone (preserving the behavior before the internal/external split); "known"
+// is folded into external (its contacts-only refinement is not yet enforced).
+func parseVacationAudience(s string) semcore.OOFAudience {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "internal":
+		return semcore.OOFAudienceInternal
+	case "external", "known":
+		return semcore.OOFAudienceExternal
+	default: // "", "all", "everyone"
+		return semcore.OOFAudienceEveryone
+	}
+}
+
+// vacationAudienceString renders the canonical OOF audience for the webmail API.
+func vacationAudienceString(a semcore.OOFAudience) string {
+	switch a {
+	case semcore.OOFAudienceInternal:
+		return "internal"
+	case semcore.OOFAudienceExternal:
+		return "external"
+	default:
+		return "all"
+	}
+}
 
 // VacationConfig represents vacation auto-reply configuration in API
 type VacationConfig struct {
@@ -18,7 +46,9 @@ type VacationConfig struct {
 	Subject          string   `json:"subject"`
 	Message          string   `json:"message"`
 	HTMLMessage      string   `json:"html_message,omitempty"`
-	SendInterval     int      `json:"send_interval,omitempty"` // in hours
+	ExternalMessage  string   `json:"external_message,omitempty"` // reply to senders outside the org
+	Audience         string   `json:"audience,omitempty"`         // "internal" | "external" | "all"
+	SendInterval     int      `json:"send_interval,omitempty"`    // in hours
 	ExcludeAddresses []string `json:"exclude_addresses,omitempty"`
 	IgnoreLists      bool     `json:"ignore_lists,omitempty"`
 	IgnoreBulk       bool     `json:"ignore_bulk,omitempty"`
@@ -61,6 +91,8 @@ func (s *Server) handleGetVacation(w http.ResponseWriter, r *http.Request) {
 		Subject:          config.Subject,
 		Message:          config.Message,
 		HTMLMessage:      config.HTMLMessage,
+		ExternalMessage:  config.ExternalMessage,
+		Audience:         config.Audience,
 		SendInterval:     int(config.SendInterval.Hours()),
 		ExcludeAddresses: config.ExcludeAddresses,
 		IgnoreLists:      config.IgnoreLists,
@@ -101,6 +133,8 @@ func (s *Server) handleSetVacation(w http.ResponseWriter, r *http.Request) {
 		Subject:          req.Subject,
 		Message:          req.Message,
 		HTMLMessage:      req.HTMLMessage,
+		ExternalMessage:  req.ExternalMessage,
+		Audience:         req.Audience,
 		SendInterval:     time.Duration(req.SendInterval) * time.Hour,
 		ExcludeAddresses: req.ExcludeAddresses,
 		IgnoreLists:      req.IgnoreLists,
@@ -365,6 +399,10 @@ func vacationConfigToOOF(mbid semcore.MailboxId, config *vacation.Config) (*semc
 	if err != nil {
 		return nil, err
 	}
+	externalReply := config.ExternalMessage
+	if externalReply == "" {
+		externalReply = config.Message
+	}
 	policy := &semcore.OOFPolicy{
 		ID:               oofID,
 		MailboxID:        mbid,
@@ -372,6 +410,8 @@ func vacationConfigToOOF(mbid semcore.MailboxId, config *vacation.Config) (*semc
 		Subject:          config.Subject,
 		TextBody:         config.Message,
 		InternalReply:    config.Message,
+		ExternalReply:    externalReply,
+		Audience:         parseVacationAudience(config.Audience),
 		HTMLBody:         config.HTMLMessage,
 		ExcludeAddresses: config.ExcludeAddresses,
 		IgnoreLists:      config.IgnoreLists,
@@ -410,6 +450,8 @@ func oofToVacationConfig(policy *semcore.OOFPolicy) *vacation.Config {
 		Subject:          policy.Subject,
 		Message:          msg,
 		HTMLMessage:      policy.HTMLBody,
+		ExternalMessage:  policy.ExternalReply,
+		Audience:         vacationAudienceString(policy.Audience),
 		SendInterval:     policy.SendInterval(),
 		ExcludeAddresses: policy.ExcludeAddresses,
 		IgnoreLists:      policy.IgnoreLists,

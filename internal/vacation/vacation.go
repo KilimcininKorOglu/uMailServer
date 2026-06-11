@@ -21,6 +21,12 @@ type Config struct {
 	Subject     string    `json:"subject"`
 	Message     string    `json:"message"`
 	HTMLMessage string    `json:"html_message,omitempty"`
+	// ExternalMessage is the reply sent to senders outside the organization; it
+	// falls back to Message when empty. Message is the internal reply.
+	ExternalMessage string `json:"external_message,omitempty"`
+	// Audience selects who receives the auto-reply: "internal" (only senders in a
+	// local domain), "external" (also outsiders), or "all". Empty defaults to "all".
+	Audience string `json:"audience,omitempty"`
 	// SendOnlyOnce per sender in this interval (default 7 days)
 	SendInterval time.Duration `json:"send_interval"`
 	// Don't send auto-reply to these addresses
