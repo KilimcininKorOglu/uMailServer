@@ -550,6 +550,10 @@ CREATE TABLE IF NOT EXISTS semcore_folder_identity (
     PRIMARY KEY (mbox_key, folder_name)
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_folder_role ON semcore_folder_identity (mbox_key, role);
+-- search_definition, when non-null, marks the folder as a MAPI/Outlook search
+-- folder; it holds the JSON-encoded semcore.SearchFolderDef (saved criteria +
+-- base folder set). Plain folders leave it NULL.
+ALTER TABLE semcore_folder_identity ADD COLUMN IF NOT EXISTS search_definition JSONB;
 
 -- Semantic-core item identities. Keyed by the bbolt storage_key (default
 -- "email\x00msgKey", or an explicit key for the same content in another folder);

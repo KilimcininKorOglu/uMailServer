@@ -167,6 +167,10 @@ var DistinguishedFolderIDs = map[string]string{
 	// Outlook browses the organization-wide public-folder tree from this id; it
 	// resolves to the per-domain public owner rather than the caller's mailbox.
 	"publicfoldersroot": "publicfolders",
+	// Outlook's Finder root holds the mailbox's search folders. It has no
+	// concrete parent, so it is treated as the top level: search folders created
+	// under it are top-level folders and are enumerated alongside the tree.
+	"searchfolders": "root",
 }
 
 // DistinguishedFolderIdType represents a DistinguishedFolderId element that can

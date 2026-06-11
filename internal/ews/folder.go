@@ -528,11 +528,50 @@ type FolderTypeForCreate struct {
 	FolderClass string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderClass,omitempty"`
 }
 
+// SearchFolderForCreate is a <t:SearchFolder> element in a CreateFolder request:
+// a persistent saved-query folder carrying the restriction and the folder set it
+// is evaluated over.
+type SearchFolderForCreate struct {
+	XMLName          xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/types SearchFolder"`
+	DisplayName      string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName"`
+	SearchParameters SearchParametersType `xml:"http://schemas.microsoft.com/exchange/services/2006/types SearchParameters"`
+}
+
+// SearchParametersType is the <t:SearchParameters> of a search folder: the
+// restriction plus its base folder set and traversal depth.
+type SearchParametersType struct {
+	Traversal string `xml:"Traversal,attr"`
+	// Restriction reuses the same SearchFilter tree the FindItem path parses;
+	// only the wrapping element's namespace differs (types here vs messages in
+	// FindItem), so the embedded filter elements decode identically.
+	Restriction   *SearchFolderRestriction `xml:"http://schemas.microsoft.com/exchange/services/2006/types Restriction"`
+	BaseFolderIDs BaseFolderIDsType        `xml:"http://schemas.microsoft.com/exchange/services/2006/types BaseFolderIds"`
+}
+
+// SearchFolderRestriction wraps the restriction filter under a types-namespaced
+// <t:Restriction> element (as carried inside SearchParameters).
+type SearchFolderRestriction struct {
+	SearchFilter
+}
+
+// BaseFolderIDsType lists the folders a search folder is evaluated over, as
+// distinguished ids and/or explicit folder ids.
+type BaseFolderIDsType struct {
+	Distinguished []struct {
+		ID string `xml:"Id,attr"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types DistinguishedFolderId"`
+	Folder []struct {
+		ID string `xml:"Id,attr"`
+	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+}
+
 // FoldersContainer wraps the Folders list in CreateFolder requests.
-// The m:Folders element is in messages namespace, containing t:Folder in types namespace.
+// The m:Folders element is in messages namespace, containing t:Folder (plain
+// folders) and/or t:SearchFolder (search folders) in types namespace.
 type FoldersContainer struct {
-	XMLName xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
-	Folders []FolderTypeForCreate `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
+	XMLName       xml.Name                `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Folders"`
+	Folders       []FolderTypeForCreate   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
+	SearchFolders []SearchFolderForCreate `xml:"http://schemas.microsoft.com/exchange/services/2006/types SearchFolder"`
 }
 
 // CreateFolderRequest is the EWS CreateFolder operation request.
@@ -637,6 +676,54 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 			FolderID:       FolderIdComponents{ID: folderID.String()},
 			ParentFolderID: FolderIdComponents{ID: parentID.String()},
 			DisplayName:    displayName,
+			FolderClass:    "IPF.Note",
+		}
+		msg := FolderResponseMessageType{}
+		msg.ResponseClass = "Created"
+		msg.ResponseCode.XMLName = xml.Name{Local: "m:ResponseCode"}
+		msg.ResponseCode.Value = ErrNoError
+		msg.Folders = FolderResponseContainer{Folders: []FolderType{fxml}}
+		msgs = append(msgs, msg)
+	}
+
+	// Search folders carry a saved restriction and base folder set rather than
+	// items of their own; they are stored as folder identities marked with a
+	// SearchDefinition (role stays empty so they never collapse onto a
+	// distinguished-role folder).
+	for _, sf := range req.Folders.SearchFolders {
+		if sf.DisplayName == "" {
+			msgs = append(msgs, errorMsg("CreateFolder", ErrErrorInvalidOperation, "DisplayName is required"))
+			continue
+		}
+
+		def := &semcore.SearchFolderDef{
+			Traversal:   sf.SearchParameters.Traversal,
+			BaseFolders: s.resolveBaseFolderNames(mailboxKey, sf.SearchParameters.BaseFolderIDs),
+		}
+		if sf.SearchParameters.Restriction != nil {
+			searchDefFromFilter(&sf.SearchParameters.Restriction.SearchFilter, def)
+		}
+
+		folderID, err := s.identity.EnsureFolderId(mailboxKey, sf.DisplayName, "")
+		if err != nil {
+			msgs = append(msgs, errorMsg("CreateFolder", ErrErrorInternalServer, err.Error()))
+			continue
+		}
+		if !parentID.IsZero() {
+			if err := s.identity.SetFolderParent(folderID, parentID); err != nil {
+				msgs = append(msgs, errorMsg("CreateFolder", ErrErrorInternalServer, err.Error()))
+				continue
+			}
+		}
+		if err := s.identity.SetFolderSearchDefinition(folderID, def); err != nil {
+			msgs = append(msgs, errorMsg("CreateFolder", ErrErrorInternalServer, err.Error()))
+			continue
+		}
+
+		fxml := FolderType{
+			FolderID:       FolderIdComponents{ID: folderID.String()},
+			ParentFolderID: FolderIdComponents{ID: parentID.String()},
+			DisplayName:    sf.DisplayName,
 			FolderClass:    "IPF.Note",
 		}
 		msg := FolderResponseMessageType{}

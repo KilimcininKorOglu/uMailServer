@@ -118,6 +118,7 @@ type IdentityStore interface {
 	ListFolderIdentitiesForMailbox(mboxKey string) ([]semcore.StoredFolderIdentity, error)
 	FolderNameByID(mboxKey string, id semcore.FolderId) (string, error)
 	SetFolderParent(id semcore.FolderId, parentID semcore.FolderId) error
+	SetFolderSearchDefinition(id semcore.FolderId, def *semcore.SearchFolderDef) error
 	DeleteFolder(id semcore.FolderId) error
 	GetItemIdentity(id semcore.ItemId) (*semcore.StoredItemIdentity, error)
 	ListItemIdentitiesByFolder(folderID semcore.FolderId) ([]semcore.StoredItemIdentity, error)
