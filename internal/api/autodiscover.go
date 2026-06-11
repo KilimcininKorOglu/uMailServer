@@ -45,11 +45,14 @@ type AutodiscoverResponse struct {
 
 // AutodiscoverProtocol represents a protocol entry in the Autodiscover response.
 // It uses a flexible field map to accommodate different protocol types (IMAP, SMTP,
-// EWS, MAPI/HTTP, NSPI, OAB) that each require different subsets of fields.
+// EXPR, MAPI/HTTP, NSPI, OAB) that each require different subsets of fields.
 type AutodiscoverProtocol struct {
 	XMLName     xml.Name `xml:"Protocol"`
 	Type        string   `xml:"Type"`
 	Server      string   `xml:"Server,omitempty"`
+	ASUrl       string   `xml:"ASUrl,omitempty"`
+	OOFUrl      string   `xml:"OOFUrl,omitempty"`
+	OABUrl      string   `xml:"OABUrl,omitempty"`
 	Port        int      `xml:"Port,omitempty"`
 	LoginName   string   `xml:"LoginName,omitempty"`
 	Domain      string   `xml:"Domain,omitempty"`
@@ -128,8 +131,9 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build response
-	resp := s.buildAutodiscoverResponse(email, domain, accountTier)
+	// Build response. The host the client used to reach us drives the EWS ASUrl
+	// so the advertised endpoint matches however the account connected.
+	resp := s.buildAutodiscoverResponse(email, domain, autodiscoverHost(r.Host), accountTier)
 
 	// Set headers
 	w.Header().Set("Content-Type", "application/xml")
@@ -169,15 +173,22 @@ func (s *Server) parseAutodiscoverPOST(r *http.Request) string {
 // buildAutodiscoverResponse builds the Autodiscover response.
 // The response advertises only the endpoints supported by the account's
 // active compatibility tier. When FeatureEWS is enabled, accounts in the
-// Exchange tier receive the EWS/Exchange.asmx protocol entry, while
-// TierIMAPOnly accounts receive only IMAP and SMTP settings.
+// Exchange tier receive the standard EXPR protocol entry whose ASUrl points at
+// /EWS/Exchange.asmx, while TierIMAPOnly accounts receive only IMAP and SMTP
+// settings.
 // accountTier is the stored per-account CompatibilityTier (0 = use global gate).
 //
 // In TierOutlook (modern Windows Outlook), the response additionally includes
 // MAPI/HTTP (Outlook connector), NSPI (directory address book), and OAB
 // (offline address book) protocol entries so that Outlook can provision in
 // Exchange mode without falling back to IMAP/SMTP.
-func (s *Server) buildAutodiscoverResponse(email, domain string, accountTier uint8) *AutodiscoverResponse {
+func (s *Server) buildAutodiscoverResponse(email, domain, host string, accountTier uint8) *AutodiscoverResponse {
+	// Fall back to the configured server host when the caller did not supply a
+	// request-derived host (keeps direct unit-test calls working).
+	if host == "" {
+		host = s.serverHost()
+	}
+
 	resp := &AutodiscoverResponse{
 		Space: "http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006",
 	}
@@ -202,10 +213,21 @@ func (s *Server) buildAutodiscoverResponse(email, domain string, accountTier uin
 	smtpProtocol := newProtocol("SMTP", "mail."+domain, 465, email, domain)
 	resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, smtpProtocol)
 
-	// Add EWS/Exchange protocol only when in Exchange or Outlook tier with EWS gate enabled
+	// Advertise EWS via the standard EXPR (external HTTP) protocol entry when in
+	// the Exchange or Outlook tier with the EWS gate enabled. Outlook clients
+	// (including Outlook for Mac) discover the EWS endpoint from the EXPR block's
+	// ASUrl, not a non-standard "EWS" protocol type. The ASUrl is host-relative
+	// and uses the real, case-sensitive /EWS/Exchange.asmx mount path.
 	if (tier == semcore.TierExchange || tier == semcore.TierOutlook) && ewsgate {
-		ewsProtocol := newProtocol("EWS", s.serverHost(), 443, email, domain)
-		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, ewsProtocol)
+		ewsURL := "https://" + host + "/EWS/Exchange.asmx"
+		exprProtocol := AutodiscoverProtocol{
+			Type:   "EXPR",
+			Server: host,
+			SSL:    "on",
+			ASUrl:  ewsURL,
+			OOFUrl: ewsURL,
+		}
+		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, exprProtocol)
 	}
 
 	// Add Outlook-specific protocol entries in TierOutlook with MAPI/HTTP gate enabled.
@@ -268,6 +290,16 @@ func (s *Server) serverHost() string {
 	// this would be set via server configuration. For now, return a default that
 	// works for the local development environment.
 	return "localhost"
+}
+
+// autodiscoverHost strips an optional port from the request Host header so the
+// EWS endpoint URLs in the Autodiscover response are relative to the host the
+// client actually used to reach the server.
+func autodiscoverHost(rawHost string) string {
+	if idx := strings.Index(rawHost, ":"); idx > 0 {
+		return rawHost[:idx]
+	}
+	return rawHost
 }
 
 // extractEmailFromHost extracts email from Host header

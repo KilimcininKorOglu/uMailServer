@@ -190,7 +190,7 @@ func TestHandleAutoconfig_EmptyDomain(t *testing.T) {
 func TestBuildAutodiscoverResponse(t *testing.T) {
 	s := &Server{}
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", "mail.example.com", 0)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}
@@ -209,7 +209,8 @@ func TestBuildAutodiscoverResponse(t *testing.T) {
 }
 
 // TestBuildAutodiscoverResponse_ExchangeTier verifies that when FeatureEWS is enabled,
-// the Exchange tier adds an EWS protocol entry alongside IMAP/SMTP.
+// the Exchange tier adds a standard EXPR protocol entry (advertising the EWS
+// endpoint via a host-relative ASUrl) alongside IMAP/SMTP.
 func TestBuildAutodiscoverResponse_ExchangeTier(t *testing.T) {
 	s := &Server{}
 
@@ -221,30 +222,34 @@ func TestBuildAutodiscoverResponse_ExchangeTier(t *testing.T) {
 		semcore.Gate().Set(semcore.FeatureEWS, false)
 	}()
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", "mail.example.com", 0)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}
 
-	// Exchange tier with EWS enabled should advertise 3 protocols: IMAP, SMTP, EWS
+	// Exchange tier with EWS enabled should advertise 3 protocols: IMAP, SMTP, EXPR
 	if len(resp.Response.Account.Protocol) != 3 {
-		t.Errorf("Expected 3 protocols (IMAP+SMTP+EWS) in Exchange tier, got %d", len(resp.Response.Account.Protocol))
+		t.Errorf("Expected 3 protocols (IMAP+SMTP+EXPR) in Exchange tier, got %d", len(resp.Response.Account.Protocol))
 	}
 
-	// Verify the third protocol is EWS
-	protoTypes := make([]string, len(resp.Response.Account.Protocol))
-	for i, p := range resp.Response.Account.Protocol {
-		protoTypes[i] = p.Type
-	}
-	foundEWS := false
-	for _, pt := range protoTypes {
-		if pt == "EWS" {
-			foundEWS = true
+	// The EXPR entry must advertise the EWS endpoint via a host-relative ASUrl
+	// pointing at the real, case-sensitive /EWS/Exchange.asmx mount path. This is
+	// what Outlook (including Outlook for Mac) uses to bind to EWS.
+	var expr *AutodiscoverProtocol
+	for i := range resp.Response.Account.Protocol {
+		if resp.Response.Account.Protocol[i].Type == "EXPR" {
+			expr = &resp.Response.Account.Protocol[i]
 			break
 		}
 	}
-	if !foundEWS {
-		t.Error("Expected EWS protocol in Exchange tier response, but it was not found")
+	if expr == nil {
+		t.Fatal("Expected EXPR protocol in Exchange tier response, but it was not found")
+	}
+	if want := "https://mail.example.com/EWS/Exchange.asmx"; expr.ASUrl != want {
+		t.Errorf("Expected EXPR ASUrl %q, got %q", want, expr.ASUrl)
+	}
+	if expr.OOFUrl != expr.ASUrl {
+		t.Errorf("Expected EXPR OOFUrl to match ASUrl, got %q", expr.OOFUrl)
 	}
 }
 
@@ -260,7 +265,7 @@ func TestBuildAutodiscoverResponse_IMAPOnlyTier(t *testing.T) {
 		semcore.Gate().Set(semcore.FeatureEWS, false)
 	}()
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", "mail.example.com", 0)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}
@@ -289,14 +294,14 @@ func TestBuildAutodiscoverResponse_TierOutlook(t *testing.T) {
 		semcore.Gate().Set(semcore.FeatureMAPIHTTP, false)
 	}()
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", "mail.example.com", 0)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}
 
 	// TierOutlook should advertise 6 protocols: IMAP, SMTP, EWS, MAPI, NSPI, OAB
 	if len(resp.Response.Account.Protocol) != 6 {
-		t.Errorf("Expected 6 protocols (IMAP+SMTP+EWS+MAPI+NSPI+OAB) in TierOutlook, got %d", len(resp.Response.Account.Protocol))
+		t.Errorf("Expected 6 protocols (IMAP+SMTP+EXPR+MAPI+NSPI+OAB) in TierOutlook, got %d", len(resp.Response.Account.Protocol))
 	}
 
 	// Verify all expected protocol types are present
@@ -304,7 +309,7 @@ func TestBuildAutodiscoverResponse_TierOutlook(t *testing.T) {
 	for i, p := range resp.Response.Account.Protocol {
 		protoTypes[i] = p.Type
 	}
-	expected := []string{"IMAP", "SMTP", "EWS", "MAPI", "NSPI", "OAB"}
+	expected := []string{"IMAP", "SMTP", "EXPR", "MAPI", "NSPI", "OAB"}
 	for _, e := range expected {
 		found := false
 		for _, pt := range protoTypes {
@@ -334,7 +339,7 @@ func TestBuildAutodiscoverResponse_TierOutlook_MAPIHTTPOnly(t *testing.T) {
 		semcore.Gate().Set(semcore.FeatureEWS, false)
 	}()
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 0)
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", "mail.example.com", 0)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}
@@ -342,7 +347,7 @@ func TestBuildAutodiscoverResponse_TierOutlook_MAPIHTTPOnly(t *testing.T) {
 	// Without canonical identity, Exchange tier is active but not TierOutlook —
 	// only IMAP/SMTP/EWS (3 protocols), no MAPI/HTTP entries.
 	if len(resp.Response.Account.Protocol) != 3 {
-		t.Errorf("Expected 3 protocols (IMAP+SMTP+EWS) with MAPIHTTP only, got %d", len(resp.Response.Account.Protocol))
+		t.Errorf("Expected 3 protocols (IMAP+SMTP+EXPR) with MAPIHTTP only, got %d", len(resp.Response.Account.Protocol))
 	}
 
 	// Verify no MAPI, NSPI, or OAB entries
@@ -379,7 +384,7 @@ func TestBuildAutodiscoverResponse_TierOutlook_PerAccountOverride(t *testing.T) 
 		semcore.Gate().Set(semcore.FeatureMAPIHTTP, false)
 	}()
 
-	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", 2)
+	resp := s.buildAutodiscoverResponse("user@example.com", "example.com", "mail.example.com", 2)
 	if resp == nil {
 		t.Fatal("Expected non-nil response")
 	}
@@ -393,14 +398,14 @@ func TestBuildAutodiscoverResponse_TierOutlook_PerAccountOverride(t *testing.T) 
 	semcore.Gate().Set(semcore.FeatureEWS, true)
 	semcore.Gate().Set(semcore.FeatureMAPIHTTP, true)
 
-	resp2 := s.buildAutodiscoverResponse("user@example.com", "example.com", 2)
+	resp2 := s.buildAutodiscoverResponse("user@example.com", "example.com", "mail.example.com", 2)
 	if resp2 == nil {
 		t.Fatal("Expected non-nil response with gates on")
 	}
 
 	// With both gates on, per-account TierOutlook advertises 6 protocols.
 	if len(resp2.Response.Account.Protocol) != 6 {
-		t.Errorf("Expected 6 protocols (IMAP+SMTP+EWS+MAPI+NSPI+OAB) with per-account TierOutlook and gates on, got %d", len(resp2.Response.Account.Protocol))
+		t.Errorf("Expected 6 protocols (IMAP+SMTP+EXPR+MAPI+NSPI+OAB) with per-account TierOutlook and gates on, got %d", len(resp2.Response.Account.Protocol))
 	}
 
 	protoTypes := make([]string, len(resp2.Response.Account.Protocol))
