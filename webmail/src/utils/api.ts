@@ -279,6 +279,10 @@ export interface VacationAutoReply {
   subject: string
   message: string
   html_message?: string
+  /** Reply sent to senders outside the organization; falls back to `message`. */
+  external_message?: string
+  /** Who receives the auto-reply: "internal" | "external" | "all" (default "all"). */
+  audience?: string
   start_date?: string
   end_date?: string
   send_interval?: number

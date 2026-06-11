@@ -41,6 +41,8 @@ const emptyVacation: VacationAutoReply = {
   enabled: false,
   subject: "Out of Office",
   message: "",
+  external_message: "",
+  audience: "all",
 }
 
 // formatStorageBytes renders a byte count with a binary-prefix unit for the
@@ -837,7 +839,21 @@ export function SettingsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="vacation-message">{t("settings.autoReply.message")}</Label>
+              <Label htmlFor="vacation-audience">{t("settings.autoReply.audience")}</Label>
+              <select
+                id="vacation-audience"
+                value={vacation.audience || "all"}
+                onChange={(e) => setVacation({ ...vacation, audience: e.target.value })}
+                disabled={!vacation.enabled}
+                className="max-w-[20rem] rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="all">{t("settings.autoReply.audienceAll")}</option>
+                <option value="internal">{t("settings.autoReply.audienceInternal")}</option>
+                <option value="external">{t("settings.autoReply.audienceExternal")}</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="vacation-message">{t("settings.autoReply.internalMessage")}</Label>
               <Textarea
                 id="vacation-message"
                 value={vacation.message}
@@ -847,6 +863,20 @@ export function SettingsPage() {
                 disabled={!vacation.enabled}
               />
             </div>
+            {vacation.audience !== "internal" && (
+              <div className="space-y-2">
+                <Label htmlFor="vacation-external-message">{t("settings.autoReply.externalMessage")}</Label>
+                <Textarea
+                  id="vacation-external-message"
+                  value={vacation.external_message || ""}
+                  onChange={(e) => setVacation({ ...vacation, external_message: e.target.value })}
+                  placeholder={t("settings.autoReply.externalMessagePlaceholder")}
+                  rows={4}
+                  disabled={!vacation.enabled}
+                />
+                <p className="text-xs text-muted-foreground">{t("settings.autoReply.externalMessageHelp")}</p>
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="vacation-start">{t("settings.autoReply.startDate")}</Label>
