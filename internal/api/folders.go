@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 	"strings"
+
+	"github.com/umailserver/umailserver/internal/storage"
 )
 
 // folderName validates and normalizes a user-supplied folder name. It rejects
@@ -68,6 +70,46 @@ func (s *Server) handleFolders(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// handlePublicFolders lists the public folders in the caller's domain that the
+// caller may read (own grant unioned with the reserved "anyone" grant). It is
+// the webmail discovery endpoint for the shared public-folder tree.
+// GET /api/v1/public-folders -> {"owner": "public@<domain>", "folders": [...]}.
+// Returns an empty list when the feature is off or the caller has no domain.
+func (s *Server) handlePublicFolders(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value("user").(string)
+	if !ok || caller == "" {
+		s.sendError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.mailDB == nil {
+		s.sendError(w, http.StatusInternalServerError, "mailbox store not available")
+		return
+	}
+	empty := map[string]interface{}{"folders": []string{}}
+	if s.publicFoldersEnabled == nil || !s.publicFoldersEnabled() {
+		s.sendJSON(w, http.StatusOK, empty)
+		return
+	}
+	_, dom := parseEmail(caller)
+	if dom == "" {
+		s.sendJSON(w, http.StatusOK, empty)
+		return
+	}
+	owner := storage.PublicFolderOwner(dom)
+	names, err := s.mailDB.ListMailboxes(owner)
+	if err != nil {
+		names = nil
+	}
+	visible := make([]string, 0, len(names))
+	for _, name := range names {
+		rights, rerr := storage.ResolveEffectiveRights(s.mailDB.GetACL, caller, owner, name)
+		if rerr == nil && rights&storage.ACLRead == storage.ACLRead {
+			visible = append(visible, name)
+		}
+	}
+	s.sendJSON(w, http.StatusOK, map[string]interface{}{"owner": owner, "folders": visible})
 }
 
 // handleFolderPath renames (PUT) or deletes (DELETE) a folder identified by the

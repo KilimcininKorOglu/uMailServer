@@ -131,6 +131,11 @@ func buildMultipartBody(textBody string, attachments []Attachment) (string, stri
 type MailHandler struct {
 	msgStore *storage.MessageStore
 	mailDB   MailStore
+	// publicFoldersEnabled reports, read live, whether the per-domain
+	// public-folder tree is exposed; when set and on, an ?owner=public@<domain>
+	// request is gated per target folder rather than on the owner's INBOX. nil or
+	// off leaves the personal shared-mailbox behavior unchanged.
+	publicFoldersEnabled func() bool
 	// deliver routes a submitted outbound message through the shared delivery
 	// path (local delivery for local domains, queue relay for external),
 	// identical to the SMTP submission / EWS / JMAP send path. When nil, send
@@ -187,6 +192,12 @@ func NewMailHandler() *MailHandler {
 func (h *MailHandler) SetStorage(msgStore *storage.MessageStore, mailDB MailStore) {
 	h.msgStore = msgStore
 	h.mailDB = mailDB
+}
+
+// SetPublicFoldersEnabled wires the live gate for the per-domain public-folder
+// tree, so a hot-reload toggle applies to webmail without a restart.
+func (h *MailHandler) SetPublicFoldersEnabled(fn func() bool) {
+	h.publicFoldersEnabled = fn
 }
 
 // SetDeliveryFunc wires the shared outbound delivery path used by webmail send.
@@ -357,11 +368,45 @@ func (h *MailHandler) requireMailboxAccess(r *http.Request, caller string, requi
 	if h.mailDB == nil {
 		return "", false
 	}
+	// Public-folder owner of the caller's OWN domain: access is per target folder
+	// (the union of the caller's grant and the reserved "anyone" grant), not the
+	// owner's INBOX. The owner is rederived from the caller's domain, so a request
+	// naming another tenant's public owner is rejected.
+	if h.publicFoldersEnabled != nil && h.publicFoldersEnabled() && strings.HasPrefix(owner, "public@") {
+		_, dom := parseEmail(caller)
+		if dom == "" || owner != storage.PublicFolderOwner(dom) {
+			return "", false
+		}
+		folder := accessFolder(r)
+		if folder == "" {
+			return "", false
+		}
+		rights, err := storage.ResolveEffectiveRights(h.mailDB.GetACL, caller, owner, folder)
+		if err != nil || rights&required != required {
+			return "", false
+		}
+		return owner, true
+	}
 	rights, err := h.mailDB.GetACL(owner, "INBOX", caller)
 	if err != nil || rights&required != required {
 		return "", false
 	}
 	return owner, true
+}
+
+// accessFolder extracts the mailbox folder a mail request targets, used to gate
+// public-folder access. It prefers the explicit ?folder= query and falls back to
+// the path segment of a /api/v1/mail/<folder> route. It returns "" for routes
+// that do not name a single folder (e.g. /api/v1/mail/message).
+func accessFolder(r *http.Request) string {
+	if f := strings.TrimSpace(r.URL.Query().Get("folder")); f != "" {
+		return f
+	}
+	seg := strings.TrimPrefix(r.URL.Path, "/api/v1/mail/")
+	if seg == "" || seg == "message" || strings.Contains(seg, "/") {
+		return ""
+	}
+	return seg
 }
 
 // sendError sends a JSON error response

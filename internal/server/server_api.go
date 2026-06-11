@@ -107,6 +107,9 @@ func (s *Server) startAPI() {
 	s.apiServer.SetRecoverableCaptureFunc(s.captureForRecovery)
 	// Restore a soft-deleted message from Recoverable Items back to its origin.
 	s.apiServer.SetRecoverFunc(s.recoverDeletedItem)
+	// Public folders are read live (hot-reloaded) by the discovery endpoint and
+	// the per-folder webmail access check.
+	s.apiServer.SetPublicFoldersEnabled(func() bool { return s.cfg().PublicFolders.Enabled })
 	// Set contacts handler data directory for CardDAV-backed contacts API
 	s.apiServer.SetContactsDataDir(s.cfg().Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API

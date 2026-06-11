@@ -597,6 +597,13 @@ class API {
     return this.get<{ mailboxes?: string[] }>('/mailboxes')
   }
 
+  // getPublicFolders returns the organization public folders in the caller's
+  // domain that the caller may read, plus the owner key to pass to getMail.
+  // Empty when the feature is disabled.
+  async getPublicFolders(): Promise<{ owner?: string; folders?: string[] }> {
+    return this.get<{ owner?: string; folders?: string[] }>('/public-folders')
+  }
+
   // searchDirectory resolves names/addresses from the organization directory
   // (GAL) for recipient autocomplete.
   async searchDirectory(query: string): Promise<{ entries?: DirectoryEntry[] }> {

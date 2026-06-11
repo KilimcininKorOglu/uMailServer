@@ -167,6 +167,11 @@ type Server struct {
 	// classification) the source of truth for the PUT response.
 	configReloader func(newCfg *config.Config) (applied, restartRequired []string)
 
+	// publicFoldersEnabled reports, read live, whether the per-domain
+	// public-folder tree is exposed. Injected from the running server's config so
+	// a hot-reload toggle applies without a restart; nil leaves it off.
+	publicFoldersEnabled func() bool
+
 	// HTTP router (cached)
 	router http.Handler
 
@@ -738,6 +743,7 @@ func (s *Server) initRouter() {
 	// User folder management (create/rename/delete custom mailboxes).
 	api.HandleFunc("/api/v1/folders", s.handleFolders)
 	api.HandleFunc("/api/v1/folders/", s.handleFolderPath)
+	api.HandleFunc("/api/v1/public-folders", s.handlePublicFolders)
 
 	// Mailbox ACL and shared mailbox access
 	api.HandleFunc("/api/v1/mailboxes", s.handleMailboxListOwn)
@@ -1488,6 +1494,16 @@ func (s *Server) SetMailDB(db MailStore) {
 	s.initMailHandler()
 }
 
+// SetPublicFoldersEnabled wires the live gate for the per-domain public-folder
+// tree onto the API server and its mail handler, so the discovery endpoint and
+// the per-folder access check honor a hot-reload toggle without a restart.
+func (s *Server) SetPublicFoldersEnabled(fn func() bool) {
+	s.publicFoldersEnabled = fn
+	if s.mailHandler != nil {
+		s.mailHandler.SetPublicFoldersEnabled(fn)
+	}
+}
+
 // SetMsgStore sets the message store for email operations
 func (s *Server) SetMsgStore(msgStore *storage.MessageStore) {
 	s.msgStore = msgStore
@@ -1550,6 +1566,9 @@ func (s *Server) initMailHandler() {
 	}
 	if s.mailHandler != nil && s.mailDeliver != nil {
 		s.mailHandler.SetDeliveryFunc(s.mailDeliver)
+	}
+	if s.mailHandler != nil && s.publicFoldersEnabled != nil {
+		s.mailHandler.SetPublicFoldersEnabled(s.publicFoldersEnabled)
 	}
 	s.applyScheduledFuncs()
 }
