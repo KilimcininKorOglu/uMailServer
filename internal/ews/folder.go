@@ -761,31 +761,52 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 			continue
 		}
 
-		// Distinguished folders cannot be renamed or reparented.
-		if rec.Role != "" && len(fc.Updates.Operations) > 0 {
-			msgs = append(msgs, errorMsg("UpdateFolder", ErrErrorInvalidOperation, "cannot modify a distinguished folder"))
-			continue
-		}
-
+		// Distinguished folders cannot be renamed or reparented, but their
+		// permissions may still be changed (Outlook sets permissions on INBOX,
+		// Calendar, etc.), so the rename/reparent guard is applied per operation.
 		applied := false
+		failed := false
+	opLoop:
 		for _, op := range fc.Updates.Operations {
-			if op.Folder.DisplayName != nil {
+			switch {
+			case op.Folder.PermissionSet != nil:
+				if ec := s.applyFolderPermissions(ctx, rec.Role, mboxKey, folderID, op.Folder.PermissionSet); ec != "" {
+					msgs = append(msgs, errorMsg("UpdateFolder", ec, "cannot change folder permissions"))
+					failed = true
+					break opLoop
+				}
+				applied = true
+			case op.Folder.DisplayName != nil:
+				if rec.Role != "" {
+					msgs = append(msgs, errorMsg("UpdateFolder", ErrErrorInvalidOperation, "cannot rename a distinguished folder"))
+					failed = true
+					break opLoop
+				}
 				// Display name change: semcore identity is stable — display name is not stored
 				// in the identity store. The client sees the new display name in the response.
 				applied = true
-			}
-			if op.Folder.ParentFolderId != nil {
+			case op.Folder.ParentFolderId != nil:
+				if rec.Role != "" {
+					msgs = append(msgs, errorMsg("UpdateFolder", ErrErrorInvalidOperation, "cannot reparent a distinguished folder"))
+					failed = true
+					break opLoop
+				}
 				newParentID, err := semcore.NewFolderId(op.Folder.ParentFolderId.ID)
 				if err != nil {
 					msgs = append(msgs, errorMsg("UpdateFolder", ErrErrorInvalidId, err.Error()))
-					continue
+					failed = true
+					break opLoop
 				}
 				if err := s.identity.SetFolderParent(folderID, newParentID); err != nil {
 					msgs = append(msgs, errorMsg("UpdateFolder", ErrErrorInternalServer, err.Error()))
-					continue
+					failed = true
+					break opLoop
 				}
 				applied = true
 			}
+		}
+		if failed {
+			continue
 		}
 
 		if !applied {
@@ -809,6 +830,9 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 			DisplayName:    displayName,
 			FolderClass:    folderClassForRole(rec.Role),
 		}
+		// Echo the resulting permission set and effective rights so the client
+		// sees the applied state.
+		s.decorateFolderPermissions(ctx, &fxml, mboxKey, displayName, true)
 		msg := FolderResponseMessageType{}
 		msg.ResponseClass = "Success"
 		msg.ResponseCode.Value = ErrNoError
@@ -819,6 +843,52 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 	resp := UpdateFolderResponse{}
 	resp.ResponseMessages.Messages = msgs
 	return buildResponseEnvelope(resp)
+}
+
+// applyFolderPermissions writes a folder's incoming PermissionSet back to the
+// canonical RFC 4314 ACL store. It is owner-only self-service: a caller may edit
+// permissions only on their own folders (owner == authenticated caller), so the
+// public-folder tree and delegate-accessed mailboxes stay read-only here. The
+// incoming set is reconciled against the current ACL — each grant is written
+// (rights derived from the permission level or bits) and any grantee no longer
+// present is removed. It returns "" on success or an EWS error code.
+func (s *Server) applyFolderPermissions(ctx context.Context, role, mboxKey string, folderID semcore.FolderId, ps *PermissionSetType) ErrorCode {
+	if s.storageDB == nil {
+		return ErrErrorInternalServer
+	}
+	owner := strings.ToLower(strings.TrimPrefix(mboxKey, "e:"))
+	caller, _ := ctx.Value("X-Email").(string) //nolint:errcheck // missing identity falls through to the owner check
+	caller = strings.ToLower(strings.TrimSpace(caller))
+	if owner == "" || owner != caller {
+		return ErrErrorAccessDenied
+	}
+	folderName := s.folderDisplayName(mboxKey, role, folderID)
+	if folderName == "" {
+		return ErrErrorInvalidOperation
+	}
+	current, err := s.storageDB.ListACL(owner, folderName)
+	if err != nil {
+		return ErrErrorInternalServer
+	}
+	seen := make(map[string]bool, len(ps.Permissions))
+	for _, p := range ps.Permissions {
+		grantee := userIDToGrantee(p.UserID)
+		if grantee == "" {
+			continue
+		}
+		seen[grantee] = true
+		if err := s.storageDB.SetACL(owner, folderName, grantee, permissionToACL(p), caller); err != nil {
+			return ErrErrorInternalServer
+		}
+	}
+	for _, e := range current {
+		if !seen[e.Grantee] {
+			if err := s.storageDB.DeleteACL(owner, folderName, e.Grantee); err != nil {
+				return ErrErrorInternalServer
+			}
+		}
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------
