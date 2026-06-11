@@ -22,6 +22,10 @@ type MailStore interface {
 	GetMessageMetadata(user, mailbox string, uid uint32) (*storage.MessageMetadata, error)
 	StoreMessageMetadata(user, mailbox string, uid uint32, meta *storage.MessageMetadata) error
 	DeleteMessage(user, mailbox string, uid uint32) error
+	// ListMailboxes lists a mailbox owner's folders. It lets the public-folder
+	// tree reconcile its admin-created folders (stored canonically here) into the
+	// identity store that EWS folder enumeration reads from.
+	ListMailboxes(user string) ([]string, error)
 }
 
 var _ MailStore = (*storage.Database)(nil)

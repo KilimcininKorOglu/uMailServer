@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -269,6 +270,31 @@ func (s *Server) publicFoldersReady(mboxKey string) (owner string, ok bool) {
 	return owner, owner != ""
 }
 
+// reconcilePublicFolderIdentities ensures every admin-created public folder under
+// owner has a semcore folder identity. Public folders are created in the
+// canonical storage layer (the same source IMAP and webmail read), but EWS folder
+// enumeration is identity-store driven; this bridges the two so the public tree is
+// visible over EWS too. Standard auto-provisioned mailboxes (INBOX, Sent, ...) are
+// skipped — they are not public folders. Best-effort: a folder that fails to
+// reconcile is simply not yet visible over EWS.
+func (s *Server) reconcilePublicFolderIdentities(owner string) {
+	if s.storageDB == nil {
+		return
+	}
+	names, err := s.storageDB.ListMailboxes(owner)
+	if err != nil {
+		return
+	}
+	for _, name := range names {
+		if slices.Contains(storage.DefaultMailboxes, name) {
+			continue
+		}
+		if _, err := s.identity.EnsureFolderId(owner, name, ""); err != nil {
+			continue
+		}
+	}
+}
+
 // callerCanReadPublicFolder reports whether the caller holds at least read rights
 // on a public folder, via the union of its per-user and "anyone" grants.
 func (s *Server) callerCanReadPublicFolder(callerEmail, owner, folder string) bool {
@@ -291,6 +317,7 @@ func (s *Server) resolvePublicFoldersRoot(mboxKey string) FolderResponseMessageT
 	if _, err := s.identity.EnsureMailboxId(owner); err != nil {
 		return errorMsg("GetFolder", ErrErrorInternalServer, err.Error())
 	}
+	s.reconcilePublicFolderIdentities(owner)
 	callerEmail := strings.TrimPrefix(mboxKey, "e:")
 	folders, err := s.identity.ListFolderIdentitiesForMailbox(owner)
 	if err != nil {
@@ -395,6 +422,7 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 			if _, err := s.identity.EnsureMailboxId(owner); err != nil {
 				return s.errorResponseXML("FindFolder", ErrErrorInternalServer, err.Error())
 			}
+			s.reconcilePublicFolderIdentities(owner)
 			callerEmail = mailboxKey // mailboxKey is the caller's email until rebound below
 			mailboxKey = owner
 			publicTree = true
