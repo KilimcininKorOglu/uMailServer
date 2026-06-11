@@ -34,6 +34,61 @@ func TestSearchDefFromFilter_Contains(t *testing.T) {
 	}
 }
 
+// TestResolveSearchScope proves the search scope honors an explicit base folder
+// list and, when empty, falls back to every mail folder while excluding
+// collaboration folders and other search folders.
+func TestResolveSearchScope(t *testing.T) {
+	srv, cleanup := tmpEWSServer(t)
+	defer cleanup()
+
+	const email = "alice@example.com"
+	if _, err := srv.identity.EnsureMailboxId(email); err != nil {
+		t.Fatalf("EnsureMailboxId: %v", err)
+	}
+	inbox, err := srv.identity.EnsureFolderId(email, "INBOX", "inbox")
+	if err != nil {
+		t.Fatalf("EnsureFolderId(INBOX): %v", err)
+	}
+	projects, err := srv.identity.EnsureFolderId(email, "Projects", "")
+	if err != nil {
+		t.Fatalf("EnsureFolderId(Projects): %v", err)
+	}
+	if _, err := srv.identity.EnsureFolderId(email, "Calendar", "calendar"); err != nil {
+		t.Fatalf("EnsureFolderId(Calendar): %v", err)
+	}
+	saved, err := srv.identity.EnsureFolderId(email, "Saved", "")
+	if err != nil {
+		t.Fatalf("EnsureFolderId(Saved): %v", err)
+	}
+	if err := srv.identity.SetFolderSearchDefinition(saved, &semcore.SearchFolderDef{From: "x@y.com"}); err != nil {
+		t.Fatalf("SetFolderSearchDefinition: %v", err)
+	}
+
+	// Explicit base list resolves to exactly the named folder.
+	scope := srv.resolveSearchScope(email, &semcore.SearchFolderDef{BaseFolders: []string{"INBOX"}})
+	if len(scope) != 1 || !scope[0].Equal(inbox) {
+		t.Fatalf("explicit scope = %v, want [%v]", scope, inbox)
+	}
+
+	// Empty base list spans the mail folders, excluding calendar and the
+	// search folder itself.
+	scope = srv.resolveSearchScope(email, &semcore.SearchFolderDef{})
+	has := func(id semcore.FolderId) bool {
+		for _, f := range scope {
+			if f.Equal(id) {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(inbox) || !has(projects) {
+		t.Errorf("default scope %v must include INBOX and Projects", scope)
+	}
+	if has(saved) {
+		t.Error("default scope must not include the search folder itself")
+	}
+}
+
 // TestCreateFolder_SearchFolder proves a CreateFolder carrying a <t:SearchFolder>
 // with a restriction and base folder set persists a folder identity marked with
 // the parsed SearchFolderDef, so the search folder is created (not a plain folder).

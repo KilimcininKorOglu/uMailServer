@@ -29,7 +29,7 @@ func TestEvalFilterIsNotEqualTo(t *testing.T) {
 		{"Not(IsEqualTo) equals IsNotEqualTo", SearchFilter{Not: &SearchFilter{IsEqualTo: mkCmp("message:From", "bob@ex.test")}}, true},
 	}
 	for _, tc := range cases {
-		if got := evalFilter(tc.f, fields, "", "", false); got != tc.want {
+		if got := evalFilter(tc.f, fields, "", "", "", false); got != tc.want {
 			t.Errorf("%s: evalFilter = %v, want %v", tc.name, got, tc.want)
 		}
 	}

@@ -103,6 +103,58 @@ func applyComparisonToDef(c ComparisonFilter, def *semcore.SearchFolderDef, lowe
 	}
 }
 
+// collectSearchFolderItems evaluates a search folder's saved definition over its
+// scope and returns the matching items. It runs the definition through the same
+// per-folder mail collection used for ordinary folders, so EWS and webmail agree
+// on what the saved query selects.
+func (s *Server) collectSearchFolderItems(mailboxKey string, def *semcore.SearchFolderDef, restriction *RestrictionContainer) ([]MessageTypeResponse, error) {
+	var results []MessageTypeResponse
+	for _, fid := range s.resolveSearchScope(mailboxKey, def) {
+		items, err := s.collectMailItems(mailboxKey, fid, restriction, def)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, items...)
+	}
+	return results, nil
+}
+
+// resolveSearchScope returns the mail folders a search folder is evaluated over.
+// An explicit BaseFolders list resolves each name to its folder id; an empty
+// list means every mail folder in the mailbox. Collaboration folders and other
+// search folders are always excluded so a search folder never recurses into one.
+func (s *Server) resolveSearchScope(mailboxKey string, def *semcore.SearchFolderDef) []semcore.FolderId {
+	var scope []semcore.FolderId
+	if len(def.BaseFolders) > 0 {
+		for _, name := range def.BaseFolders {
+			fid, err := s.identity.GetFolderID(mailboxKey, name)
+			if err != nil {
+				continue
+			}
+			if rec, err := s.identity.GetFolderByID(fid); err == nil && rec != nil && rec.SearchDefinition != nil {
+				continue
+			}
+			scope = append(scope, fid)
+		}
+		return scope
+	}
+	folders, err := s.identity.ListFolderIdentitiesForMailbox(mailboxKey)
+	if err != nil {
+		return nil
+	}
+	for _, f := range folders {
+		if f.SearchDefinition != nil {
+			continue
+		}
+		switch f.Role {
+		case "calendar", "contacts", "tasks":
+			continue
+		}
+		scope = append(scope, f.FolderID)
+	}
+	return scope
+}
+
 // resolveBaseFolderNames turns a search folder's BaseFolderIds into the stored
 // folder display names used as the search scope. Distinguished ids resolve via
 // their role's canonical name (falling back to the mailbox's folder for that

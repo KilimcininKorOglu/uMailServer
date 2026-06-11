@@ -295,10 +295,22 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 	// Collaboration items are stored in the collab store, not the identity store.
 	// We detect the folder type by looking at the role stored on the folder record.
 	folderRec, err := s.identity.GetFolderByID(folderID)
+
+	// A search folder has no items of its own: evaluate its saved definition
+	// over its base folder set instead of listing the folder's (empty) contents.
+	if err == nil && folderRec != nil && folderRec.SearchDefinition != nil {
+		return s.collectSearchFolderItems(mailboxKey, folderRec.SearchDefinition, restriction)
+	}
+
 	isCollabFolder := false
 	if err == nil && folderRec != nil {
 		role := folderRec.Role
 		isCollabFolder = role == "calendar" || role == "contacts" || role == "tasks"
+	}
+
+	// Standard mail folder: items live in the identity store + msgStore.
+	if !isCollabFolder {
+		return s.collectMailItems(mailboxKey, folderID, restriction, nil)
 	}
 
 	var results []MessageTypeResponse
@@ -317,104 +329,122 @@ func (s *Server) collectFolderItems(mailboxKey string, folderID semcore.FolderId
 		return collabRestrictionMatch(restriction.SearchFilter, item)
 	}
 
-	if isCollabFolder {
-		// Query collaboration store items.
-		// Calendar items.
-		calItems, err := s.collabStore.ListCalendarItemsByFolder(folderID)
-		if err == nil {
-			for _, rec := range calItems {
-				item := s.collabCalendarItemToResponse(rec, folderID)
-				if collabMatches(item) {
-					results = append(results, *item)
-				}
+	// Query collaboration store items.
+	// Calendar items.
+	calItems, err := s.collabStore.ListCalendarItemsByFolder(folderID)
+	if err == nil {
+		for _, rec := range calItems {
+			item := s.collabCalendarItemToResponse(rec, folderID)
+			if collabMatches(item) {
+				results = append(results, *item)
 			}
 		}
-		// Contact items.
-		contactItems, err := s.collabStore.ListContactsByFolder(folderID)
-		if err == nil {
-			for _, rec := range contactItems {
-				item := s.collabContactItemToResponse(rec, folderID)
-				if collabMatches(item) {
-					results = append(results, *item)
-				}
+	}
+	// Contact items.
+	contactItems, err := s.collabStore.ListContactsByFolder(folderID)
+	if err == nil {
+		for _, rec := range contactItems {
+			item := s.collabContactItemToResponse(rec, folderID)
+			if collabMatches(item) {
+				results = append(results, *item)
 			}
 		}
-		// Task items.
-		taskItems, err := s.collabStore.ListTasksByFolder(folderID)
-		if err == nil {
-			for _, rec := range taskItems {
-				item := s.collabTaskItemToResponse(rec, folderID)
-				if collabMatches(item) {
-					results = append(results, *item)
-				}
+	}
+	// Task items.
+	taskItems, err := s.collabStore.ListTasksByFolder(folderID)
+	if err == nil {
+		for _, rec := range taskItems {
+			item := s.collabTaskItemToResponse(rec, folderID)
+			if collabMatches(item) {
+				results = append(results, *item)
 			}
 		}
-	} else {
-		// Standard mail folder: query identity store + msgStore.
-		items, err := s.identity.ListItemIdentitiesByFolder(folderID)
+	}
+
+	return results, nil
+}
+
+// collectMailItems lists a mail folder's items from the identity store and
+// msgStore, applying the request restriction and, when def is non-nil, the
+// search folder's saved criteria. The full (untruncated) body is matched, so a
+// search folder can select on body text.
+func (s *Server) collectMailItems(mailboxKey string, folderID semcore.FolderId, restriction *RestrictionContainer, def *semcore.SearchFolderDef) ([]MessageTypeResponse, error) {
+	items, err := s.identity.ListItemIdentitiesByFolder(folderID)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []MessageTypeResponse
+	for _, rec := range items {
+		// Retrieve raw MIME content.
+		rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
 		if err != nil {
-			return nil, err
+			continue
 		}
 
-		for _, rec := range items {
-			// Retrieve raw MIME content.
-			rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
-			if err != nil {
+		subject, from, dateStr, bodyType, bodyText, toAddrs := parseMimeHeaders(rawMsg)
+
+		toRecipients := make([]MailboxTypeResponse, 0, len(toAddrs))
+		for _, addr := range toAddrs {
+			toRecipients = append(toRecipients, MailboxTypeResponse{EmailAddress: addr})
+		}
+
+		msgResp := MessageTypeResponse{
+			ItemID: ItemIdType{
+				ID: rec.ItemID.String(),
+				CK: rec.ChangeKey.String(),
+			},
+			ParentFolderID:   FolderIdComponents{ID: folderID.String()},
+			ItemClass:        rawHeaderValue(rawMsg, "X-Message-Class"),
+			Subject:          subject,
+			DateTimeReceived: dateStr,
+			Size:             len(rawMsg),
+			Body: BodyTypeResponse{
+				BodyType: bodyType,
+				Text:     truncateBody(bodyText, 100),
+			},
+			From:         mailboxFromHeader(from),
+			Sender:       mailboxFromHeader(rawHeaderValue(rawMsg, "Sender")),
+			ToRecipients: recipientsWrap(toRecipients),
+			CcRecipients: recipientsWrap(recipientsFromHeader(rawMsg, "Cc")),
+		}
+		if !rec.ConversationID.IsZero() {
+			msgResp.ConversationID = &ConversationIdType{ID: rec.ConversationID.String()}
+		}
+		hdrs := parseInternetHeaders(rawMsg)
+		if len(hdrs) > 0 {
+			msgResp.InternetHeaders = &InternetMessageHeadersType{Headers: hdrs}
+		}
+		// Surface delivered meeting requests as MeetingRequest items so
+		// clients expose accept/decline on them.
+		for _, h := range hdrs {
+			if strings.EqualFold(h.Name, hdrMeeting) && strings.TrimSpace(h.Value) == "1" {
+				msgResp.isMeetingRequest = true
+				break
+			}
+		}
+
+		// Apply the request restriction if present.
+		if restriction != nil {
+			headers := parseMimeHeadersForFilter(rawMsg)
+			if !evaluateRestriction(restriction, headers, subject, dateStr, bodyText, len(rawMsg) > 0) {
 				continue
 			}
-
-			subject, from, dateStr, bodyType, bodyText, toAddrs := parseMimeHeaders(rawMsg)
-
-			toRecipients := make([]MailboxTypeResponse, 0, len(toAddrs))
-			for _, addr := range toAddrs {
-				toRecipients = append(toRecipients, MailboxTypeResponse{EmailAddress: addr})
-			}
-
-			msgResp := MessageTypeResponse{
-				ItemID: ItemIdType{
-					ID: rec.ItemID.String(),
-					CK: rec.ChangeKey.String(),
-				},
-				ParentFolderID:   FolderIdComponents{ID: folderID.String()},
-				ItemClass:        rawHeaderValue(rawMsg, "X-Message-Class"),
-				Subject:          subject,
-				DateTimeReceived: dateStr,
-				Size:             len(rawMsg),
-				Body: BodyTypeResponse{
-					BodyType: bodyType,
-					Text:     truncateBody(bodyText, 100),
-				},
-				From:         mailboxFromHeader(from),
-				Sender:       mailboxFromHeader(rawHeaderValue(rawMsg, "Sender")),
-				ToRecipients: recipientsWrap(toRecipients),
-				CcRecipients: recipientsWrap(recipientsFromHeader(rawMsg, "Cc")),
-			}
-			if !rec.ConversationID.IsZero() {
-				msgResp.ConversationID = &ConversationIdType{ID: rec.ConversationID.String()}
-			}
-			hdrs := parseInternetHeaders(rawMsg)
-			if len(hdrs) > 0 {
-				msgResp.InternetHeaders = &InternetMessageHeadersType{Headers: hdrs}
-			}
-			// Surface delivered meeting requests as MeetingRequest items so
-			// clients expose accept/decline on them.
-			for _, h := range hdrs {
-				if strings.EqualFold(h.Name, hdrMeeting) && strings.TrimSpace(h.Value) == "1" {
-					msgResp.isMeetingRequest = true
-					break
-				}
-			}
-
-			// Apply restriction filter if present.
-			if restriction != nil {
-				headers := parseMimeHeadersForFilter(rawMsg)
-				if !evaluateRestriction(restriction, headers, subject, dateStr, len(rawMsg) > 0) {
-					continue
-				}
-			}
-
-			results = append(results, msgResp)
 		}
+
+		// Apply the search folder's saved criteria if present.
+		if def != nil {
+			headers := parseMimeHeadersForFilter(rawMsg)
+			var when time.Time
+			if t, perr := mail.ParseDate(dateStr); perr == nil {
+				when = t
+			}
+			if !def.Matches(from, subject, bodyText, when, headers.HasAttachment) {
+				continue
+			}
+		}
+
+		results = append(results, msgResp)
 	}
 
 	return results, nil
@@ -448,23 +478,24 @@ type filterFields struct {
 }
 
 // evaluateRestriction returns true if the item matches the restriction tree.
-func evaluateRestriction(r *RestrictionContainer, fields filterFields, subject, dateStr string, hasContent bool) bool {
+func evaluateRestriction(r *RestrictionContainer, fields filterFields, subject, dateStr, body string, hasContent bool) bool {
 	if r == nil {
 		return true
 	}
-	return evalFilter(r.SearchFilter, fields, subject, dateStr, hasContent)
+	return evalFilter(r.SearchFilter, fields, subject, dateStr, body, hasContent)
 }
 
-// evalFilter evaluates a search filter recursively.
-func evalFilter(f SearchFilter, fields filterFields, subject, dateStr string, hasContent bool) bool {
+// evalFilter evaluates a search filter recursively. body carries the message's
+// plain-text body so Contains predicates over the Body field can be evaluated.
+func evalFilter(f SearchFilter, fields filterFields, subject, dateStr, body string, hasContent bool) bool {
 	if f.And != nil {
-		return evalFilter(*f.And, fields, subject, dateStr, hasContent)
+		return evalFilter(*f.And, fields, subject, dateStr, body, hasContent)
 	}
 	if f.Or != nil {
-		return evalFilter(*f.Or, fields, subject, dateStr, hasContent)
+		return evalFilter(*f.Or, fields, subject, dateStr, body, hasContent)
 	}
 	if f.Not != nil {
-		return !evalFilter(*f.Not, fields, subject, dateStr, hasContent)
+		return !evalFilter(*f.Not, fields, subject, dateStr, body, hasContent)
 	}
 	if f.IsEqualTo != nil {
 		return evalComparison(*f.IsEqualTo, fields, subject, dateStr, hasContent, "equal")
@@ -485,7 +516,7 @@ func evalFilter(f SearchFilter, fields filterFields, subject, dateStr string, ha
 		return evalComparison(*f.IsLessThanOrEqualTo, fields, subject, dateStr, hasContent, "lte")
 	}
 	if f.Contains != nil {
-		return evalContains(*f.Contains, fields, subject, hasContent)
+		return evalContains(*f.Contains, fields, subject, body, hasContent)
 	}
 	if f.Exists != nil {
 		return evalExists(*f.Exists, fields)
@@ -563,8 +594,9 @@ func compareInt(a, b int64, op string) bool {
 	return false
 }
 
-// evalContains evaluates a Contains filter.
-func evalContains(c ContainsFilter, fields filterFields, subject string, hasContent bool) bool {
+// evalContains evaluates a Contains filter. body is the message's plain-text
+// body, used for Contains predicates over the Body field.
+func evalContains(c ContainsFilter, fields filterFields, subject, body string, hasContent bool) bool {
 	if c.FieldURI == nil || c.FieldURI.URI == "" || c.Constant.Value == "" {
 		return false
 	}
@@ -581,6 +613,8 @@ func evalContains(c ContainsFilter, fields filterFields, subject string, hasCont
 		return strings.Contains(strings.ToLower(subject), strings.ToLower(constVal))
 	case "From":
 		return strings.Contains(strings.ToLower(fields.From), strings.ToLower(constVal))
+	case "Body":
+		return strings.Contains(strings.ToLower(body), strings.ToLower(constVal))
 	default:
 		return false
 	}
