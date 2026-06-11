@@ -664,6 +664,7 @@ type SetFolderFieldOp struct {
 			ID      string   `xml:"Id,attr"`
 			CK      string   `xml:"ChangeKey,attr,omitempty"`
 		} `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+		PermissionSet *PermissionSetType `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermissionSet"`
 	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
 }
 

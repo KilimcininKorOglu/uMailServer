@@ -233,17 +233,52 @@ type FolderIdComponents struct {
 
 // FolderType is the EWS Folder element (IPF.Note by default).
 type FolderType struct {
-	XMLName          xml.Name           `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
-	FolderID         FolderIdComponents `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
-	ParentFolderID   FolderIdComponents `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
-	DisplayName      string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
-	UnreadCount      int                `xml:"http://schemas.microsoft.com/exchange/services/2006/types UnreadCount,omitempty"`
-	TotalCount       int                `xml:"http://schemas.microsoft.com/exchange/services/2006/types TotalCount,omitempty"`
-	ChildFolderCount int                `xml:"http://schemas.microsoft.com/exchange/services/2006/types ChildFolderCount,omitempty"`
-	FolderClass      string             `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderClass,omitempty"`
-	EffectiveRights  struct {
-		VALUE int `xml:",chardata"`
-	} `xml:"http://schemas.microsoft.com/exchange/services/2006/types EffectiveRights,omitempty"`
+	XMLName          xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
+	FolderID         FolderIdComponents   `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+	ParentFolderID   FolderIdComponents   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+	DisplayName      string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
+	UnreadCount      int                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types UnreadCount,omitempty"`
+	TotalCount       int                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types TotalCount,omitempty"`
+	ChildFolderCount int                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ChildFolderCount,omitempty"`
+	FolderClass      string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderClass,omitempty"`
+	PermissionSet    *PermissionSetType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermissionSet,omitempty"`
+	EffectiveRights  *EffectiveRightsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EffectiveRights,omitempty"`
+}
+
+// PermissionType is one folder grant projected from an RFC 4314 ACL entry onto
+// the MAPI permission-bit model Outlook understands. The grantee is carried in a
+// UserId (reused from the delegate types): a specific address in
+// PrimarySmtpAddress, or the reserved "anyone" grant as DistinguishedUser "Default".
+type PermissionType struct {
+	XMLName             xml.Name   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Permission"`
+	UserID              UserIdType `xml:"http://schemas.microsoft.com/exchange/services/2006/types UserId"`
+	CanCreateItems      bool       `xml:"http://schemas.microsoft.com/exchange/services/2006/types CanCreateItems"`
+	CanCreateSubFolders bool       `xml:"http://schemas.microsoft.com/exchange/services/2006/types CanCreateSubFolders"`
+	IsFolderOwner       bool       `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsFolderOwner"`
+	IsFolderVisible     bool       `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsFolderVisible"`
+	IsFolderContact     bool       `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsFolderContact"`
+	EditItems           string     `xml:"http://schemas.microsoft.com/exchange/services/2006/types EditItems"`
+	DeleteItems         string     `xml:"http://schemas.microsoft.com/exchange/services/2006/types DeleteItems"`
+	ReadItems           string     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReadItems"`
+	PermissionLevel     string     `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermissionLevel"`
+}
+
+// PermissionSetType is the folder:PermissionSet — the full set of grants on a
+// folder, backed by the canonical RFC 4314 ACL store.
+type PermissionSetType struct {
+	Permissions []PermissionType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Permissions>Permission"`
+}
+
+// EffectiveRightsType is the caller's read-only cumulative rights on a folder,
+// derived from their effective ACL (own grant unioned with the "anyone" grant).
+type EffectiveRightsType struct {
+	CreateAssociated bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types CreateAssociated"`
+	CreateContents   bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types CreateContents"`
+	CreateHierarchy  bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types CreateHierarchy"`
+	Delete           bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
+	Modify           bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types Modify"`
+	Read             bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types Read"`
+	ViewPrivateItems bool `xml:"http://schemas.microsoft.com/exchange/services/2006/types ViewPrivateItems"`
 }
 
 // ContactsFolderType is a contacts folder.

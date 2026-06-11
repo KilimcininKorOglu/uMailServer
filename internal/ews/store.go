@@ -26,6 +26,13 @@ type MailStore interface {
 	// tree reconcile its admin-created folders (stored canonically here) into the
 	// identity store that EWS folder enumeration reads from.
 	ListMailboxes(user string) ([]string, error)
+	// GetACL / SetACL / DeleteACL / ListACL expose the canonical RFC 4314 folder
+	// ACL store so EWS can project it onto the folder:PermissionSet model and
+	// write permission changes back to the one source of truth.
+	GetACL(owner, mailbox, grantee string) (storage.ACLRights, error)
+	SetACL(owner, mailbox, grantee string, rights storage.ACLRights, grantingUser string) error
+	DeleteACL(owner, mailbox, grantee string) error
+	ListACL(owner, mailbox string) ([]storage.ACLEntry, error)
 }
 
 var _ MailStore = (*storage.Database)(nil)
