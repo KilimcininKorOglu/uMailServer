@@ -403,6 +403,15 @@ recoverable_items:
   retention_days: 14
   tick_seconds: 300
 
+# Public folders (organization-wide shared folder tree). When enabled, each
+# domain exposes a shared folder hierarchy (owned by a reserved public@<domain>
+# principal) that users access per-folder by ACL — surfaced over IMAP (a shared
+# "Public Folders/" namespace), webmail, and EWS (publicfoldersroot). Admins
+# create folders and grant access ("anyone" for org-wide, or per-user). Disabled
+# by default: the public namespace is invisible everywhere until opted in.
+public_folders:
+  enabled: false
+
 # Outbound relay. ip_groups defines named pools of source (egress) IP addresses
 # the host actually has bound. A domain assigned to a group (admin: Domains ->
 # Egress IP group) sends its outbound mail from one of the group's IPs, chosen

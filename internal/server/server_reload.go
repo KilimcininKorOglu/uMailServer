@@ -105,6 +105,12 @@ func (s *Server) ReloadConfig(newCfg *config.Config) (applied, restartRequired [
 		applied = append(applied, "recoverable_items")
 	}
 
+	// Public folders gate is read live per request (no background loop), so a
+	// toggle applies immediately to the IMAP/EWS/webmail/admin surfaces.
+	if changed(old.PublicFolders, newCfg.PublicFolders) {
+		applied = append(applied, "public_folders")
+	}
+
 	// The global rate limiter retunes in place. The remaining Security fields
 	// (auth limits, audit log, secrets) are captured by listeners and the API at
 	// startup, so a change there needs a restart.

@@ -219,5 +219,8 @@ func DefaultConfig() *Config {
 			RetentionDays: 14,
 			TickSeconds:   300,
 		},
+		PublicFolders: PublicFoldersConfig{
+			Enabled: false,
+		},
 	}
 }

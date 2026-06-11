@@ -31,6 +31,22 @@ const (
 // ACLAll grants all rights
 const ACLAll ACLRights = ACLLookup | ACLRead | ACLSeen | ACLWrite | ACLWriteSeen | ACLDelete | ACLExpunge | ACLCreate
 
+// ACLAnyone is the reserved grantee identifier (RFC 4314 "anyone") whose grant
+// applies to every authenticated user. It backs organization-wide public-folder
+// access: a public folder granted "anyone: lr" is readable by all users without
+// a per-user grant.
+const ACLAnyone = "anyone"
+
+// PublicFolderOwner returns the reserved storage-owner key that hosts a domain's
+// public-folder tree, e.g. "public@example.com". Public folders live in the same
+// canonical store as user mailboxes under this synthetic owner; it is never a
+// real account (no credentials, so authentication against it always fails) and
+// is derived from the caller's domain on every surface, which keeps each
+// domain's public tree isolated from other tenants.
+func PublicFolderOwner(domain string) string {
+	return "public@" + domain
+}
+
 // ACLEntry represents a single ACL grant
 type ACLEntry struct {
 	Grantee   string    `json:"grantee"`    // user granted access
@@ -236,14 +252,31 @@ func (db *Database) ListACL(owner, mailbox string) ([]ACLEntry, error) {
 	return entries, err
 }
 
-// CanAccess checks whether user has at least the required rights on a mailbox.
-// If user is the owner, all rights are granted. Otherwise, ACL is consulted.
-func (db *Database) CanAccess(user, owner, mailbox string, required ACLRights) (bool, error) {
+// EffectiveRights returns the rights a user effectively holds on a mailbox: the
+// union of the user's own grant and the reserved "anyone" grant (ACLAnyone). The
+// owner implicitly holds every right. It is the canonical resolver behind
+// CanAccess and the public-folder access gates, so an org-wide "anyone" grant is
+// honored everywhere a per-user grant would be.
+func (db *Database) EffectiveRights(user, owner, mailbox string) (ACLRights, error) {
 	if user == owner {
-		return true, nil
+		return ACLAll, nil
 	}
+	own, err := db.GetACL(owner, mailbox, user)
+	if err != nil {
+		return 0, err
+	}
+	anyone, err := db.GetACL(owner, mailbox, ACLAnyone)
+	if err != nil {
+		return 0, err
+	}
+	return own | anyone, nil
+}
 
-	rights, err := db.GetACL(owner, mailbox, user)
+// CanAccess checks whether user has at least the required rights on a mailbox.
+// If user is the owner, all rights are granted. Otherwise the effective rights
+// (the user's grant unioned with any "anyone" grant) are consulted.
+func (db *Database) CanAccess(user, owner, mailbox string, required ACLRights) (bool, error) {
+	rights, err := db.EffectiveRights(user, owner, mailbox)
 	if err != nil {
 		return false, err
 	}

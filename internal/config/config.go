@@ -46,6 +46,7 @@ type Config struct {
 	Cluster          ClusterConfig          `yaml:"cluster"`
 	ScheduledSend    ScheduledSendConfig    `yaml:"scheduled_send"`
 	RecoverableItems RecoverableItemsConfig `yaml:"recoverable_items"`
+	PublicFolders    PublicFoldersConfig    `yaml:"public_folders"`
 	Relay            RelayConfig            `yaml:"relay"`
 }
 
@@ -497,6 +498,16 @@ type RecoverableItemsConfig struct {
 	Enabled       bool `yaml:"enabled" json:"enabled"`
 	RetentionDays int  `yaml:"retention_days" json:"retention_days"`
 	TickSeconds   int  `yaml:"tick_seconds" json:"tick_seconds"`
+}
+
+// PublicFoldersConfig gates the organization-wide public-folder tree: when
+// enabled, each domain exposes a shared folder hierarchy (owned by a reserved
+// public principal) that users access per-folder by ACL — surfaced over IMAP (a
+// shared namespace), webmail, and EWS (publicfoldersroot). Disabled by default,
+// so the public namespace is invisible everywhere until an operator opts in.
+// Read live per request; toggling it applies without a restart.
+type PublicFoldersConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
 // PushConfig holds Web Push notification settings (VAPID).
