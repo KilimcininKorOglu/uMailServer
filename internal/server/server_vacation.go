@@ -51,10 +51,14 @@ func (s *Server) handleSieveVacation(sender, recipient string, vacation sieve.Va
 	// contributes a vacation action to the compiled script, so a vacation
 	// firing here came from the user's own ManageSieve script and must not be
 	// suppressed by a leftover disabled OOF policy.
+	var oofPolicy *semcore.OOFPolicy
 	if s.semcoreStore != nil {
 		if oofID, err := semcore.NewOOFId(recipient); err == nil {
-			if policy, err := s.semcoreStore.Policy().GetOOF(oofID); err == nil && policy != nil && policy.Enabled && !policy.IsActiveNow() {
-				return
+			if policy, err := s.semcoreStore.Policy().GetOOF(oofID); err == nil && policy != nil && policy.Enabled {
+				if !policy.IsActiveNow() {
+					return
+				}
+				oofPolicy = policy
 			}
 		}
 	}
@@ -77,19 +81,44 @@ func (s *Server) handleSieveVacation(sender, recipient string, vacation sieve.Va
 		body = "I'm currently on vacation and will reply when I return."
 	}
 
+	// When this vacation comes from an OOF policy, honor its internal/external
+	// reply split and external audience — the compiled Sieve script carries only
+	// a single body, so the per-sender choice is made here. A vacation with no
+	// OOF policy (the user's own ManageSieve vacation) keeps the single body.
+	if oofPolicy != nil {
+		oofSubject, oofBody, send := oofReplyFor(oofPolicy, s.isLocalSender(sender))
+		if !send {
+			return
+		}
+		if oofBody != "" {
+			body = oofBody
+		}
+		if oofSubject != "" {
+			subject = oofSubject
+		}
+	}
+
 	// Create vacation message - From is the recipient (who's on vacation)
 	fromAddr := recipient
 	if vacation.From != "" {
 		fromAddr = vacation.From
 	}
 	safeSubject := sanitizeHeaderValue(subject)
-	safeBody := sanitizeHeaderValue(body)
 	safeFrom := sanitizeHeaderValue(fromAddr)
-	vacationMsg := fmt.Sprintf("From: %s\r\nSubject: %s\r\nX-Mail-Loop: <%s>\r\n\r\n%s",
+	// The reply body lives after the header separator, so it only needs SMTP
+	// CRLF line endings — not header sanitization, which would flatten a
+	// multi-line internal/external OOF reply onto a single line.
+	bodyCRLF := strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\n", "\r\n")
+	contentType := "text/plain; charset=utf-8"
+	if looksLikeHTML(bodyCRLF) {
+		contentType = "text/html; charset=utf-8"
+	}
+	vacationMsg := fmt.Sprintf("From: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: %s\r\nX-Mail-Loop: <%s>\r\n\r\n%s",
 		safeFrom,
 		safeSubject,
+		contentType,
 		recipient,
-		safeBody)
+		bodyCRLF)
 
 	// Deliver the vacation reply TO the sender FROM the recipient. Use the
 	// shared delivery handler so a local sender is written straight to their
@@ -100,6 +129,43 @@ func (s *Server) handleSieveVacation(sender, recipient string, vacation sieve.Va
 	} else {
 		s.logger.Info("Vacation reply delivered", "to", sender, "from", fromAddr)
 	}
+}
+
+// oofReplyFor selects the out-of-office reply for a sender from an OOF policy,
+// honoring the external audience. internal reports whether the sender is inside
+// the organization (a locally hosted domain). It returns the subject and body to
+// send and whether to send at all: an external sender is suppressed when the
+// policy's audience is internal-only (Exchange "None"); "Known" and "All" both
+// let external senders through. An empty internal/external body falls back to the
+// policy's shared TextBody (which mirrors the internal reply).
+func oofReplyFor(policy *semcore.OOFPolicy, internal bool) (subject, body string, send bool) {
+	if policy == nil {
+		return "", "", false
+	}
+	if !internal && policy.Audience == semcore.OOFAudienceInternal {
+		return "", "", false
+	}
+	if internal {
+		body = policy.InternalReply
+	} else {
+		body = policy.ExternalReply
+	}
+	if body == "" {
+		body = policy.TextBody
+	}
+	return policy.Subject, body, true
+}
+
+// looksLikeHTML reports whether a reply body should be sent as text/html. OOF
+// bodies set from Outlook over EWS are HTML; a plain-text reply stays text/plain.
+func looksLikeHTML(body string) bool {
+	l := strings.ToLower(body)
+	for _, tag := range []string{"<html", "<body", "<p>", "<p ", "<div", "<br", "<span", "<table"} {
+		if strings.Contains(l, tag) {
+			return true
+		}
+	}
+	return false
 }
 
 // sendVacationReply generates and enqueues an auto-reply message.

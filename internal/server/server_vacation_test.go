@@ -4,8 +4,60 @@ import (
 	"testing"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 )
+
+// TestOOFReplyFor verifies the internal/external reply selection and external
+// audience enforcement that the Outlook OOF spec requires: internal senders get
+// the internal body, external senders get the external body, an internal-only
+// audience suppresses external replies entirely, and an empty body falls back to
+// the shared TextBody. This is the heart of gap 10.1 — the compiled Sieve script
+// carries one body, so the per-sender choice must happen here.
+func TestOOFReplyFor(t *testing.T) {
+	policy := &semcore.OOFPolicy{
+		Subject:       "Away",
+		TextBody:      "shared",
+		InternalReply: "hi colleague",
+		ExternalReply: "hi outsider",
+	}
+
+	// Internal sender always gets the internal body, whatever the audience.
+	for _, aud := range []semcore.OOFAudience{semcore.OOFAudienceInternal, semcore.OOFAudienceExternal, semcore.OOFAudienceEveryone} {
+		policy.Audience = aud
+		subj, body, send := oofReplyFor(policy, true)
+		if !send || body != "hi colleague" || subj != "Away" {
+			t.Errorf("internal sender, audience %d: got (%q,%q,%v), want (Away,hi colleague,true)", aud, subj, body, send)
+		}
+	}
+
+	// External sender + internal-only audience (None): suppressed.
+	policy.Audience = semcore.OOFAudienceInternal
+	if _, _, send := oofReplyFor(policy, false); send {
+		t.Errorf("external sender + None audience: expected suppression")
+	}
+
+	// External sender + Known/All: external body.
+	for _, aud := range []semcore.OOFAudience{semcore.OOFAudienceExternal, semcore.OOFAudienceEveryone} {
+		policy.Audience = aud
+		_, body, send := oofReplyFor(policy, false)
+		if !send || body != "hi outsider" {
+			t.Errorf("external sender, audience %d: got (%q,%v), want (hi outsider,true)", aud, body, send)
+		}
+	}
+
+	// Empty external reply falls back to the shared TextBody.
+	policy.Audience = semcore.OOFAudienceEveryone
+	policy.ExternalReply = ""
+	if _, body, send := oofReplyFor(policy, false); !send || body != "shared" {
+		t.Errorf("external fallback: got (%q,%v), want (shared,true)", body, send)
+	}
+
+	// Nil policy never sends.
+	if _, _, send := oofReplyFor(nil, true); send {
+		t.Errorf("nil policy: expected send=false")
+	}
+}
 
 // TestHandleSieveVacation_NoQueue tests handleSieveVacation without queue
 func TestHandleSieveVacation_NoQueue(t *testing.T) {
