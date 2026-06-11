@@ -198,6 +198,25 @@ func TestHandlePushTest_Success(t *testing.T) {
 	}
 }
 
+// TestHandlePushTest_Unconfigured503 verifies that with no push service wired
+// (the dev default), POST /push/test reports 503 rather than a misleading 200
+// "sent" — sending a test notification that never leaves the server must fail
+// loud, mirroring the VAPID endpoint's honest 503.
+func TestHandlePushTest_Unconfigured503(t *testing.T) {
+	server, database, token := helperSetupAccount(t)
+	defer database.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/test", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("push test with no push service = %d, want 503", rec.Code)
+	}
+}
+
 // --- Additional Tests to Reach 85% ---
 
 func TestHandleCreateFilter_InvalidConditions(t *testing.T) {
