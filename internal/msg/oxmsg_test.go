@@ -1,6 +1,7 @@
 package msg
 
 import (
+	"bytes"
 	"encoding/binary"
 	"net/mail"
 	"sort"
@@ -315,6 +316,27 @@ func TestMessageMIME_AlternativeNoAttachment(t *testing.T) {
 	}
 	if ct := parsed.Header.Get("Content-Type"); !strings.HasPrefix(ct, "multipart/alternative") {
 		t.Errorf("Content-Type = %q, want multipart/alternative", ct)
+	}
+}
+
+// TestMessageMIME_Deterministic locks in idempotent re-import: the importer
+// deduplicates by content hash, so reconstructing the same message twice must
+// produce byte-identical output (a random multipart boundary would defeat it).
+func TestMessageMIME_Deterministic(t *testing.T) {
+	m, err := Parse(buildSampleMSG())
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	first, err := m.MIME()
+	if err != nil {
+		t.Fatalf("MIME #1: %v", err)
+	}
+	second, err := m.MIME()
+	if err != nil {
+		t.Fatalf("MIME #2: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Errorf("MIME() is not deterministic:\n--- first ---\n%s\n--- second ---\n%s", first, second)
 	}
 }
 

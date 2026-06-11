@@ -2,7 +2,9 @@ package msg
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"mime"
 	"mime/multipart"
@@ -76,6 +78,9 @@ func (m *Message) buildBody() (headers []string, body []byte, err error) {
 		// multipart/mixed: the body (single or alternative) then the attachments.
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
+		if berr := mw.SetBoundary(m.boundary("mixed")); berr != nil {
+			return nil, nil, berr
+		}
 		if hasText && hasHTML {
 			alt, altBoundary, aerr := m.alternativeBody()
 			if aerr != nil {
@@ -126,6 +131,9 @@ func (m *Message) singleBody(hasText, hasHTML bool) (contentType string, content
 func (m *Message) alternativeBody() (body []byte, boundary string, err error) {
 	var buf bytes.Buffer
 	aw := multipart.NewWriter(&buf)
+	if berr := aw.SetBoundary(m.boundary("alt")); berr != nil {
+		return nil, "", berr
+	}
 	if werr := writeQPPart(aw, "text/plain; charset=utf-8", []byte(m.BodyText)); werr != nil {
 		return nil, "", werr
 	}
@@ -171,6 +179,22 @@ func writeAttachmentPart(w *multipart.Writer, att Attachment) error {
 	}
 	_, err = part.Write(base64Wrap(att.Data))
 	return err
+}
+
+// boundary derives a stable MIME multipart boundary from the message body and
+// attachments, so reconstructing the same message twice yields byte-identical
+// output. That keeps re-importing the same .msg idempotent under the importer's
+// content-hash deduplication (a random boundary would defeat it). The kind
+// prefix keeps the nested mixed/alternative boundaries distinct.
+func (m *Message) boundary(kind string) string {
+	h := sha256.New()
+	h.Write([]byte(m.BodyText))
+	h.Write(m.BodyHTML)
+	for _, att := range m.Attachments {
+		h.Write([]byte(att.Filename))
+		h.Write(att.Data)
+	}
+	return "umail_" + kind + "_" + hex.EncodeToString(h.Sum(nil))[:32]
 }
 
 // qp quoted-printable-encodes content for a text part. Writes target a
