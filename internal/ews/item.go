@@ -302,25 +302,30 @@ type MessageTypeResponse struct {
 	// MimeContent is the full RFC 822 message, base64-encoded, returned only when
 	// the request's ItemShape sets IncludeMimeContent (it is the first element of
 	// the EWS item schema). Lets a client fetch the original .eml.
+	// Field order is the EWS ItemType/MessageType schema sequence: all ItemType
+	// base elements first (MimeContent … ConversationId), then the MessageType
+	// extension (Sender … IsRead). Outlook's typed deserializer walks the item in
+	// this order and silently drops items whose elements arrive out of sequence,
+	// so the declaration order (which encoding/xml emits verbatim) is load-bearing.
 	MimeContent      *MimeContentType            `xml:"http://schemas.microsoft.com/exchange/services/2006/types MimeContent,omitempty"`
 	ItemID           ItemIdType                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
 	ParentFolderID   FolderIdComponents          `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
 	ItemClass        string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemClass,omitempty"`
 	Subject          string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Subject,omitempty"`
 	Sensitivity      string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sensitivity,omitempty"`
-	Importance       string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
+	Body             BodyTypeResponse            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
+	Attachments      *AttachmentsType            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attachments,omitempty"`
 	DateTimeReceived string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types DateTimeReceived,omitempty"`
 	Size             int                         `xml:"http://schemas.microsoft.com/exchange/services/2006/types Size,omitempty"`
-	Body             BodyTypeResponse            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Body"`
-	From             *RecipientResponse          `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
+	Categories       *MessageCategoriesType      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
+	Importance       string                      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
+	InternetHeaders  *InternetMessageHeadersType `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternetMessageHeaders,omitempty"`
+	ConversationID   *ConversationIdType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ConversationId,omitempty"`
 	Sender           *RecipientResponse          `xml:"http://schemas.microsoft.com/exchange/services/2006/types Sender,omitempty"`
 	ToRecipients     *RecipientsResponse         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ToRecipients,omitempty"`
 	CcRecipients     *RecipientsResponse         `xml:"http://schemas.microsoft.com/exchange/services/2006/types CcRecipients,omitempty"`
+	From             *RecipientResponse          `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
 	IsRead           bool                        `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsRead"`
-	Categories       *MessageCategoriesType      `xml:"http://schemas.microsoft.com/exchange/services/2006/types Categories,omitempty"`
-	Attachments      *AttachmentsType            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Attachments,omitempty"`
-	ConversationID   *ConversationIdType         `xml:"http://schemas.microsoft.com/exchange/services/2006/types ConversationId,omitempty"`
-	InternetHeaders  *InternetMessageHeadersType `xml:"http://schemas.microsoft.com/exchange/services/2006/types InternetMessageHeaders,omitempty"`
 	// isMeetingRequest is an internal marker (never serialized) flagging that
 	// FindItem should surface this item as a MeetingRequest element so clients
 	// expose accept/decline on it.
