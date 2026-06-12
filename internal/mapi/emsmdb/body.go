@@ -18,24 +18,32 @@ type BodyStore interface {
 	ReadMessage(user, messageID string) ([]byte, error)
 }
 
-// extractMessageBody returns the plain-text body of a raw RFC 822 message. It
-// prefers a text/plain part, descending through multipart containers, and decodes
-// the common content-transfer-encodings. A message with no text/plain part yields
-// an empty string (its content lives only in an HTML part this path does not
-// serve).
+// extractMessageBody returns the plain-text body of a raw RFC 822 message
+// (PidTagBody). A message with no text/plain part yields an empty string.
 func extractMessageBody(raw []byte) string {
-	msg, err := mail.ReadMessage(bytes.NewReader(raw))
-	if err != nil {
-		return ""
-	}
-	text := partText(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body)
-	return strings.TrimSpace(text)
+	return strings.TrimSpace(string(extractPart(raw, "text/plain")))
 }
 
-// partText resolves the text/plain content of a MIME entity from its headers and
-// body reader, recursing into multipart containers and skipping HTML parts and
-// attachments so the plain body wins.
-func partText(contentType, encoding string, body io.Reader) string {
+// extractHTMLBody returns the HTML body bytes of a raw RFC 822 message
+// (PidTagHtml), or nil when the message has no text/html part.
+func extractHTMLBody(raw []byte) []byte {
+	return extractPart(raw, "text/html")
+}
+
+// extractPart returns the decoded content of the first MIME part whose media type
+// has the given prefix, descending through multipart containers and decoding the
+// common content-transfer-encodings. It returns nil when no part matches.
+func extractPart(raw []byte, want string) []byte {
+	msg, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+	return partOfType(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body, want)
+}
+
+// partOfType resolves the content of the wanted media type from a MIME entity
+// given its headers and body reader, recursing into multipart containers.
+func partOfType(contentType, encoding string, body io.Reader, want string) []byte {
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || mediaType == "" {
 		mediaType = "text/plain"
@@ -44,27 +52,23 @@ func partText(contentType, encoding string, body io.Reader) string {
 	case strings.HasPrefix(mediaType, "multipart/"):
 		mr := multipart.NewReader(body, params["boundary"])
 		for {
-			part, err := mr.NextPart()
-			if err != nil {
+			part, perr := mr.NextPart()
+			if perr != nil {
 				break
 			}
-			pt, _, perr := mime.ParseMediaType(part.Header.Get("Content-Type"))
-			if perr == nil && pt != "" && !strings.HasPrefix(pt, "text/plain") && !strings.HasPrefix(pt, "multipart/") {
-				continue
-			}
-			if text := partText(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part); text != "" {
-				return text
+			if data := partOfType(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, want); data != nil {
+				return data
 			}
 		}
-		return ""
-	case strings.HasPrefix(mediaType, "text/"):
-		data, err := io.ReadAll(decodeReader(encoding, body))
-		if err != nil && len(data) == 0 {
-			return ""
+		return nil
+	case strings.HasPrefix(mediaType, want):
+		data, derr := io.ReadAll(decodeReader(encoding, body))
+		if derr != nil && len(data) == 0 {
+			return nil
 		}
-		return string(data)
+		return data
 	default:
-		return ""
+		return nil
 	}
 }
 

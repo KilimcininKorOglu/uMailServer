@@ -117,6 +117,68 @@ func TestExtractMessageBody(t *testing.T) {
 	}
 }
 
+// TestExtractHTMLBody verifies the HTML part is recovered and that a plain-only
+// message reports no HTML.
+func TestExtractHTMLBody(t *testing.T) {
+	multipart := "Content-Type: multipart/alternative; boundary=b\r\n\r\n" +
+		"--b\r\nContent-Type: text/plain\r\n\r\nplain\r\n" +
+		"--b\r\nContent-Type: text/html\r\n\r\n<p>rich</p>\r\n--b--\r\n"
+	if got := string(extractHTMLBody([]byte(multipart))); got != "<p>rich</p>" {
+		t.Errorf("html = %q, want <p>rich</p>", got)
+	}
+	if got := extractHTMLBody([]byte("Subject: x\r\n\r\njust text")); got != nil {
+		t.Errorf("plain-only html = %q, want nil", got)
+	}
+	// A plain-only message still yields its plain body, not the HTML fallback.
+	if got := extractMessageBody([]byte("Content-Type: text/html\r\n\r\n<p>only html</p>")); got != "" {
+		t.Errorf("html-only plain body = %q, want empty", got)
+	}
+}
+
+// TestGetPropertiesServesHTMLBody verifies RopGetPropertiesSpecific serves
+// PidTagHtml from the Maildir body store.
+func TestGetPropertiesServesHTMLBody(t *testing.T) {
+	store := newFakeStore()
+	store.put("INBOX", &storage.MessageMetadata{UID: 9, MessageID: "msg-9", Subject: "hi"})
+	store.putRaw("msg-9", []byte("Content-Type: multipart/alternative; boundary=b\r\n\r\n"+
+		"--b\r\nContent-Type: text/plain\r\n\r\nplain body\r\n"+
+		"--b\r\nContent-Type: text/html\r\n\r\n<h1>rich body</h1>\r\n--b--\r\n"))
+	p, sess, handles := openInbox(t, store)
+	p.SetBodyStore(store)
+
+	om := wire.NewPush(wire.FlagUTF16)
+	om.Uint8(2)
+	om.Uint16(1252)
+	om.Uint64(makeFID(fidReplID, 0x0d))
+	om.Uint8(0)
+	om.Uint64(messageID(9))
+	_, handles = p.Dispatch(sess, ropRequest(RopOpenMessage, 1, om.Bytes()), handles, 0x10000)
+
+	cols := []wire.PropTag{wire.PidTagBody, wire.PidTagHtml}
+	gp := wire.NewPush(wire.FlagUTF16)
+	gp.Uint16(0)
+	gp.Uint16(1)
+	wire.PushPropertyTagArray(gp, cols)
+	resp, _ := p.Dispatch(sess, ropRequest(RopGetPropertiesSpecific, 2, gp.Bytes()), handles, 0x10000)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8()
+	q.Uint8()
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("return value = %#x, want success", rv)
+	}
+	row, err := wire.PullPropertyRow(q, cols)
+	if err != nil {
+		t.Fatalf("property row decode: %v", err)
+	}
+	if b, ok := row.Values[0].(string); !ok || b != "plain body" {
+		t.Errorf("plain body = %v, want \"plain body\"", row.Values[0])
+	}
+	if h, ok := row.Values[1].([]byte); !ok || string(h) != "<h1>rich body</h1>" {
+		t.Errorf("html body = %v, want <h1>rich body</h1>", row.Values[1])
+	}
+}
+
 // TestGetPropertiesServesBodyFromMaildir verifies RopGetPropertiesSpecific reads
 // the message body from the Maildir body store when PidTagBody is requested.
 func TestGetPropertiesServesBodyFromMaildir(t *testing.T) {

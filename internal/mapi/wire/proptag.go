@@ -103,6 +103,7 @@ const (
 	PidTagSubfolders           PropTag = PropTag(0x360A)<<16 | PropTag(PtBoolean)
 	PidTagContainerClass       PropTag = PropTag(0x3613)<<16 | PropTag(PtUnicode)
 	PidTagBody                 PropTag = PropTag(0x1000)<<16 | PropTag(PtUnicode)
+	PidTagHtml                 PropTag = PropTag(0x1013)<<16 | PropTag(PtBinary)
 	PidTagInstID               PropTag = PropTag(0x674D)<<16 | PropTag(PtI8)
 	PidTagInstanceNum          PropTag = PropTag(0x674E)<<16 | PropTag(PtLong)
 )

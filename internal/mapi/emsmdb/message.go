@@ -113,20 +113,34 @@ func ropGetPropertiesSpecific(c *ropCtx, _ uint8, hindex uint8) {
 		writeRopError(c.out, RopGetPropertiesSpecific, hindex, ecNotFound)
 		return
 	}
-	// The body lives in Maildir, not the metadata store; read and extract it only
-	// when a body column is requested and a body store is configured.
-	body, haveBody := "", false
-	if c.body != nil && slices.Contains(cols, wire.PidTagBody) {
+	// Bodies live in Maildir, not the metadata store; read the raw message once
+	// when a plain or HTML body column is requested and a body store is set.
+	var plain, html any
+	havePlain, haveHTML := false, false
+	needPlain := slices.Contains(cols, wire.PidTagBody)
+	needHTML := slices.Contains(cols, wire.PidTagHtml)
+	if c.body != nil && (needPlain || needHTML) {
 		if raw, rerr := c.body.ReadMessage(c.email, m.MessageID); rerr == nil {
-			body, haveBody = extractMessageBody(raw), true
+			if needPlain {
+				plain, havePlain = extractMessageBody(raw), true
+			}
+			if needHTML {
+				if h := extractHTMLBody(raw); h != nil {
+					html, haveHTML = h, true
+				}
+			}
 		}
 	}
 	row := wire.NewPush(wire.FlagUTF16)
 	if err := pushRow(row, cols, func(t wire.PropTag) (any, bool) {
-		if t == wire.PidTagBody {
-			return body, haveBody
+		switch t {
+		case wire.PidTagBody:
+			return plain, havePlain
+		case wire.PidTagHtml:
+			return html, haveHTML
+		default:
+			return messageProperty(t, m)
 		}
-		return messageProperty(t, m)
 	}); err != nil {
 		writeRopError(c.out, RopGetPropertiesSpecific, hindex, ecError)
 		return
