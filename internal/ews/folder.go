@@ -25,7 +25,7 @@ import (
 // neither a role nor a stored name is available, so custom folders no longer all
 // surface as "User Folder".
 func (s *Server) folderDisplayName(mailboxKey, role string, id semcore.FolderId) string {
-	if name := semcore.CanonicalFolderNameForRole(role); name != "" {
+	if name := exchangeFolderName(role); name != "" {
 		return name
 	}
 	if name, err := s.identity.FolderNameByID(strings.TrimPrefix(mailboxKey, "e:"), id); err == nil && name != "" {
@@ -259,14 +259,63 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 	return msg
 }
 
-// folderClassForRole returns the MAPI container class for a distinguished
-// folder role. Notes folders carry IPF.StickyNote (so Outlook treats their
-// contents as IPM.StickyNote items); every other folder defaults to IPF.Note.
-func folderClassForRole(role string) string {
-	if role == "notes" {
-		return "IPF.StickyNote"
+// exchangeFolderName maps a distinguished folder role to the Exchange display
+// name Outlook expects (e.g. "Sent Items", "Deleted Items", "Top of Information
+// Store"). This is deliberately distinct from semcore.CanonicalFolderNameForRole,
+// which returns the IMAP-canonical names ("INBOX", "Sent", "Trash") that drive
+// IMAP change notifications — rewriting that would corrupt IMAP folder names.
+// Returns "" for a role with no Exchange distinguished name (user folders).
+func exchangeFolderName(role string) string {
+	switch role {
+	case "inbox":
+		return "Inbox"
+	case "sent":
+		return "Sent Items"
+	case "drafts":
+		return "Drafts"
+	case "trash":
+		return "Deleted Items"
+	case "junk":
+		return "Junk Email"
+	case "outbox":
+		return "Outbox"
+	case "archive":
+		return "Archive"
+	case "calendar":
+		return "Calendar"
+	case "contacts":
+		return "Contacts"
+	case "tasks":
+		return "Tasks"
+	case "notes":
+		return "Notes"
+	case "scheduled":
+		return "Scheduled"
+	case "recoverableitems":
+		return "Recoverable Items"
+	case "ipmsubtree":
+		return "Top of Information Store"
+	default:
+		return ""
 	}
-	return "IPF.Note"
+}
+
+// folderClassForRole returns the MAPI container class (PR_CONTAINER_CLASS) for a
+// distinguished folder role. Calendar/contacts/tasks/notes carry their typed
+// classes so Outlook renders the right item view; every other folder is IPF.Note.
+func folderClassForRole(role string) string {
+	switch role {
+	case "calendar":
+		return "IPF.Appointment"
+	case "contacts":
+		return "IPF.Contact"
+	case "tasks":
+		return "IPF.Task"
+	case "notes":
+		return "IPF.StickyNote"
+	default:
+		return "IPF.Note"
+	}
 }
 
 // newFolderID builds the EWS FolderId for a folder, pairing its stable id with a
@@ -696,9 +745,11 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 
 	var matching []FolderType
 	for _, f := range allFolders {
-		// ListFolderIdentitiesForMailbox already filters by mboxKey scope.
-		// The mailbox store root anchors the hierarchy; never list it as a folder.
-		if f.Role == "root" {
+		// ListFolderIdentitiesForMailbox already filters by mboxKey scope. The
+		// store root and the IPM subtree (msgfolderroot) are sync anchors, not
+		// user-visible folders — emitting the IPM subtree as a child of root makes
+		// Outlook render "msgfolderroot" as a sibling folder, so skip both.
+		if isContainerRole(f.Role) {
 			continue
 		}
 		// Skip the parent itself.
