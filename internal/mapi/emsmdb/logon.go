@@ -3,6 +3,7 @@ package emsmdb
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"math/bits"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/mapi/wire"
@@ -27,12 +28,39 @@ const (
 	numSpecialFolders
 )
 
-// privateReplID is the replica id of a private mailbox store.
-const privateReplID uint16 = 1
+// Replica ids for a private mailbox store. fidReplID is embedded in the low 16
+// bits of every folder and message id (MS-OXCDATA 2.2.1.1); logonReplID is the
+// store's current replica reported in the Logon response, paired with the
+// replica guid (MS-OXCSTOR 2.2.1.1.3). The two namespaces are independent.
+const (
+	fidReplID   uint16 = 1
+	logonReplID uint16 = 5
+)
 
-// RopLogon response flags (MS-OXCSTOR 2.2.1.1.3): the reserved bit must be set,
-// and the mailbox owner holds owner and send-as rights.
+// RopLogon response flags (MS-OXCSTOR 2.2.1.1.3): the reserved bit (0x01) is
+// required, and the mailbox owner holds owner (0x02) and send-as (0x04) rights.
 const logonResponseFlags uint8 = 0x01 | 0x02 | 0x04
+
+// specialFolderGC holds the well-known 48-bit global counter of each special
+// folder, in the fixed order the private-mailbox Logon response requires
+// (MS-OXCSTOR 2.2.1.1.3). These are the canonical Exchange folder ids, not a
+// sequential assignment: the client caches them and uses them verbatim in later
+// ROPs, so they must stay stable across sessions.
+var specialFolderGC = [numSpecialFolders]uint64{
+	sfRoot:           0x01,
+	sfDeferredAction: 0x02,
+	sfSpoolerQueue:   0x03,
+	sfIPMSubtree:     0x09,
+	sfInbox:          0x0d,
+	sfOutbox:         0x0c,
+	sfSentItems:      0x0a,
+	sfDeletedItems:   0x0b,
+	sfCommonViews:    0x07,
+	sfSchedule:       0x08,
+	sfFinder:         0x05,
+	sfViews:          0x06,
+	sfShortcuts:      0x04,
+}
 
 // logonObject is the per-session store logon created by RopLogon. It owns the
 // mailbox identity and the special-folder id assignment that later ROPs resolve.
@@ -44,10 +72,13 @@ type logonObject struct {
 	folderIDs   [numSpecialFolders]uint64
 }
 
-// makeFID builds a folder id from a replica id and a 48-bit global counter
-// (MS-OXCDATA 2.2.1.1): the replica id occupies the low 16 bits.
+// makeFID builds a folder or message id from a replica id and a 48-bit global
+// counter (MS-OXCDATA 2.2.1.1, 2.2.1.2). On the wire an id is a 2-byte
+// little-endian replica id followed by a 6-byte big-endian global counter; since
+// the id is later serialized as a little-endian uint64, the global counter is
+// byte-reversed here so its bytes land big-endian after serialization.
 func makeFID(replID uint16, gc uint64) uint64 {
-	return uint64(replID) | (gc << 16)
+	return bits.ReverseBytes64(gc) | uint64(replID)
 }
 
 // guidFromBytes packs the first 16 bytes of b into a GUID whose serialized form
@@ -74,12 +105,12 @@ func derivedGUID(label, email string) wire.GUID {
 func newLogon(email string) *logonObject {
 	lo := &logonObject{
 		email:       email,
-		replID:      privateReplID,
+		replID:      fidReplID,
 		mailboxGUID: derivedGUID("mailbox", email),
 		replGUID:    derivedGUID("replica", email),
 	}
 	for i := range lo.folderIDs {
-		lo.folderIDs[i] = makeFID(lo.replID, uint64(i+1))
+		lo.folderIDs[i] = makeFID(lo.replID, specialFolderGC[i])
 	}
 	return lo
 }
@@ -104,7 +135,7 @@ func ropLogon(c *ropCtx, _ uint8, hindex uint8) {
 	// LOGON_REQUEST: logon flags, open flags, store state, then a counted essdn.
 	logonFlags := c.in.Uint8()
 	_ = c.in.Uint32() // open flags
-	storeStat := c.in.Uint32()
+	_ = c.in.Uint32() // client store state (the response reports the server's)
 	if n := int(c.in.Uint16()); n > 0 {
 		c.in.Bytes(n) // essdn (mailbox DN); the session email already identifies us
 	}
@@ -126,9 +157,10 @@ func ropLogon(c *ropCtx, _ uint8, hindex uint8) {
 	}
 	out.Uint8(logonResponseFlags)
 	out.GUID(lo.mailboxGUID)
-	out.Uint16(lo.replID)
+	out.Uint16(logonReplID)
 	out.GUID(lo.replGUID)
-	writeLogonTime(out, time.Now().UTC())
-	out.Uint64(0)         // gwart_time (per-replica watermark; unused online)
-	out.Uint32(storeStat) // echo the store state
+	now := time.Now().UTC()
+	writeLogonTime(out, now)
+	out.Uint64(wire.FileTimeFromTime(now)) // gwart time: server logon timestamp
+	out.Uint32(0)                          // store state: no special flags set
 }

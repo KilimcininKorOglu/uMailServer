@@ -1,6 +1,7 @@
 package emsmdb
 
 import (
+	"math/bits"
 	"testing"
 
 	"github.com/umailserver/umailserver/internal/mapi/wire"
@@ -40,17 +41,23 @@ func TestRopLogon(t *testing.T) {
 	for i := range folderIDs {
 		folderIDs[i] = q.Uint64()
 	}
-	if folderIDs[sfInbox] != makeFID(privateReplID, sfInbox+1) {
-		t.Errorf("Inbox fid = %#x, want %#x", folderIDs[sfInbox], makeFID(privateReplID, sfInbox+1))
+	// The Inbox id must decode to the spec wire layout: a 2-byte little-endian
+	// replica id then a 6-byte big-endian global counter (MS-OXCDATA 2.2.1.1),
+	// carrying the canonical Inbox counter 0x0d (MS-OXCSTOR 2.2.1.1.3).
+	inbox := folderIDs[sfInbox]
+	if got := uint16(inbox & 0xFFFF); got != fidReplID {
+		t.Errorf("Inbox replica id = %d, want %d", got, fidReplID)
+	}
+	if got := bits.ReverseBytes64(inbox &^ 0xFFFF); got != 0x0d {
+		t.Errorf("Inbox global counter = %#x, want 0x0d", got)
 	}
 	if folderIDs[sfIPMSubtree] == 0 {
 		t.Error("IPM subtree fid should be non-zero")
 	}
 	q.Uint8() // response flags
 	q.GUID()  // mailbox guid
-	replID := q.Uint16()
-	if replID != privateReplID {
-		t.Errorf("replid = %d, want %d", replID, privateReplID)
+	if replID := q.Uint16(); replID != logonReplID {
+		t.Errorf("response replica id = %d, want %d", replID, logonReplID)
 	}
 	q.GUID()   // repl guid
 	q.Skip(8)  // logon time
