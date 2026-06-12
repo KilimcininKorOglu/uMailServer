@@ -660,8 +660,9 @@ func TestSyncFolderHierarchy_InitialSync(t *testing.T) {
 	if msg.SyncState == "" {
 		t.Error("expected non-empty SyncState")
 	}
-	if len(msg.Changes.Updates) == 0 || len(msg.Changes.Updates[0].Folders) < 2 {
-		t.Errorf("expected at least 2 folder updates, got %d", len(msg.Changes.Updates))
+	// Initial sync (empty SyncState) reports every folder as its own <Create>.
+	if len(msg.Changes.Creates) < 2 {
+		t.Errorf("expected at least 2 folder creates on initial sync, got %d", len(msg.Changes.Creates))
 	}
 }
 

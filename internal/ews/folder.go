@@ -5,6 +5,8 @@ package ews
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -241,7 +243,7 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 	}
 	child, total, unread := s.folderCounts(checkKey, folderID, rec.Role, rootID, ipmID, displayName)
 	fxml := FolderType{
-		FolderID:         FolderIdComponents{ID: folderID.String()},
+		FolderID:         newFolderID(folderID.String(), child, total, unread),
 		ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
 		DisplayName:      displayName,
 		TotalCount:       total,
@@ -265,6 +267,22 @@ func folderClassForRole(role string) string {
 		return "IPF.StickyNote"
 	}
 	return "IPF.Note"
+}
+
+// newFolderID builds the EWS FolderId for a folder, pairing its stable id with a
+// ChangeKey. Real Exchange advances a folder's PR_CHANGE_KEY whenever the
+// folder's state moves; we mirror that contract by hashing the id together with
+// the folder's child/total/unread counts, so the key stays constant while the
+// folder is unchanged and advances the moment its contents move. Outlook's typed
+// deserializer base64-decodes the ChangeKey, so the value is base64; emitting it
+// (instead of a bare Id) also lets Outlook dedupe unchanged folders across the
+// repeated SyncFolderHierarchy updates rather than reprocessing every folder.
+func newFolderID(id string, child, total, unread int) FolderIdComponents {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s|%d|%d|%d", id, child, total, unread))
+	return FolderIdComponents{
+		ID: id,
+		CK: base64.StdEncoding.EncodeToString(sum[:16]),
+	}
 }
 
 // publicFoldersRole is the internal role the publicfoldersroot distinguished id
@@ -501,7 +519,7 @@ func (s *Server) resolvePublicFoldersRoot(mboxKey string) FolderResponseMessageT
 	msg := FolderResponseMessageType{ResponseClass: "Success"}
 	msg.ResponseCode.Value = ErrNoError
 	msg.Folders = FolderResponseContainer{Folders: []FolderType{{
-		FolderID:         FolderIdComponents{ID: "publicfoldersroot"},
+		FolderID:         newFolderID("publicfoldersroot", 0, 0, 0),
 		DisplayName:      "Public Folders",
 		FolderClass:      "IPF.Note",
 		ChildFolderCount: visible,
@@ -716,7 +734,7 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		}
 		child, total, unread := s.folderCounts(mailboxKey, f.FolderID, f.Role, rootID, ipmID, displayName)
 		fxml := FolderType{
-			FolderID:         FolderIdComponents{ID: f.FolderID.String()},
+			FolderID:         newFolderID(f.FolderID.String(), child, total, unread),
 			ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
 			DisplayName:      displayName,
 			TotalCount:       total,
@@ -900,7 +918,7 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 
 		displayName := f.DisplayName
 		fxml := FolderType{
-			FolderID:       FolderIdComponents{ID: folderID.String()},
+			FolderID:       newFolderID(folderID.String(), 0, 0, 0),
 			ParentFolderID: FolderIdComponents{ID: parentID.String()},
 			DisplayName:    displayName,
 			FolderClass:    "IPF.Note",
@@ -948,7 +966,7 @@ func (s *Server) handleCreateFolder(ctx context.Context, body []byte) []byte {
 		}
 
 		fxml := FolderType{
-			FolderID:       FolderIdComponents{ID: folderID.String()},
+			FolderID:       newFolderID(folderID.String(), 0, 0, 0),
 			ParentFolderID: FolderIdComponents{ID: parentID.String()},
 			DisplayName:    sf.DisplayName,
 			FolderClass:    "IPF.Note",
@@ -1138,11 +1156,20 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 		// Determine display name.
 		displayName := s.folderDisplayName(mboxKey, rec.Role, folderID)
 
+		// Recompute counts so the echoed FolderId carries the same state-derived
+		// ChangeKey the next SyncFolderHierarchy will report for this folder.
+		ucKey := strings.TrimPrefix(mboxKey, "e:")
+		ucRoot := s.rootFolderID(ucKey)
+		ucIPM := s.ipmSubtreeFolderID(ucKey)
+		child, total, unread := s.folderCounts(ucKey, folderID, rec.Role, ucRoot, ucIPM, displayName)
 		fxml := FolderType{
-			FolderID:       FolderIdComponents{ID: folderID.String()},
-			ParentFolderID: FolderIdComponents{ID: rec.ParentID.String()},
-			DisplayName:    displayName,
-			FolderClass:    folderClassForRole(rec.Role),
+			FolderID:         newFolderID(folderID.String(), child, total, unread),
+			ParentFolderID:   FolderIdComponents{ID: rec.ParentID.String()},
+			DisplayName:      displayName,
+			TotalCount:       total,
+			UnreadCount:      unread,
+			ChildFolderCount: child,
+			FolderClass:      folderClassForRole(rec.Role),
 		}
 		// Echo the resulting permission set and effective rights so the client
 		// sees the applied state.
@@ -1926,31 +1953,51 @@ type SyncFolderHierarchyRequest struct {
 	FolderShape FolderResponseShape `xml:"http://schemas.microsoft.com/exchange/services/2006/messages FolderShape"`
 }
 
-// SyncFolderChangesContainer wraps the SyncFolderHierarchy Changes element.
-// SyncFolderChangesUpdate wraps <Update> containing <Folder> elements.
+// SyncFolderHierarchyChangesType is a choice of Create | Update | Delete repeated
+// per change, each holding exactly one folder (one folder id for Delete). Outlook
+// walks the <Changes> children expecting a single folder per element, so every
+// changed folder is emitted as its own <Create>/<Update> — never one element
+// wrapping the whole set.
+
+// SyncFolderChangesCreate wraps a single <Create><Folder/></Create>. The initial
+// sync (empty SyncState) reports every folder as a Create so the client's empty
+// local hierarchy is populated rather than asked to update folders it has never
+// seen.
+type SyncFolderChangesCreate struct {
+	XMLName xml.Name   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
+	Folder  FolderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
+}
+
+// SyncFolderChangesUpdate wraps a single <Update><Folder/></Update> for a folder
+// whose state advanced since the client's last sync.
 type SyncFolderChangesUpdate struct {
-	XMLName xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
-	Folders []FolderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
+	XMLName xml.Name   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
+	Folder  FolderType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
 }
 
-// SyncFolderChangesDelete wraps <Delete> containing <FolderId> elements.
+// SyncFolderChangesDelete wraps a single <Delete><FolderId/></Delete>.
 type SyncFolderChangesDelete struct {
-	XMLName   xml.Name       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
-	FolderIds []FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
+	XMLName  xml.Name     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
+	FolderID FolderIDOnly `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 }
 
-// The <Changes> element is in messages namespace; <Update>/<Delete> are in types namespace.
+// The <Changes> element is in messages namespace; <Create>/<Update>/<Delete> are
+// in types namespace.
 type SyncFolderChangesContainer struct {
+	Creates []SyncFolderChangesCreate `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
 	Updates []SyncFolderChangesUpdate `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
 	Deletes []SyncFolderChangesDelete `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
 }
 
-// SyncFolderHierarchyMsg is one SyncFolderHierarchy result.
+// SyncFolderHierarchyMsg is one SyncFolderHierarchy result. The hierarchy syncs
+// in a single shot (no paging), so IncludesLastFolderInRange is always true; it
+// sits between SyncState and Changes per the EWS response-message schema.
 type SyncFolderHierarchyMsg struct {
-	ResponseClass string                     `xml:"ResponseClass,attr"`
-	ResponseCode  string                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
-	SyncState     string                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState"`
-	Changes       SyncFolderChangesContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Changes"`
+	ResponseClass             string                     `xml:"ResponseClass,attr"`
+	ResponseCode              string                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
+	SyncState                 string                     `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState"`
+	IncludesLastFolderInRange bool                       `xml:"http://schemas.microsoft.com/exchange/services/2006/messages IncludesLastFolderInRange"`
+	Changes                   SyncFolderChangesContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Changes"`
 }
 
 // SyncFolderHierarchyResponse is the EWS SyncFolderHierarchy operation response.
@@ -2006,29 +2053,35 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 	rootID := s.rootFolderID(mailboxKey)
 	ipmID := s.ipmSubtreeFolderID(mailboxKey)
 
-	// Collect deletions since last sync.
-	var deletions []FolderIDOnly
+	// Collect deletions since last sync, one <Delete> per removed folder.
+	var deletes []SyncFolderChangesDelete
 	if !deletedSince.IsZero() {
 		tombs, err := s.tombstones.ListTombstonesSince(mboxID, semcore.FolderId{}, deletedSince)
 		if err == nil {
 			for _, t := range tombs {
 				if t.IsFolderLevel() {
-					deletions = append(deletions, FolderIDOnly{ID: t.FolderID.String()})
+					deletes = append(deletes, SyncFolderChangesDelete{FolderID: FolderIDOnly{ID: t.FolderID.String()}})
 				}
 			}
 		}
 	}
 
-	// Build updates: all folders on initial sync; modified folders on incremental.
-	var updates []FolderType
+	// Initial sync (empty SyncState) reports every folder as a Create so the
+	// client populates an empty hierarchy; incremental sync reports advanced
+	// folders as Update. Each folder is its own change element.
+	initial := req.SyncState == ""
+	var creates []SyncFolderChangesCreate
+	var updates []SyncFolderChangesUpdate
 	for _, f := range allFolders {
-		// ListFolderIdentitiesForMailbox already filters by mboxKey scope.
-		// The mailbox root is the sync anchor, not a child Create; never emit it.
-		if f.Role == "root" {
+		// ListFolderIdentitiesForMailbox already filters by mboxKey scope. The
+		// store root and the IPM subtree (msgfolderroot) are sync anchors, not
+		// user-visible child folders — emitting either makes Outlook render the
+		// anchor itself as a sibling folder, so neither is ever a Create.
+		if isContainerRole(f.Role) {
 			continue
 		}
 		// On incremental sync, skip folders whose modseq hasn't advanced.
-		if req.SyncState != "" && f.HighestModSeq <= folderVersion {
+		if !initial && f.HighestModSeq <= folderVersion {
 			continue
 		}
 
@@ -2037,7 +2090,7 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 		parentRef := s.effectiveParentID(f.Role, f.ParentID, rootID, ipmID)
 		child, total, unread := s.folderCounts(mailboxKey, f.FolderID, f.Role, rootID, ipmID, displayName)
 		fxml := FolderType{
-			FolderID:         FolderIdComponents{ID: f.FolderID.String()},
+			FolderID:         newFolderID(f.FolderID.String(), child, total, unread),
 			ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
 			DisplayName:      displayName,
 			TotalCount:       total,
@@ -2045,29 +2098,32 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 			ChildFolderCount: child,
 			FolderClass:      folderClassForRole(f.Role),
 		}
-		updates = append(updates, fxml)
+		if initial {
+			creates = append(creates, SyncFolderChangesCreate{Folder: fxml})
+		} else {
+			updates = append(updates, SyncFolderChangesUpdate{Folder: fxml})
+		}
 	}
 
 	// Persist new sync state.
 	newVersion := folderVersion + 1
-	newState := fmt.Sprintf("v%d:folders:%d", newVersion, len(updates))
+	newState := fmt.Sprintf("v%d:folders:%d", newVersion, len(creates)+len(updates))
 	if err := s.sync.PutSyncState(mboxID, semcore.FolderId{}, clientID, newState); err != nil {
 		return s.errorResponseXML("SyncFolderHierarchy", ErrErrorSync, err.Error())
 	}
 
 	resp := SyncFolderHierarchyResponse{}
-	var syncChanges SyncFolderChangesContainer
-	if len(updates) > 0 {
-		syncChanges.Updates = []SyncFolderChangesUpdate{{Folders: updates}}
-	}
-	if len(deletions) > 0 {
-		syncChanges.Deletes = []SyncFolderChangesDelete{{FolderIds: deletions}}
+	syncChanges := SyncFolderChangesContainer{
+		Creates: creates,
+		Updates: updates,
+		Deletes: deletes,
 	}
 	resp.ResponseMessages.Messages = []SyncFolderHierarchyMsg{{
-		ResponseClass: "Success",
-		ResponseCode:  string(ErrNoError),
-		SyncState:     newState,
-		Changes:       syncChanges,
+		ResponseClass:             "Success",
+		ResponseCode:              string(ErrNoError),
+		SyncState:                 newState,
+		IncludesLastFolderInRange: true,
+		Changes:                   syncChanges,
 	}}
 
 	return buildResponseEnvelope(resp)
