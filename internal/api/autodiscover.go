@@ -289,7 +289,7 @@ func (s *Server) buildAutodiscoverResponse(email, domain, host string, accountTi
 			Type:        "MAPI",
 			Server:      s.serverHost(),
 			SSL:         "on",
-			AuthPackage: "ntlm",
+			AuthPackage: "basic",
 		}
 		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, mapiProtocol)
 
@@ -310,7 +310,7 @@ func (s *Server) buildAutodiscoverResponse(email, domain, host string, accountTi
 			Type:        "OAB",
 			Server:      s.serverHost(),
 			SSL:         "on",
-			AuthPackage: "ntlm",
+			AuthPackage: "basic",
 		}
 		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, oabProtocol)
 	}
