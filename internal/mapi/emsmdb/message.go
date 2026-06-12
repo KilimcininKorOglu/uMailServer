@@ -2,6 +2,7 @@ package emsmdb
 
 import (
 	"math/bits"
+	"slices"
 
 	"github.com/umailserver/umailserver/internal/mapi/wire"
 	"github.com/umailserver/umailserver/internal/storage"
@@ -112,8 +113,19 @@ func ropGetPropertiesSpecific(c *ropCtx, _ uint8, hindex uint8) {
 		writeRopError(c.out, RopGetPropertiesSpecific, hindex, ecNotFound)
 		return
 	}
+	// The body lives in Maildir, not the metadata store; read and extract it only
+	// when a body column is requested and a body store is configured.
+	body, haveBody := "", false
+	if c.body != nil && slices.Contains(cols, wire.PidTagBody) {
+		if raw, rerr := c.body.ReadMessage(c.email, m.MessageID); rerr == nil {
+			body, haveBody = extractMessageBody(raw), true
+		}
+	}
 	row := wire.NewPush(wire.FlagUTF16)
 	if err := pushRow(row, cols, func(t wire.PropTag) (any, bool) {
+		if t == wire.PidTagBody {
+			return body, haveBody
+		}
 		return messageProperty(t, m)
 	}); err != nil {
 		writeRopError(c.out, RopGetPropertiesSpecific, hindex, ecError)

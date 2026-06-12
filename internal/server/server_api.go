@@ -272,7 +272,11 @@ func (s *Server) startAPI() {
 		// api.ContextKeyEmail; bridge it into the context key the emsmdb handler
 		// reads, keeping the protocol package independent of the HTTP layer.
 		if s.storageDB != nil {
-			emsmdbServer := emsmdb.NewServer(emsmdb.NewProcessor(s.storageDB))
+			emsmdbProcessor := emsmdb.NewProcessor(s.storageDB)
+			if s.msgStore != nil {
+				emsmdbProcessor.SetBodyStore(s.msgStore)
+			}
+			emsmdbServer := emsmdb.NewServer(emsmdbProcessor)
 			s.apiServer.SetEMSMDBHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {
 					r = r.WithContext(emsmdb.WithEmail(r.Context(), email))

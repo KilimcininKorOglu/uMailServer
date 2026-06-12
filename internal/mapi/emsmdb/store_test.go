@@ -14,12 +14,14 @@ type fakeStore struct {
 	mailboxes []string
 	uids      map[string][]uint32
 	meta      map[string]map[uint32]*storage.MessageMetadata
+	raw       map[string][]byte // storage message id -> raw RFC 822
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		uids: map[string][]uint32{},
 		meta: map[string]map[uint32]*storage.MessageMetadata{},
+		raw:  map[string][]byte{},
 	}
 }
 
@@ -65,4 +67,16 @@ func (f *fakeStore) GetMessageMetadata(_, mailbox string, uid uint32) (*storage.
 		return m, nil
 	}
 	return nil, errors.New("message not found")
+}
+
+// putRaw records the raw RFC 822 bytes for a message id, for the body store.
+func (f *fakeStore) putRaw(messageID string, raw []byte) {
+	f.raw[messageID] = raw
+}
+
+func (f *fakeStore) ReadMessage(_, messageID string) ([]byte, error) {
+	if b, ok := f.raw[messageID]; ok {
+		return b, nil
+	}
+	return nil, errors.New("raw message not found")
 }

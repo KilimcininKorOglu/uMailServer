@@ -56,13 +56,19 @@ func stateFor(sess *Session) *sessionObjects {
 
 // Processor implements the ROP dispatcher: it parses a ROP request list and
 // produces the ROP response list against a session's object table. Store-backed
-// operations read the canonical mailbox store.
+// operations read the canonical mailbox store; an optional body store serves
+// message bodies from Maildir.
 type Processor struct {
 	store Store
+	body  BodyStore
 }
 
 // NewProcessor returns a ROP processor backed by the canonical mailbox store.
 func NewProcessor(store Store) *Processor { return &Processor{store: store} }
+
+// SetBodyStore attaches the Maildir body store used to serve message bodies. When
+// it is nil, body properties are reported as unavailable.
+func (p *Processor) SetBodyStore(b BodyStore) { p.body = b }
 
 var _ ROPDispatcher = (*Processor)(nil)
 
@@ -70,6 +76,7 @@ var _ ROPDispatcher = (*Processor)(nil)
 type ropCtx struct {
 	email   string
 	store   Store
+	body    BodyStore
 	state   *sessionObjects
 	handles []uint32
 	in      *wire.Pull
@@ -137,7 +144,7 @@ func (p *Processor) Dispatch(sess *Session, ropData []byte, handlesIn []uint32, 
 			writeRopError(out, ropID, hindex, ecNotImplemented)
 			break
 		}
-		c := &ropCtx{email: sess.Email, store: p.store, state: st, handles: handles, in: in, out: out}
+		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, state: st, handles: handles, in: in, out: out}
 		h(c, logonID, hindex)
 		handles = c.handles
 		if in.Err() != nil {

@@ -92,6 +92,70 @@ func TestOpenMessageAndGetProperties(t *testing.T) {
 	}
 }
 
+// TestExtractMessageBody verifies the plain-text body is recovered from simple,
+// multipart, and transfer-encoded messages.
+func TestExtractMessageBody(t *testing.T) {
+	cases := []struct{ name, raw, want string }{
+		{"plain", "Subject: x\r\n\r\nhello world", "hello world"},
+		{
+			"multipart prefers plain",
+			"Content-Type: multipart/alternative; boundary=b\r\n\r\n" +
+				"--b\r\nContent-Type: text/plain\r\n\r\nplain part\r\n" +
+				"--b\r\nContent-Type: text/html\r\n\r\n<p>html part</p>\r\n--b--\r\n",
+			"plain part",
+		},
+		{
+			"quoted-printable utf-8",
+			"Content-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nca=C3=A7=C4=B1lan",
+			"caçılan",
+		},
+	}
+	for _, c := range cases {
+		if got := extractMessageBody([]byte(c.raw)); got != c.want {
+			t.Errorf("%s: body = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestGetPropertiesServesBodyFromMaildir verifies RopGetPropertiesSpecific reads
+// the message body from the Maildir body store when PidTagBody is requested.
+func TestGetPropertiesServesBodyFromMaildir(t *testing.T) {
+	store := newFakeStore()
+	store.put("INBOX", &storage.MessageMetadata{UID: 7, MessageID: "msg-7", Subject: "hi"})
+	store.putRaw("msg-7", []byte("Subject: hi\r\n\r\nthe body text"))
+	p, sess, handles := openInbox(t, store)
+	p.SetBodyStore(store)
+
+	om := wire.NewPush(wire.FlagUTF16)
+	om.Uint8(2)
+	om.Uint16(1252)
+	om.Uint64(makeFID(fidReplID, 0x0d))
+	om.Uint8(0)
+	om.Uint64(messageID(7))
+	_, handles = p.Dispatch(sess, ropRequest(RopOpenMessage, 1, om.Bytes()), handles, 0x10000)
+
+	cols := []wire.PropTag{wire.PidTagBody}
+	gp := wire.NewPush(wire.FlagUTF16)
+	gp.Uint16(0)
+	gp.Uint16(1)
+	wire.PushPropertyTagArray(gp, cols)
+	resp, _ := p.Dispatch(sess, ropRequest(RopGetPropertiesSpecific, 2, gp.Bytes()), handles, 0x10000)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8() // rop id
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("return value = %#x, want success", rv)
+	}
+	row, err := wire.PullPropertyRow(q, cols)
+	if err != nil {
+		t.Fatalf("property row decode: %v", err)
+	}
+	if b, ok := row.Values[0].(string); !ok || b != "the body text" {
+		t.Errorf("body = %v, want \"the body text\"", row.Values[0])
+	}
+}
+
 // TestOpenMessageUnknownIDFails verifies opening a message id with no backing
 // store record fails with ecNotFound.
 func TestOpenMessageUnknownIDFails(t *testing.T) {
