@@ -120,6 +120,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleModProps(w, r, body)
 	case "ModLinkAtt":
 		s.handleModLinkAtt(w, r, body)
+	case "GetPropList":
+		s.handleGetPropList(w, r, body)
+	case "UpdateStat":
+		s.handleUpdateStat(w, r, body)
 	case "PING":
 		s.writeResponse(w, r, "PING", "", nil)
 	default:
