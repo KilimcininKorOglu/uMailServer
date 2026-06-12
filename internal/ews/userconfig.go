@@ -152,6 +152,7 @@ func (s *Server) handleGetUserConfiguration(ctx context.Context, body []byte) []
 	owner, name := userConfigOwnerName(mboxKey, req.Name)
 	stored, err := s.db.GetUserConfig(owner, name)
 	isOWAOptions := strings.EqualFold(req.Name.Name, owaUserOptionsName)
+	isRules := strings.EqualFold(req.Name.Name, "Rules")
 	// Signature bridge: surface the canonical webmail signature through OWA's
 	// options config so an EWS/Outlook client reads the same signature webmail
 	// set. The bridge is minimally invasive — it only engages when there is a
@@ -162,14 +163,23 @@ func (s *Server) handleGetUserConfiguration(ctx context.Context, body []byte) []
 		sig, _ = s.db.GetSignature(owner) //nolint:errcheck // empty signature is a valid (no-signature) state
 	}
 	if err != nil {
-		if !isOWAOptions || sig == "" {
+		switch {
+		case isRules:
+			// Outlook for Mac probes the Rules config before populating its
+			// Server Rules list. An ItemNotFound error makes it abandon rules and
+			// never call GetInboxRules; returning an empty Success
+			// UserConfiguration lets it proceed to the rule listing path (the
+			// same way it accepts an empty CategoryList probe and initializes the
+			// feature instead of giving up).
+			stored = &db.UserConfigBlob{}
+		case isOWAOptions && sig != "":
+			stored = &db.UserConfigBlob{} // synthesize so the signature can be injected
+		default:
 			// A well-formed GetUserConfigurationResponse error (not the bare
-			// generic ResponseMessage): Outlook probes the "Rules" config via
-			// GetUserConfiguration and must parse this not-found envelope to fall
-			// back to GetInboxRules instead of choking on a malformed body.
+			// generic ResponseMessage) so Outlook parses the not-found envelope
+			// cleanly instead of choking on a malformed body.
 			return userConfigNotFoundResponse()
 		}
-		stored = &db.UserConfigBlob{} // synthesize so the signature can be injected
 	}
 	if isOWAOptions {
 		if _, hadSig := owaSignatureFromDict(stored.Dictionary); sig != "" || hadSig {
