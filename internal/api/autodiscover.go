@@ -51,6 +51,7 @@ type AutodiscoverProtocol struct {
 	Type        string   `xml:"Type"`
 	Server      string   `xml:"Server,omitempty"`
 	ASUrl       string   `xml:"ASUrl,omitempty"`
+	EwsUrl      string   `xml:"EwsUrl,omitempty"`
 	OOFUrl      string   `xml:"OOFUrl,omitempty"`
 	OABUrl      string   `xml:"OABUrl,omitempty"`
 	Port        int      `xml:"Port,omitempty"`
@@ -60,6 +61,11 @@ type AutodiscoverProtocol struct {
 	SSL         string   `xml:"SSL,omitempty"`
 	Auth        string   `xml:"Auth,omitempty"`
 	AuthPackage string   `xml:"AuthPackage,omitempty"`
+	// CertPrincipalName and ServerExclusiveConnect let Outlook treat this as an
+	// exclusive on-premises Exchange endpoint over Basic auth (matches a working
+	// Exchange-compatible server's EXPR block).
+	CertPrincipalName      string `xml:"CertPrincipalName,omitempty"`
+	ServerExclusiveConnect string `xml:"ServerExclusiveConnect,omitempty"`
 	MapiHttp    string   `xml:"MapiHttp,omitempty"`
 	MailboxDN   string   `xml:"MailboxDN,omitempty"`
 	RedirectURL string   `xml:"RedirectUrl,omitempty"`
@@ -221,11 +227,15 @@ func (s *Server) buildAutodiscoverResponse(email, domain, host string, accountTi
 	if (tier == semcore.TierExchange || tier == semcore.TierOutlook) && ewsgate {
 		ewsURL := "https://" + host + "/EWS/Exchange.asmx"
 		exprProtocol := AutodiscoverProtocol{
-			Type:   "EXPR",
-			Server: host,
-			SSL:    "on",
-			ASUrl:  ewsURL,
-			OOFUrl: ewsURL,
+			Type:                   "EXPR",
+			Server:                 host,
+			SSL:                    "On",
+			CertPrincipalName:      "None",
+			AuthPackage:            "basic",
+			ServerExclusiveConnect: "on",
+			ASUrl:                  ewsURL,
+			EwsUrl:                 ewsURL,
+			OOFUrl:                 ewsURL,
 		}
 		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, exprProtocol)
 	}
