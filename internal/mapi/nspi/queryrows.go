@@ -80,7 +80,7 @@ func (s *Server) handleQueryRows(w http.ResponseWriter, r *http.Request, body []
 		return
 	}
 
-	gal := s.dir.ResolveGAL("")
+	gal := s.gal()
 	stat.TotalRec = uint32(len(gal))
 	var rows []DirectoryEntry
 	if len(explicit) > 0 {

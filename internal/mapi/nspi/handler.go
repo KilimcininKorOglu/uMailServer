@@ -124,6 +124,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleGetPropList(w, r, body)
 	case "UpdateStat":
 		s.handleUpdateStat(w, r, body)
+	case "SeekEntries":
+		s.handleSeekEntries(w, r, body)
 	case "PING":
 		s.writeResponse(w, r, "PING", "", nil)
 	default:

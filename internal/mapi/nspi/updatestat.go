@@ -55,7 +55,7 @@ func (s *Server) handleUpdateStat(w http.ResponseWriter, r *http.Request, body [
 		return
 	}
 
-	gal := s.dir.ResolveGAL("")
+	gal := s.gal()
 	total := uint32(len(gal))
 	initRow := positionInList(stat, total)
 	row := initRow

@@ -28,7 +28,7 @@ func (s *Server) handleGetPropList(w http.ResponseWriter, r *http.Request, body 
 		s.writeResponse(w, r, "GetPropList", "", getPropListResult(ecError, nil))
 		return
 	}
-	gal := s.dir.ResolveGAL("")
+	gal := s.gal()
 	if midIndex(mid, len(gal)) < 0 {
 		s.writeResponse(w, r, "GetPropList", "", getPropListResult(ecError, nil))
 		return

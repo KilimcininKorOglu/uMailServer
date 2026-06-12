@@ -1,6 +1,7 @@
 package nspi
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/mapi/wire"
@@ -19,6 +20,21 @@ type DirectoryEntry struct {
 	Email       string
 	DisplayName string
 	ObjectClass string // "User", "DistributionList", "Room", "Equipment", "Contact"
+}
+
+// gal returns the full GAL ordered by display name — the SortTypeDisplayName
+// order the address book presents (MS-OXNSPI). Every position-based operation
+// reads this one stable order so a minimal id from one operation addresses the
+// same entry in another.
+func (s *Server) gal() []DirectoryEntry {
+	if s.dir == nil {
+		return nil
+	}
+	entries := s.dir.ResolveGAL("")
+	sort.SliceStable(entries, func(i, j int) bool {
+		return strings.ToLower(entries[i].DisplayName) < strings.ToLower(entries[j].DisplayName)
+	})
+	return entries
 }
 
 // Address-book minimal-id markers (MS-OXNSPI 2.2.8) and the base above them where

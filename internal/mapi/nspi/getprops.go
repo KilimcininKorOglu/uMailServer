@@ -41,7 +41,7 @@ func (s *Server) handleGetProps(w http.ResponseWriter, r *http.Request, body []b
 		s.writeResponse(w, r, "GetProps", "", getPropsResult(ecError, stat.CodePage, nil))
 		return
 	}
-	gal := s.dir.ResolveGAL("")
+	gal := s.gal()
 	idx := midIndex(stat.CurrentRec, len(gal))
 	if idx < 0 {
 		s.writeResponse(w, r, "GetProps", "", getPropsResult(ecNotFound, stat.CodePage, nil))

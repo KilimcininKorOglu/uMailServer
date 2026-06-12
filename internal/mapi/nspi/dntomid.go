@@ -32,7 +32,7 @@ func (s *Server) handleDNToMID(w http.ResponseWriter, r *http.Request, body []by
 		return
 	}
 
-	gal := s.dir.ResolveGAL("")
+	gal := s.gal()
 	mids := make([]uint32, len(dns))
 	for i, dn := range dns {
 		mids[i] = nameUnresolved // 0 when the name resolves to no entry

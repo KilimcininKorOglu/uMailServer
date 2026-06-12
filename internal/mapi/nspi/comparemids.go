@@ -25,7 +25,7 @@ func (s *Server) handleCompareMinIds(w http.ResponseWriter, r *http.Request, bod
 		return
 	}
 
-	gal := s.dir.ResolveGAL("")
+	gal := s.gal()
 	idx1 := midIndex(mid1, len(gal))
 	idx2 := midIndex(mid2, len(gal))
 	if idx1 < 0 || idx2 < 0 {
