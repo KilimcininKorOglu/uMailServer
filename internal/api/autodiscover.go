@@ -23,16 +23,29 @@ type AutodiscoverRequest struct {
 	} `xml:"Request"`
 }
 
-// AutodiscoverResponse represents an Autodiscover response
+// AutodiscoverResponse represents an Autodiscover response. The wire format is a
+// two-namespace nested document: the root <Autodiscover> carries the
+// responseschema/2006 namespace, and the inner <Response> carries the
+// outlook/responseschema/2006a namespace. Outlook validates the User/Account
+// payload against the 2006a namespace; without it (or with a mis-named root) the
+// client reads the Account/Protocol leniently — so EWS discovery still works —
+// but never binds <User><DisplayName> to the account, leaving "Full name" blank.
 type AutodiscoverResponse struct {
-	XMLName  xml.Name `xml:"AutodiscoverResponse"`
+	XMLName  xml.Name `xml:"Autodiscover"`
 	Space    string   `xml:"xmlns,attr"`
 	Response struct {
 		XMLName xml.Name `xml:"Response"`
+		Space   string   `xml:"xmlns,attr"`
 		User    struct {
-			XMLName      xml.Name `xml:"User"`
-			DisplayName  string   `xml:"DisplayName"`
-			EMailAddress string   `xml:"EMailAddress"`
+			XMLName xml.Name `xml:"User"`
+			// Canonical Exchange User block: AutoDiscoverSMTPAddress, DisplayName,
+			// LegacyDN, DeploymentId. EMailAddress is intentionally absent — it is
+			// not part of the canonical User block and its presence (under the
+			// wrong namespace) is what kept Outlook from adopting DisplayName.
+			AutoDiscoverSMTPAddress string `xml:"AutoDiscoverSMTPAddress,omitempty"`
+			DisplayName             string `xml:"DisplayName"`
+			LegacyDN                string `xml:"LegacyDN,omitempty"`
+			DeploymentId            string `xml:"DeploymentId,omitempty"`
 		} `xml:"User"`
 		Account struct {
 			XMLName     xml.Name               `xml:"Account"`
@@ -69,6 +82,20 @@ type AutodiscoverProtocol struct {
 	MapiHttp    string   `xml:"MapiHttp,omitempty"`
 	MailboxDN   string   `xml:"MailboxDN,omitempty"`
 	RedirectURL string   `xml:"RedirectUrl,omitempty"`
+}
+
+// autodiscoverDeploymentID is the organization deployment GUID advertised in the
+// Autodiscover User block. Outlook only checks that the value is present and a
+// well-formed GUID; it does not route on it, so a stable synthetic value is
+// sufficient for a single-organization deployment.
+const autodiscoverDeploymentID = "646d6169-6c73-6572-7665-72756d61696c"
+
+// legacyExchangeDN builds the Exchange legacy distinguished name (essdn) for a
+// mailbox local part, matching the shape Exchange advertises in Autodiscover.
+// The administrative group token (FYDIBOHF23SPDLT) is the fixed value every
+// Exchange organization uses, so Outlook recognizes the mailbox as Exchange.
+func legacyExchangeDN(localPart string) string {
+	return "/o=uMailServer/ou=Exchange Administrative Group (FYDIBOHF23SPDLT)/cn=Recipients/cn=" + localPart
 }
 
 // handleAutodiscover handles Microsoft Autodiscover requests
@@ -203,9 +230,17 @@ func (s *Server) buildAutodiscoverResponse(email, domain, host string, accountTi
 	resp := &AutodiscoverResponse{
 		Space: "http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006",
 	}
+	resp.Response.Space = "http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a"
 
 	resp.Response.User.DisplayName = email
-	resp.Response.User.EMailAddress = email
+	resp.Response.User.AutoDiscoverSMTPAddress = email
+	// A LegacyDN and DeploymentId make the User block resemble a real Exchange
+	// mailbox so Outlook adopts the DisplayName as the account "Full name". The
+	// LegacyDN value is not used for routing here (Outlook for Mac connects over
+	// EXPR/EWS, not MAPI), only to satisfy the expected mailbox shape.
+	localPart, _, _ := strings.Cut(email, "@")
+	resp.Response.User.LegacyDN = legacyExchangeDN(localPart)
+	resp.Response.User.DeploymentId = autodiscoverDeploymentID
 	resp.Response.Account.AccountType = "email"
 	resp.Response.Account.Action = "settings"
 
@@ -347,7 +382,7 @@ func (s *Server) sendAutodiscoverError(w http.ResponseWriter, status int, messag
 	w.WriteHeader(status)
 
 	resp := struct {
-		XMLName xml.Name `xml:"AutodiscoverResponse"`
+		XMLName xml.Name `xml:"Autodiscover"`
 		Space   string   `xml:"xmlns,attr"`
 		Error   struct {
 			XMLName    xml.Name `xml:"Error"`

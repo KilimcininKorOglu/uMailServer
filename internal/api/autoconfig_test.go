@@ -197,8 +197,11 @@ func TestBuildAutodiscoverResponse(t *testing.T) {
 	if resp.Space == "" {
 		t.Error("Expected non-empty space")
 	}
-	if resp.Response.User.EMailAddress != "user@example.com" {
-		t.Errorf("Expected email user@example.com, got %s", resp.Response.User.EMailAddress)
+	if resp.Response.User.AutoDiscoverSMTPAddress != "user@example.com" {
+		t.Errorf("Expected AutoDiscoverSMTPAddress user@example.com, got %s", resp.Response.User.AutoDiscoverSMTPAddress)
+	}
+	if resp.Response.Space == "" {
+		t.Error("Expected inner Response to carry the outlook/responseschema/2006a namespace")
 	}
 	if resp.Response.Account.AccountType != "email" {
 		t.Errorf("Expected account type email, got %s", resp.Response.Account.AccountType)
