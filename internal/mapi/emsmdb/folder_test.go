@@ -10,7 +10,7 @@ import (
 // table with the logon object bound at index 0, ready for folder ROPs.
 func logonSession(t *testing.T) (*Processor, *Session, []uint32) {
 	t.Helper()
-	p := NewProcessor()
+	p := NewProcessor(newFakeStore())
 	sess := &Session{ID: "s", Email: "qa.bob@local.test"}
 	rop := append([]byte{RopLogon, 0x00, 0x00}, encodeLogonRequest()...)
 	_, handles := p.Dispatch(sess, rop, []uint32{0xFFFFFFFF}, 0x10000)

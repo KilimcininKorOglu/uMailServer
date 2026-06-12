@@ -8,6 +8,23 @@ type folderObject struct {
 	special  int // index into the logon's special folders
 }
 
+// storageFolderName returns the IMAP-canonical mailbox name that backs a special
+// folder slot, or "" when the slot carries no message content (the structural
+// Exchange folders and the transient Outbox). These are the same names the IMAP
+// and EWS surfaces use, so every surface enumerates one shared store.
+func storageFolderName(special int) string {
+	switch special {
+	case sfInbox:
+		return "INBOX"
+	case sfSentItems:
+		return "Sent"
+	case sfDeletedItems:
+		return "Trash"
+	default:
+		return ""
+	}
+}
+
 // receiveFolderClass is the message class the default receive folder is
 // configured for. An empty string means the folder receives every class, which
 // is how a simple mailbox routes all delivery to the Inbox (MS-OXCSTOR 2.2.1.2).

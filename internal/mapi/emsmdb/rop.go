@@ -56,17 +56,20 @@ func stateFor(sess *Session) *sessionObjects {
 
 // Processor implements the ROP dispatcher: it parses a ROP request list and
 // produces the ROP response list against a session's object table. Store-backed
-// operations are added as the ROP set grows.
-type Processor struct{}
+// operations read the canonical mailbox store.
+type Processor struct {
+	store Store
+}
 
-// NewProcessor returns a ROP processor.
-func NewProcessor() *Processor { return &Processor{} }
+// NewProcessor returns a ROP processor backed by the canonical mailbox store.
+func NewProcessor(store Store) *Processor { return &Processor{store: store} }
 
 var _ ROPDispatcher = (*Processor)(nil)
 
 // ropCtx carries the per-ROP execution state.
 type ropCtx struct {
 	email   string
+	store   Store
 	state   *sessionObjects
 	handles []uint32
 	in      *wire.Pull
@@ -104,6 +107,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopLogon:            ropLogon,
 	RopGetReceiveFolder: ropGetReceiveFolder,
 	RopOpenFolder:       ropOpenFolder,
+	RopGetContentsTable: ropGetContentsTable,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
@@ -128,7 +132,7 @@ func (p *Processor) Dispatch(sess *Session, ropData []byte, handlesIn []uint32, 
 			writeRopError(out, ropID, hindex, ecNotImplemented)
 			break
 		}
-		c := &ropCtx{email: sess.Email, state: st, handles: handles, in: in, out: out}
+		c := &ropCtx{email: sess.Email, store: p.store, state: st, handles: handles, in: in, out: out}
 		h(c, logonID, hindex)
 		handles = c.handles
 		if in.Err() != nil {

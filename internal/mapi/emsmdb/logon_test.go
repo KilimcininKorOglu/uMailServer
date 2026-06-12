@@ -20,7 +20,7 @@ func encodeLogonRequest() []byte {
 // TestRopLogon verifies a private-mailbox logon returns success, the documented
 // special-folder ids, and the store identity, and registers a logon object.
 func TestRopLogon(t *testing.T) {
-	p := NewProcessor()
+	p := NewProcessor(newFakeStore())
 	sess := &Session{ID: "s", Email: "qa.bob@local.test"}
 
 	rop := append([]byte{RopLogon, 0x00, 0x00}, encodeLogonRequest()...)
