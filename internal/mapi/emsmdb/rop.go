@@ -103,13 +103,14 @@ func (c *ropCtx) objectAt(index uint8) any {
 type ropHandler func(c *ropCtx, logonID, hindex uint8)
 
 var ropHandlers = map[uint8]ropHandler{
-	RopRelease:          ropRelease,
-	RopLogon:            ropLogon,
-	RopGetReceiveFolder: ropGetReceiveFolder,
-	RopOpenFolder:       ropOpenFolder,
-	RopGetContentsTable: ropGetContentsTable,
-	RopSetColumns:       ropSetColumns,
-	RopQueryRows:        ropQueryRows,
+	RopRelease:           ropRelease,
+	RopLogon:             ropLogon,
+	RopGetReceiveFolder:  ropGetReceiveFolder,
+	RopOpenFolder:        ropOpenFolder,
+	RopGetContentsTable:  ropGetContentsTable,
+	RopGetHierarchyTable: ropGetHierarchyTable,
+	RopSetColumns:        ropSetColumns,
+	RopQueryRows:         ropQueryRows,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded

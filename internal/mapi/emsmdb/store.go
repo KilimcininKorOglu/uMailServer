@@ -7,6 +7,8 @@ import "github.com/umailserver/umailserver/internal/storage"
 // and an IMAP-canonical mailbox name. Message bodies live in Maildir and are not
 // read through this interface.
 type Store interface {
+	ListMailboxes(user string) ([]string, error)
+	GetMailboxCounts(user, mailbox string) (exists, recent, unseen int, err error)
 	GetMessageUIDs(user, mailbox string) ([]uint32, error)
 	GetMessageMetadata(user, mailbox string, uid uint32) (*storage.MessageMetadata, error)
 }

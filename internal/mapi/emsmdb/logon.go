@@ -28,6 +28,15 @@ const (
 	numSpecialFolders
 )
 
+// sfNone marks a folder object that is not one of the special folders (a custom
+// user folder resolved through the logon's folder registry).
+const sfNone = -1
+
+// customFolderGCBase is the first global counter handed to a custom (non-special)
+// folder. It sits well above the special folders' counters (<= 0x1d) so the two
+// id ranges never collide.
+const customFolderGCBase uint64 = 0x100000
+
 // Replica ids for a private mailbox store. fidReplID is embedded in the low 16
 // bits of every folder and message id (MS-OXCDATA 2.2.1.1); logonReplID is the
 // store's current replica reported in the Logon response, paired with the
@@ -63,13 +72,17 @@ var specialFolderGC = [numSpecialFolders]uint64{
 }
 
 // logonObject is the per-session store logon created by RopLogon. It owns the
-// mailbox identity and the special-folder id assignment that later ROPs resolve.
+// mailbox identity, the special-folder id assignment, and the registry of custom
+// folder ids handed out while enumerating the hierarchy, which later ROPs resolve.
 type logonObject struct {
-	email       string
-	replID      uint16
-	replGUID    wire.GUID
-	mailboxGUID wire.GUID
-	folderIDs   [numSpecialFolders]uint64
+	email        string
+	replID       uint16
+	replGUID     wire.GUID
+	mailboxGUID  wire.GUID
+	folderIDs    [numSpecialFolders]uint64
+	customFIDs   map[string]uint64 // IMAP-canonical name -> folder id, for stable reuse
+	folderNames  map[uint64]string // folder id -> IMAP-canonical name, for resolution
+	nextCustomGC uint64            // next custom global counter to allocate
 }
 
 // makeFID builds a folder or message id from a replica id and a 48-bit global
@@ -108,11 +121,45 @@ func newLogon(email string) *logonObject {
 		replID:      fidReplID,
 		mailboxGUID: derivedGUID("mailbox", email),
 		replGUID:    derivedGUID("replica", email),
+		customFIDs:  map[string]uint64{},
+		folderNames: map[uint64]string{},
 	}
 	for i := range lo.folderIDs {
 		lo.folderIDs[i] = makeFID(lo.replID, specialFolderGC[i])
 	}
 	return lo
+}
+
+// folderIDForName returns the stable folder id for an IMAP-canonical mailbox
+// name. A backed special folder (Inbox, Sent, Trash) keeps its well-known id;
+// any other folder is assigned the next custom global counter on first use and
+// registered so RopOpenFolder can resolve it later in the session.
+func (lo *logonObject) folderIDForName(name string) uint64 {
+	if slot := specialSlotForName(name); slot >= 0 {
+		return lo.folderIDs[slot]
+	}
+	if fid, ok := lo.customFIDs[name]; ok {
+		return fid
+	}
+	fid := makeFID(lo.replID, customFolderGCBase+lo.nextCustomGC)
+	lo.nextCustomGC++
+	lo.customFIDs[name] = fid
+	lo.folderNames[fid] = name
+	return fid
+}
+
+// resolveFolder maps a folder id to its mailbox name and special slot. A special
+// folder yields its IMAP-canonical mailbox name (empty for the structural
+// folders); a registered custom folder yields its name with slot sfNone. ok is
+// false for an id the logon has never handed out.
+func (lo *logonObject) resolveFolder(fid uint64) (mailbox string, special int, ok bool) {
+	if slot := lo.specialIndex(fid); slot >= 0 {
+		return storageFolderName(slot), slot, true
+	}
+	if name, ok := lo.folderNames[fid]; ok {
+		return name, sfNone, true
+	}
+	return "", sfNone, false
 }
 
 // specialIndex returns the special-folder slot a folder id maps to, or -1 when

@@ -1,11 +1,17 @@
 package emsmdb
 
+import "github.com/umailserver/umailserver/internal/mapi/wire"
+
 // folderObject is a server object opened on a mailbox folder (RopOpenFolder). It
-// carries the folder id and the special-folder slot it resolves to, which the
-// later table and property ROPs use to reach the canonical store.
+// carries the folder id, the resolved IMAP-canonical mailbox name (empty for the
+// structural folders), the special-folder slot (sfNone for a custom folder), and
+// its owning logon, which the later table and property ROPs use to reach the
+// canonical store and enumerate the hierarchy.
 type folderObject struct {
 	folderID uint64
-	special  int // index into the logon's special folders
+	mailbox  string
+	special  int
+	logon    *logonObject
 }
 
 // storageFolderName returns the IMAP-canonical mailbox name that backs a special
@@ -22,6 +28,21 @@ func storageFolderName(special int) string {
 		return "Trash"
 	default:
 		return ""
+	}
+}
+
+// specialSlotForName is the inverse of storageFolderName for the backed special
+// folders, returning sfNone for any other name.
+func specialSlotForName(name string) int {
+	switch name {
+	case "INBOX":
+		return sfInbox
+	case "Sent":
+		return sfSentItems
+	case "Trash":
+		return sfDeletedItems
+	default:
+		return sfNone
 	}
 }
 
@@ -65,12 +86,12 @@ func ropOpenFolder(c *ropCtx, _ uint8, hindex uint8) {
 		writeRopError(c.out, RopOpenFolder, ohindex, ecNullObject)
 		return
 	}
-	special := lo.specialIndex(folderID)
-	if special < 0 {
+	mailbox, special, ok := lo.resolveFolder(folderID)
+	if !ok {
 		writeRopError(c.out, RopOpenFolder, ohindex, ecNotFound)
 		return
 	}
-	c.setHandle(ohindex, c.state.alloc(&folderObject{folderID: folderID, special: special}))
+	c.setHandle(ohindex, c.state.alloc(&folderObject{folderID: folderID, mailbox: mailbox, special: special, logon: lo}))
 
 	out := c.out
 	out.Uint8(RopOpenFolder)
@@ -78,4 +99,39 @@ func ropOpenFolder(c *ropCtx, _ uint8, hindex uint8) {
 	out.Uint32(ecSuccess)
 	out.Uint8(0) // HasRules: no delivery rules on this folder
 	out.Uint8(0) // IsGhosted: the folder is hosted on this server
+}
+
+// folderContainerClass is the MAPI container class of a mail folder
+// (PidTagContainerClass). Typed folders (calendar, contacts) are out of the
+// online read scope, so every enumerated folder is a note folder.
+const folderContainerClass = "IPF.Note"
+
+// folderInfo is the per-row data a hierarchy-table folder row is built from.
+type folderInfo struct {
+	fid     uint64
+	display string
+	exists  int
+	unseen  int
+}
+
+// folderProperty returns the value of one property for a folder row and whether
+// it is available. Unmapped columns report unavailable so the row can flag them.
+// The value's Go type matches the column's property type (MS-OXCDATA 2.11.2).
+func folderProperty(tag wire.PropTag, fi folderInfo) (any, bool) {
+	switch tag {
+	case wire.PidTagFolderId:
+		return fi.fid, true
+	case wire.PidTagDisplayName:
+		return fi.display, true
+	case wire.PidTagContentCount:
+		return uint32(fi.exists), true
+	case wire.PidTagContentUnreadCount:
+		return uint32(fi.unseen), true
+	case wire.PidTagSubfolders:
+		return false, true
+	case wire.PidTagContainerClass:
+		return folderContainerClass, true
+	default:
+		return nil, false
+	}
 }

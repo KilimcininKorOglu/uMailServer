@@ -2,22 +2,47 @@ package emsmdb
 
 import (
 	"github.com/umailserver/umailserver/internal/mapi/wire"
-	"github.com/umailserver/umailserver/internal/storage"
+	"github.com/umailserver/umailserver/internal/semcore"
 )
 
 // tableStatusComplete is the synchronous table status: the operation finished and
 // the table is ready to read (MS-OXCTABL 2.2.2.1.3, TBLSTAT_COMPLETE).
 const tableStatusComplete uint8 = 0x00
 
-// tableObject is a server object opened on a folder's contents
-// (RopGetContentsTable). It snapshots the row identities (message uids) at open
-// time; the table ROPs that follow read columns and walk rows over this
-// snapshot.
+// tableKind selects what a table enumerates: a folder's messages or its child
+// folders.
+type tableKind uint8
+
+const (
+	contentsKind tableKind = iota
+	hierarchyKind
+)
+
+// folderEntry is one snapshotted child folder of a hierarchy table.
+type folderEntry struct {
+	name string // IMAP-canonical mailbox name
+	fid  uint64
+}
+
+// tableObject is a server object opened on a folder's contents or hierarchy
+// (RopGetContentsTable / RopGetHierarchyTable). It snapshots the row identities
+// (message uids, or child folders) at open time; the table ROPs that follow read
+// columns and walk rows over this snapshot.
 type tableObject struct {
+	kind    tableKind
 	mailbox string         // IMAP-canonical folder name; "" when the folder has no content
-	uids    []uint32       // message uids in store order
+	uids    []uint32       // contents rows: message uids in store order
+	folders []folderEntry  // hierarchy rows: child folders in list order
 	columns []wire.PropTag // columns selected by RopSetColumns
 	cursor  int            // next row index RopQueryRows reads
+}
+
+// rowCount returns the number of rows in the table's snapshot.
+func (t *tableObject) rowCount() int {
+	if t.kind == hierarchyKind {
+		return len(t.folders)
+	}
+	return len(t.uids)
 }
 
 // ropGetContentsTable handles RopGetContentsTable (MS-OXCFOLD 2.2.1.14): it opens
@@ -36,7 +61,7 @@ func ropGetContentsTable(c *ropCtx, _ uint8, hindex uint8) {
 		writeRopError(c.out, RopGetContentsTable, ohindex, ecNullObject)
 		return
 	}
-	tbl := &tableObject{mailbox: storageFolderName(fo.special)}
+	tbl := &tableObject{kind: contentsKind, mailbox: fo.mailbox}
 	if tbl.mailbox != "" {
 		uids, err := c.store.GetMessageUIDs(c.email, tbl.mailbox)
 		if err != nil {
@@ -52,6 +77,47 @@ func ropGetContentsTable(c *ropCtx, _ uint8, hindex uint8) {
 	out.Uint8(ohindex)
 	out.Uint32(ecSuccess)
 	out.Uint32(uint32(len(tbl.uids)))
+}
+
+// ropGetHierarchyTable handles RopGetHierarchyTable (MS-OXCFOLD 2.2.1.13): it
+// opens a table over a folder's child folders, binds it to the output handle
+// index, and reports the row count. Only the IPM subtree exposes the mailbox's
+// visible folders on the online path; the same client-hidden folders the IMAP and
+// EWS surfaces suppress (the Recoverable Items dumpster) are excluded here too, so
+// every surface presents one folder tree.
+func ropGetHierarchyTable(c *ropCtx, _ uint8, hindex uint8) {
+	ohindex := c.in.Uint8()
+	_ = c.in.Uint8() // table flags: depth/associated options are not used online
+	if c.in.Err() != nil {
+		writeRopError(c.out, RopGetHierarchyTable, ohindex, ecError)
+		return
+	}
+	fo, ok := c.objectAt(hindex).(*folderObject)
+	if !ok {
+		writeRopError(c.out, RopGetHierarchyTable, ohindex, ecNullObject)
+		return
+	}
+	tbl := &tableObject{kind: hierarchyKind}
+	if fo.special == sfIPMSubtree && fo.logon != nil {
+		names, err := c.store.ListMailboxes(c.email)
+		if err != nil {
+			writeRopError(c.out, RopGetHierarchyTable, ohindex, ecError)
+			return
+		}
+		for _, name := range names {
+			if semcore.IsClientHiddenFolderName(name) {
+				continue
+			}
+			tbl.folders = append(tbl.folders, folderEntry{name: name, fid: fo.logon.folderIDForName(name)})
+		}
+	}
+	c.setHandle(ohindex, c.state.alloc(tbl))
+
+	out := c.out
+	out.Uint8(RopGetHierarchyTable)
+	out.Uint8(ohindex)
+	out.Uint32(ecSuccess)
+	out.Uint32(uint32(len(tbl.folders)))
 }
 
 // ropSetColumns handles RopSetColumns (MS-OXCTABL 2.2.2.2): it selects the
@@ -103,22 +169,21 @@ func ropQueryRows(c *ropCtx, _ uint8, hindex uint8) {
 	}
 
 	rows := wire.NewPush(wire.FlagUTF16)
-	var count uint16
-	for int(count) < want && tbl.cursor < len(tbl.uids) {
-		uid := tbl.uids[tbl.cursor]
-		tbl.cursor++
-		m, err := c.store.GetMessageMetadata(c.email, tbl.mailbox, uid)
-		if err != nil {
-			continue // row vanished from the snapshot; skip it
-		}
-		if err := pushMessageRow(rows, tbl.columns, m); err != nil {
-			writeRopError(c.out, RopQueryRows, hindex, ecError)
-			return
-		}
-		count++
+	var (
+		count uint16
+		err   error
+	)
+	if tbl.kind == hierarchyKind {
+		count, err = appendHierarchyRows(c, tbl, want, rows)
+	} else {
+		count, err = appendContentsRows(c, tbl, want, rows)
+	}
+	if err != nil {
+		writeRopError(c.out, RopQueryRows, hindex, ecError)
+		return
 	}
 	seek := bookmarkCurrent
-	if tbl.cursor >= len(tbl.uids) {
+	if tbl.cursor >= tbl.rowCount() {
 		seek = bookmarkEnd
 	}
 
@@ -131,15 +196,63 @@ func ropQueryRows(c *ropCtx, _ uint8, hindex uint8) {
 	out.Raw(rows.Bytes())
 }
 
-// pushMessageRow serializes one message as a PropertyRow over the given columns
-// (MS-OXCDATA 2.8.1). A row whose every column is available uses the compact
-// untagged form; if any column is missing it uses the flagged form, marking the
-// absent columns with an error code.
-func pushMessageRow(p *wire.Push, cols []wire.PropTag, m *storage.MessageMetadata) error {
+// appendContentsRows emits up to want message rows from the cursor forward,
+// advancing the cursor. A row whose message vanished from the snapshot is skipped.
+func appendContentsRows(c *ropCtx, tbl *tableObject, want int, rows *wire.Push) (uint16, error) {
+	var count uint16
+	for int(count) < want && tbl.cursor < len(tbl.uids) {
+		uid := tbl.uids[tbl.cursor]
+		tbl.cursor++
+		m, err := c.store.GetMessageMetadata(c.email, tbl.mailbox, uid)
+		if err != nil {
+			continue // row vanished from the snapshot; skip it
+		}
+		if err := pushRow(rows, tbl.columns, func(t wire.PropTag) (any, bool) {
+			return messageProperty(t, m)
+		}); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+// appendHierarchyRows emits up to want folder rows from the cursor forward,
+// fetching each folder's live counts, and advancing the cursor.
+func appendHierarchyRows(c *ropCtx, tbl *tableObject, want int, rows *wire.Push) (uint16, error) {
+	var count uint16
+	for int(count) < want && tbl.cursor < len(tbl.folders) {
+		fe := tbl.folders[tbl.cursor]
+		tbl.cursor++
+		exists, _, unseen, err := c.store.GetMailboxCounts(c.email, fe.name)
+		if err != nil {
+			return count, err
+		}
+		fi := folderInfo{
+			fid:     fe.fid,
+			display: semcore.DisplayNameFromStorageName(fe.name),
+			exists:  exists,
+			unseen:  unseen,
+		}
+		if err := pushRow(rows, tbl.columns, func(t wire.PropTag) (any, bool) {
+			return folderProperty(t, fi)
+		}); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+// pushRow serializes one row over cols (MS-OXCDATA 2.8.1), resolving each column
+// through value. A row whose every column is available uses the compact untagged
+// form; if any column is missing it uses the flagged form, marking the absent
+// columns with an error code.
+func pushRow(p *wire.Push, cols []wire.PropTag, value func(wire.PropTag) (any, bool)) error {
 	values := make([]any, len(cols))
 	allPresent := true
 	for i, col := range cols {
-		v, ok := messageProperty(col, m)
+		v, ok := value(col)
 		values[i] = v
 		if !ok {
 			allPresent = false

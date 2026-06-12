@@ -8,9 +8,10 @@ import (
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
-// openInbox logs on and opens the Inbox, returning the processor, session, and
-// handle table with the folder object bound at index 1, backed by store.
-func openInbox(t *testing.T, store Store) (*Processor, *Session, []uint32) {
+// openSpecialFolder logs on and opens the special folder with global counter gc,
+// returning the processor, session, and handle table with the folder bound at
+// index 1, backed by store.
+func openSpecialFolder(t *testing.T, store Store, gc uint64) (*Processor, *Session, []uint32) {
 	t.Helper()
 	p := NewProcessor(store)
 	sess := &Session{ID: "s", Email: "qa.bob@local.test"}
@@ -18,11 +19,17 @@ func openInbox(t *testing.T, store Store) (*Processor, *Session, []uint32) {
 	_, handles := p.Dispatch(sess, logon, []uint32{0xFFFFFFFF}, 0x10000)
 
 	body := wire.NewPush(wire.FlagUTF16)
-	body.Uint8(1)                         // output handle index for the folder
-	body.Uint64(makeFID(fidReplID, 0x0d)) // Inbox
-	body.Uint8(0)                         // open flags
+	body.Uint8(1) // output handle index for the folder
+	body.Uint64(makeFID(fidReplID, gc))
+	body.Uint8(0) // open flags
 	_, handles = p.Dispatch(sess, ropRequest(RopOpenFolder, 0, body.Bytes()), handles, 0x10000)
 	return p, sess, handles
+}
+
+// openInbox logs on and opens the Inbox (global counter 0x0d).
+func openInbox(t *testing.T, store Store) (*Processor, *Session, []uint32) {
+	t.Helper()
+	return openSpecialFolder(t, store, 0x0d)
 }
 
 // openContentsTable opens the Inbox contents table at handle index 2.
@@ -230,5 +237,127 @@ func TestQueryRowsFlagsMissingColumn(t *testing.T) {
 	missing, ok := row.Values[1].(wire.FlaggedPropertyValue)
 	if !ok || missing.Flag != wire.FlaggedError {
 		t.Errorf("body column = %+v, want error flag", row.Values[1])
+	}
+}
+
+// openHierarchyTable opens the IPM subtree hierarchy table at handle index 2.
+func openHierarchyTable(t *testing.T, store Store) (*Processor, *Session, []uint32) {
+	t.Helper()
+	p, sess, handles := openSpecialFolder(t, store, 0x09) // IPM subtree
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint8(2) // output handle index for the table
+	body.Uint8(0) // table flags
+	resp, handles := p.Dispatch(sess, ropRequest(RopGetHierarchyTable, 1, body.Bytes()), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopGetHierarchyTable {
+		t.Fatalf("rop id = %#x, want RopGetHierarchyTable", got)
+	}
+	q.Uint8() // output handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("hierarchy return value = %#x, want success", rv)
+	}
+	if rc := q.Uint32(); rc != 3 {
+		t.Fatalf("hierarchy row count = %d, want 3 (INBOX, Sent, Drafts; Recoverable Items hidden)", rc)
+	}
+	return p, sess, handles
+}
+
+// hierarchyStore builds a store whose visible folders are INBOX (2 messages, one
+// unread), Sent, and Drafts, plus the client-hidden Recoverable Items dumpster.
+func hierarchyStore() *fakeStore {
+	store := newFakeStore()
+	store.addMailbox("INBOX")
+	store.addMailbox("Sent")
+	store.addMailbox("Drafts")
+	store.addMailbox("Recoverable Items") // client-hidden: must not appear
+	store.put("INBOX", &storage.MessageMetadata{UID: 1})
+	store.put("INBOX", &storage.MessageMetadata{UID: 2, Flags: []string{"\\Seen"}})
+	return store
+}
+
+// TestGetHierarchyTableHidesRecoverableItems verifies the IPM subtree hierarchy
+// lists the visible folders with their counts and excludes client-hidden folders
+// (Recoverable Items), matching the IMAP and EWS surfaces.
+func TestGetHierarchyTableHidesRecoverableItems(t *testing.T) {
+	p, sess, handles := openHierarchyTable(t, hierarchyStore())
+
+	cols := []wire.PropTag{wire.PidTagFolderId, wire.PidTagContentCount, wire.PidTagContentUnreadCount}
+	setColumns(t, p, sess, handles, cols)
+	resp := queryRows(p, sess, handles, 100)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8()  // rop id
+	q.Uint8()  // handle index
+	q.Uint32() // return value
+	q.Uint8()  // seek pos
+	count := q.Uint16()
+	if count != 3 {
+		t.Fatalf("queried rows = %d, want 3", count)
+	}
+
+	type counts struct{ cc, uc uint32 }
+	byFID := map[uint64]counts{}
+	for i := 0; i < int(count); i++ {
+		row, err := wire.PullPropertyRow(q, cols)
+		if err != nil {
+			t.Fatalf("row %d decode: %v", i, err)
+		}
+		fid, okf := row.Values[0].(uint64)
+		cc, okc := row.Values[1].(uint32)
+		uc, oku := row.Values[2].(uint32)
+		if !okf || !okc || !oku {
+			t.Fatalf("row %d has unexpected value types: %+v", i, row.Values)
+		}
+		byFID[fid] = counts{cc, uc}
+	}
+
+	// The Inbox keeps its special id and reports live counts (2 total, 1 unread).
+	if got, ok := byFID[makeFID(fidReplID, 0x0d)]; !ok || got.cc != 2 || got.uc != 1 {
+		t.Errorf("Inbox row = %+v (present=%v), want {cc:2 uc:1}", got, ok)
+	}
+	// Sent keeps its special id; Drafts gets the first custom counter.
+	if _, ok := byFID[makeFID(fidReplID, 0x0a)]; !ok {
+		t.Error("Sent folder missing from hierarchy")
+	}
+	if _, ok := byFID[makeFID(fidReplID, customFolderGCBase)]; !ok {
+		t.Error("Drafts folder missing its custom folder id")
+	}
+}
+
+// TestOpenCustomFolderAfterEnumeration verifies a custom folder learned from the
+// hierarchy table can be opened by its id and its contents read, proving the
+// folder registry round-trips a synthesized id back to its mailbox.
+func TestOpenCustomFolderAfterEnumeration(t *testing.T) {
+	store := hierarchyStore()
+	store.put("Drafts", &storage.MessageMetadata{UID: 5, Subject: "draft"})
+	p, sess, handles := openHierarchyTable(t, store)
+
+	// Open the custom Drafts folder by the id the hierarchy assigned it.
+	draftsFID := makeFID(fidReplID, customFolderGCBase)
+	of := wire.NewPush(wire.FlagUTF16)
+	of.Uint8(3) // output handle index for the folder
+	of.Uint64(draftsFID)
+	of.Uint8(0)
+	resp, handles := p.Dispatch(sess, ropRequest(RopOpenFolder, 0, of.Bytes()), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopOpenFolder {
+		t.Fatalf("rop id = %#x, want RopOpenFolder", got)
+	}
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("open custom folder = %#x, want success", rv)
+	}
+
+	// Its contents table must read the Drafts mailbox.
+	gct := wire.NewPush(wire.FlagUTF16)
+	gct.Uint8(4) // output handle index for the table
+	gct.Uint8(0)
+	resp, _ = p.Dispatch(sess, ropRequest(RopGetContentsTable, 3, gct.Bytes()), handles, 0x10000)
+	q = wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8()  // rop id
+	q.Uint8()  // handle index
+	q.Uint32() // return value
+	if rc := q.Uint32(); rc != 1 {
+		t.Errorf("Drafts content count = %d, want 1", rc)
 	}
 }

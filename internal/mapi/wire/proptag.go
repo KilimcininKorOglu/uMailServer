@@ -101,6 +101,7 @@ const (
 	PidTagContentCount         PropTag = PropTag(0x3602)<<16 | PropTag(PtLong)
 	PidTagContentUnreadCount   PropTag = PropTag(0x3603)<<16 | PropTag(PtLong)
 	PidTagSubfolders           PropTag = PropTag(0x360A)<<16 | PropTag(PtBoolean)
+	PidTagContainerClass       PropTag = PropTag(0x3613)<<16 | PropTag(PtUnicode)
 	PidTagInstID               PropTag = PropTag(0x674D)<<16 | PropTag(PtI8)
 	PidTagInstanceNum          PropTag = PropTag(0x674E)<<16 | PropTag(PtLong)
 )
