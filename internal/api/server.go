@@ -129,9 +129,14 @@ type Server struct {
 	// EWS handler for Exchange Web Services (folder identity surface)
 	ewsHandler http.Handler
 
-	// MAPI/HTTP handler for NSPI (directory/GAL) and OAB (offline address book).
-	// This is the Outlook-specific MAPI-over-HTTP surface that complements EWS.
+	// MAPI/HTTP handler for OAB (offline address book). This is the
+	// Outlook-specific MAPI-over-HTTP surface that complements EWS. NSPI is served
+	// by the binary nspiHandler; this handler now serves only /mapi/oab.
 	mapiHandler http.Handler
+
+	// Binary MAPI/HTTP (NSPI) address-book handler for the Outlook online-mode
+	// directory (Bind/QueryRows/GetProps over MS-OXNSPI), served at /mapi/nspi.
+	nspiHandler http.Handler
 
 	// Binary MAPI/HTTP (emsmdb) mailbox handler for the Outlook online-mode
 	// connector (Connect/Execute/Disconnect over MS-OXCROPS).
@@ -582,7 +587,7 @@ func (s *Server) initRouter() {
 	// incremental refresh.
 	// VAL-OUTLOOK-008: account-state (inactive / password-change-required) failures are
 	// explicit before any mailbox data is returned, even for MAPI/HTTP entry points.
-	if s.mapiHandler != nil {
+	if s.nspiHandler != nil {
 		mux.HandleFunc("/mapi/nspi", func(w http.ResponseWriter, r *http.Request) {
 			email := s.mapiBasicAuth(w, r)
 			if email == "" {
@@ -592,8 +597,10 @@ func (s *Server) initRouter() {
 			}
 			//nolint:staticcheck // intentional: string key for cross-package context access
 			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
-			s.mapiHandler.ServeHTTP(w, r)
+			s.nspiHandler.ServeHTTP(w, r)
 		})
+	}
+	if s.mapiHandler != nil {
 		mux.HandleFunc("/mapi/oab", func(w http.ResponseWriter, r *http.Request) {
 			email := s.mapiBasicAuth(w, r)
 			if email == "" {
@@ -1852,10 +1859,18 @@ func (s *Server) ewsBasicAuth(w http.ResponseWriter, r *http.Request) string {
 	return email
 }
 
-// SetMAPIHandler configures the MAPI/HTTP handler (NSPI, OAB) on the API server.
-// The handler requires the server to have a non-nil *db.DB for Basic Auth validation.
+// SetMAPIHandler configures the MAPI/HTTP OAB handler on the API server, served
+// at /mapi/oab. The handler requires the server to have a non-nil *db.DB for
+// Basic Auth validation.
 func (s *Server) SetMAPIHandler(handler http.Handler) {
 	s.mapiHandler = handler
+}
+
+// SetNSPIHandler configures the binary MAPI/HTTP (NSPI) address-book handler on
+// the API server, served at /mapi/nspi behind Basic auth like the other MAPI
+// surfaces.
+func (s *Server) SetNSPIHandler(handler http.Handler) {
+	s.nspiHandler = handler
 }
 
 // SetEMSMDBHandler configures the binary MAPI/HTTP (emsmdb) mailbox handler on the

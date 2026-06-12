@@ -15,6 +15,7 @@ import (
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mapi"
 	"github.com/umailserver/umailserver/internal/mapi/emsmdb"
+	"github.com/umailserver/umailserver/internal/mapi/nspi"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 )
@@ -263,6 +264,20 @@ func (s *Server) startAPI() {
 		if s.semcoreStore != nil && s.database != nil {
 			mapiServer := mapi.NewServer(s.database, s.semcoreStore.Policy())
 			s.apiServer.SetMAPIHandler(mapiServer)
+
+			// Binary NSPI address book at /mapi/nspi, backed by the same
+			// policy-filtered GAL the JSON surface used (HiddenFromGAL, 100-entry
+			// cap). The API front end stores the authenticated email under
+			// api.ContextKeyEmail; bridge it into the context key the nspi handler
+			// reads, keeping the protocol package independent of the HTTP layer.
+			nspiServer := nspi.NewServer()
+			nspiServer.SetDirectory(nspiDirectory{mapi: mapiServer})
+			s.apiServer.SetNSPIHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {
+					r = r.WithContext(nspi.WithEmail(r.Context(), email))
+				}
+				nspiServer.ServeHTTP(w, r)
+			}))
 			s.logger.Info("MAPI/HTTP handler initialized")
 		}
 
@@ -326,6 +341,22 @@ func (s *Server) startAPI() {
 		}()
 		s.logger.Info("Admin API server started", "addr", adminCfg.Addr)
 	}
+}
+
+// nspiDirectory adapts the MAPI GAL source to the binary address-book Directory
+// interface, converting the shared GAL entries to the NSPI surface's entry type
+// so both surfaces read one policy-filtered source.
+type nspiDirectory struct{ mapi *mapi.Server }
+
+// ResolveGAL returns the GAL entries matching entry (or the full GAL when empty)
+// as NSPI directory entries.
+func (d nspiDirectory) ResolveGAL(entry string) []nspi.DirectoryEntry {
+	gal := d.mapi.ResolveGAL(entry)
+	out := make([]nspi.DirectoryEntry, len(gal))
+	for i, e := range gal {
+		out[i] = nspi.DirectoryEntry{Email: e.Email, DisplayName: e.DisplayName, ObjectClass: e.ObjectClass}
+	}
+	return out
 }
 
 // localPart extracts the local part (before @) from an email address.

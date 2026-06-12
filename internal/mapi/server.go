@@ -187,3 +187,29 @@ func (s *Server) resolveCandidates(entry string) []directoryCandidate {
 
 	return candidates
 }
+
+// GALEntry is one Global Address List entry exposed to the binary address-book
+// (NSPI) surface. It mirrors the directory data the JSON ResolveNames/GetGAL
+// responses carry, sourced from the same policy-filtered account search so every
+// MAPI/HTTP address-book surface agrees on one source.
+type GALEntry struct {
+	Email       string
+	DisplayName string
+	ObjectClass string // "User", "Room", "Equipment", "DistributionList", "Contact"
+}
+
+// ResolveGAL returns the Global Address List entries matching entry, or the full
+// GAL when entry is empty. It applies the same GAL visibility policy
+// (HiddenFromGAL, VAL-DIR-007) and 100-entry cap (VAL-DIR-006) the JSON NSPI
+// surface enforced, exposed to the binary NSPI endpoint.
+func (s *Server) ResolveGAL(entry string) []GALEntry {
+	candidates := s.resolveCandidates(entry)
+	if candidates == nil {
+		return nil
+	}
+	out := make([]GALEntry, len(candidates))
+	for i, c := range candidates {
+		out[i] = GALEntry(c)
+	}
+	return out
+}
