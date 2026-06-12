@@ -180,8 +180,12 @@ func (s *Server) resolveCandidates(entry string) []directoryCandidate {
 		return candidates[i].Email < candidates[j].Email
 	})
 
-	// Cap at 100 (VAL-DIR-006).
-	if len(candidates) > 100 {
+	// Cap search results at 100 (VAL-DIR-006). The empty-entry full-GAL
+	// enumeration the binary address book and the OAB read is the complete
+	// directory, not a search result, so it is never capped — capping it shipped
+	// a truncated address book and a truncated offline address book to any
+	// organization with more than 100 visible recipients.
+	if entryLower != "" && len(candidates) > 100 {
 		candidates = candidates[:100]
 	}
 
