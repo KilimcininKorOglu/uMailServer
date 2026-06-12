@@ -128,6 +128,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleSeekEntries(w, r, body)
 	case "GetMatches":
 		s.handleGetMatches(w, r, body)
+	case "GetTemplateInfo":
+		s.handleGetTemplateInfo(w, r, body)
+	case "ResortRestriction":
+		s.handleResortRestriction(w, r, body)
 	case "PING":
 		s.writeResponse(w, r, "PING", "", nil)
 	default:
