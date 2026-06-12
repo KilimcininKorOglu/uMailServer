@@ -816,7 +816,37 @@ func (s *Server) initRouter() {
 	apiHandler := s.rateLimitMiddleware(s.limitBodyMiddleware(s.securityHeadersMiddleware(s.csrfMiddleware(s.corsMiddleware(s.authMiddleware(api))))))
 	mux.Handle("/api/v1/", apiHandler)
 
-	s.router = mux
+	// Real Exchange (IIS) routes request paths case-insensitively; Outlook for Mac
+	// probes mixed-case variants of the interop endpoints (e.g. /ews/Exchange.asmx,
+	// /Autodiscover/Autodiscover.xml). Canonicalize those before the case-sensitive
+	// mux so they reach the right handler instead of the SPA catch-all (which would
+	// return HTML and make Outlook treat EWS as broken and loop on autodiscover).
+	s.router = normalizeExchangePath(mux)
+}
+
+// exchangeCanonicalPaths are the Outlook/Exchange interop endpoints whose request
+// paths must be matched case-insensitively, paired with their canonical mux form.
+var exchangeCanonicalPaths = []string{
+	"/autodiscover/autodiscover.xml",
+	"/EWS/Exchange.asmx/s/GetUserPhoto",
+	"/EWS/Exchange.asmx",
+	"/mapi/nspi",
+	"/mapi/oab",
+}
+
+// normalizeExchangePath rewrites a case-variant Exchange interop path to its
+// canonical form so the case-sensitive ServeMux routes it correctly. Non-Exchange
+// paths pass through untouched.
+func normalizeExchangePath(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, canon := range exchangeCanonicalPaths {
+			if r.URL.Path != canon && strings.EqualFold(r.URL.Path, canon) {
+				r.URL.Path = canon
+				break
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
