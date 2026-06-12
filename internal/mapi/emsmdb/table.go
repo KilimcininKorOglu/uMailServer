@@ -1,8 +1,11 @@
 package emsmdb
 
 import (
+	"sort"
+
 	"github.com/umailserver/umailserver/internal/mapi/wire"
 	"github.com/umailserver/umailserver/internal/semcore"
+	"github.com/umailserver/umailserver/internal/storage"
 )
 
 // tableStatusComplete is the synchronous table status: the operation finished and
@@ -142,6 +145,70 @@ func ropSetColumns(c *ropCtx, _ uint8, hindex uint8) {
 	out.Uint8(hindex)
 	out.Uint32(ecSuccess)
 	out.Uint8(tableStatusComplete)
+}
+
+// tableSortDescend is the descending sort order (MS-OXCTABL 2.2.1.3,
+// TABLE_SORT_DESCEND); the default 0x00 is ascending.
+const tableSortDescend uint8 = 0x01
+
+// ropSortTable handles RopSortTable (MS-OXCTABL 2.2.2.3): it orders a contents
+// table by the primary sort key, fetching the rows' sort property once. Only the
+// first sort key drives the order; categorized/expanded sorting is not offered.
+func ropSortTable(c *ropCtx, _ uint8, hindex uint8) {
+	_ = c.in.Uint8() // table flags
+	count := int(c.in.Uint16())
+	_ = c.in.Uint16() // category count: categorized views not offered
+	_ = c.in.Uint16() // expanded count
+	var primaryTag wire.PropTag
+	var primaryOrder uint8
+	for i := range count {
+		tag := wire.PropTag(c.in.Uint32())
+		order := c.in.Uint8()
+		if i == 0 {
+			primaryTag, primaryOrder = tag, order
+		}
+	}
+	if c.in.Err() != nil {
+		writeRopError(c.out, RopSortTable, hindex, ecError)
+		return
+	}
+	tbl, ok := c.objectAt(hindex).(*tableObject)
+	if !ok {
+		writeRopError(c.out, RopSortTable, hindex, ecNullObject)
+		return
+	}
+	if tbl.kind == contentsKind && count > 0 {
+		c.sortContents(tbl, primaryTag, primaryOrder == tableSortDescend)
+	}
+	tbl.cursor = 0 // a re-sort restarts the table at the first row
+
+	out := c.out
+	out.Uint8(RopSortTable)
+	out.Uint8(hindex)
+	out.Uint32(ecSuccess)
+	out.Uint8(tableStatusComplete)
+}
+
+// sortContents reorders a contents table's uids by the given property, fetching
+// each row's metadata once. Rows whose message vanished from the snapshot sort
+// last; an unsupported sort property leaves the order unchanged.
+func (c *ropCtx) sortContents(tbl *tableObject, tag wire.PropTag, desc bool) {
+	meta := make(map[uint32]*storage.MessageMetadata, len(tbl.uids))
+	for _, uid := range tbl.uids {
+		if m, err := c.store.GetMessageMetadata(c.email, tbl.mailbox, uid); err == nil {
+			meta[uid] = m
+		}
+	}
+	sort.SliceStable(tbl.uids, func(i, j int) bool {
+		a, b := meta[tbl.uids[i]], meta[tbl.uids[j]]
+		if a == nil || b == nil {
+			return a != nil // present rows before vanished ones
+		}
+		if desc {
+			return lessByTag(tag, b, a)
+		}
+		return lessByTag(tag, a, b)
+	})
 }
 
 // Bookmark positions reported by RopQueryRows (MS-OXCTABL 2.2.2.1.2): where the

@@ -240,6 +240,63 @@ func TestQueryRowsFlagsMissingColumn(t *testing.T) {
 	}
 }
 
+// TestSortTableOrdersByDeliveryTime verifies RopSortTable reorders the contents
+// table so a descending delivery-time sort returns the newest message first.
+func TestSortTableOrdersByDeliveryTime(t *testing.T) {
+	store := newFakeStore()
+	store.put("INBOX", &storage.MessageMetadata{UID: 1, InternalDate: time.Unix(1000, 0)})
+	store.put("INBOX", &storage.MessageMetadata{UID: 2, InternalDate: time.Unix(3000, 0)})
+	store.put("INBOX", &storage.MessageMetadata{UID: 3, InternalDate: time.Unix(2000, 0)})
+	p, sess, handles := openContentsTable(t, store)
+
+	st := wire.NewPush(wire.FlagUTF16)
+	st.Uint8(0)  // table flags
+	st.Uint16(1) // one sort key
+	st.Uint16(0) // categories
+	st.Uint16(0) // expanded
+	st.Uint32(uint32(wire.PidTagMessageDeliveryTime))
+	st.Uint8(tableSortDescend)
+	resp := mustDispatch(p, sess, ropRequest(RopSortTable, 2, st.Bytes()), handles)
+	sq := wire.NewPull(resp, wire.FlagUTF16)
+	if got := sq.Uint8(); got != RopSortTable {
+		t.Fatalf("rop id = %#x, want RopSortTable", got)
+	}
+	sq.Uint8() // handle index
+	if rv := sq.Uint32(); rv != ecSuccess {
+		t.Fatalf("sort return value = %#x, want success", rv)
+	}
+	if ts := sq.Uint8(); ts != tableStatusComplete {
+		t.Errorf("table status = %#x, want complete", ts)
+	}
+
+	setColumns(t, p, sess, handles, []wire.PropTag{wire.PidTagMid})
+	rows := queryRows(p, sess, handles, 100)
+	q := wire.NewPull(rows, wire.FlagUTF16)
+	q.Uint8()
+	q.Uint8()
+	q.Uint32()
+	q.Uint8()
+	if count := q.Uint16(); count != 3 {
+		t.Fatalf("row count = %d, want 3", count)
+	}
+	want := []uint32{2, 3, 1} // delivery times 3000 > 2000 > 1000
+	for i, uid := range want {
+		row, err := wire.PullPropertyRow(q, []wire.PropTag{wire.PidTagMid})
+		if err != nil {
+			t.Fatalf("row %d decode: %v", i, err)
+		}
+		if mid, ok := row.Values[0].(uint64); !ok || mid != messageID(uid) {
+			t.Errorf("row %d MID = %v, want uid %d", i, row.Values[0], uid)
+		}
+	}
+}
+
+// mustDispatch runs one request and returns the response bytes.
+func mustDispatch(p *Processor, sess *Session, req []byte, handles []uint32) []byte {
+	resp, _ := p.Dispatch(sess, req, handles, 0x10000)
+	return resp
+}
+
 // openHierarchyTable opens the IPM subtree hierarchy table at handle index 2.
 func openHierarchyTable(t *testing.T, store Store) (*Processor, *Session, []uint32) {
 	t.Helper()

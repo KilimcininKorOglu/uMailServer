@@ -153,10 +153,83 @@ func ropGetPropertiesSpecific(c *ropCtx, _ uint8, hindex uint8) {
 	out.Raw(row.Bytes())
 }
 
+// messageAllTags is the full set of scalar message properties the online path
+// serves from RopGetPropertiesAll, before bodies are appended.
+var messageAllTags = []wire.PropTag{
+	wire.PidTagMid, wire.PidTagInstanceKey, wire.PidTagSubject,
+	wire.PidTagMessageClass, wire.PidTagMessageDeliveryTime,
+	wire.PidTagMessageSize, wire.PidTagMessageFlags,
+}
+
+// ropGetPropertiesAll handles RopGetPropertiesAll (MS-OXCPRPT 2.2.8): it returns
+// every property of an opened message the online path serves as a tagged-value
+// array, including the plain and HTML bodies when a body store is set.
+func ropGetPropertiesAll(c *ropCtx, _ uint8, hindex uint8) {
+	_ = c.in.Uint16() // property size limit; not enforced
+	_ = c.in.Uint16() // want-unicode flag; the store is unicode
+	if c.in.Err() != nil {
+		writeRopError(c.out, RopGetPropertiesAll, hindex, ecError)
+		return
+	}
+	mo, ok := c.objectAt(hindex).(*messageObject)
+	if !ok {
+		writeRopError(c.out, RopGetPropertiesAll, hindex, ecNullObject)
+		return
+	}
+	m, err := c.store.GetMessageMetadata(c.email, mo.mailbox, mo.uid)
+	if err != nil {
+		writeRopError(c.out, RopGetPropertiesAll, hindex, ecNotFound)
+		return
+	}
+	vals := make([]wire.TaggedPropertyValue, 0, len(messageAllTags)+2)
+	for _, t := range messageAllTags {
+		if v, ok := messageProperty(t, m); ok {
+			vals = append(vals, wire.TaggedPropertyValue{Tag: t, Value: v})
+		}
+	}
+	if c.body != nil {
+		if raw, rerr := c.body.ReadMessage(c.email, m.MessageID); rerr == nil {
+			vals = append(vals, wire.TaggedPropertyValue{Tag: wire.PidTagBody, Value: extractMessageBody(raw)})
+			if h := extractHTMLBody(raw); h != nil {
+				vals = append(vals, wire.TaggedPropertyValue{Tag: wire.PidTagHtml, Value: h})
+			}
+		}
+	}
+	body := wire.NewPush(wire.FlagUTF16)
+	if err := wire.PushTPropValArray(body, vals); err != nil {
+		writeRopError(c.out, RopGetPropertiesAll, hindex, ecError)
+		return
+	}
+
+	out := c.out
+	out.Uint8(RopGetPropertiesAll)
+	out.Uint8(hindex)
+	out.Uint32(ecSuccess)
+	out.Raw(body.Bytes())
+}
+
 // instanceKey is a table row's unique key (PidTagInstanceKey): the 4-byte
 // little-endian uid, unique within the folder snapshot.
 func instanceKey(uid uint32) []byte {
 	return []byte{byte(uid), byte(uid >> 8), byte(uid >> 16), byte(uid >> 24)}
+}
+
+// lessByTag reports whether message a sorts before b under the given property.
+// Only the columns a contents table is commonly sorted by are ordered; any other
+// tag leaves the order unchanged.
+func lessByTag(tag wire.PropTag, a, b *storage.MessageMetadata) bool {
+	switch tag {
+	case wire.PidTagMessageDeliveryTime, wire.PidTagLastModificationTime:
+		return a.InternalDate.Before(b.InternalDate)
+	case wire.PidTagMessageSize:
+		return a.Size < b.Size
+	case wire.PidTagSubject:
+		return a.Subject < b.Subject
+	case wire.PidTagMid:
+		return a.UID < b.UID
+	default:
+		return false
+	}
 }
 
 // messageFlags derives PidTagMessageFlags from the stored IMAP flags.

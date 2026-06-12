@@ -218,6 +218,56 @@ func TestGetPropertiesServesBodyFromMaildir(t *testing.T) {
 	}
 }
 
+// TestGetPropertiesAllReturnsMessageProps verifies RopGetPropertiesAll returns the
+// message's properties as a tagged-value array, including the body.
+func TestGetPropertiesAllReturnsMessageProps(t *testing.T) {
+	store := newFakeStore()
+	store.put("INBOX", &storage.MessageMetadata{UID: 4, MessageID: "m4", Subject: "all props", Size: 99})
+	store.putRaw("m4", []byte("Subject: all props\r\n\r\nbody here"))
+	p, sess, handles := openInbox(t, store)
+	p.SetBodyStore(store)
+
+	om := wire.NewPush(wire.FlagUTF16)
+	om.Uint8(2)
+	om.Uint16(1252)
+	om.Uint64(makeFID(fidReplID, 0x0d))
+	om.Uint8(0)
+	om.Uint64(messageID(4))
+	_, handles = p.Dispatch(sess, ropRequest(RopOpenMessage, 1, om.Bytes()), handles, 0x10000)
+
+	gp := wire.NewPush(wire.FlagUTF16)
+	gp.Uint16(0)
+	gp.Uint16(1)
+	resp, _ := p.Dispatch(sess, ropRequest(RopGetPropertiesAll, 2, gp.Bytes()), handles, 0x10000)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8()
+	q.Uint8()
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("return value = %#x, want success", rv)
+	}
+	vals, err := wire.PullTPropValArray(q)
+	if err != nil {
+		t.Fatalf("tagged value array decode: %v", err)
+	}
+	got := map[wire.PropTag]any{}
+	for _, v := range vals {
+		got[v.Tag] = v.Value
+	}
+	if s, ok := got[wire.PidTagSubject].(string); !ok || s != "all props" {
+		t.Errorf("subject = %v, want \"all props\"", got[wire.PidTagSubject])
+	}
+	if sz, ok := got[wire.PidTagMessageSize].(uint32); !ok || sz != 99 {
+		t.Errorf("size = %v, want 99", got[wire.PidTagMessageSize])
+	}
+	if b, ok := got[wire.PidTagBody].(string); !ok || b != "body here" {
+		t.Errorf("body = %v, want \"body here\"", got[wire.PidTagBody])
+	}
+	if _, ok := got[wire.PidTagMid]; !ok {
+		t.Error("PidTagMid missing from all-properties result")
+	}
+}
+
 // TestOpenMessageUnknownIDFails verifies opening a message id with no backing
 // store record fails with ecNotFound.
 func TestOpenMessageUnknownIDFails(t *testing.T) {
