@@ -114,4 +114,13 @@ const (
 	// PidTagAnr (MS-OXOABK) is the ambiguous-name-resolution key a GetMatches
 	// restriction targets to search the GAL by partial name or address.
 	PidTagAnr PropTag = PropTag(0x360C)<<16 | PropTag(PtUnicode)
+
+	// Offline Address Book tags (MS-OXOAB). The header record of an OAB v4 file
+	// carries the book's name, distinguished name, sequence, and container GUID;
+	// each object record may carry a truncated-properties list.
+	PidTagOfflineAddressBookName                PropTag = PropTag(0x6800)<<16 | PropTag(PtUnicode)
+	PidTagOfflineAddressBookSequence            PropTag = PropTag(0x6801)<<16 | PropTag(PtLong)
+	PidTagOfflineAddressBookContainerGuid       PropTag = PropTag(0x6802)<<16 | PropTag(PtString8)
+	PidTagOfflineAddressBookDistinguishedName   PropTag = PropTag(0x6804)<<16 | PropTag(PtString8)
+	PidTagOfflineAddressBookTruncatedProperties PropTag = PropTag(0x6805)<<16 | PropTag(PtMvLong)
 )
