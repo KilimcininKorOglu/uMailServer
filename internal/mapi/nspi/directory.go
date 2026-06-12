@@ -30,10 +30,11 @@ const (
 
 // Display and object types (MS-OXCDATA 2.11.1.5 / MS-OXNSPI).
 const (
-	dtMailUser  uint32 = 0 // DT_MAILUSER
-	dtDistList  uint32 = 1 // DT_DISTLIST
-	objMailUser uint32 = 6 // MAPI_MAILUSER
-	objDistList uint32 = 8 // MAPI_DISTLIST
+	dtMailUser  uint32 = 0     // DT_MAILUSER
+	dtDistList  uint32 = 1     // DT_DISTLIST
+	dtContainer uint32 = 0x100 // DT_CONTAINER (an address-book container)
+	objMailUser uint32 = 6     // MAPI_MAILUSER
+	objDistList uint32 = 8     // MAPI_DISTLIST
 )
 
 // entryMid returns the minimal id of the GAL entry at the given table position.

@@ -106,6 +106,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleQueryRows(w, r, body)
 	case "GetProps":
 		s.handleGetProps(w, r, body)
+	case "GetSpecialTable":
+		s.handleGetSpecialTable(w, r, body)
 	case "PING":
 		s.writeResponse(w, r, "PING", "", nil)
 	default:

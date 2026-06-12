@@ -106,4 +106,8 @@ const (
 	PidTagHtml                 PropTag = PropTag(0x1013)<<16 | PropTag(PtBinary)
 	PidTagInstID               PropTag = PropTag(0x674D)<<16 | PropTag(PtI8)
 	PidTagInstanceNum          PropTag = PropTag(0x674E)<<16 | PropTag(PtLong)
+
+	// PidTagAddressBookIsMaster (MS-OXNSPI) marks whether an address-book
+	// container is the master; the NSPI special table carries it per container.
+	PidTagAddressBookIsMaster PropTag = PropTag(0xFFFB)<<16 | PropTag(PtBoolean)
 )
