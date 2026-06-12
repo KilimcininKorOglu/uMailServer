@@ -25,11 +25,20 @@ const (
 // sessionObjects is the per-session server-object table (the LOGMAP): handle
 // values map to the logon, folder, table, and message objects a client opens.
 type sessionObjects struct {
-	objects map[uint32]any
+	objects    map[uint32]any
+	nextHandle uint32
 }
 
 func newSessionObjects() *sessionObjects {
 	return &sessionObjects{objects: make(map[uint32]any)}
+}
+
+// alloc stores an object and returns its new handle value.
+func (s *sessionObjects) alloc(o any) uint32 {
+	h := s.nextHandle
+	s.nextHandle++
+	s.objects[h] = o
+	return h
 }
 
 func (s *sessionObjects) release(h uint32) { delete(s.objects, h) }
@@ -57,10 +66,21 @@ var _ ROPDispatcher = (*Processor)(nil)
 
 // ropCtx carries the per-ROP execution state.
 type ropCtx struct {
+	email   string
 	state   *sessionObjects
 	handles []uint32
 	in      *wire.Pull
 	out     *wire.Push
+}
+
+// setHandle writes a server-object handle value to the given handle-table index,
+// growing the table (padding with the empty handle 0xFFFFFFFF) when the index is
+// beyond its current length.
+func (c *ropCtx) setHandle(index uint8, value uint32) {
+	for len(c.handles) <= int(index) {
+		c.handles = append(c.handles, 0xFFFFFFFF)
+	}
+	c.handles[index] = value
 }
 
 // ropHandler reads a ROP request body, executes it, and writes its response.
@@ -68,6 +88,7 @@ type ropHandler func(c *ropCtx, logonID, hindex uint8)
 
 var ropHandlers = map[uint8]ropHandler{
 	RopRelease: ropRelease,
+	RopLogon:   ropLogon,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
@@ -92,7 +113,7 @@ func (p *Processor) Dispatch(sess *Session, ropData []byte, handlesIn []uint32, 
 			writeRopError(out, ropID, hindex, ecNotImplemented)
 			break
 		}
-		c := &ropCtx{state: st, handles: handles, in: in, out: out}
+		c := &ropCtx{email: sess.Email, state: st, handles: handles, in: in, out: out}
 		h(c, logonID, hindex)
 		handles = c.handles
 		if in.Err() != nil {
