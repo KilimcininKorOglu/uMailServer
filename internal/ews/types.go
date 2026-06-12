@@ -52,14 +52,19 @@ type SOAPHeader struct {
 	PizzaServerVer PizzaServerVersion `xml:"ServerVersion"`
 }
 
-// ServerVersion is sent by the server in every response.
+// ServerVersion is the ServerVersionInfo SOAP header sent in every EWS response.
+// The element MUST be named ServerVersionInfo and carry a Version label: strict
+// clients (Outlook) read the server version from this element by name, and a
+// missing/misnamed element makes them treat the version as 0.0.0.0 (invalid),
+// which blocks account provisioning. exchangelib ignores it, so it went unnoticed.
 type ServerVersion struct {
-	XMLName          xml.Name `xml:"ServerVersion"`
+	XMLName          xml.Name `xml:"ServerVersionInfo"`
 	XMLNS            string   `xml:"xmlns,attr"`
 	MajorVersion     int      `xml:"MajorVersion,attr"`
 	MinorVersion     int      `xml:"MinorVersion,attr"`
 	MajorBuildNumber int      `xml:"MajorBuildNumber,attr"`
 	MinorBuildNumber int      `xml:"MinorBuildNumber,attr"`
+	Version          string   `xml:"Version,attr"`
 }
 
 // NewServerVersion returns a server version suitable for EWS responses.
@@ -70,6 +75,7 @@ func NewServerVersion() *ServerVersion {
 		MinorVersion:     0,
 		MajorBuildNumber: 2251,
 		MinorBuildNumber: 53,
+		Version:          "Exchange2013_SP1",
 	}
 }
 
@@ -239,18 +245,23 @@ type FolderIdComponents struct {
 	CK string `xml:"ChangeKey,attr,omitempty"`
 }
 
-// FolderType is the EWS Folder element (IPF.Note by default).
+// FolderType is the EWS Folder element (IPF.Note by default). Field order is
+// the EWS BaseFolderType/FolderType schema sequence (FolderId, ParentFolderId,
+// FolderClass, DisplayName, TotalCount, ChildFolderCount, EffectiveRights,
+// PermissionSet, UnreadCount) — Outlook's typed deserializer validates this
+// sequence and faults on any out-of-order element, so the field declaration
+// order (which encoding/xml emits verbatim) is load-bearing, not cosmetic.
 type FolderType struct {
 	XMLName          xml.Name             `xml:"http://schemas.microsoft.com/exchange/services/2006/types Folder"`
 	FolderID         FolderIdComponents   `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderId"`
 	ParentFolderID   FolderIdComponents   `xml:"http://schemas.microsoft.com/exchange/services/2006/types ParentFolderId"`
+	FolderClass      string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderClass,omitempty"`
 	DisplayName      string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
-	UnreadCount      int                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types UnreadCount,omitempty"`
 	TotalCount       int                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types TotalCount,omitempty"`
 	ChildFolderCount int                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types ChildFolderCount,omitempty"`
-	FolderClass      string               `xml:"http://schemas.microsoft.com/exchange/services/2006/types FolderClass,omitempty"`
-	PermissionSet    *PermissionSetType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermissionSet,omitempty"`
 	EffectiveRights  *EffectiveRightsType `xml:"http://schemas.microsoft.com/exchange/services/2006/types EffectiveRights,omitempty"`
+	PermissionSet    *PermissionSetType   `xml:"http://schemas.microsoft.com/exchange/services/2006/types PermissionSet,omitempty"`
+	UnreadCount      int                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types UnreadCount,omitempty"`
 }
 
 // PermissionType is one folder grant projected from an RFC 4314 ACL entry onto
