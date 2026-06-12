@@ -106,14 +106,18 @@ func TestConditionsToEWS(t *testing.T) {
 	if ewsPred == nil || ewsPred.RulePredicatesType == nil {
 		t.Fatal("expected non-nil RulePredicatesType")
 	}
-	// A From condition must project to the From predicate (a resolved sender
-	// address), not ContainsSenderStrings: Outlook for Mac only lists the former
-	// under Server Rules and hides the latter as a client-side condition.
-	if ewsPred.From == nil {
-		t.Fatal("expected From predicate to be set for a sender condition")
+	// A From condition must project to the FromAddresses>Address predicate (a
+	// resolved sender address), not ContainsSenderStrings: a captured Outlook for
+	// Mac rule uses this exact shape for a server-side sender rule, and a
+	// substring match is hidden as client-side.
+	if ewsPred.FromAddresses == nil {
+		t.Fatal("expected FromAddresses predicate to be set for a sender condition")
 	}
-	if len(ewsPred.From.Addresses) != 1 || ewsPred.From.Addresses[0].Email != "sender@example.com" {
-		t.Errorf("From.Addresses = %v; want [sender@example.com]", ewsPred.From.Addresses)
+	if len(ewsPred.FromAddresses.Addresses) != 1 || ewsPred.FromAddresses.Addresses[0].EmailAddress != "sender@example.com" {
+		t.Errorf("FromAddresses = %v; want [sender@example.com]", ewsPred.FromAddresses.Addresses)
+	}
+	if ewsPred.FromAddresses.Addresses[0].RoutingType != "SMTP" {
+		t.Errorf("FromAddresses Address RoutingType = %q; want SMTP", ewsPred.FromAddresses.Addresses[0].RoutingType)
 	}
 	if ewsPred.ContainsSenderStrings != nil {
 		t.Error("From condition should not also emit ContainsSenderStrings (client-side)")

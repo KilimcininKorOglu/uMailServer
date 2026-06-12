@@ -159,7 +159,7 @@ type RulePredicatesType struct {
 	ContainsSenderStrings    *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSenderStrings,omitempty"`
 	ContainsSubjectOrBody    *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectOrBodyStrings,omitempty"`
 	ContainsSubjectStrings   *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectStrings,omitempty"`
-	From                     *RuleFromType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
+	FromAddresses            *FromAddressesType      `xml:"http://schemas.microsoft.com/exchange/services/2006/types FromAddresses,omitempty"`
 	HasAttachments           *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types HasAttachments,omitempty"`
 	Importance               string                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
 	IsAutomaticForward       *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticForward,omitempty"`
@@ -235,14 +235,24 @@ type SentToAddressesType struct {
 	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
 }
 
-// RuleFromType is the From rule predicate (ArrayOfEmailAddressesType): the sender
-// resolved to an address object. Outlook for Mac treats a From predicate as a
-// server-side condition and shows it in the Server Rules list, whereas
-// ContainsSenderStrings (a sender-address substring match) is classified as a
-// client-side condition and hidden from that list.
-type RuleFromType struct {
-	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types From"`
-	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
+// FromAddressesType is the FromAddresses rule predicate: the sender resolved to
+// an address object. Captured from a real Outlook for Mac UpdateInboxRules call,
+// the element is <FromAddresses> containing <Address> (NOT <From>/<Mailbox>), and
+// Outlook only shows a sender rule in the Server Rules list when it arrives in
+// this exact shape — ContainsSenderStrings (a substring match) is treated as a
+// client-side condition and hidden.
+type FromAddressesType struct {
+	XMLName   xml.Name          `xml:"http://schemas.microsoft.com/exchange/services/2006/types FromAddresses"`
+	Addresses []RuleAddressType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address,omitempty"`
+}
+
+// RuleAddressType is an EmailAddressType entry inside a rule predicate's address
+// list. Field order (Name, EmailAddress, RoutingType) matches what Outlook sends.
+type RuleAddressType struct {
+	XMLName      xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Address"`
+	Name         string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Name,omitempty"`
+	EmailAddress string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddress,omitempty"`
+	RoutingType  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types RoutingType,omitempty"`
 }
 
 // ConditionsType wraps RulePredicatesType with XMLName "Conditions".
@@ -609,9 +619,9 @@ func (s *Server) inboxRulesResponse(operation, respClass string, code ErrorCode,
 	}
 	if operation == "GetInboxRules" && respClass == ResponseClassSuccess {
 		// OutlookRuleBlobExists=false tells Outlook there is no legacy Outlook
-		// rule blob (the FAI), so it uses the InboxRules we serve here rather than
-		// looking for a roaming rules config. The element precedes InboxRules in
-		// the GetInboxRulesResponseMessage schema sequence.
+		// rule blob (the MAPI rules table, which is not reachable over EWS), so it
+		// uses the InboxRules served here. The element precedes InboxRules in the
+		// GetInboxRulesResponseMessage schema sequence.
 		buf.WriteString(`<m:OutlookRuleBlobExists>false</m:OutlookRuleBlobExists>`)
 		buf.WriteString(`<m:InboxRules>`)
 		for _, rule := range rules {
@@ -1033,14 +1043,14 @@ func conditionsToEWS(conds []semcore.RuleCondition, matchAll bool) *ConditionsTy
 	for _, cond := range conds {
 		switch cond.Kind {
 		case semcore.RuleConditionKindFrom:
-			// Emit From (a resolved sender address) rather than
-			// ContainsSenderStrings: Outlook for Mac classifies a From predicate
-			// as a server-side condition and lists it under Server Rules, while a
-			// sender-address substring match is treated as client-side and hidden.
-			if pred.From == nil {
-				pred.From = &RuleFromType{}
+			// Emit FromAddresses>Address (a resolved sender address) rather than
+			// ContainsSenderStrings: a captured Outlook for Mac UpdateInboxRules
+			// call uses exactly this shape for a sender rule, which it classifies
+			// as server-side and lists; a substring match is hidden as client-side.
+			if pred.FromAddresses == nil {
+				pred.FromAddresses = &FromAddressesType{}
 			}
-			pred.From.Addresses = append(pred.From.Addresses, MailboxType{Email: cond.Value})
+			pred.FromAddresses.Addresses = append(pred.FromAddresses.Addresses, RuleAddressType{EmailAddress: cond.Value, RoutingType: "SMTP"})
 		case semcore.RuleConditionKindTo:
 			if pred.ContainsRecipientStrings == nil {
 				pred.ContainsRecipientStrings = &ArrayOfStringsType{}
@@ -1170,15 +1180,15 @@ func conditionsFromEWS(pred *RulePredicatesType) ([]semcore.RuleCondition, bool)
 			})
 		}
 	}
-	if pred.From != nil {
-		for _, mb := range pred.From.Addresses {
-			if mb.Email == "" {
+	if pred.FromAddresses != nil {
+		for _, addr := range pred.FromAddresses.Addresses {
+			if addr.EmailAddress == "" {
 				continue
 			}
 			conds = append(conds, semcore.RuleCondition{
 				Kind:      semcore.RuleConditionKindFrom,
 				MatchType: semcore.RuleMatchTypeContains,
-				Value:     mb.Email,
+				Value:     addr.EmailAddress,
 			})
 		}
 	}
