@@ -207,12 +207,20 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 	// it is a collab folder, emit each item as its typed CalendarItem/Contact/Task
 	// element so the client places it in the right folder; a bare Message would be
 	// dropped. Mail folders fall through to the identity-store path below.
-	if folderRec, ferr := s.identity.GetFolderByID(folderID); ferr == nil && folderRec != nil && s.collabStore != nil {
+	folderRec, _ := s.identity.GetFolderByID(folderID) //nolint:errcheck // a missing folder record falls through to the mail path with the default class
+	if folderRec != nil && s.collabStore != nil {
 		switch folderRec.Role {
 		case "calendar", "contacts", "tasks":
 			creates, lastID, hitLimit = s.collabSyncCreates(folderRec.Role, folderID, cursor, maxChanges)
 			return s.finishSyncFolderItems(mboxID, folderID, clientID, syncVersion, lastSyncTime, lastID, hitLimit, creates, deletes, readFlags, req.SyncState)
 		}
+	}
+
+	// Notes folders hold IPM.StickyNote items; other mail folders default to
+	// IPM.Note. A message's explicit X-Message-Class header still wins per-item.
+	defaultItemClass := "IPM.Note"
+	if folderRec != nil && folderRec.Role == "notes" {
+		defaultItemClass = "IPM.StickyNote"
 	}
 
 	// Collect all items in the folder.
@@ -249,13 +257,17 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 			toRecipients = append(toRecipients, MailboxTypeResponse{EmailAddress: addr})
 		}
 
+		itemClass := defaultItemClass
+		if c := rawHeaderValue(rawMsg, "X-Message-Class"); c != "" {
+			itemClass = c
+		}
 		msgResp := MessageTypeResponse{
 			ItemID: ItemIdType{
 				ID: rec.ItemID.String(),
 				CK: rec.ChangeKey.String(),
 			},
 			ParentFolderID: FolderIdComponents{ID: folderID.String()},
-			ItemClass:      "IPM.Note",
+			ItemClass:      itemClass,
 			Subject:        subject,
 			Body: BodyTypeResponse{
 				BodyType: bodyType,
