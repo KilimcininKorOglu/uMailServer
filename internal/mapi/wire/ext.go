@@ -19,6 +19,10 @@ const (
 	// FlagWCount prefixes counted binary with a 32-bit length; without it the
 	// length is 16-bit.
 	FlagWCount Flag = 1 << 1
+	// FlagABK selects the address-book (NSPI) property-value encoding, where a
+	// string, binary, or multivalue value is preceded by a one-byte presence
+	// marker (0x00 absent, 0xFF present).
+	FlagABK Flag = 1 << 2
 )
 
 // Codec errors. Pull uses a sticky error: the first failing read latches the
