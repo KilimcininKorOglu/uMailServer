@@ -189,6 +189,62 @@ func TestGetPropsUnknownMidFails(t *testing.T) {
 	}
 }
 
+// TestGetPropsMissingPropertyFlagsError verifies a requested property the entry
+// lacks is returned as a PtypErrorCode value for that exact property tag, so the
+// value count still matches the request rather than silently dropping a column.
+func TestGetPropsMissingPropertyFlagsError(t *testing.T) {
+	srv := NewServer()
+	srv.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "alice@x.test", DisplayName: "Alice", ObjectClass: "User"},
+	}})
+	// PidTagContainerClass is a folder property, not an address-book person
+	// property, so the entry lacks it and the row must flag it in error.
+	cols := []wire.PropTag{wire.PidTagDisplayName, wire.PidTagContainerClass}
+
+	body := wire.NewPush(0)
+	body.Uint32(0)   // flags
+	body.Uint8(0xFF) // state block present
+	Stat{CurrentRec: entryMid(0)}.Push(body)
+	body.Uint8(0xFF) // proptags present
+	pushProptags(body, cols)
+	body.Uint32(0) // cb_auxin
+
+	req := httptest.NewRequest(http.MethodPost, "/mapi/nspi", bytes.NewReader(body.Bytes()))
+	req.Header.Set("X-RequestType", "GetProps")
+	req = req.WithContext(WithEmail(req.Context(), "qa.bob@local.test"))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	q := wire.NewPull(payloadAfterMeta(t, rec.Body.Bytes()), wire.FlagABK|wire.FlagUTF16)
+	q.Uint32() // status
+	if result := q.Uint32(); result != ecSuccess {
+		t.Fatalf("result = %#x, want success", result)
+	}
+	q.Uint32() // code page
+	if q.Uint8() != 0xFF {
+		t.Fatal("expected a property row")
+	}
+	if count := q.Uint32(); count != 2 {
+		t.Fatalf("value count = %d, want 2", count)
+	}
+	if _, err := wire.PullTaggedPropertyValue(q); err != nil {
+		t.Fatalf("value 0 decode: %v", err)
+	}
+	missing, err := wire.PullTaggedPropertyValue(q)
+	if err != nil {
+		t.Fatalf("value 1 decode: %v", err)
+	}
+	if missing.Tag.Type() != wire.PtError {
+		t.Errorf("missing property type = %#x, want PtError", missing.Tag.Type())
+	}
+	if missing.Tag.ID() != wire.PidTagContainerClass.ID() {
+		t.Errorf("missing property id = %#x, want PidTagContainerClass id", missing.Tag.ID())
+	}
+	if code, ok := missing.Value.(uint32); !ok || code != ecNotFound {
+		t.Errorf("missing property value = %v, want ecNotFound", missing.Value)
+	}
+}
+
 // TestQueryRowsWithoutDirectoryFails verifies QueryRows reports an error when no
 // GAL source is configured.
 func TestQueryRowsWithoutDirectoryFails(t *testing.T) {
