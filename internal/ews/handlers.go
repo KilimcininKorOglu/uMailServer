@@ -449,7 +449,6 @@ func (s *Server) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Header().Set("X-AutoDiscovery", "1")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(response)
 }
