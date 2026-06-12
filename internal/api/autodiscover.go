@@ -311,6 +311,9 @@ func (s *Server) buildAutodiscoverResponse(email, domain, host string, accountTi
 			Server:      s.serverHost(),
 			SSL:         "on",
 			AuthPackage: "basic",
+			// The OAB directory Outlook fetches oab.xml and the .lzx files from.
+			// The trailing slash matters: Outlook appends the file names to it.
+			OABUrl: "https://" + s.serverHost() + "/mapi/oab/",
 		}
 		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, oabProtocol)
 	}

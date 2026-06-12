@@ -16,6 +16,7 @@ import (
 	"github.com/umailserver/umailserver/internal/mapi"
 	"github.com/umailserver/umailserver/internal/mapi/emsmdb"
 	"github.com/umailserver/umailserver/internal/mapi/nspi"
+	"github.com/umailserver/umailserver/internal/mapi/oab"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 )
@@ -259,26 +260,30 @@ func (s *Server) startAPI() {
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 
-		// Wire MAPI/HTTP handler for NSPI and OAB endpoints (VAL-OUTLOOK-004, VAL-OUTLOOK-005).
-		// The MAPI server requires the database and policy store for GAL visibility and OAB generation.
+		// Wire the binary MAPI/HTTP address-book surfaces (VAL-OUTLOOK-004,
+		// VAL-OUTLOOK-005). The NSPI directory and the OAB read one policy-filtered
+		// GAL source (HiddenFromGAL filtering), so every Outlook address-book
+		// surface agrees on the same recipients.
 		if s.semcoreStore != nil && s.database != nil {
-			mapiServer := mapi.NewServer(s.database, s.semcoreStore.Policy())
-			s.apiServer.SetMAPIHandler(mapiServer)
+			galSource := mapi.NewServer(s.database, s.semcoreStore.Policy())
 
-			// Binary NSPI address book at /mapi/nspi, backed by the same
-			// policy-filtered GAL the JSON surface used (HiddenFromGAL, 100-entry
-			// cap). The API front end stores the authenticated email under
-			// api.ContextKeyEmail; bridge it into the context key the nspi handler
-			// reads, keeping the protocol package independent of the HTTP layer.
+			// Binary NSPI address book at /mapi/nspi. The API front end stores the
+			// authenticated email under api.ContextKeyEmail; bridge it into the
+			// context key the nspi handler reads, keeping the protocol package
+			// independent of the HTTP layer.
 			nspiServer := nspi.NewServer()
-			nspiServer.SetDirectory(nspiDirectory{mapi: mapiServer})
+			nspiServer.SetDirectory(nspiDirectory{mapi: galSource})
 			s.apiServer.SetNSPIHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {
 					r = r.WithContext(nspi.WithEmail(r.Context(), email))
 				}
 				nspiServer.ServeHTTP(w, r)
 			}))
-			s.logger.Info("MAPI/HTTP handler initialized")
+
+			// Binary Offline Address Book under /mapi/oab/, built from the same GAL.
+			s.apiServer.SetOABHandler(oab.NewHandler(oabDirectory{mapi: galSource}))
+
+			s.logger.Info("MAPI/HTTP address-book handlers initialized")
 		}
 
 		// Wire the binary MAPI/HTTP (emsmdb) mailbox connector at /mapi/emsmdb. It
@@ -358,6 +363,24 @@ func (d nspiDirectory) ResolveGAL(entry string) []nspi.DirectoryEntry {
 	}
 	return out
 }
+
+// oabDirectory adapts the MAPI GAL source to the OAB Directory interface so the
+// Offline Address Book serializes the same policy-filtered recipients NSPI
+// resolves.
+type oabDirectory struct{ mapi *mapi.Server }
+
+// GAL returns the complete address book as OAB entries.
+func (d oabDirectory) GAL() []oab.Entry {
+	gal := d.mapi.ResolveGAL("")
+	out := make([]oab.Entry, len(gal))
+	for i, e := range gal {
+		out[i] = oab.Entry{Email: e.Email, DisplayName: e.DisplayName, ObjectClass: e.ObjectClass}
+	}
+	return out
+}
+
+// Sequence returns the OAB version number from the GAL source.
+func (d oabDirectory) Sequence() uint32 { return d.mapi.GALSequence() }
 
 // localPart extracts the local part (before @) from an email address.
 func localPart(email string) string {

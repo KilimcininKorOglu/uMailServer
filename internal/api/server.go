@@ -129,10 +129,10 @@ type Server struct {
 	// EWS handler for Exchange Web Services (folder identity surface)
 	ewsHandler http.Handler
 
-	// MAPI/HTTP handler for OAB (offline address book). This is the
-	// Outlook-specific MAPI-over-HTTP surface that complements EWS. NSPI is served
-	// by the binary nspiHandler; this handler now serves only /mapi/oab.
-	mapiHandler http.Handler
+	// Binary MAPI/HTTP handler for the Offline Address Book (the manifest plus
+	// the LZX-compressed Full Details and template files over MS-OXWOAB/MS-OXOAB),
+	// served under /mapi/oab/.
+	oabHandler http.Handler
 
 	// Binary MAPI/HTTP (NSPI) address-book handler for the Outlook online-mode
 	// directory (Bind/QueryRows/GetProps over MS-OXNSPI), served at /mapi/nspi.
@@ -600,18 +600,21 @@ func (s *Server) initRouter() {
 			s.nspiHandler.ServeHTTP(w, r)
 		})
 	}
-	if s.mapiHandler != nil {
-		mux.HandleFunc("/mapi/oab", func(w http.ResponseWriter, r *http.Request) {
-			email := s.mapiBasicAuth(w, r)
-			if email == "" {
+	if s.oabHandler != nil {
+		// The OAB serves the whole GAL, so it needs no per-user context, only an
+		// authenticated caller. Outlook fetches oab.xml and the .lzx files under
+		// the OAB directory; the subtree pattern serves them and the exact pattern
+		// covers a bare request.
+		oab := func(w http.ResponseWriter, r *http.Request) {
+			if email := s.mapiBasicAuth(w, r); email == "" {
 				w.Header().Set("WWW-Authenticate", `Basic realm="MAPI/HTTP"`)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			//nolint:staticcheck // intentional: string key for cross-package context access
-			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
-			s.mapiHandler.ServeHTTP(w, r)
-		})
+			s.oabHandler.ServeHTTP(w, r)
+		}
+		mux.HandleFunc("/mapi/oab/", oab)
+		mux.HandleFunc("/mapi/oab", oab)
 	}
 	if s.emsmdbHandler != nil {
 		mux.HandleFunc("/mapi/emsmdb", func(w http.ResponseWriter, r *http.Request) {
@@ -1859,11 +1862,11 @@ func (s *Server) ewsBasicAuth(w http.ResponseWriter, r *http.Request) string {
 	return email
 }
 
-// SetMAPIHandler configures the MAPI/HTTP OAB handler on the API server, served
-// at /mapi/oab. The handler requires the server to have a non-nil *db.DB for
-// Basic Auth validation.
-func (s *Server) SetMAPIHandler(handler http.Handler) {
-	s.mapiHandler = handler
+// SetOABHandler configures the binary MAPI/HTTP Offline Address Book handler on
+// the API server, served under /mapi/oab/ behind Basic auth like the other MAPI
+// surfaces.
+func (s *Server) SetOABHandler(handler http.Handler) {
+	s.oabHandler = handler
 }
 
 // SetNSPIHandler configures the binary MAPI/HTTP (NSPI) address-book handler on

@@ -1,36 +1,28 @@
-// Package mapi implements the MAPI/HTTP surface for modern Windows Outlook.
-// It provides NSPI (Name Service Provider Interface) for directory/GAL lookups
-// and OAB (Offline Address Book) distribution.
+// Package mapi provides the policy-filtered Global Address List that the binary
+// MAPI/HTTP address-book surfaces share.
 //
-// These endpoints are reachable only when the account is in TierOutlook with
-// FeatureMAPIHTTP enabled, and all MAPI/HTTP entry points enforce explicit
-// account-state failures for inactive or password-change-required accounts
-// (VAL-OUTLOOK-008).
-//
-// VAL-OUTLOOK-004: NSPI directory lookups return policy-correct address book
-// results including exact matches, ambiguous matches, and resource-style lookups.
-//
-// VAL-OUTLOOK-005: OAB retrieval supports offline address-book use with full
-// and incremental refresh.
+// The NSPI address book (internal/mapi/nspi) and the Offline Address Book
+// (internal/mapi/oab) both read this one source, so every Outlook directory
+// surface agrees on the same visible recipients (HiddenFromGAL filtering,
+// VAL-DIR-007) and the same EX identities.
 package mapi
 
 import (
-	"context"
-	"net/http"
 	"sort"
 	"strings"
+	"time"
 
-	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/semcore"
 )
 
-// Server is the MAPI/HTTP handler for NSPI and OAB endpoints.
+// Server is the policy-filtered Global Address List source for the binary
+// MAPI/HTTP address-book surfaces (NSPI and OAB).
 type Server struct {
 	db          Store
 	policyStore PolicyStore
 }
 
-// NewServer creates a MAPI/HTTP handler wired to the database and policy store.
+// NewServer creates a GAL source wired to the account database and policy store.
 func NewServer(db Store, policyStore PolicyStore) *Server {
 	return &Server{
 		db:          db,
@@ -38,43 +30,7 @@ func NewServer(db Store, policyStore PolicyStore) *Server {
 	}
 }
 
-// ServeHTTP routes to the appropriate MAPI/HTTP handler based on path.
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch {
-	case strings.HasPrefix(r.URL.Path, "/mapi/nspi"):
-		s.handleNSPI(w, r)
-	case strings.HasPrefix(r.URL.Path, "/mapi/oab"):
-		s.handleOAB(w, r)
-	default:
-		http.Error(w, "Not Found", http.StatusNotFound)
-	}
-}
-
-// getEmailFromContext extracts the authenticated email from the request context.
-// It reads the email stored under the key that api.server uses when injecting
-// the authenticated principal into the request context.
-func getEmailFromContext(ctx context.Context) string {
-	//nolint:staticcheck // SA1029: using string key for compatibility with api.server's context injection.
-	if email, ok := ctx.Value("X-Email").(string); ok && email != "" {
-		return email
-	}
-	return ""
-}
-
-// accountFromEmail looks up an account by email address.
-func (s *Server) accountFromEmail(email string) *db.AccountData {
-	localPart, domain, ok := strings.Cut(email, "@")
-	if !ok {
-		return nil
-	}
-	account, err := s.db.GetAccount(domain, localPart)
-	if err != nil {
-		return nil
-	}
-	return account
-}
-
-// directoryCandidate is a GAL lookup result returned by NSPI.
+// directoryCandidate is a GAL lookup result.
 type directoryCandidate struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
@@ -216,4 +172,39 @@ func (s *Server) ResolveGAL(entry string) []GALEntry {
 		out[i] = GALEntry(c)
 	}
 	return out
+}
+
+// GALSequence returns a monotonic version number for the Global Address List —
+// the OAB sequence number. It is the latest account modification time across the
+// active directory, folded to 31 bits, so it advances whenever an account is
+// added or changed and stays stable otherwise. Deleting the most recently
+// modified account can lower it; that still changes the value, so Outlook
+// re-downloads the book.
+func (s *Server) GALSequence() uint32 {
+	if s.db == nil {
+		return 0
+	}
+	domains, err := s.db.ListDomains()
+	if err != nil {
+		return 0
+	}
+	var latest time.Time
+	for _, domain := range domains {
+		if !domain.IsActive {
+			continue
+		}
+		accounts, err := s.db.ListAccountsByDomain(domain.Name)
+		if err != nil {
+			continue
+		}
+		for _, acc := range accounts {
+			if acc.IsActive && acc.UpdatedAt.After(latest) {
+				latest = acc.UpdatedAt
+			}
+		}
+	}
+	if latest.IsZero() {
+		return 0
+	}
+	return uint32(latest.Unix()) & 0x7FFFFFFF
 }
