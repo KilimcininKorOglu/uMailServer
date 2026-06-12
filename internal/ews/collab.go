@@ -345,11 +345,34 @@ type EmailAddressesType struct {
 	Entry   []EmailAddressEntry `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
 }
 
-// EmailAddressEntry is one email address entry.
+// EmailAddressEntry is one email address entry. Name/RoutingType/MailboxType are
+// the optional EmailAddressDictionaryEntryType attributes: Outlook for Mac reads
+// them to bind the address to the contact's display name and treat it as a real
+// SMTP contact address; without them it renders the address as a placeholder.
 type EmailAddressEntry struct {
-	XMLName xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
-	Key     string   `xml:"Key,attr"`
-	Value   string   `xml:",chardata"`
+	XMLName     xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types Entry"`
+	Key         string   `xml:"Key,attr"`
+	Name        string   `xml:"Name,attr,omitempty"`
+	RoutingType string   `xml:"RoutingType,attr,omitempty"`
+	MailboxType string   `xml:"MailboxType,attr,omitempty"`
+	Value       string   `xml:",chardata"`
+}
+
+// CompleteNameType is the ContactItemType CompleteName structure. Outlook for Mac
+// derives a contact's first/last/full name from CompleteName, not the flat
+// DisplayName/GivenName/Surname elements; omitting it leaves the People card name
+// blank even when those flat fields are populated. Field order follows Types.xsd:
+// Title, FirstName, MiddleName, LastName, Suffix, Initials, FullName, Nickname.
+type CompleteNameType struct {
+	XMLName    xml.Name `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompleteName"`
+	Title      string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Title,omitempty"`
+	FirstName  string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types FirstName,omitempty"`
+	MiddleName string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types MiddleName,omitempty"`
+	LastName   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types LastName,omitempty"`
+	Suffix     string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Suffix,omitempty"`
+	Initials   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Initials,omitempty"`
+	FullName   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types FullName,omitempty"`
+	Nickname   string   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Nickname,omitempty"`
 }
 
 // PhoneNumbersType holds phone number entries.

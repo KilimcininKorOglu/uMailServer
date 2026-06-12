@@ -47,9 +47,10 @@ type CalendarItemResponse struct {
 // ContactItemResponse is a contact projected for FindItem/SyncFolderItems.
 // Field order follows ItemType (ItemId, ParentFolderId, ItemClass, Subject,
 // Categories) then the ContactItemType extension (FileAs, DisplayName,
-// GivenName, CompanyName, EmailAddresses, Surname) per Types.xsd:5522.
-// GivenName precedes Surname in the schema, with CompanyName/EmailAddresses
-// between them.
+// GivenName, CompleteName, CompanyName, EmailAddresses, Surname) per Types.xsd.
+// CompleteName sits between GivenName and CompanyName in the schema sequence;
+// Outlook for Mac reads the People card name from CompleteName, so it is
+// load-bearing, not redundant with the flat GivenName/Surname elements.
 type ContactItemResponse struct {
 	XMLName        xml.Name               `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
 	ItemID         ItemIdType             `xml:"http://schemas.microsoft.com/exchange/services/2006/types ItemId"`
@@ -60,6 +61,7 @@ type ContactItemResponse struct {
 	FileAs         string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types FileAs,omitempty"`
 	DisplayName    string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types DisplayName,omitempty"`
 	GivenName      string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types GivenName,omitempty"`
+	CompleteName   *CompleteNameType      `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompleteName,omitempty"`
 	CompanyName    string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types CompanyName,omitempty"`
 	EmailAddresses *EmailAddressesType    `xml:"http://schemas.microsoft.com/exchange/services/2006/types EmailAddresses,omitempty"`
 	Surname        string                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Surname,omitempty"`
@@ -153,6 +155,11 @@ func rawContactToResponse(rec semcore.StoredContactIdentity, folderID semcore.Fo
 		subject = rec.IcalUID
 	}
 
+	fullName := fn
+	if fullName == "" {
+		fullName = strings.TrimSpace(given + " " + surname)
+	}
+
 	resp := ContactItemResponse{
 		ItemID:         ItemIdType{ID: rec.ID.String(), CK: rec.ChangeKey.String()},
 		ParentFolderID: FolderIdComponents{ID: folderID.String()},
@@ -162,12 +169,23 @@ func rawContactToResponse(rec semcore.StoredContactIdentity, folderID semcore.Fo
 		FileAs:         fn,
 		DisplayName:    fn,
 		GivenName:      given,
-		CompanyName:    vcardOrg(extractDirProp(rec.RawData, "ORG")),
-		Surname:        surname,
+		CompleteName: &CompleteNameType{
+			FirstName: given,
+			LastName:  surname,
+			FullName:  fullName,
+		},
+		CompanyName: vcardOrg(extractDirProp(rec.RawData, "ORG")),
+		Surname:     surname,
 	}
 	if email := extractDirProp(rec.RawData, "EMAIL"); email != "" {
 		resp.EmailAddresses = &EmailAddressesType{
-			Entry: []EmailAddressEntry{{Key: "EmailAddress1", Value: strings.TrimSpace(email)}},
+			Entry: []EmailAddressEntry{{
+				Key:         "EmailAddress1",
+				Name:        fullName,
+				RoutingType: "SMTP",
+				MailboxType: "Contact",
+				Value:       strings.TrimSpace(email),
+			}},
 		}
 	}
 	return resp
