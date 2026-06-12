@@ -159,6 +159,14 @@ func NewPull(b []byte, flags Flag) *Pull { return &Pull{b: b, flags: flags} }
 // Err returns the first error encountered, or nil.
 func (p *Pull) Err() error { return p.err }
 
+// Fault latches a format error so a higher-level parser can reject semantically
+// invalid input (for example an unknown discriminator) and stop consuming.
+func (p *Pull) Fault() {
+	if p.err == nil {
+		p.err = ErrFormat
+	}
+}
+
 // Offset returns the current read offset.
 func (p *Pull) Offset() int { return p.off }
 

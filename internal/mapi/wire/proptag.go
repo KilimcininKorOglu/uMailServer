@@ -110,4 +110,8 @@ const (
 	// PidTagAddressBookIsMaster (MS-OXNSPI) marks whether an address-book
 	// container is the master; the NSPI special table carries it per container.
 	PidTagAddressBookIsMaster PropTag = PropTag(0xFFFB)<<16 | PropTag(PtBoolean)
+
+	// PidTagAnr (MS-OXOABK) is the ambiguous-name-resolution key a GetMatches
+	// restriction targets to search the GAL by partial name or address.
+	PidTagAnr PropTag = PropTag(0x360C)<<16 | PropTag(PtUnicode)
 )

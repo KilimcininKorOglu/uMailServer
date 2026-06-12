@@ -126,6 +126,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleUpdateStat(w, r, body)
 	case "SeekEntries":
 		s.handleSeekEntries(w, r, body)
+	case "GetMatches":
+		s.handleGetMatches(w, r, body)
 	case "PING":
 		s.writeResponse(w, r, "PING", "", nil)
 	default:
