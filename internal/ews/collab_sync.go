@@ -178,12 +178,15 @@ func rawContactToResponse(rec semcore.StoredContactIdentity, folderID semcore.Fo
 		Surname:     surname,
 	}
 	if email := extractDirProp(rec.RawData, "EMAIL"); email != "" {
+		// MailboxType is deliberately omitted: a contact's own SMTP address must
+		// not carry MailboxType="Contact", which Outlook reads as "this address
+		// resolves to another contact" and then renders a placeholder instead of
+		// the address. Real Exchange sends only Key/Name/RoutingType here.
 		resp.EmailAddresses = &EmailAddressesType{
 			Entry: []EmailAddressEntry{{
 				Key:         "EmailAddress1",
-				Name:        fullName,
+				Name:        strings.TrimSpace(email),
 				RoutingType: "SMTP",
-				MailboxType: "Contact",
 				Value:       strings.TrimSpace(email),
 			}},
 		}
