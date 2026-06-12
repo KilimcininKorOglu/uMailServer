@@ -38,3 +38,11 @@ func pushProptags(p *wire.Push, tags []wire.PropTag) {
 		p.Uint32(uint32(t))
 	}
 }
+
+// pushU32Array writes a 32-bit-counted array of 32-bit values (a MinId array).
+func pushU32Array(p *wire.Push, vals []uint32) {
+	p.Uint32(uint32(len(vals)))
+	for _, v := range vals {
+		p.Uint32(v)
+	}
+}
