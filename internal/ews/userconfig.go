@@ -163,7 +163,11 @@ func (s *Server) handleGetUserConfiguration(ctx context.Context, body []byte) []
 	}
 	if err != nil {
 		if !isOWAOptions || sig == "" {
-			return s.errorResponseXML("GetUserConfiguration", ErrErrorItemNotFound, "user configuration not found")
+			// A well-formed GetUserConfigurationResponse error (not the bare
+			// generic ResponseMessage): Outlook probes the "Rules" config via
+			// GetUserConfiguration and must parse this not-found envelope to fall
+			// back to GetInboxRules instead of choking on a malformed body.
+			return userConfigNotFoundResponse()
 		}
 		stored = &db.UserConfigBlob{} // synthesize so the signature can be injected
 	}
@@ -201,6 +205,27 @@ func (s *Server) handleGetUserConfiguration(ctx context.Context, body []byte) []
 		b.WriteString(`<t:BinaryData>` + stored.BinaryData + `</t:BinaryData>`)
 	}
 	b.WriteString(`</m:UserConfiguration></m:GetUserConfigurationResponseMessage></m:ResponseMessages></m:GetUserConfigurationResponse>`)
+	b.WriteString(`</soap:Body></soap:Envelope>`)
+	return []byte(b.String())
+}
+
+// userConfigNotFoundResponse builds a schema-correct GetUserConfigurationResponse
+// carrying an ItemNotFound error, wrapped in the GetUserConfigurationResponse >
+// ResponseMessages > GetUserConfigurationResponseMessage envelope Outlook expects
+// (the generic errorResponseXML emits a bare ResponseMessage with no wrapper).
+func userConfigNotFoundResponse() []byte {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
+	b.WriteString(`<soap:Envelope xmlns:soap="` + SOAPEnvelopeNS + `" xmlns:t="` + EWSTypesNS + `" xmlns:m="` + EWSMessagesNS + `">`)
+	b.WriteString(`<soap:Header>`)
+	sv := NewServerVersion()
+	svBytes, _ := xml.Marshal(sv) //nolint:errcheck
+	b.Write(svBytes)
+	b.WriteString(`</soap:Header><soap:Body>`)
+	b.WriteString(`<m:GetUserConfigurationResponse><m:ResponseMessages><m:GetUserConfigurationResponseMessage ResponseClass="Error">`)
+	b.WriteString(`<m:ResponseCode>` + string(ErrErrorItemNotFound) + `</m:ResponseCode>`)
+	b.WriteString(`<m:MessageText>user configuration not found</m:MessageText>`)
+	b.WriteString(`</m:GetUserConfigurationResponseMessage></m:ResponseMessages></m:GetUserConfigurationResponse>`)
 	b.WriteString(`</soap:Body></soap:Envelope>`)
 	return []byte(b.String())
 }

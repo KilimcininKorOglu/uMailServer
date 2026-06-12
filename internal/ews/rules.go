@@ -597,6 +597,11 @@ func (s *Server) inboxRulesResponse(operation, respClass string, code ErrorCode,
 		buf.WriteString(`<m:ErrorMessage>` + xmlEsc(msg) + `</m:ErrorMessage>`)
 	}
 	if operation == "GetInboxRules" && respClass == ResponseClassSuccess {
+		// OutlookRuleBlobExists=false tells Outlook there is no legacy Outlook
+		// rule blob (the FAI), so it uses the InboxRules we serve here rather than
+		// looking for a roaming rules config. The element precedes InboxRules in
+		// the GetInboxRulesResponseMessage schema sequence.
+		buf.WriteString(`<m:OutlookRuleBlobExists>false</m:OutlookRuleBlobExists>`)
 		buf.WriteString(`<m:InboxRules>`)
 		for _, rule := range rules {
 			ruleBytes, _ := xml.Marshal(rule) //nolint:errcheck
