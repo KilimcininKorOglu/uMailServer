@@ -110,6 +110,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleGetSpecialTable(w, r, body)
 	case "ResolveNamesW":
 		s.handleResolveNamesW(w, r, body)
+	case "DNToMId":
+		s.handleDNToMID(w, r, body)
 	case "PING":
 		s.writeResponse(w, r, "PING", "", nil)
 	default:
