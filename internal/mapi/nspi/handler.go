@@ -55,6 +55,7 @@ type session struct {
 // The transport framing (the meta-tag block, the sid cookie, the common headers)
 // mirrors the emsmdb endpoint; both implement the MS-OXCMAPIHTTP transport.
 type Server struct {
+	dir      Directory
 	mu       sync.Mutex
 	sessions map[string]*session
 }
@@ -63,6 +64,9 @@ type Server struct {
 func NewServer() *Server {
 	return &Server{sessions: make(map[string]*session)}
 }
+
+// SetDirectory attaches the GAL source the address-book query operations read.
+func (s *Server) SetDirectory(d Directory) { s.dir = d }
 
 func (s *Server) putSession(sess *session) {
 	s.mu.Lock()
@@ -98,6 +102,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleBind(w, r, body)
 	case "Unbind":
 		s.handleUnbind(w, r, body)
+	case "QueryRows":
+		s.handleQueryRows(w, r, body)
 	case "PING":
 		s.writeResponse(w, r, "PING", "", nil)
 	default:

@@ -13,6 +13,7 @@ var ErrCorrupt = errors.New("nspi: corrupt request")
 const (
 	ecSuccess       uint32 = 0x00000000
 	ecError         uint32 = 0x80004005
+	ecNotFound      uint32 = 0x8004010F // MAPI_E_NOT_FOUND (absent property)
 	ecUnbindSuccess uint32 = 0x00000001 // MAPI_E_UNBINDSUCCESS (NSPI Unbind success)
 )
 
