@@ -109,6 +109,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopOpenFolder:       ropOpenFolder,
 	RopGetContentsTable: ropGetContentsTable,
 	RopSetColumns:       ropSetColumns,
+	RopQueryRows:        ropQueryRows,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded

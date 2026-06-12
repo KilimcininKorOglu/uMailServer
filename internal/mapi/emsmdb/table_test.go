@@ -110,3 +110,125 @@ func TestSetColumnsAppliesColumns(t *testing.T) {
 		}
 	}
 }
+
+// setColumns selects cols on the table at handle index 2.
+func setColumns(t *testing.T, p *Processor, sess *Session, handles []uint32, cols []wire.PropTag) {
+	t.Helper()
+	sc := wire.NewPush(wire.FlagUTF16)
+	sc.Uint8(0)
+	wire.PushPropertyTagArray(sc, cols)
+	p.Dispatch(sess, ropRequest(RopSetColumns, 2, sc.Bytes()), handles, 0x10000)
+}
+
+// queryRows reads up to want rows from the table at handle index 2.
+func queryRows(p *Processor, sess *Session, handles []uint32, want uint16) []byte {
+	qr := wire.NewPush(wire.FlagUTF16)
+	qr.Uint8(0)     // flags
+	qr.Uint8(1)     // forward read
+	qr.Uint16(want) // rows wanted
+	resp, _ := p.Dispatch(sess, ropRequest(RopQueryRows, 2, qr.Bytes()), handles, 0x10000)
+	return resp
+}
+
+// TestQueryRowsReturnsMessageRows verifies RopQueryRows maps stored message
+// metadata onto the selected columns and returns compact untagged rows when every
+// column is present.
+func TestQueryRowsReturnsMessageRows(t *testing.T) {
+	store := newFakeStore()
+	store.put("INBOX", &storage.MessageMetadata{UID: 7, Subject: "hello", InternalDate: time.Unix(1700000000, 0).UTC(), Size: 1234, Flags: []string{"\\Seen"}})
+	store.put("INBOX", &storage.MessageMetadata{UID: 9, Subject: "world", InternalDate: time.Unix(1700000500, 0).UTC(), Size: 5678})
+	p, sess, handles := openContentsTable(t, store)
+
+	cols := []wire.PropTag{wire.PidTagMid, wire.PidTagSubject, wire.PidTagMessageSize, wire.PidTagMessageFlags}
+	setColumns(t, p, sess, handles, cols)
+	resp := queryRows(p, sess, handles, 100)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopQueryRows {
+		t.Fatalf("rop id = %#x, want RopQueryRows", got)
+	}
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("return value = %#x, want success", rv)
+	}
+	if seek := q.Uint8(); seek != bookmarkEnd {
+		t.Errorf("seek pos = %#x, want bookmarkEnd", seek)
+	}
+	if count := q.Uint16(); count != 2 {
+		t.Fatalf("row count = %d, want 2", count)
+	}
+
+	row, err := wire.PullPropertyRow(q, cols)
+	if err != nil {
+		t.Fatalf("row 0 decode: %v", err)
+	}
+	if row.Flag != wire.RowFlagNone {
+		t.Errorf("row 0 flag = %#x, want RowFlagNone", row.Flag)
+	}
+	if mid, ok := row.Values[0].(uint64); !ok || mid != messageID(7) {
+		t.Errorf("row 0 MID = %v, want %#x", row.Values[0], messageID(7))
+	}
+	if subj, ok := row.Values[1].(string); !ok || subj != "hello" {
+		t.Errorf("row 0 subject = %v, want hello", row.Values[1])
+	}
+	if sz, ok := row.Values[2].(uint32); !ok || sz != 1234 {
+		t.Errorf("row 0 size = %v, want 1234", row.Values[2])
+	}
+	if fl, ok := row.Values[3].(uint32); !ok || fl != msgFlagRead {
+		t.Errorf("row 0 flags = %v, want read", row.Values[3])
+	}
+
+	row2, err := wire.PullPropertyRow(q, cols)
+	if err != nil {
+		t.Fatalf("row 1 decode: %v", err)
+	}
+	if subj, ok := row2.Values[1].(string); !ok || subj != "world" {
+		t.Errorf("row 1 subject = %v, want world", row2.Values[1])
+	}
+	if fl, ok := row2.Values[3].(uint32); !ok || fl != 0 {
+		t.Errorf("row 1 flags = %v, want 0 (unread)", row2.Values[3])
+	}
+	if q.Err() != nil {
+		t.Fatalf("trailing parse error: %v", q.Err())
+	}
+}
+
+// TestQueryRowsFlagsMissingColumn verifies a row with an unmapped column uses the
+// flagged form, marking the present column available and the missing one in error.
+func TestQueryRowsFlagsMissingColumn(t *testing.T) {
+	store := newFakeStore()
+	store.put("INBOX", &storage.MessageMetadata{UID: 1, Subject: "x"})
+	p, sess, handles := openContentsTable(t, store)
+
+	body := wire.MakeTag(0x1000, wire.PtUnicode) // PidTagBody: not mapped on the online path
+	cols := []wire.PropTag{wire.PidTagSubject, body}
+	setColumns(t, p, sess, handles, cols)
+	resp := queryRows(p, sess, handles, 100)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8()  // rop id
+	q.Uint8()  // handle index
+	q.Uint32() // return value
+	q.Uint8()  // seek pos
+	if count := q.Uint16(); count != 1 {
+		t.Fatalf("row count = %d, want 1", count)
+	}
+	row, err := wire.PullPropertyRow(q, cols)
+	if err != nil {
+		t.Fatalf("row decode: %v", err)
+	}
+	if row.Flag != wire.RowFlagFlagged {
+		t.Fatalf("row flag = %#x, want RowFlagFlagged", row.Flag)
+	}
+	present, ok := row.Values[0].(wire.FlaggedPropertyValue)
+	if !ok || present.Flag != wire.FlaggedAvailable {
+		t.Fatalf("subject column = %+v, want available", row.Values[0])
+	}
+	if s, sok := present.Value.(string); !sok || s != "x" {
+		t.Errorf("subject value = %v, want \"x\"", present.Value)
+	}
+	missing, ok := row.Values[1].(wire.FlaggedPropertyValue)
+	if !ok || missing.Flag != wire.FlaggedError {
+		t.Errorf("body column = %+v, want error flag", row.Values[1])
+	}
+}
