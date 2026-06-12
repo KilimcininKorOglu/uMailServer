@@ -109,6 +109,86 @@ func TestQueryRowsReturnsGAL(t *testing.T) {
 	}
 }
 
+// TestGetPropsReturnsEntry verifies GetProps returns the selected entry's
+// properties as a tagged-value array.
+func TestGetPropsReturnsEntry(t *testing.T) {
+	srv := NewServer()
+	srv.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "alice@x.test", DisplayName: "Alice", ObjectClass: "User"},
+	}})
+	cols := []wire.PropTag{wire.PidTagDisplayName, wire.PidTagSmtpAddress}
+
+	body := wire.NewPush(0)
+	body.Uint32(0)   // flags
+	body.Uint8(0xFF) // state block present
+	Stat{CurrentRec: entryMid(0)}.Push(body)
+	body.Uint8(0xFF) // proptags present
+	pushProptags(body, cols)
+	body.Uint32(0) // cb_auxin
+
+	req := httptest.NewRequest(http.MethodPost, "/mapi/nspi", bytes.NewReader(body.Bytes()))
+	req.Header.Set("X-RequestType", "GetProps")
+	req = req.WithContext(WithEmail(req.Context(), "qa.bob@local.test"))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	q := wire.NewPull(payloadAfterMeta(t, rec.Body.Bytes()), wire.FlagABK|wire.FlagUTF16)
+	q.Uint32() // status
+	if result := q.Uint32(); result != ecSuccess {
+		t.Fatalf("result = %#x, want success", result)
+	}
+	q.Uint32() // code page
+	if q.Uint8() != 0xFF {
+		t.Fatal("expected a property row")
+	}
+	if count := q.Uint32(); count != 2 {
+		t.Fatalf("value count = %d, want 2", count)
+	}
+	v0, err := wire.PullTaggedPropertyValue(q)
+	if err != nil {
+		t.Fatalf("value 0 decode: %v", err)
+	}
+	if v0.Tag != wire.PidTagDisplayName {
+		t.Errorf("value 0 tag = %#x, want PidTagDisplayName", v0.Tag)
+	}
+	if dn, ok := v0.Value.(string); !ok || dn != "Alice" {
+		t.Errorf("display name = %v, want Alice", v0.Value)
+	}
+	v1, err := wire.PullTaggedPropertyValue(q)
+	if err != nil {
+		t.Fatalf("value 1 decode: %v", err)
+	}
+	if sm, ok := v1.Value.(string); !ok || sm != "alice@x.test" {
+		t.Errorf("smtp = %v, want alice@x.test", v1.Value)
+	}
+}
+
+// TestGetPropsUnknownMidFails verifies GetProps reports not-found for a minimal id
+// that is not a GAL entry.
+func TestGetPropsUnknownMidFails(t *testing.T) {
+	srv := NewServer()
+	srv.SetDirectory(fakeDir{entries: []DirectoryEntry{{Email: "a@x.test", DisplayName: "A", ObjectClass: "User"}}})
+
+	body := wire.NewPush(0)
+	body.Uint32(0)
+	body.Uint8(0xFF)
+	Stat{CurrentRec: 0x9999}.Push(body) // no such entry
+	body.Uint8(0)                       // default proptags
+	body.Uint32(0)                      // cb_auxin
+
+	req := httptest.NewRequest(http.MethodPost, "/mapi/nspi", bytes.NewReader(body.Bytes()))
+	req.Header.Set("X-RequestType", "GetProps")
+	req = req.WithContext(WithEmail(req.Context(), "qa.bob@local.test"))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	q := wire.NewPull(payloadAfterMeta(t, rec.Body.Bytes()), wire.FlagABK|wire.FlagUTF16)
+	q.Uint32() // status
+	if result := q.Uint32(); result != ecNotFound {
+		t.Errorf("result = %#x, want ecNotFound", result)
+	}
+}
+
 // TestQueryRowsWithoutDirectoryFails verifies QueryRows reports an error when no
 // GAL source is configured.
 func TestQueryRowsWithoutDirectoryFails(t *testing.T) {
