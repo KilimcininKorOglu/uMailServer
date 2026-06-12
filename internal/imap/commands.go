@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
 	"go.opentelemetry.io/otel/attribute"
@@ -1057,6 +1058,12 @@ func (s *Session) handleList(args []string) error {
 	allMailboxes, _ := s.server.mailstore.ListMailboxes(s.user, "*")
 
 	for _, mbox := range mailboxes {
+		// The Recoverable Items dumpster is a soft-delete retention area, not a
+		// browsable folder — Exchange keeps it out of IMAP LIST. It stays
+		// SELECTable by name for the recover flow and retention cleaner.
+		if semcore.IsClientHiddenFolderName(mbox) {
+			continue
+		}
 		// Determine hierarchy indicators (RFC 3348)
 		hasChildren := false
 		hasNoSelect := false
@@ -1142,6 +1149,9 @@ func (s *Session) handleLsub(args []string) error {
 	}
 
 	for _, mbox := range mailboxes {
+		if semcore.IsClientHiddenFolderName(mbox) {
+			continue
+		}
 		s.WriteData(fmt.Sprintf("LSUB (\\HasNoChildren) \"/\" \"%s\"", mbox))
 	}
 

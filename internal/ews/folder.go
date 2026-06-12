@@ -515,6 +515,12 @@ func (s *Server) folderCounts(mailboxKey string, folderID semcore.FolderId, role
 			if f.FolderID.Equal(folderID) {
 				continue
 			}
+			// Hidden dumpster folders are not enumerated, so they must not be
+			// counted as children either, or ChildFolderCount overstates what the
+			// client can actually see.
+			if semcore.IsClientHiddenFolderRole(f.Role) {
+				continue
+			}
 			if s.effectiveParentID(f.Role, f.ParentID, rootID, ipmID).Equal(folderID) {
 				child++
 			}
@@ -750,6 +756,13 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		// user-visible folders — emitting the IPM subtree as a child of root makes
 		// Outlook render "msgfolderroot" as a sibling folder, so skip both.
 		if isContainerRole(f.Role) {
+			continue
+		}
+		// The Recoverable Items dumpster is a soft-delete retention area, not a
+		// browsable IPM folder — Exchange keeps it out of the mail-client folder
+		// hierarchy and Outlook never lists it. It stays addressable by
+		// distinguished id and powers the recover flow, so only enumeration hides it.
+		if semcore.IsClientHiddenFolderRole(f.Role) {
 			continue
 		}
 		// Skip the parent itself.
@@ -2129,6 +2142,13 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 		// user-visible child folders — emitting either makes Outlook render the
 		// anchor itself as a sibling folder, so neither is ever a Create.
 		if isContainerRole(f.Role) {
+			continue
+		}
+		// The Recoverable Items dumpster is a soft-delete retention area, not a
+		// browsable IPM folder — Exchange keeps it out of the mail-client folder
+		// hierarchy, so it is never synced into the client tree. It stays
+		// addressable by distinguished id and powers the recover flow.
+		if semcore.IsClientHiddenFolderRole(f.Role) {
 			continue
 		}
 		// On incremental sync, skip folders whose modseq hasn't advanced.

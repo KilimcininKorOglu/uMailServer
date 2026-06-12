@@ -258,6 +258,72 @@ func TestFindFolder_UserFolders(t *testing.T) {
 	}
 }
 
+// TestFindFolder_HidesRecoverableItems verifies that the Recoverable Items
+// dumpster is omitted from FindFolder enumeration the way Exchange hides it from
+// the mail-client folder hierarchy, while ordinary user folders stay visible.
+// The folder still exists in the identity store (it powers the soft-delete
+// recover flow); only enumeration suppresses it.
+func TestFindFolder_HidesRecoverableItems(t *testing.T) {
+	srv, cleanup := tmpEWSServer(t)
+	defer cleanup()
+
+	if _, err := srv.identity.EnsureMailboxId("alice@example.com"); err != nil {
+		t.Fatalf("EnsureMailboxId: %v", err)
+	}
+	// Folder identities are keyed by the raw email; FindFolder trims the "e:"
+	// mailbox prefix before it lists them.
+	mailboxKey := "alice@example.com"
+
+	if _, err := srv.identity.EnsureFolderId(mailboxKey, "Projects", ""); err != nil {
+		t.Fatalf("EnsureFolderId Projects: %v", err)
+	}
+	if _, err := srv.identity.EnsureFolderId(mailboxKey, "Recoverable Items", "recoverableitems"); err != nil {
+		t.Fatalf("EnsureFolderId Recoverable Items: %v", err)
+	}
+
+	body := `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+  <soap:Body>
+    <FindFolder xmlns="http://schemas.microsoft.com/exchange/services/2006/messages" Traversal="Shallow">
+      <FolderShape><t:BaseShape>Default</t:BaseShape></FolderShape>
+      <ParentFolderIds><t:DistinguishedFolderId Id="msgfolderroot"/></ParentFolderIds>
+    </FindFolder>
+  </soap:Body>
+</soap:Envelope>`
+
+	rec := ewsRequest(t, srv, "alice@example.com", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	var resp FindFolderResponse
+	unmarshalFromBody(t, rec.Body.Bytes(), &resp)
+	if len(resp.ResponseMessages.Messages) == 0 {
+		t.Fatal("expected response messages")
+	}
+	msg := resp.ResponseMessages.Messages[0]
+	if msg.ResponseCode.Value != ErrNoError {
+		t.Fatalf("expected no error, got: %s", msg.ResponseCode.Value)
+	}
+
+	var foundProjects, foundRecoverable bool
+	for _, f := range msg.RootFolder.Folders.Folders {
+		switch f.DisplayName {
+		case "Projects":
+			foundProjects = true
+		case "Recoverable Items":
+			foundRecoverable = true
+		}
+	}
+	if !foundProjects {
+		t.Error("expected the ordinary user folder Projects in FindFolder results")
+	}
+	if foundRecoverable {
+		t.Error("Recoverable Items must NOT appear in FindFolder enumeration (it is the hidden dumpster)")
+	}
+}
+
 // publicFoldersFindBody is a FindFolder request over the publicfoldersroot
 // distinguished id (the tree Outlook browses for public folders).
 const publicFoldersFindBody = `<?xml version="1.0" encoding="utf-8"?>

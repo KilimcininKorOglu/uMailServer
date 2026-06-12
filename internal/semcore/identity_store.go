@@ -593,6 +593,26 @@ func RoleForCanonicalFolderName(name string) string {
 	}
 }
 
+// IsClientHiddenFolderRole reports whether a folder role must be omitted from
+// Exchange-style mail-client folder enumeration (EWS FindFolder /
+// SyncFolderHierarchy and IMAP LIST/LSUB). The Recoverable Items dumpster is a
+// soft-delete retention area, not a browsable IPM folder: real Exchange keeps it
+// out of the folder hierarchy and Outlook never lists it. The folder still
+// exists and stays addressable for the recover flow, the retention cleaner, and
+// direct distinguished-folder binding — only mail-client enumeration hides it.
+// First-party surfaces (webmail, JMAP) keep listing it because their recovery
+// UX browses the folder directly.
+func IsClientHiddenFolderRole(role string) bool {
+	return role == "recoverableitems"
+}
+
+// IsClientHiddenFolderName is the canonical-name form of IsClientHiddenFolderRole
+// for callers that hold a folder name instead of a role (IMAP LIST/LSUB). It
+// returns false for any name without a distinguished role.
+func IsClientHiddenFolderName(name string) bool {
+	return IsClientHiddenFolderRole(RoleForCanonicalFolderName(name))
+}
+
 func canonicalFolderNameForRole(role string) string {
 	switch role {
 	case "inbox":
