@@ -112,6 +112,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleResolveNamesW(w, r, body)
 	case "DNToMId":
 		s.handleDNToMID(w, r, body)
+	case "CompareMinIds":
+		s.handleCompareMinIds(w, r, body)
+	case "QueryColumns":
+		s.handleQueryColumns(w, r, body)
+	case "ModProps":
+		s.handleModProps(w, r, body)
+	case "ModLinkAtt":
+		s.handleModLinkAtt(w, r, body)
 	case "PING":
 		s.writeResponse(w, r, "PING", "", nil)
 	default:
