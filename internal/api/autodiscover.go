@@ -79,9 +79,9 @@ type AutodiscoverProtocol struct {
 	// Exchange-compatible server's EXPR block).
 	CertPrincipalName      string `xml:"CertPrincipalName,omitempty"`
 	ServerExclusiveConnect string `xml:"ServerExclusiveConnect,omitempty"`
-	MapiHttp    string   `xml:"MapiHttp,omitempty"`
-	MailboxDN   string   `xml:"MailboxDN,omitempty"`
-	RedirectURL string   `xml:"RedirectUrl,omitempty"`
+	MapiHttp               string `xml:"MapiHttp,omitempty"`
+	MailboxDN              string `xml:"MailboxDN,omitempty"`
+	RedirectURL            string `xml:"RedirectUrl,omitempty"`
 }
 
 // autodiscoverDeploymentID is the organization deployment GUID advertised in the
