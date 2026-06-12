@@ -330,6 +330,16 @@ type MessageTypeResponse struct {
 	// FindItem should surface this item as a MeetingRequest element so clients
 	// expose accept/decline on it.
 	isMeetingRequest bool `xml:"-"`
+	// collabKind and the typed projections below are unexported, so encoding/xml
+	// never serializes them; they carry a collaboration item through FindItem's
+	// shared sort/paging path. splitSearchItems routes the item to the correct
+	// typed element (<t:CalendarItem>/<t:Contact>/<t:Task>) by collabKind so the
+	// client instantiates it as a calendar/contact/task rather than a bare
+	// message, which it would silently drop.
+	collabKind     string
+	collabCalendar *CalendarItemResponse
+	collabContact  *ContactItemResponse
+	collabTask     *TaskItemResponse
 }
 
 // MeetingRequestResponse is a meeting-request item rendered in responses. It
@@ -1689,27 +1699,14 @@ func collabGetItemEnvelope(itemXML string) []byte {
 }
 
 // buildContactGetItemFromRec projects a stored contact's vCard into an EWS
-// <t:Contact> GetItem response.
+// <Contact> GetItem response. It reuses the shared rawContactToResponse
+// projector so GetItem emits the exact schema-ordered fields (ItemClass, FileAs,
+// DisplayName, GivenName, CompanyName, EmailAddresses, Surname) that FindItem and
+// SyncFolderItems do — one projection, three surfaces.
 func buildContactGetItemFromRec(rec *semcore.StoredContactIdentity) []byte {
-	var b bytes.Buffer
-	b.WriteString(`<t:Contact>`)
-	b.WriteString(`<t:ItemId Id="` + xmlEsc(rec.ID.String()) + `" ChangeKey="` + xmlEsc(rec.ChangeKey.String()) + `"/>`)
-	if fn := extractDirProp(rec.RawData, "FN"); fn != "" {
-		b.WriteString(`<t:Subject>` + xmlEsc(fn) + `</t:Subject>`)
-		b.WriteString(`<t:DisplayName>` + xmlEsc(fn) + `</t:DisplayName>`)
-	}
-	// N: Surname;Given;Additional;Prefix;Suffix
-	if n := extractDirProp(rec.RawData, "N"); n != "" {
-		parts := strings.Split(n, ";")
-		if len(parts) > 0 && parts[0] != "" {
-			b.WriteString(`<t:Surname>` + xmlEsc(parts[0]) + `</t:Surname>`)
-		}
-		if len(parts) > 1 && parts[1] != "" {
-			b.WriteString(`<t:GivenName>` + xmlEsc(parts[1]) + `</t:GivenName>`)
-		}
-	}
-	b.WriteString(`</t:Contact>`)
-	return collabGetItemEnvelope(b.String())
+	typed := rawContactToResponse(*rec, rec.FolderID)
+	itemXML, _ := xml.Marshal(typed) //nolint:errcheck
+	return collabGetItemEnvelope(string(itemXML))
 }
 
 // buildCalendarGetItemFromRec projects a stored calendar item's iCalendar into
@@ -1755,20 +1752,13 @@ func buildCalendarGetItemFromRec(rec *semcore.StoredCalendarItemIdentity) []byte
 }
 
 // buildTaskGetItemFromRec projects a stored task's iCalendar VTODO into an EWS
-// <t:Task> GetItem response.
+// <Task> GetItem response. It reuses the shared rawTaskToResponse projector so
+// GetItem emits the same schema-ordered fields (ItemClass, DueDate, IsComplete,
+// PercentComplete, StartDate, Status) that FindItem and SyncFolderItems do.
 func buildTaskGetItemFromRec(rec *semcore.StoredTaskIdentity) []byte {
-	var b bytes.Buffer
-	b.WriteString(`<t:Task>`)
-	b.WriteString(`<t:ItemId Id="` + xmlEsc(rec.ID.String()) + `" ChangeKey="` + xmlEsc(rec.ChangeKey.String()) + `"/>`)
-	if subj := extractDirProp(rec.RawData, "SUMMARY"); subj != "" {
-		b.WriteString(`<t:Subject>` + xmlEsc(subj) + `</t:Subject>`)
-	}
-	if due := icalToEWSDateTime(extractDirProp(rec.RawData, "DUE")); due != "" {
-		b.WriteString(`<t:DueDate>` + due + `</t:DueDate>`)
-	}
-	b.WriteString(`<t:Status>` + icalStatusToEWS(extractDirProp(rec.RawData, "STATUS")) + `</t:Status>`)
-	b.WriteString(`</t:Task>`)
-	return collabGetItemEnvelope(b.String())
+	typed := rawTaskToResponse(*rec, rec.FolderID)
+	itemXML, _ := xml.Marshal(typed) //nolint:errcheck
+	return collabGetItemEnvelope(string(itemXML))
 }
 
 // getItemByID retrieves one item by ItemId.

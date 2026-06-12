@@ -161,16 +161,28 @@ type SearchItemsContainer struct {
 	XMLName         xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/types Items"`
 	Items           []MessageTypeResponse    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
 	MeetingRequests []MeetingRequestResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types MeetingRequest"`
+	CalendarItems   []CalendarItemResponse   `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem"`
+	Contacts        []ContactItemResponse    `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact"`
+	Tasks           []TaskItemResponse       `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task"`
 }
 
-// splitSearchItems separates meeting-request items (rendered as MeetingRequest)
-// from ordinary messages so each is emitted under the correct element name.
+// splitSearchItems separates items by element type so each is emitted under the
+// name its EWS type requires: collaboration items as CalendarItem/Contact/Task
+// (a client drops them if they arrive as a bare Message), meeting requests as
+// MeetingRequest, ordinary mail as Message.
 func splitSearchItems(all []MessageTypeResponse) SearchItemsContainer {
 	c := SearchItemsContainer{}
 	for _, it := range all {
-		if it.isMeetingRequest {
+		switch {
+		case it.collabKind == "calendar" && it.collabCalendar != nil:
+			c.CalendarItems = append(c.CalendarItems, *it.collabCalendar)
+		case it.collabKind == "contacts" && it.collabContact != nil:
+			c.Contacts = append(c.Contacts, *it.collabContact)
+		case it.collabKind == "tasks" && it.collabTask != nil:
+			c.Tasks = append(c.Tasks, *it.collabTask)
+		case it.isMeetingRequest:
 			c.MeetingRequests = append(c.MeetingRequests, toMeetingRequestResponse(it))
-		} else {
+		default:
 			c.Items = append(c.Items, it)
 		}
 	}
@@ -772,55 +784,53 @@ func sortFindItemResults(items []MessageTypeResponse, fields []SortByField) {
 	})
 }
 
-// collabCalendarItemToResponse converts a StoredCalendarItemIdentity to a MessageTypeResponse.
-// Returns nil if conversion fails.
+// collabCalendarItemToResponse wraps a StoredCalendarItemIdentity in a
+// MessageTypeResponse carrier. The carrier holds Subject/Categories so the
+// shared FindItem sort and restriction logic still matches the item, while the
+// typed CalendarItemResponse projection (and collabKind="calendar") let
+// splitSearchItems emit it as <t:CalendarItem>, not a bare message.
 func (s *Server) collabCalendarItemToResponse(rec semcore.StoredCalendarItemIdentity, folderID semcore.FolderId) *MessageTypeResponse {
-	// Surface the real meeting subject (iCal SUMMARY) so subject restrictions
-	// match; fall back to the UID only when no SUMMARY was stored.
-	subject := extractDirProp(rec.RawData, "SUMMARY")
-	if subject == "" {
-		subject = rec.IcalUID
-	}
+	typed := rawCalendarToResponse(rec, folderID)
 	return &MessageTypeResponse{
-		ItemID: ItemIdType{
-			ID: rec.ID.String(),
-			CK: rec.ChangeKey.String(),
-		},
-		ParentFolderID: FolderIdComponents{ID: folderID.String()},
-		Subject:        subject,
-		Categories:     categoriesResponse(parseICalCategories(rec.RawData)),
+		ItemID:         typed.ItemID,
+		ParentFolderID: typed.ParentFolderID,
+		ItemClass:      typed.ItemClass,
+		Subject:        typed.Subject,
+		Categories:     typed.Categories,
+		collabKind:     "calendar",
+		collabCalendar: &typed,
 	}
 }
 
-// collabContactItemToResponse converts a StoredContactIdentity to a MessageTypeResponse.
-// Returns nil if conversion fails.
+// collabContactItemToResponse wraps a StoredContactIdentity in a
+// MessageTypeResponse carrier carrying the typed ContactItemResponse projection
+// so splitSearchItems emits it as <t:Contact>.
 func (s *Server) collabContactItemToResponse(rec semcore.StoredContactIdentity, folderID semcore.FolderId) *MessageTypeResponse {
+	typed := rawContactToResponse(rec, folderID)
 	return &MessageTypeResponse{
-		ItemID: ItemIdType{
-			ID: rec.ID.String(),
-			CK: rec.ChangeKey.String(),
-		},
-		ParentFolderID: FolderIdComponents{ID: folderID.String()},
-		Subject:        rec.IcalUID, // UID as subject placeholder
-		Categories:     categoriesResponse(parseICalCategories(rec.RawData)),
+		ItemID:         typed.ItemID,
+		ParentFolderID: typed.ParentFolderID,
+		ItemClass:      typed.ItemClass,
+		Subject:        typed.Subject,
+		Categories:     typed.Categories,
+		collabKind:     "contacts",
+		collabContact:  &typed,
 	}
 }
 
-// collabTaskItemToResponse converts a StoredTaskIdentity to a MessageTypeResponse.
-// Returns nil if conversion fails.
+// collabTaskItemToResponse wraps a StoredTaskIdentity in a MessageTypeResponse
+// carrier carrying the typed TaskItemResponse projection so splitSearchItems
+// emits it as <t:Task>.
 func (s *Server) collabTaskItemToResponse(rec semcore.StoredTaskIdentity, folderID semcore.FolderId) *MessageTypeResponse {
-	subject := extractDirProp(rec.RawData, "SUMMARY")
-	if subject == "" {
-		subject = rec.IcalUID
-	}
+	typed := rawTaskToResponse(rec, folderID)
 	return &MessageTypeResponse{
-		ItemID: ItemIdType{
-			ID: rec.ID.String(),
-			CK: rec.ChangeKey.String(),
-		},
-		ParentFolderID: FolderIdComponents{ID: folderID.String()},
-		Subject:        subject,
-		Categories:     categoriesResponse(parseICalCategories(rec.RawData)),
+		ItemID:         typed.ItemID,
+		ParentFolderID: typed.ParentFolderID,
+		ItemClass:      typed.ItemClass,
+		Subject:        typed.Subject,
+		Categories:     typed.Categories,
+		collabKind:     "tasks",
+		collabTask:     &typed,
 	}
 }
 

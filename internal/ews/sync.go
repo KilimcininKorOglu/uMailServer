@@ -79,16 +79,27 @@ type SyncFolderItemsContainer struct {
 	ReadFlags []SyncFolderItemReadFlag `xml:"http://schemas.microsoft.com/exchange/services/2006/types ReadFlagChange"`
 }
 
-// SyncFolderItemCreate wraps a created item in sync response.
+// SyncFolderItemCreate wraps a created item in sync response. Exactly one of the
+// element fields is populated per item: mail uses Message, collaboration folders
+// use the typed CalendarItem/Contact/Task so the client instantiates the item by
+// its real type instead of dropping a bare message it cannot place in a
+// calendar/contacts/tasks folder.
 type SyncFolderItemCreate struct {
-	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
-	Item    MessageTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	XMLName      xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
+	Item         *MessageTypeResponse  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message,omitempty"`
+	CalendarItem *CalendarItemResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem,omitempty"`
+	Contact      *ContactItemResponse  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact,omitempty"`
+	Task         *TaskItemResponse     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task,omitempty"`
 }
 
-// SyncFolderItemUpdate wraps an updated item in sync response.
+// SyncFolderItemUpdate wraps an updated item in sync response. Like
+// SyncFolderItemCreate, exactly one element field is populated by item type.
 type SyncFolderItemUpdate struct {
-	XMLName xml.Name            `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
-	Item    MessageTypeResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message"`
+	XMLName      xml.Name              `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
+	Item         *MessageTypeResponse  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Message,omitempty"`
+	CalendarItem *CalendarItemResponse `xml:"http://schemas.microsoft.com/exchange/services/2006/types CalendarItem,omitempty"`
+	Contact      *ContactItemResponse  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Contact,omitempty"`
+	Task         *TaskItemResponse     `xml:"http://schemas.microsoft.com/exchange/services/2006/types Task,omitempty"`
 }
 
 // SyncFolderItemDelete wraps a deleted item in sync response.
@@ -172,17 +183,6 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 		}
 	}
 
-	// Collect all items in the folder.
-	items, err := s.identity.ListItemIdentitiesByFolder(folderID)
-	if err != nil {
-		return s.errorResponseXML("SyncFolderItems", ErrErrorInternalServer, err.Error())
-	}
-
-	// Sort by ItemID string for stable ordering.
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].ItemID.String() < items[j].ItemID.String()
-	})
-
 	// Limit results.
 	maxChanges := 100
 	if req.MaxChangesReturned != "" {
@@ -201,6 +201,30 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 	var readFlags []SyncFolderItemReadFlag
 	lastID := cursor
 	hitLimit := false
+
+	// Collaboration folders (calendar, contacts, tasks) keep their items in the
+	// collab store, not the identity/msgStore. Detect the folder role and, when
+	// it is a collab folder, emit each item as its typed CalendarItem/Contact/Task
+	// element so the client places it in the right folder; a bare Message would be
+	// dropped. Mail folders fall through to the identity-store path below.
+	if folderRec, ferr := s.identity.GetFolderByID(folderID); ferr == nil && folderRec != nil && s.collabStore != nil {
+		switch folderRec.Role {
+		case "calendar", "contacts", "tasks":
+			creates, lastID, hitLimit = s.collabSyncCreates(folderRec.Role, folderID, cursor, maxChanges)
+			return s.finishSyncFolderItems(mboxID, folderID, clientID, syncVersion, lastSyncTime, lastID, hitLimit, creates, deletes, readFlags, req.SyncState)
+		}
+	}
+
+	// Collect all items in the folder.
+	items, err := s.identity.ListItemIdentitiesByFolder(folderID)
+	if err != nil {
+		return s.errorResponseXML("SyncFolderItems", ErrErrorInternalServer, err.Error())
+	}
+
+	// Sort by ItemID string for stable ordering.
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].ItemID.String() < items[j].ItemID.String()
+	})
 
 	for _, rec := range items {
 		id := rec.ItemID.String()
@@ -246,12 +270,35 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 			IsRead:           rec.IsRead,
 		}
 
-		creates = append(creates, SyncFolderItemCreate{Item: msgResp})
+		msgRespCopy := msgResp
+		creates = append(creates, SyncFolderItemCreate{Item: &msgRespCopy})
 		lastID = id
 	}
 
+	return s.finishSyncFolderItems(mboxID, folderID, clientID, syncVersion, lastSyncTime, lastID, hitLimit, creates, deletes, readFlags, req.SyncState)
+}
+
+// finishSyncFolderItems collects tombstone deletions since the last sync,
+// advances and persists the sync-state cursor, and builds the SyncFolderItems
+// response envelope. Shared by the mail and collaboration paths so both apply
+// identical tombstone handling and continuation-token semantics.
+func (s *Server) finishSyncFolderItems(
+	mboxID semcore.MailboxId,
+	folderID semcore.FolderId,
+	clientID string,
+	syncVersion uint64,
+	lastSyncTime int64,
+	lastID string,
+	hitLimit bool,
+	creates []SyncFolderItemCreate,
+	deletes []SyncFolderItemDelete,
+	readFlags []SyncFolderItemReadFlag,
+	reqSyncState string,
+) []byte {
+	maxChanges := 100
+
 	// Collect tombstone deletions since last sync.
-	if req.SyncState != "" && lastSyncTime > 0 {
+	if reqSyncState != "" && lastSyncTime > 0 {
 		tombs, err := s.tombstones.ListTombstonesSince(mboxID, folderID, timeFromUnix(lastSyncTime))
 		if err == nil {
 			for _, t := range tombs {
@@ -290,6 +337,91 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 		Changes:       container,
 	}}
 	return buildResponseEnvelope(resp)
+}
+
+// collabSyncCreates enumerates a collaboration folder's items (calendar,
+// contacts, or tasks) from the collab store, projects each into its typed EWS
+// element, and pages them by the ItemId cursor exactly as the mail path pages
+// the identity store. Items are sorted by ID string so the cursor walks them
+// deterministically; the returned lastID/hitLimit drive the continuation token.
+func (s *Server) collabSyncCreates(role string, folderID semcore.FolderId, cursor string, maxChanges int) ([]SyncFolderItemCreate, string, bool) {
+	var creates []SyncFolderItemCreate
+	lastID := cursor
+	hitLimit := false
+
+	// ids carries the sort key alongside a builder so paging logic stays uniform
+	// across the three collab kinds.
+	type collabItem struct {
+		id    string
+		build func() SyncFolderItemCreate
+	}
+	var collabItems []collabItem
+
+	switch role {
+	case "calendar":
+		recs, err := s.collabStore.ListCalendarItemsByFolder(folderID)
+		if err != nil {
+			return nil, lastID, false
+		}
+		for _, rec := range recs {
+			rec := rec
+			collabItems = append(collabItems, collabItem{
+				id: rec.ID.String(),
+				build: func() SyncFolderItemCreate {
+					typed := rawCalendarToResponse(rec, folderID)
+					return SyncFolderItemCreate{CalendarItem: &typed}
+				},
+			})
+		}
+	case "contacts":
+		recs, err := s.collabStore.ListContactsByFolder(folderID)
+		if err != nil {
+			return nil, lastID, false
+		}
+		for _, rec := range recs {
+			rec := rec
+			collabItems = append(collabItems, collabItem{
+				id: rec.ID.String(),
+				build: func() SyncFolderItemCreate {
+					typed := rawContactToResponse(rec, folderID)
+					return SyncFolderItemCreate{Contact: &typed}
+				},
+			})
+		}
+	case "tasks":
+		recs, err := s.collabStore.ListTasksByFolder(folderID)
+		if err != nil {
+			return nil, lastID, false
+		}
+		for _, rec := range recs {
+			rec := rec
+			collabItems = append(collabItems, collabItem{
+				id: rec.ID.String(),
+				build: func() SyncFolderItemCreate {
+					typed := rawTaskToResponse(rec, folderID)
+					return SyncFolderItemCreate{Task: &typed}
+				},
+			})
+		}
+	}
+
+	sort.Slice(collabItems, func(i, j int) bool {
+		return collabItems[i].id < collabItems[j].id
+	})
+
+	for _, it := range collabItems {
+		if cursor != "" && it.id <= cursor {
+			continue // already paged to the client
+		}
+		if len(creates) >= maxChanges {
+			hitLimit = true
+			break
+		}
+		creates = append(creates, it.build())
+		lastID = it.id
+	}
+
+	return creates, lastID, hitLimit
 }
 
 // timeFromUnix converts a Unix timestamp (int64) to time.Time.
