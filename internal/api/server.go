@@ -133,6 +133,10 @@ type Server struct {
 	// This is the Outlook-specific MAPI-over-HTTP surface that complements EWS.
 	mapiHandler http.Handler
 
+	// Binary MAPI/HTTP (emsmdb) mailbox handler for the Outlook online-mode
+	// connector (Connect/Execute/Disconnect over MS-OXCROPS).
+	emsmdbHandler http.Handler
+
 	// Canonical semantic-core store, used by admin surfaces (delegation,
 	// directory/resources, rules, jobs). Held as the SemanticStore interface so
 	// the API server names no concrete *semcore.Bolt*Store; a relational
@@ -602,6 +606,19 @@ func (s *Server) initRouter() {
 			s.mapiHandler.ServeHTTP(w, r)
 		})
 	}
+	if s.emsmdbHandler != nil {
+		mux.HandleFunc("/mapi/emsmdb", func(w http.ResponseWriter, r *http.Request) {
+			email := s.mapiBasicAuth(w, r)
+			if email == "" {
+				w.Header().Set("WWW-Authenticate", `Basic realm="MAPI/HTTP"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			//nolint:staticcheck // intentional: string key for cross-package context access
+			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
+			s.emsmdbHandler.ServeHTTP(w, r)
+		})
+	}
 
 	// Health check - use health monitor if available
 	if s.healthMon != nil {
@@ -832,6 +849,7 @@ var exchangeCanonicalPaths = []string{
 	"/EWS/Exchange.asmx",
 	"/mapi/nspi",
 	"/mapi/oab",
+	"/mapi/emsmdb",
 }
 
 // normalizeExchangePath rewrites a case-variant Exchange interop path to its
@@ -1838,6 +1856,13 @@ func (s *Server) ewsBasicAuth(w http.ResponseWriter, r *http.Request) string {
 // The handler requires the server to have a non-nil *db.DB for Basic Auth validation.
 func (s *Server) SetMAPIHandler(handler http.Handler) {
 	s.mapiHandler = handler
+}
+
+// SetEMSMDBHandler configures the binary MAPI/HTTP (emsmdb) mailbox handler on the
+// API server, served at /mapi/emsmdb behind Basic auth like the other MAPI
+// surfaces.
+func (s *Server) SetEMSMDBHandler(handler http.Handler) {
+	s.emsmdbHandler = handler
 }
 
 // mapiBasicAuth performs HTTP Basic Auth validation for MAPI/HTTP endpoints.

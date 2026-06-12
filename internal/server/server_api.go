@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mapi"
+	"github.com/umailserver/umailserver/internal/mapi/emsmdb"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 )
@@ -262,6 +264,22 @@ func (s *Server) startAPI() {
 			mapiServer := mapi.NewServer(s.database, s.semcoreStore.Policy())
 			s.apiServer.SetMAPIHandler(mapiServer)
 			s.logger.Info("MAPI/HTTP handler initialized")
+		}
+
+		// Wire the binary MAPI/HTTP (emsmdb) mailbox connector at /mapi/emsmdb. It
+		// reads the same canonical message store (storageDB) the IMAP and EWS
+		// surfaces serve. The API front end stores the authenticated email under
+		// api.ContextKeyEmail; bridge it into the context key the emsmdb handler
+		// reads, keeping the protocol package independent of the HTTP layer.
+		if s.storageDB != nil {
+			emsmdbServer := emsmdb.NewServer(emsmdb.NewProcessor(s.storageDB))
+			s.apiServer.SetEMSMDBHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {
+					r = r.WithContext(emsmdb.WithEmail(r.Context(), email))
+				}
+				emsmdbServer.ServeHTTP(w, r)
+			}))
+			s.logger.Info("MAPI/HTTP emsmdb handler initialized")
 		}
 
 		// Set up feature gates for Exchange-facing surfaces.
