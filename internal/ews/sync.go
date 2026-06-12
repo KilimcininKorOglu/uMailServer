@@ -55,19 +55,24 @@ type SyncFolderItemsResponseMessages struct {
 	Messages []SyncFolderItemsResponseMessageType `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderItemsResponseMessage"`
 }
 
-// SyncFolderItemsResponseMessageType is one SyncFolderItems response.
+// SyncFolderItemsResponseMessageType is one SyncFolderItems response. Per the
+// EWS schema the body is SyncState, then IncludesLastItemInRange (a child
+// element, not an attribute), then the <Changes> container — Outlook reads
+// IncludesLastItemInRange to know the sync is complete and walks <Changes> (not
+// <Items>) for the item deltas, so both the element shape and the container name
+// are load-bearing.
 type SyncFolderItemsResponseMessageType struct {
-	XMLName       xml.Name                  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseMessage"`
+	XMLName       xml.Name                  `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncFolderItemsResponseMessage"`
 	ResponseClass string                    `xml:"ResponseClass,attr"`
 	ResponseCode  ResponseCodeType          `xml:"http://schemas.microsoft.com/exchange/services/2006/messages ResponseCode"`
 	SyncState     string                    `xml:"http://schemas.microsoft.com/exchange/services/2006/messages SyncState"`
-	Items         *SyncFolderItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
-	IncludesLast  bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages IncludesLastItemInRange,attr"`
+	IncludesLast  bool                      `xml:"http://schemas.microsoft.com/exchange/services/2006/messages IncludesLastItemInRange"`
+	Changes       *SyncFolderItemsContainer `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Changes"`
 }
 
-// SyncFolderItemsContainer wraps sync item changes.
+// SyncFolderItemsContainer wraps sync item changes under <Changes>.
 type SyncFolderItemsContainer struct {
-	XMLName   xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Items"`
+	XMLName   xml.Name                 `xml:"http://schemas.microsoft.com/exchange/services/2006/messages Changes"`
 	Creates   []SyncFolderItemCreate   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Create"`
 	Updates   []SyncFolderItemUpdate   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Update"`
 	Deletes   []SyncFolderItemDelete   `xml:"http://schemas.microsoft.com/exchange/services/2006/types Delete"`
@@ -146,10 +151,13 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 	clientID := "ews:" + mailboxKey + ":" + folderID.String()
 
 	// Parse existing sync state.
+	// Format: "v<version>:<folderID>:<lastTime>:<cursor>" where cursor is the last
+	// ItemId paged to the client. The cursor walks the ItemId-sorted folder so each
+	// call returns the NEXT page of items instead of re-sending the same batch.
 	var syncVersion uint64
 	var lastSyncTime int64
+	var cursor string
 	if req.SyncState != "" {
-		// Sync state format: "v<version>:<folderID>:<lastTime>"
 		parts := strings.Split(req.SyncState, ":")
 		if len(parts) >= 2 {
 			if strings.HasPrefix(parts[0], "v") {
@@ -157,6 +165,9 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 			}
 			if len(parts) >= 3 {
 				lastSyncTime, _ = strconv.ParseInt(parts[2], 10, 64)
+			}
+			if len(parts) >= 4 {
+				cursor = parts[3]
 			}
 		}
 	}
@@ -180,14 +191,27 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 		}
 	}
 
-	// Build creates from items that have ItemID (already in identity store).
-	// On initial sync (no sync state), report all items as creates.
+	// Page through the ItemId-sorted folder from the cursor: every item past the
+	// cursor is new to the client, so each page is a batch of Creates and the
+	// cursor advances to the last item paged. A page cut short by maxChanges means
+	// more remain (IncludesLastItemInRange=false) and the client resumes from the
+	// new cursor; a page that runs to the end completes the range.
 	var creates []SyncFolderItemCreate
-	var updates []SyncFolderItemUpdate
 	var deletes []SyncFolderItemDelete
 	var readFlags []SyncFolderItemReadFlag
+	lastID := cursor
+	hitLimit := false
 
 	for _, rec := range items {
+		id := rec.ItemID.String()
+		if cursor != "" && id <= cursor {
+			continue // already paged to the client
+		}
+		if len(creates) >= maxChanges {
+			hitLimit = true
+			break
+		}
+
 		// Retrieve raw MIME.
 		rawMsg, err := s.msgStore.ReadMessage(rec.Email, rec.MsgKey)
 		if err != nil {
@@ -206,33 +230,24 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 				ID: rec.ItemID.String(),
 				CK: rec.ChangeKey.String(),
 			},
-			ParentFolderID:   FolderIdComponents{ID: folderID.String()},
-			Subject:          subject,
-			DateTimeReceived: dateStr,
-			Size:             len(rawMsg),
+			ParentFolderID: FolderIdComponents{ID: folderID.String()},
+			ItemClass:      "IPM.Note",
+			Subject:        subject,
 			Body: BodyTypeResponse{
 				BodyType: bodyType,
 				Text:     truncateBody(bodyText, 100),
 			},
-			From:         mailboxFromHeader(from),
-			Sender:       mailboxFromHeader(rawHeaderValue(rawMsg, "Sender")),
-			ToRecipients: recipientsWrap(toRecipients),
-			CcRecipients: recipientsWrap(recipientsFromHeader(rawMsg, "Cc")),
+			DateTimeReceived: dateStr,
+			Size:             len(rawMsg),
+			Sender:           mailboxFromHeader(rawHeaderValue(rawMsg, "Sender")),
+			ToRecipients:     recipientsWrap(toRecipients),
+			CcRecipients:     recipientsWrap(recipientsFromHeader(rawMsg, "Cc")),
+			From:             mailboxFromHeader(from),
+			IsRead:           rec.IsRead,
 		}
 
-		if req.SyncState == "" {
-			// Initial sync: report all items as creates.
-			if len(creates)+len(updates)+len(deletes)+len(readFlags) >= maxChanges {
-				break
-			}
-			creates = append(creates, SyncFolderItemCreate{Item: msgResp})
-		} else {
-			// Incremental sync: report all as updates (we don't track per-item modseq yet).
-			if len(creates)+len(updates)+len(deletes)+len(readFlags) >= maxChanges {
-				break
-			}
-			updates = append(updates, SyncFolderItemUpdate{Item: msgResp})
-		}
+		creates = append(creates, SyncFolderItemCreate{Item: msgResp})
+		lastID = id
 	}
 
 	// Collect tombstone deletions since last sync.
@@ -249,17 +264,18 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 		}
 	}
 
-	// Advance sync state.
-	newSyncState := fmt.Sprintf("v%d:%s:%d", syncVersion+1, folderID.String(), time.Now().Unix())
+	// Advance sync state, carrying the new cursor so the next call resumes paging.
+	newSyncState := fmt.Sprintf("v%d:%s:%d:%s", syncVersion+1, folderID.String(), time.Now().Unix(), lastID)
 	_ = s.sync.PutSyncState(mboxID, folderID, clientID, newSyncState)
 
-	includesLast := len(creates)+len(updates)+len(deletes)+len(readFlags) < maxChanges
+	// The range is complete once a page runs to the end rather than being cut
+	// short by maxChanges.
+	includesLast := !hitLimit
 
 	var container *SyncFolderItemsContainer
-	if len(creates)+len(updates)+len(deletes)+len(readFlags) > 0 {
+	if len(creates)+len(deletes)+len(readFlags) > 0 {
 		container = &SyncFolderItemsContainer{
 			Creates:   creates,
-			Updates:   updates,
 			Deletes:   deletes,
 			ReadFlags: readFlags,
 		}
@@ -270,8 +286,8 @@ func (s *Server) handleSyncFolderItems(ctx context.Context, body []byte) []byte 
 		ResponseClass: "Success",
 		ResponseCode:  ResponseCodeType{Value: ErrNoError},
 		SyncState:     newSyncState,
-		Items:         container,
 		IncludesLast:  includesLast,
+		Changes:       container,
 	}}
 	return buildResponseEnvelope(resp)
 }
