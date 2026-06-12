@@ -115,6 +115,17 @@ func newLogon(email string) *logonObject {
 	return lo
 }
 
+// specialIndex returns the special-folder slot a folder id maps to, or -1 when
+// the id is not one of the mailbox's well-known folders.
+func (lo *logonObject) specialIndex(folderID uint64) int {
+	for i, fid := range lo.folderIDs {
+		if fid == folderID {
+			return i
+		}
+	}
+	return -1
+}
+
 // writeLogonTime serializes the server logon time (MS-OXCSTOR 2.2.1.1.3):
 // seconds, minutes, hour, day of week, day, month (each a byte) then a 16-bit
 // year.

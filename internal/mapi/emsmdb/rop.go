@@ -83,12 +83,27 @@ func (c *ropCtx) setHandle(index uint8, value uint32) {
 	c.handles[index] = value
 }
 
+// objectAt returns the server object referenced by the handle-table index, or
+// nil when the index is out of range or holds the empty handle.
+func (c *ropCtx) objectAt(index uint8) any {
+	if int(index) >= len(c.handles) {
+		return nil
+	}
+	h := c.handles[index]
+	if h == 0xFFFFFFFF {
+		return nil
+	}
+	return c.state.objects[h]
+}
+
 // ropHandler reads a ROP request body, executes it, and writes its response.
 type ropHandler func(c *ropCtx, logonID, hindex uint8)
 
 var ropHandlers = map[uint8]ropHandler{
-	RopRelease: ropRelease,
-	RopLogon:   ropLogon,
+	RopRelease:          ropRelease,
+	RopLogon:            ropLogon,
+	RopGetReceiveFolder: ropGetReceiveFolder,
+	RopOpenFolder:       ropOpenFolder,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
