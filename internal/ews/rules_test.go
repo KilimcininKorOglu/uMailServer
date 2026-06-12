@@ -106,11 +106,17 @@ func TestConditionsToEWS(t *testing.T) {
 	if ewsPred == nil || ewsPred.RulePredicatesType == nil {
 		t.Fatal("expected non-nil RulePredicatesType")
 	}
-	if ewsPred.ContainsSenderStrings == nil {
-		t.Error("expected ContainsSenderStrings to be set")
+	// A From condition must project to the From predicate (a resolved sender
+	// address), not ContainsSenderStrings: Outlook for Mac only lists the former
+	// under Server Rules and hides the latter as a client-side condition.
+	if ewsPred.From == nil {
+		t.Fatal("expected From predicate to be set for a sender condition")
 	}
-	if len(ewsPred.ContainsSenderStrings.Strings) != 1 || ewsPred.ContainsSenderStrings.Strings[0] != "sender@example.com" {
-		t.Errorf("ContainsSenderStrings = %v; want [sender@example.com]", ewsPred.ContainsSenderStrings.Strings)
+	if len(ewsPred.From.Addresses) != 1 || ewsPred.From.Addresses[0].Email != "sender@example.com" {
+		t.Errorf("From.Addresses = %v; want [sender@example.com]", ewsPred.From.Addresses)
+	}
+	if ewsPred.ContainsSenderStrings != nil {
+		t.Error("From condition should not also emit ContainsSenderStrings (client-side)")
 	}
 	if ewsPred.ContainsSubjectStrings == nil {
 		t.Error("expected ContainsSubjectStrings to be set")

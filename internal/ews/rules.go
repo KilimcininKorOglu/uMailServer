@@ -159,6 +159,7 @@ type RulePredicatesType struct {
 	ContainsSenderStrings    *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSenderStrings,omitempty"`
 	ContainsSubjectOrBody    *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectOrBodyStrings,omitempty"`
 	ContainsSubjectStrings   *ArrayOfStringsType     `xml:"http://schemas.microsoft.com/exchange/services/2006/types ContainsSubjectStrings,omitempty"`
+	From                     *RuleFromType           `xml:"http://schemas.microsoft.com/exchange/services/2006/types From,omitempty"`
 	HasAttachments           *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types HasAttachments,omitempty"`
 	Importance               string                  `xml:"http://schemas.microsoft.com/exchange/services/2006/types Importance,omitempty"`
 	IsAutomaticForward       *bool                   `xml:"http://schemas.microsoft.com/exchange/services/2006/types IsAutomaticForward,omitempty"`
@@ -231,6 +232,16 @@ type RedirectToRecipientsType struct {
 // SentToAddressesType is the SentToAddresses element.
 type SentToAddressesType struct {
 	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types SentToAddresses"`
+	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
+}
+
+// RuleFromType is the From rule predicate (ArrayOfEmailAddressesType): the sender
+// resolved to an address object. Outlook for Mac treats a From predicate as a
+// server-side condition and shows it in the Server Rules list, whereas
+// ContainsSenderStrings (a sender-address substring match) is classified as a
+// client-side condition and hidden from that list.
+type RuleFromType struct {
+	XMLName   xml.Name      `xml:"http://schemas.microsoft.com/exchange/services/2006/types From"`
 	Addresses []MailboxType `xml:"http://schemas.microsoft.com/exchange/services/2006/types Mailbox,omitempty"`
 }
 
@@ -1022,10 +1033,14 @@ func conditionsToEWS(conds []semcore.RuleCondition, matchAll bool) *ConditionsTy
 	for _, cond := range conds {
 		switch cond.Kind {
 		case semcore.RuleConditionKindFrom:
-			if pred.ContainsSenderStrings == nil {
-				pred.ContainsSenderStrings = &ArrayOfStringsType{}
+			// Emit From (a resolved sender address) rather than
+			// ContainsSenderStrings: Outlook for Mac classifies a From predicate
+			// as a server-side condition and lists it under Server Rules, while a
+			// sender-address substring match is treated as client-side and hidden.
+			if pred.From == nil {
+				pred.From = &RuleFromType{}
 			}
-			pred.ContainsSenderStrings.Strings = append(pred.ContainsSenderStrings.Strings, cond.Value)
+			pred.From.Addresses = append(pred.From.Addresses, MailboxType{Email: cond.Value})
 		case semcore.RuleConditionKindTo:
 			if pred.ContainsRecipientStrings == nil {
 				pred.ContainsRecipientStrings = &ArrayOfStringsType{}
@@ -1152,6 +1167,18 @@ func conditionsFromEWS(pred *RulePredicatesType) ([]semcore.RuleCondition, bool)
 				Kind:      semcore.RuleConditionKindFrom,
 				MatchType: semcore.RuleMatchTypeContains,
 				Value:     s,
+			})
+		}
+	}
+	if pred.From != nil {
+		for _, mb := range pred.From.Addresses {
+			if mb.Email == "" {
+				continue
+			}
+			conds = append(conds, semcore.RuleCondition{
+				Kind:      semcore.RuleConditionKindFrom,
+				MatchType: semcore.RuleMatchTypeContains,
+				Value:     mb.Email,
 			})
 		}
 	}
