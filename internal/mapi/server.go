@@ -132,7 +132,10 @@ func (s *Server) resolveCandidates(entry string) []directoryCandidate {
 				email = acc.LocalPart + "@" + acc.Domain
 			}
 
-			displayName := acc.LocalPart
+			displayName := acc.DisplayName
+			if displayName == "" {
+				displayName = acc.LocalPart
+			}
 			if displayName == "" {
 				displayName = email
 			}

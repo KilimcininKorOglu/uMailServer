@@ -140,6 +140,11 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 	// Build response. The host the client used to reach us drives the EWS ASUrl
 	// so the advertised endpoint matches however the account connected.
 	resp := s.buildAutodiscoverResponse(email, domain, autodiscoverHost(r.Host), accountTier)
+	// Outlook shows the account's GAL display name; surface it when the account
+	// carries one (buildAutodiscoverResponse defaults DisplayName to the email).
+	if accData != nil && accData.DisplayName != "" {
+		resp.Response.User.DisplayName = accData.DisplayName
+	}
 
 	// Set headers
 	w.Header().Set("Content-Type", "application/xml")
