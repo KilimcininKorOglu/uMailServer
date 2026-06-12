@@ -1,6 +1,8 @@
 package emsmdb
 
 import (
+	"math/bits"
+
 	"github.com/umailserver/umailserver/internal/mapi/wire"
 	"github.com/umailserver/umailserver/internal/storage"
 )
@@ -9,11 +11,120 @@ import (
 // PidTagMessageFlags). Only the read bit is derived on the online read path.
 const msgFlagRead uint32 = 0x00000001
 
+// stringTypeNone is a TypedString carrying no string data (MS-OXCDATA 2.11.1,
+// STRING_TYPE_NONE): the client reads the real value through RopGetProperties.
+const stringTypeNone uint8 = 0x00
+
+// messageObject is a server object opened on a single message (RopOpenMessage).
+// It locates the message in the canonical store for the property ROPs that read
+// it.
+type messageObject struct {
+	mailbox string
+	uid     uint32
+}
+
 // messageID builds a message id (MID) from a message uid, reusing the replica id
 // and 48-bit-counter layout of a folder id (MS-OXCDATA 2.2.1.2). The uid is
 // stable per mailbox, so the MID round-trips back to the uid.
 func messageID(uid uint32) uint64 {
 	return makeFID(fidReplID, uint64(uid))
+}
+
+// messageUID recovers the message uid from a message id, inverting messageID.
+func messageUID(mid uint64) uint32 {
+	return uint32(bits.ReverseBytes64(mid &^ 0xFFFF))
+}
+
+// logonFromHandle returns the logon a handle leads to, whether the handle holds
+// the logon itself or a folder opened under it.
+func logonFromHandle(obj any) *logonObject {
+	switch o := obj.(type) {
+	case *logonObject:
+		return o
+	case *folderObject:
+		return o.logon
+	default:
+		return nil
+	}
+}
+
+// ropOpenMessage handles RopOpenMessage (MS-OXCMSG 2.2.3.1): it opens a message
+// by folder id and message id under the logon and binds a message object to the
+// output handle index. The response leaves the subject fields empty and carries
+// no recipients; the client reads those through the property ROPs.
+func ropOpenMessage(c *ropCtx, _ uint8, hindex uint8) {
+	ohindex := c.in.Uint8()
+	_ = c.in.Uint16() // code page id; the store is unicode
+	folderID := c.in.Uint64()
+	_ = c.in.Uint8() // open mode flags
+	messageID := c.in.Uint64()
+	if c.in.Err() != nil {
+		writeRopError(c.out, RopOpenMessage, ohindex, ecError)
+		return
+	}
+	lo := logonFromHandle(c.objectAt(hindex))
+	if lo == nil {
+		writeRopError(c.out, RopOpenMessage, ohindex, ecNullObject)
+		return
+	}
+	mailbox, _, ok := lo.resolveFolder(folderID)
+	if !ok || mailbox == "" {
+		writeRopError(c.out, RopOpenMessage, ohindex, ecNotFound)
+		return
+	}
+	uid := messageUID(messageID)
+	if _, err := c.store.GetMessageMetadata(c.email, mailbox, uid); err != nil {
+		writeRopError(c.out, RopOpenMessage, ohindex, ecNotFound)
+		return
+	}
+	c.setHandle(ohindex, c.state.alloc(&messageObject{mailbox: mailbox, uid: uid}))
+
+	out := c.out
+	out.Uint8(RopOpenMessage)
+	out.Uint8(ohindex)
+	out.Uint32(ecSuccess)
+	out.Uint8(0)                        // HasNamedProperties: none
+	out.Uint8(stringTypeNone)           // SubjectPrefix
+	out.Uint8(stringTypeNone)           // NormalizedSubject
+	out.Uint16(0)                       // RecipientCount
+	wire.PushPropertyTagArray(out, nil) // RecipientColumns: none
+	out.Uint8(0)                        // RowCount: no recipient rows
+}
+
+// ropGetPropertiesSpecific handles RopGetPropertiesSpecific (MS-OXCPRPT 2.2.7):
+// it returns the requested properties of an opened message as a single property
+// row, marking any property the online path does not serve as an error.
+func ropGetPropertiesSpecific(c *ropCtx, _ uint8, hindex uint8) {
+	_ = c.in.Uint16() // property size limit; not enforced
+	_ = c.in.Uint16() // want-unicode flag; the store is unicode
+	cols := wire.PullPropertyTagArray(c.in)
+	if c.in.Err() != nil {
+		writeRopError(c.out, RopGetPropertiesSpecific, hindex, ecError)
+		return
+	}
+	mo, ok := c.objectAt(hindex).(*messageObject)
+	if !ok {
+		writeRopError(c.out, RopGetPropertiesSpecific, hindex, ecNullObject)
+		return
+	}
+	m, err := c.store.GetMessageMetadata(c.email, mo.mailbox, mo.uid)
+	if err != nil {
+		writeRopError(c.out, RopGetPropertiesSpecific, hindex, ecNotFound)
+		return
+	}
+	row := wire.NewPush(wire.FlagUTF16)
+	if err := pushRow(row, cols, func(t wire.PropTag) (any, bool) {
+		return messageProperty(t, m)
+	}); err != nil {
+		writeRopError(c.out, RopGetPropertiesSpecific, hindex, ecError)
+		return
+	}
+
+	out := c.out
+	out.Uint8(RopGetPropertiesSpecific)
+	out.Uint8(hindex)
+	out.Uint32(ecSuccess)
+	out.Raw(row.Bytes())
 }
 
 // instanceKey is a table row's unique key (PidTagInstanceKey): the 4-byte
