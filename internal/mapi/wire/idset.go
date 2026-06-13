@@ -88,3 +88,28 @@ func SerializeGlobset(ranges []GlobcntRange) []byte {
 	}
 	return append(out, 0x00)
 }
+
+// SerializeXID encodes an external identifier (MS-OXCDATA 2.2.2.2 XID) as a 22-byte
+// value: the replica GUID (16 bytes, standard GUID wire layout) followed by a 6-byte
+// GLOBCNT (the low 48 bits of globcntValue, big-endian MSB-first). This is the form
+// PidTagSourceKey and PidTagChangeKey carry; the GUID identifies the replica and the
+// GLOBCNT is the item id (source key) or change number (change key) within it.
+func SerializeXID(replicaGUID GUID, globcntValue uint64) []byte {
+	p := NewPush(0)
+	p.GUID(replicaGUID)
+	gc := valueToGlobcnt(globcntValue)
+	p.Raw(gc[:])
+	return p.Bytes()
+}
+
+// SerializeIDSET encodes a long-term-id IDSET for a single replica (MS-OXCFXICS
+// 2.2.1.1 / 2.2.2.4): the replica GUID (16 bytes, standard GUID wire layout) followed
+// by the GLOBSET of its ranges. The ICS state properties (PidTagIdsetGiven,
+// MetaTagCnsetSeen) carry an IDSET in this form. A single-replica store emits one
+// node; concatenate the results of multiple calls for multiple replicas.
+func SerializeIDSET(replicaGUID GUID, ranges []GlobcntRange) []byte {
+	p := NewPush(0)
+	p.GUID(replicaGUID)
+	p.Raw(SerializeGlobset(ranges))
+	return p.Bytes()
+}

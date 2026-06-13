@@ -64,6 +64,52 @@ func TestSerializeGlobset(t *testing.T) {
 	}
 }
 
+// TestSerializeIDSET pins the single-replica IDSET layout: the replica GUID in
+// standard wire order (TimeLow u32 LE, TimeMid u16 LE, TimeHiAndVersion u16 LE,
+// ClockSeq, Node) followed by the GLOBSET, against hand-computed bytes.
+func TestSerializeIDSET(t *testing.T) {
+	guid := GUID{
+		TimeLow:          0x01020304,
+		TimeMid:          0x0506,
+		TimeHiAndVersion: 0x0708,
+		ClockSeq:         [2]byte{0x09, 0x0A},
+		Node:             [6]byte{0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
+	}
+	got := SerializeIDSET(guid, []GlobcntRange{{Lo: 1, Hi: 1}})
+	want := []byte{
+		0x04, 0x03, 0x02, 0x01, 0x06, 0x05, 0x08, 0x07, // GUID: TimeLow LE, TimeMid LE, TimeHi LE
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, // GUID: ClockSeq, Node
+		0x06, 0, 0, 0, 0, 0, 1, 0x00, // GLOBSET: push 6 of GLOBCNT(1), end
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("SerializeIDSET = % x, want % x", got, want)
+	}
+}
+
+// TestSerializeXID pins the 22-byte XID layout: the GUID in standard wire order
+// followed by the 6-byte big-endian GLOBCNT, against hand-computed bytes.
+func TestSerializeXID(t *testing.T) {
+	guid := GUID{
+		TimeLow:          0x01020304,
+		TimeMid:          0x0506,
+		TimeHiAndVersion: 0x0708,
+		ClockSeq:         [2]byte{0x09, 0x0A},
+		Node:             [6]byte{0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
+	}
+	got := SerializeXID(guid, 0x665544)
+	want := []byte{
+		0x04, 0x03, 0x02, 0x01, 0x06, 0x05, 0x08, 0x07, // GUID first half
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, // GUID second half
+		0x00, 0x00, 0x00, 0x66, 0x55, 0x44, // GLOBCNT(0x665544): low 48 bits, MSB first
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("SerializeXID = % x, want % x", got, want)
+	}
+	if len(got) != 22 {
+		t.Errorf("XID length = %d, want 22", len(got))
+	}
+}
+
 // TestValueToGlobcnt pins the value→GLOBCNT conversion: the low 48 bits, MSB first.
 func TestValueToGlobcnt(t *testing.T) {
 	got := valueToGlobcnt(0x0000_1122_3344_5566)
