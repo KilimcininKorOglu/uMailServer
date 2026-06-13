@@ -239,7 +239,7 @@ func TestBuildMIMEFromProps(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		raw, err := buildMIMEFromProps(c.props, nil, "owner@local.test", now)
+		raw, err := buildMIMEFromProps(c.props, nil, nil, "owner@local.test", now)
 		if err != nil {
 			t.Fatalf("%s: buildMIMEFromProps: %v", c.name, err)
 		}

@@ -3,17 +3,19 @@ package emsmdb
 import "github.com/umailserver/umailserver/internal/mapi/wire"
 
 // streamObject is a server object opened on a single property of an in-flight
-// message (MS-OXCPRPT 2.2.14). A client streams a large property value across one
-// or more RopWriteStream calls and flushes it with RopCommitStream, which writes
-// the accumulated bytes into the message's property buffer for the eventual
-// RopSaveChangesMessage to render. Only a binary property is streamed: a binary
-// stream is the property value verbatim, with no codepage conversion, so the bytes
-// round-trip unambiguously. Streaming a text property (PtypString/PtypString8),
-// which needs codepage-aware decoding on commit, is deferred.
+// object (MS-OXCPRPT 2.2.14) — a message being created or an attachment being
+// built. A client streams a large property value across one or more RopWriteStream
+// calls and flushes it with RopCommitStream, which writes the accumulated bytes
+// into the target object's property buffer for the eventual save to render (an
+// HTML body into the message, attachment data into the attachment). Only a binary
+// property is streamed: a binary stream is the property value verbatim, with no
+// codepage conversion, so the bytes round-trip unambiguously. Streaming a text
+// property (PtypString/PtypString8), which needs codepage-aware decoding on commit,
+// is deferred.
 type streamObject struct {
-	tag wire.PropTag
-	buf []byte
-	msg *messageObject
+	tag    wire.PropTag
+	buf    []byte
+	target propWriter
 }
 
 // ropOpenStream handles RopOpenStream (MS-OXCPRPT 2.2.14): it opens a stream on a
@@ -34,8 +36,8 @@ func ropOpenStream(c *ropCtx, _ uint8, hindex uint8) {
 		writeRopError(c.out, RopOpenStream, ohindex, ecError)
 		return
 	}
-	mo, ok := c.objectAt(hindex).(*messageObject)
-	if !ok || mo.write == nil {
+	target, ok := c.objectAt(hindex).(propWriter)
+	if !ok || target.writeProps() == nil {
 		writeRopError(c.out, RopOpenStream, ohindex, ecNullObject)
 		return
 	}
@@ -46,7 +48,7 @@ func ropOpenStream(c *ropCtx, _ uint8, hindex uint8) {
 		writeRopError(c.out, RopOpenStream, ohindex, ecNotSupported)
 		return
 	}
-	c.setHandle(ohindex, c.state.alloc(&streamObject{tag: proptag, msg: mo}))
+	c.setHandle(ohindex, c.state.alloc(&streamObject{tag: proptag, target: target}))
 
 	out := c.out
 	out.Uint8(RopOpenStream)
@@ -88,11 +90,16 @@ func ropWriteStream(c *ropCtx, _ uint8, hindex uint8) {
 // response carries no body (MS-OXCROPS 2.2.9.4).
 func ropCommitStream(c *ropCtx, _ uint8, hindex uint8) {
 	so, ok := c.objectAt(hindex).(*streamObject)
-	if !ok || so.msg.write == nil {
+	if !ok {
 		writeRopError(c.out, RopCommitStream, hindex, ecNullObject)
 		return
 	}
-	so.msg.write.props[so.tag] = append([]byte(nil), so.buf...)
+	props := so.target.writeProps()
+	if props == nil {
+		writeRopError(c.out, RopCommitStream, hindex, ecNullObject)
+		return
+	}
+	props[so.tag] = append([]byte(nil), so.buf...)
 
 	out := c.out
 	out.Uint8(RopCommitStream)

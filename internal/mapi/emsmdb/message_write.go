@@ -54,8 +54,38 @@ type recipient struct {
 // shared append core. A message opened for reading (RopOpenMessage) has a nil
 // write state, so the write ROPs reject it.
 type messageWriteState struct {
-	props      map[wire.PropTag]any
-	recipients []recipient
+	props         map[wire.PropTag]any
+	recipients    []recipient
+	attachments   []msg.Attachment
+	nextAttachNum uint32
+}
+
+// propWriter is a server object that holds an in-flight MAPI property bag the
+// property and stream write ROPs target. A message opened for creation and an
+// attachment being built both expose one. writeProps returns nil when the object
+// is not in a writable state (a saved or read-opened message), so a write ROP that
+// lands on it is rejected.
+type propWriter interface {
+	writeProps() map[wire.PropTag]any
+}
+
+// writeProps exposes the in-flight property buffer of a message opened for
+// creation, or nil for a read-opened or already-saved message.
+func (mo *messageObject) writeProps() map[wire.PropTag]any {
+	if mo.write == nil {
+		return nil
+	}
+	return mo.write.props
+}
+
+// writablePropsAt returns the in-flight property bag of the writable object at the
+// handle index, or nil when the handle holds no object, an object with no property
+// bag, or one not in a writable state.
+func (c *ropCtx) writablePropsAt(hindex uint8) map[wire.PropTag]any {
+	if pw, ok := c.objectAt(hindex).(propWriter); ok {
+		return pw.writeProps()
+	}
+	return nil
 }
 
 // ropCreateMessage handles RopCreateMessage (MS-OXCMSG 2.2.3.2): it opens a new,
@@ -121,13 +151,13 @@ func ropSetProperties(c *ropCtx, _ uint8, hindex uint8) {
 	if c.in.Offset() < end {
 		c.in.Skip(end - c.in.Offset())
 	}
-	mo, ok := c.objectAt(hindex).(*messageObject)
-	if !ok || mo.write == nil {
+	props := c.writablePropsAt(hindex)
+	if props == nil {
 		writeRopError(c.out, RopSetProperties, hindex, ecNullObject)
 		return
 	}
 	for _, v := range vals {
-		mo.write.props[v.Tag] = v.Value
+		props[v.Tag] = v.Value
 	}
 
 	out := c.out
@@ -148,15 +178,15 @@ func ropDeleteProperties(c *ropCtx, _ uint8, hindex uint8) {
 		writeRopError(c.out, RopDeleteProperties, hindex, ecError)
 		return
 	}
-	mo, ok := c.objectAt(hindex).(*messageObject)
-	if !ok || mo.write == nil {
+	props := c.writablePropsAt(hindex)
+	if props == nil {
 		writeRopError(c.out, RopDeleteProperties, hindex, ecNullObject)
 		return
 	}
 	for _, t := range tags {
-		for k := range mo.write.props {
+		for k := range props {
 			if k.ID() == t.ID() {
-				delete(mo.write.props, k)
+				delete(props, k)
 			}
 		}
 	}
@@ -193,7 +223,7 @@ func ropSaveChangesMessage(c *ropCtx, _ uint8, hindex uint8) {
 		return
 	}
 	now := time.Now()
-	raw, err := buildMIMEFromProps(mo.write.props, mo.write.recipients, c.email, now)
+	raw, err := buildMIMEFromProps(mo.write.props, mo.write.recipients, mo.write.attachments, c.email, now)
 	if err != nil {
 		writeRopError(c.out, RopSaveChangesMessage, hindex, ecError)
 		return
@@ -383,13 +413,14 @@ func firstNonEmpty(vals ...string) string {
 // keep the message well-formed even for a sparse draft carrying only a subject
 // and body. To/Cc come from the recipients; Bcc is intentionally dropped from the
 // headers (matching the OXMSG import), so a draft's Bcc is not yet preserved.
-func buildMIMEFromProps(props map[wire.PropTag]any, recipients []recipient, owner string, date time.Time) ([]byte, error) {
+func buildMIMEFromProps(props map[wire.PropTag]any, recipients []recipient, attachments []msg.Attachment, owner string, date time.Time) ([]byte, error) {
 	m := &msg.Message{
-		Subject:  stringProp(props, wire.PidTagSubject),
-		BodyText: stringProp(props, wire.PidTagBody),
-		BodyHTML: binaryProp(props, wire.PidTagHtml),
-		From:     owner,
-		Date:     date,
+		Subject:     stringProp(props, wire.PidTagSubject),
+		BodyText:    stringProp(props, wire.PidTagBody),
+		BodyHTML:    binaryProp(props, wire.PidTagHtml),
+		From:        owner,
+		Date:        date,
+		Attachments: attachments,
 	}
 	for _, r := range recipients {
 		addr := formatRecipient(r)

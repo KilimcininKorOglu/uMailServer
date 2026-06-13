@@ -107,6 +107,16 @@ const (
 	PidTagInstID               PropTag = PropTag(0x674D)<<16 | PropTag(PtI8)
 	PidTagInstanceNum          PropTag = PropTag(0x674E)<<16 | PropTag(PtLong)
 
+	// Attachment tags (MS-OXCMSG 2.2.2 / MS-OXPROPS). The data is carried by value
+	// in PidTagAttachDataBinary; the filename, MIME type, and content id reconstruct
+	// the RFC 5322 attachment part.
+	PidTagAttachDataBinary   PropTag = PropTag(0x3701)<<16 | PropTag(PtBinary)
+	PidTagAttachFilename     PropTag = PropTag(0x3704)<<16 | PropTag(PtUnicode)
+	PidTagAttachMethod       PropTag = PropTag(0x3705)<<16 | PropTag(PtLong)
+	PidTagAttachLongFilename PropTag = PropTag(0x3707)<<16 | PropTag(PtUnicode)
+	PidTagAttachMimeTag      PropTag = PropTag(0x370E)<<16 | PropTag(PtUnicode)
+	PidTagAttachContentID    PropTag = PropTag(0x3712)<<16 | PropTag(PtUnicode)
+
 	// PidTagAddressBookIsMaster (MS-OXNSPI) marks whether an address-book
 	// container is the master; the NSPI special table carries it per container.
 	PidTagAddressBookIsMaster PropTag = PropTag(0xFFFB)<<16 | PropTag(PtBoolean)
