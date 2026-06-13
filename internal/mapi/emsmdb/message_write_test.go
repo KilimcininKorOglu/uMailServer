@@ -239,7 +239,7 @@ func TestBuildMIMEFromProps(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		raw, err := buildMIMEFromProps(c.props, "owner@local.test", now)
+		raw, err := buildMIMEFromProps(c.props, nil, "owner@local.test", now)
 		if err != nil {
 			t.Fatalf("%s: buildMIMEFromProps: %v", c.name, err)
 		}
@@ -302,5 +302,110 @@ func TestCreateAssociatedMessageRejected(t *testing.T) {
 	q.Uint8() // handle index
 	if rv := q.Uint32(); rv != ecNotImplemented {
 		t.Errorf("associated-message create = %#x, want ecNotImplemented", rv)
+	}
+}
+
+// TestModifyRecipientsFlow drives RopCreateMessage -> RopModifyRecipients ->
+// RopSaveChangesMessage and verifies both recipient-row shapes survive into the
+// committed message's To/Cc headers: a To recipient whose address is in the fixed
+// RECIPIENT_ROW EMAIL/DISPLAY fields, and a Cc recipient whose address is ONLY in
+// a property column (no EMAIL flag) — the fallback branch. The test encodes the
+// RECIPIENT_ROWs with the same wire codec the server decodes them with, then
+// reads the addresses back out of the parsed RFC 5322 message.
+func TestModifyRecipientsFlow(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openInbox(t, store)
+	app, blob, _ := newWriteAppender()
+	p.SetAppender(app)
+
+	// CreateMessage in the Inbox, binding the message at output handle index 2.
+	cm := wire.NewPush(wire.FlagUTF16)
+	cm.Uint8(2)
+	cm.Uint16(1252)
+	cm.Uint64(makeFID(fidReplID, 0x0d))
+	cm.Uint8(0)
+	_, handles = p.Dispatch(sess, ropRequest(RopCreateMessage, 1, cm.Bytes()), handles, 0x10000)
+
+	// SetProperties (on the message at handle 2): a subject so the message is non-empty.
+	arr := wire.NewPush(wire.FlagUTF16)
+	if err := wire.PushTPropValArray(arr, []wire.TaggedPropertyValue{
+		{Tag: wire.PidTagSubject, Value: "recipients"},
+	}); err != nil {
+		t.Fatalf("push property array: %v", err)
+	}
+	sp := wire.NewPush(wire.FlagUTF16)
+	sp.Uint16(uint16(len(arr.Bytes())))
+	sp.Raw(arr.Bytes())
+	_, handles = p.Dispatch(sess, ropRequest(RopSetProperties, 2, sp.Bytes()), handles, 0x10000)
+
+	// ModifyRecipients: columns shared by every row, then two rows.
+	cols := []wire.PropTag{wire.PidTagSmtpAddress, wire.PidTagDisplayName}
+	mr := wire.NewPush(wire.FlagUTF16)
+	wire.PushPropertyTagArray(mr, cols)
+	mr.Uint16(2) // two recipient rows
+
+	// Row 1 (To): address in the fixed EMAIL/DISPLAY fields, empty property row.
+	row1 := wire.NewPush(wire.FlagUTF16)
+	row1.Uint16(recipFlagUnicode | recipFlagEmail | recipFlagDisplay)
+	row1.WStr("alice@local.test")
+	row1.WStr("Alice")
+	row1.Uint16(0)   // RecipientColumnCount
+	row1.Uint8(0x00) // empty property row (flag byte, no values)
+	mr.Uint32(1)
+	mr.Uint8(recipientTo)
+	mr.Uint16(uint16(len(row1.Bytes())))
+	mr.Raw(row1.Bytes())
+
+	// Row 2 (Cc): no fixed address fields; address only in the property columns.
+	row2 := wire.NewPush(wire.FlagUTF16)
+	row2.Uint16(recipFlagUnicode)
+	row2.Uint16(uint16(len(cols)))
+	if err := wire.PushPropertyRow(row2, cols, wire.PropertyRow{
+		Flag:   wire.RowFlagNone,
+		Values: []any{"bob@local.test", "Bob"},
+	}); err != nil {
+		t.Fatalf("push recipient property row: %v", err)
+	}
+	mr.Uint32(2)
+	mr.Uint8(recipientCc)
+	mr.Uint16(uint16(len(row2.Bytes())))
+	mr.Raw(row2.Bytes())
+
+	resp, handles := p.Dispatch(sess, ropRequest(RopModifyRecipients, 2, mr.Bytes()), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopModifyRecipients {
+		t.Fatalf("rop id = %#x, want RopModifyRecipients", got)
+	}
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("ModifyRecipients return value = %#x, want success", rv)
+	}
+
+	// SaveChanges commits the message.
+	sc := wire.NewPush(wire.FlagUTF16)
+	sc.Uint8(2)
+	sc.Uint8(0)
+	resp2, _ := p.Dispatch(sess, ropRequest(RopSaveChangesMessage, 2, sc.Bytes()), handles, 0x10000)
+	q2 := wire.NewPull(resp2, wire.FlagUTF16)
+	q2.Uint8() // rop id
+	q2.Uint8() // handle index
+	if rv := q2.Uint32(); rv != ecSuccess {
+		t.Fatalf("SaveChanges return value = %#x, want success", rv)
+	}
+
+	if len(blob.msgs) != 1 {
+		t.Fatalf("blob store holds %d messages, want 1", len(blob.msgs))
+	}
+	m, err := mail.ReadMessage(bytes.NewReader(blob.msgs[0]))
+	if err != nil {
+		t.Fatalf("committed blob is not a valid RFC 5322 message: %v", err)
+	}
+	to := m.Header.Get("To")
+	if !strings.Contains(to, "alice@local.test") || !strings.Contains(to, "Alice") {
+		t.Errorf("To = %q, want it to carry the fixed-field recipient alice@local.test (Alice)", to)
+	}
+	cc := m.Header.Get("Cc")
+	if !strings.Contains(cc, "bob@local.test") || !strings.Contains(cc, "Bob") {
+		t.Errorf("Cc = %q, want it to carry the property-column recipient bob@local.test (Bob)", cc)
 	}
 }
