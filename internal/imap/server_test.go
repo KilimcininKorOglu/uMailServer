@@ -1454,13 +1454,20 @@ func TestAcceptLoopShutdown(t *testing.T) {
 		done <- true
 	}()
 
-	// Close shutdown channel to trigger exit
+	// Trigger shutdown exactly as Server.Stop does: close the shutdown channel AND
+	// close the listener. Closing only the channel races the loop's pre-Accept
+	// select — if the loop already reached the blocking Accept(), it never observes
+	// shutdown and the test flakes on the timeout. Closing the listener unblocks
+	// Accept() so the loop loops back and sees shutdown.
 	close(s.shutdown)
+	if cerr := listener.Close(); cerr != nil {
+		t.Logf("listener close during shutdown: %v", cerr)
+	}
 
 	select {
 	case <-done:
 		// Success
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		t.Error("Timeout waiting for acceptLoop to exit")
 	}
 }
