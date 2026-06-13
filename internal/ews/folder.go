@@ -241,7 +241,7 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 	if parentRef.IsZero() {
 		parentRef = folderID
 	}
-	child, total, unread := s.folderCounts(checkKey, folderID, rec.Role, rootID, ipmID, displayName)
+	child, total, unread := s.folderCounts(checkKey, folderID, rec.Role, rootID, ipmID)
 	fxml := FolderType{
 		FolderID:         newFolderID(folderID.String(), child, total, unread),
 		ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
@@ -506,10 +506,17 @@ func (s *Server) isFolderUnder(f semcore.StoredFolderIdentity, ancestor, rootID,
 // folderCounts computes the ChildFolderCount/TotalCount/UnreadCount a folder
 // should report. ChildFolderCount is the top-level folder count for the mailbox
 // root (whose children are stored with a zero parent) and the direct-child count
-// otherwise. TotalCount/UnreadCount come from the canonical message store; the
-// synthetic root holds no messages so it reports zero. Best-effort: a lookup
-// error falls back to zero rather than failing the folder response.
-func (s *Server) folderCounts(mailboxKey string, folderID semcore.FolderId, role string, rootID, ipmID semcore.FolderId, displayName string) (child, total, unread int) {
+// otherwise. TotalCount/UnreadCount count only identities whose message body is
+// present in msgStore — the exact readable set FindItem/SyncFolderItems surface —
+// so GetFolder/FindFolder report the same count an item query returns. This
+// same-surface consistency is required: a client that reads TotalCount=N then
+// fetches items must see them agree. Counting
+// the storage mailbox by display name instead was doubly wrong — it missed the
+// bucket entirely (the display name "Inbox" never matches the canonical "INBOX"
+// storage name, so the count was always zero) and it would have reported storage's
+// pre-dedup message count, diverging from item enumeration. The synthetic
+// container folders (root, IPM subtree) hold no items and report zero.
+func (s *Server) folderCounts(mailboxKey string, folderID semcore.FolderId, role string, rootID, ipmID semcore.FolderId) (child, total, unread int) {
 	if folders, err := s.identity.ListFolderIdentitiesForMailbox(mailboxKey); err == nil {
 		for _, f := range folders {
 			if f.FolderID.Equal(folderID) {
@@ -526,9 +533,20 @@ func (s *Server) folderCounts(mailboxKey string, folderID semcore.FolderId, role
 			}
 		}
 	}
-	if !isContainerRole(role) && s.storageDB != nil {
-		if exists, _, unseen, err := s.storageDB.GetMailboxCounts(mailboxKey, displayName); err == nil {
-			total, unread = exists, unseen
+	if !isContainerRole(role) {
+		if items, err := s.identity.ListItemIdentitiesByFolder(folderID); err == nil {
+			for _, it := range items {
+				// A cheap stat mirrors the ReadMessage filter collectMailItems
+				// applies, so an orphaned identity whose blob is gone (identity
+				// store drifted ahead of msgStore) is counted by neither surface.
+				if !s.msgStore.MessageExists(it.Email, it.MsgKey) {
+					continue
+				}
+				total++
+				if !it.IsRead {
+					unread++
+				}
+			}
 		}
 	}
 	return child, total, unread
@@ -796,7 +814,7 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 		if !publicTree {
 			parentRef = s.effectiveParentID(f.Role, f.ParentID, rootID, ipmID)
 		}
-		child, total, unread := s.folderCounts(mailboxKey, f.FolderID, f.Role, rootID, ipmID, displayName)
+		child, total, unread := s.folderCounts(mailboxKey, f.FolderID, f.Role, rootID, ipmID)
 		fxml := FolderType{
 			FolderID:         newFolderID(f.FolderID.String(), child, total, unread),
 			ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
@@ -1225,7 +1243,7 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 		ucKey := strings.TrimPrefix(mboxKey, "e:")
 		ucRoot := s.rootFolderID(ucKey)
 		ucIPM := s.ipmSubtreeFolderID(ucKey)
-		child, total, unread := s.folderCounts(ucKey, folderID, rec.Role, ucRoot, ucIPM, displayName)
+		child, total, unread := s.folderCounts(ucKey, folderID, rec.Role, ucRoot, ucIPM)
 		fxml := FolderType{
 			FolderID:         newFolderID(folderID.String(), child, total, unread),
 			ParentFolderID:   FolderIdComponents{ID: rec.ParentID.String()},
@@ -2159,7 +2177,7 @@ func (s *Server) handleSyncFolderHierarchy(ctx context.Context, body []byte) []b
 		displayName := s.folderDisplayName(mailboxKey, f.Role, f.FolderID)
 
 		parentRef := s.effectiveParentID(f.Role, f.ParentID, rootID, ipmID)
-		child, total, unread := s.folderCounts(mailboxKey, f.FolderID, f.Role, rootID, ipmID, displayName)
+		child, total, unread := s.folderCounts(mailboxKey, f.FolderID, f.Role, rootID, ipmID)
 		fxml := FolderType{
 			FolderID:         newFolderID(f.FolderID.String(), child, total, unread),
 			ParentFolderID:   FolderIdComponents{ID: parentRef.String()},
