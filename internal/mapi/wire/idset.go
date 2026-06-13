@@ -1,5 +1,7 @@
 package wire
 
+import "fmt"
+
 // GlobcntRange is an inclusive range of item ids / change numbers within a single
 // replica, expressed as the full 64-bit values they derive from. Lo and Hi are
 // inclusive; a single id is a range with Lo == Hi. Only the low 48 bits participate
@@ -100,6 +102,128 @@ func SerializeXID(replicaGUID GUID, globcntValue uint64) []byte {
 	gc := valueToGlobcnt(globcntValue)
 	p.Raw(gc[:])
 	return p.Bytes()
+}
+
+// globcntToValue inverts valueToGlobcnt: a 6-byte big-endian GLOBCNT back to the
+// 48-bit value it encodes.
+func globcntToValue(cb [6]byte) uint64 {
+	return uint64(cb[0])<<40 | uint64(cb[1])<<32 | uint64(cb[2])<<24 |
+		uint64(cb[3])<<16 | uint64(cb[4])<<8 | uint64(cb[5])
+}
+
+// ParseGlobset decodes a GLOBSET (MS-OXCFXICS 2.2.2.6) back into its ranges,
+// inverting SerializeGlobset. It walks the stack commands — push (0x01-0x06), range
+// (0x52), pop (0x50), the bitmask form (0x42, which the encoder never emits but a
+// conformant reader must accept), and end (0x00) — reconstructing the common-prefix
+// stack to recover each full GLOBCNT. It returns an error on a truncated or
+// malformed set, or one with no terminating end command.
+func ParseGlobset(data []byte) ([]GlobcntRange, error) {
+	var ranges []GlobcntRange
+	var stack [][]byte // groups of pushed common-prefix bytes
+	commonBytes := func() ([6]byte, int) {
+		var cb [6]byte
+		n := 0
+		for _, g := range stack {
+			for _, b := range g {
+				if n < 6 {
+					cb[n] = b
+				}
+				n++
+			}
+		}
+		return cb, n
+	}
+	off := 0
+	for off < len(data) {
+		cmd := data[off]
+		off++
+		switch {
+		case cmd == 0x00: // end
+			return ranges, nil
+		case cmd >= 0x01 && cmd <= 0x06: // push N common-prefix bytes
+			n := int(cmd)
+			if off+n > len(data) {
+				return nil, fmt.Errorf("globset: truncated push of %d bytes", n)
+			}
+			stack = append(stack, append([]byte(nil), data[off:off+n]...))
+			off += n
+			cb, length := commonBytes()
+			if length > 6 {
+				return nil, fmt.Errorf("globset: common prefix overflow (%d)", length)
+			}
+			if length == 6 { // a complete id; emit it and implicitly pop (MS-OXCFXICS 3.1.5.4.3.1.1)
+				x := globcntToValue(cb)
+				ranges = append(ranges, GlobcntRange{Lo: x, Hi: x})
+				stack = stack[:len(stack)-1]
+			}
+		case cmd == 0x42: // bitmask
+			if off+2 > len(data) {
+				return nil, fmt.Errorf("globset: truncated bitmask command")
+			}
+			startValue, bitmask := data[off], data[off+1]
+			off += 2
+			cb, length := commonBytes()
+			if length != 5 {
+				return nil, fmt.Errorf("globset: bitmask common prefix = %d, want 5", length)
+			}
+			cb[5] = startValue
+			low := globcntToValue(cb)
+			lo, hi, have := low, low, true
+			flush := func() {
+				if have {
+					ranges = append(ranges, GlobcntRange{Lo: lo, Hi: hi})
+					have = false
+				}
+			}
+			for i := range 8 {
+				switch {
+				case bitmask&(1<<i) == 0:
+					flush()
+				case !have:
+					x := low + uint64(i) + 1
+					lo, hi, have = x, x, true
+				default:
+					hi++
+				}
+			}
+			flush()
+		case cmd == 0x50: // pop
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		case cmd == 0x52: // range: a low..high suffix completing the common prefix
+			cb, length := commonBytes()
+			if length > 5 {
+				return nil, fmt.Errorf("globset: range common prefix = %d, want <= 5", length)
+			}
+			rem := 6 - length
+			if off+2*rem > len(data) {
+				return nil, fmt.Errorf("globset: truncated range command")
+			}
+			copy(cb[length:], data[off:off+rem])
+			off += rem
+			low := globcntToValue(cb)
+			copy(cb[length:], data[off:off+rem])
+			off += rem
+			ranges = append(ranges, GlobcntRange{Lo: low, Hi: globcntToValue(cb)})
+		default:
+			return nil, fmt.Errorf("globset: unknown command %#x", cmd)
+		}
+	}
+	return nil, fmt.Errorf("globset: missing end command")
+}
+
+// ParseIDSET decodes a single-replica IDSET (a replica GUID followed by a GLOBSET),
+// inverting SerializeIDSET, returning the replica GUID and the ranges. Only the first
+// replica node is parsed (a single-store mailbox emits one).
+func ParseIDSET(data []byte) (GUID, []GlobcntRange, error) {
+	if len(data) < 16 {
+		return GUID{}, nil, fmt.Errorf("idset: too short for a replica GUID")
+	}
+	p := NewPull(data, 0)
+	g := p.GUID()
+	ranges, err := ParseGlobset(data[16:])
+	return g, ranges, err
 }
 
 // SerializeIDSET encodes a long-term-id IDSET for a single replica (MS-OXCFXICS

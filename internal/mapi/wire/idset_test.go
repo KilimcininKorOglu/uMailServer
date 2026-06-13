@@ -64,6 +64,94 @@ func TestSerializeGlobset(t *testing.T) {
 	}
 }
 
+// rangesEqual compares two range slices, treating nil and empty as equal.
+func rangesEqual(a, b []GlobcntRange) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestParseGlobsetRoundTrip verifies ParseGlobset inverts SerializeGlobset across
+// single ids, single ranges, multi-range sets sharing a prefix, and a sparse set —
+// the encoder and decoder agree on every shape.
+func TestParseGlobsetRoundTrip(t *testing.T) {
+	cases := [][]GlobcntRange{
+		nil,
+		{{Lo: 1, Hi: 1}},
+		{{Lo: 1, Hi: 5}},
+		{{Lo: 1, Hi: 1}, {Lo: 3, Hi: 3}},
+		{{Lo: 1, Hi: 1}, {Lo: 5, Hi: 7}},
+		{{Lo: 0x010205, Hi: 0x010205}, {Lo: 0x010208, Hi: 0x010208}},
+		{{Lo: 10, Hi: 20}, {Lo: 100, Hi: 200}, {Lo: 1000, Hi: 1000}},
+	}
+	for _, ranges := range cases {
+		dec, err := ParseGlobset(SerializeGlobset(ranges))
+		if err != nil {
+			t.Errorf("%v: ParseGlobset: %v", ranges, err)
+			continue
+		}
+		if !rangesEqual(dec, ranges) {
+			t.Errorf("round trip %v -> %v", ranges, dec)
+		}
+	}
+}
+
+// TestParseGlobsetBitmask decodes the 0x42 bitmask command — which the encoder never
+// emits but a conformant reader must accept — from hand-crafted bytes, so the test is
+// independent of SerializeGlobset rather than a round trip.
+func TestParseGlobsetBitmask(t *testing.T) {
+	// push 5 common bytes [0,0,0,0,0], then bitmask with start 0x10 and no bits set:
+	// just the single id 0x10.
+	none, err := ParseGlobset([]byte{0x05, 0, 0, 0, 0, 0, 0x42, 0x10, 0x00, 0x00})
+	if err != nil {
+		t.Fatalf("bitmask (no bits): %v", err)
+	}
+	if !rangesEqual(none, []GlobcntRange{{Lo: 0x10, Hi: 0x10}}) {
+		t.Errorf("bitmask (no bits) = %v, want [{0x10,0x10}]", none)
+	}
+	// bit 0 set extends the range to include 0x11: range [0x10, 0x11].
+	one, err := ParseGlobset([]byte{0x05, 0, 0, 0, 0, 0, 0x42, 0x10, 0x01, 0x00})
+	if err != nil {
+		t.Fatalf("bitmask (bit 0): %v", err)
+	}
+	if !rangesEqual(one, []GlobcntRange{{Lo: 0x10, Hi: 0x11}}) {
+		t.Errorf("bitmask (bit 0) = %v, want [{0x10,0x11}]", one)
+	}
+}
+
+// TestParseGlobsetMalformed verifies truncated or unterminated sets are rejected.
+func TestParseGlobsetMalformed(t *testing.T) {
+	if _, err := ParseGlobset([]byte{0x06, 0, 0, 0}); err == nil {
+		t.Error("truncated push accepted, want an error")
+	}
+	if _, err := ParseGlobset([]byte{0x06, 0, 0, 0, 0, 0, 1}); err == nil {
+		t.Error("missing end command accepted, want an error")
+	}
+}
+
+// TestParseIDSETRoundTrip verifies ParseIDSET recovers the replica GUID and ranges
+// SerializeIDSET wrote.
+func TestParseIDSETRoundTrip(t *testing.T) {
+	guid := GUID{TimeLow: 0xDEADBEEF, TimeMid: 0x1234, TimeHiAndVersion: 0x5678, ClockSeq: [2]byte{0x9A, 0xBC}, Node: [6]byte{1, 2, 3, 4, 5, 6}}
+	ranges := []GlobcntRange{{Lo: 1, Hi: 9}, {Lo: 100, Hi: 100}}
+	g, dec, err := ParseIDSET(SerializeIDSET(guid, ranges))
+	if err != nil {
+		t.Fatalf("ParseIDSET: %v", err)
+	}
+	if g != guid {
+		t.Errorf("replica GUID = %+v, want %+v", g, guid)
+	}
+	if !rangesEqual(dec, ranges) {
+		t.Errorf("ranges = %v, want %v", dec, ranges)
+	}
+}
+
 // TestSerializeIDSET pins the single-replica IDSET layout: the replica GUID in
 // standard wire order (TimeLow u32 LE, TimeMid u16 LE, TimeHiAndVersion u16 LE,
 // ClockSeq, Node) followed by the GLOBSET, against hand-computed bytes.
