@@ -31,6 +31,13 @@ type syncContextObject struct {
 	stream   []byte
 	pos      int
 	produced bool
+	// uploadProp/uploadBuf accumulate a client-uploaded state property across the
+	// RopSynchronizationUploadStateStream ROPs; seenModSeq is the change high-water
+	// parsed from an uploaded CnsetSeen, which the download then treats as the delta
+	// baseline (messages with a higher ModSeq are streamed).
+	uploadProp wire.PropTag
+	uploadBuf  []byte
+	seenModSeq uint64
 }
 
 // ropSyncConfigure handles RopSynchronizationConfigure (MS-OXCFXICS 2.2.3.2.1.1;

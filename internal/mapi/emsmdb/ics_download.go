@@ -43,17 +43,18 @@ type syncMessage struct {
 	props   []wire.TaggedPropertyValue
 }
 
-// buildContentsSyncStream serializes a full contents-download FastTransfer stream
-// (MS-OXCFXICS 2.2.4.1): for each message a change block (INCRSYNCCHG + change header
-// + INCRSYNCMESSAGE + message proplist), then the ICS state block (INCRSYNCSTATEBEGIN
-// + IdsetGiven over the message uids + CnsetSeen over the modseqs + INCRSYNCSTATEEND)
-// and the terminating INCRSYNCEND. It is a pure function of its inputs so the wire
-// shape can be asserted directly.
-func buildContentsSyncStream(msgs []syncMessage, replicaGUID wire.GUID) ([]byte, error) {
+// buildContentsSyncStream serializes a contents-download FastTransfer stream
+// (MS-OXCFXICS 2.2.4.1): a change block (INCRSYNCCHG + change header + INCRSYNCMESSAGE
+// + message proplist) for each message in streamed, then the ICS state block
+// (INCRSYNCSTATEBEGIN + IdsetGiven over allUIDs + CnsetSeen over [1, maxModSeq] +
+// INCRSYNCSTATEEND) and the terminating INCRSYNCEND. streamed is the set of changed
+// messages to send (every message for a full sync, only the newer ones for a delta);
+// allUIDs and maxModSeq describe the FULL current folder state the client should hold
+// afterward, independent of which messages were streamed. It is a pure function so
+// the wire shape can be asserted directly.
+func buildContentsSyncStream(streamed []syncMessage, allUIDs []uint32, maxModSeq uint64, replicaGUID wire.GUID) ([]byte, error) {
 	p := wire.NewPush(0)
-	uids := make([]uint32, 0, len(msgs))
-	var maxModSeq uint64
-	for _, m := range msgs {
+	for _, m := range streamed {
 		p.Uint32(markerIncrSyncChg)
 		if err := writeChangeHeader(p, m, replicaGUID); err != nil {
 			return nil, err
@@ -64,14 +65,10 @@ func buildContentsSyncStream(msgs []syncMessage, replicaGUID wire.GUID) ([]byte,
 				return nil, err
 			}
 		}
-		uids = append(uids, m.uid)
-		if m.modseq > maxModSeq {
-			maxModSeq = m.modseq
-		}
 	}
 
 	p.Uint32(markerIncrSyncStateBegin)
-	idsetGiven := wire.SerializeIDSET(replicaGUID, coalesceUIDs(uids))
+	idsetGiven := wire.SerializeIDSET(replicaGUID, coalesceUIDs(allUIDs))
 	if err := wire.PushFastTransferPropval(p, metaTagIdsetGiven1, idsetGiven); err != nil {
 		return nil, err
 	}
@@ -177,20 +174,34 @@ func (c *ropCtx) buildContentsDownload(sc *syncContextObject) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	msgs := make([]syncMessage, 0, len(uids))
+	// allUIDs is the full current membership for IdsetGiven; maxModSeq is the current
+	// change high-water for CnsetSeen — both describe the post-sync state regardless of
+	// which messages are streamed. streamed carries only the messages whose change
+	// number (ModSeq) exceeds what the client reported seeing (sc.seenModSeq), so an
+	// initial sync (seenModSeq 0) streams everything and a follow-up streams only the
+	// changes.
+	allUIDs := make([]uint32, 0, len(uids))
+	streamed := make([]syncMessage, 0, len(uids))
+	var maxModSeq uint64
 	for _, uid := range uids {
 		meta, merr := c.store.GetMessageMetadata(c.email, sc.mailbox, uid)
 		if merr != nil {
 			continue
 		}
-		msgs = append(msgs, syncMessage{
-			uid:     uid,
-			modseq:  meta.ModSeq,
-			lastMod: meta.InternalDate,
-			props:   c.gatherSyncProps(meta, sc.proptags),
-		})
+		allUIDs = append(allUIDs, uid)
+		if meta.ModSeq > maxModSeq {
+			maxModSeq = meta.ModSeq
+		}
+		if meta.ModSeq > sc.seenModSeq {
+			streamed = append(streamed, syncMessage{
+				uid:     uid,
+				modseq:  meta.ModSeq,
+				lastMod: meta.InternalDate,
+				props:   c.gatherSyncProps(meta, sc.proptags),
+			})
+		}
 	}
-	return buildContentsSyncStream(msgs, sc.replicaGUID)
+	return buildContentsSyncStream(streamed, allUIDs, maxModSeq, sc.replicaGUID)
 }
 
 // ropFastTransferSourceGetBuffer handles RopFastTransferSourceGetBuffer (MS-OXCFXICS

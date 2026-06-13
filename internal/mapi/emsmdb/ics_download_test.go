@@ -34,7 +34,7 @@ func TestBuildContentsSyncStream(t *testing.T) {
 		{uid: 1, modseq: 5, lastMod: when, props: []wire.TaggedPropertyValue{{Tag: wire.PidTagSubject, Value: "first"}}},
 		{uid: 2, modseq: 7, lastMod: when, props: []wire.TaggedPropertyValue{{Tag: wire.PidTagSubject, Value: "second"}}},
 	}
-	stream, err := buildContentsSyncStream(msgs, guid)
+	stream, err := buildContentsSyncStream(msgs, []uint32{1, 2}, 7, guid)
 	if err != nil {
 		t.Fatalf("buildContentsSyncStream: %v", err)
 	}
