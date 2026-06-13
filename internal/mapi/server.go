@@ -10,7 +10,6 @@ package mapi
 import (
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
 )
@@ -172,39 +171,4 @@ func (s *Server) ResolveGAL(entry string) []GALEntry {
 		out[i] = GALEntry(c)
 	}
 	return out
-}
-
-// GALSequence returns a monotonic version number for the Global Address List —
-// the OAB sequence number. It is the latest account modification time across the
-// active directory, folded to 31 bits, so it advances whenever an account is
-// added or changed and stays stable otherwise. Deleting the most recently
-// modified account can lower it; that still changes the value, so Outlook
-// re-downloads the book.
-func (s *Server) GALSequence() uint32 {
-	if s.db == nil {
-		return 0
-	}
-	domains, err := s.db.ListDomains()
-	if err != nil {
-		return 0
-	}
-	var latest time.Time
-	for _, domain := range domains {
-		if !domain.IsActive {
-			continue
-		}
-		accounts, err := s.db.ListAccountsByDomain(domain.Name)
-		if err != nil {
-			continue
-		}
-		for _, acc := range accounts {
-			if acc.IsActive && acc.UpdatedAt.After(latest) {
-				latest = acc.UpdatedAt
-			}
-		}
-	}
-	if latest.IsZero() {
-		return 0
-	}
-	return uint32(latest.Unix()) & 0x7FFFFFFF
 }

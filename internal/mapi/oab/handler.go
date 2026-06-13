@@ -2,11 +2,13 @@ package oab
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/umailserver/umailserver/internal/mapi/wire"
 )
@@ -18,28 +20,36 @@ type Entry struct {
 	ObjectClass string // "User", "Room", "Equipment", "DistributionList", "Contact"
 }
 
-// Directory is the GAL source the OAB reads. GAL returns the complete, uncapped
-// address book; Sequence returns a monotonic version number that advances when
-// the GAL content changes.
+// Directory is the GAL source the OAB reads: the complete, uncapped address book.
+// The handler derives the OAB sequence from the content itself, so a directory
+// only needs to expose its current entries.
 type Directory interface {
 	GAL() []Entry
-	Sequence() uint32
 }
 
 // Handler serves the Offline Address Book over HTTP (MS-OXWOAB): the manifest at
 // oab.xml, the compressed Full Details file at <seq>.lzx, and the display
 // template at lng0409-<seq>.lzx. It builds the files on demand from the live GAL
-// and caches the last build per sequence, so the manifest's digests always match
-// the bytes served for that sequence.
+// and caches the last build, keyed by a hash of the visible GAL, so the
+// manifest's digests always match the bytes served and a content change (an add,
+// edit, removal, or a hidden recipient) is reflected immediately.
 type Handler struct {
 	dir Directory
 
 	mu     sync.Mutex
-	cached *bundle
+	cached *cacheEntry
 }
 
 // NewHandler returns an OAB handler reading from dir.
 func NewHandler(dir Directory) *Handler { return &Handler{dir: dir} }
+
+// cacheEntry is the last OAB generation together with the content hash it was
+// built from, so an unchanged directory returns identical bytes and a changed
+// one triggers a rebuild.
+type cacheEntry struct {
+	hash   [32]byte
+	bundle *bundle
+}
 
 // bundle is one consistent OAB generation: the manifest plus the compressed
 // files it references, all for one sequence number.
@@ -94,27 +104,56 @@ func (h *Handler) write(w http.ResponseWriter, r *http.Request, contentType stri
 	}
 }
 
-// current returns the OAB build for the directory's current sequence, rebuilding
-// only when the sequence advances so the manifest and the files it references
+// current returns the OAB build for the directory's current contents, rebuilding
+// only when the visible GAL changes so the manifest and the files it references
 // stay byte-consistent.
 func (h *Handler) current() (*bundle, error) {
-	seq := h.dir.Sequence()
+	entries := h.dir.GAL()
+	hash := hashEntries(entries)
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.cached != nil && h.cached.sequence == seq {
-		return h.cached, nil
+	if h.cached != nil && h.cached.hash == hash {
+		return h.cached.bundle, nil
 	}
-	b, err := h.build(seq)
+
+	// The content changed: assign a new sequence. Use the wall clock but never
+	// let it move backwards — a content revert (such as un-hiding a recipient)
+	// would otherwise pick a lower value — so Outlook always sees a higher
+	// sequence after any change and re-downloads the OAB.
+	seq := uint32(time.Now().Unix()) & 0x7FFFFFFF
+	if h.cached != nil && seq <= h.cached.bundle.sequence {
+		seq = h.cached.bundle.sequence + 1
+	}
+	b, err := h.build(seq, entries)
 	if err != nil {
 		return nil, err
 	}
-	h.cached = b
+	h.cached = &cacheEntry{hash: hash, bundle: b}
 	return b, nil
 }
 
-// build generates a full OAB bundle for one sequence number.
-func (h *Handler) build(seq uint32) (*bundle, error) {
-	entries := h.dir.GAL()
+// hashEntries returns a content hash of the visible GAL that changes whenever any
+// entry is added, removed, hidden, or edited. Each field is length-prefixed so
+// two distinct entry lists can never hash alike.
+func hashEntries(entries []Entry) [32]byte {
+	h := sha256.New()
+	var n [8]byte
+	for _, e := range entries {
+		for _, field := range []string{e.Email, e.DisplayName, e.ObjectClass} {
+			binary.LittleEndian.PutUint64(n[:], uint64(len(field)))
+			h.Write(n[:])
+			h.Write([]byte(field))
+		}
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+// build generates a full OAB bundle for one sequence number from the given GAL
+// entries.
+func (h *Handler) build(seq uint32, entries []Entry) (*bundle, error) {
 	guid := containerGUID()
 	records := make([]Record, len(entries))
 	for i, e := range entries {

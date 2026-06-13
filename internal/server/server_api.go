@@ -379,9 +379,6 @@ func (d oabDirectory) GAL() []oab.Entry {
 	return out
 }
 
-// Sequence returns the OAB version number from the GAL source.
-func (d oabDirectory) Sequence() uint32 { return d.mapi.GALSequence() }
-
 // localPart extracts the local part (before @) from an email address.
 func localPart(email string) string {
 	email = strings.Trim(email, "<>")
