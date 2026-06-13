@@ -38,6 +38,7 @@ const (
 	RopGetPropertyIdsByNames uint8 = 0x56
 	RopEmptyFolder           uint8 = 0x58
 	RopCommitStream          uint8 = 0x5D
+	RopSyncConfigure         uint8 = 0x70
 	RopGetStoreState         uint8 = 0x7B
 	RopLogon                 uint8 = 0xFE
 )
@@ -185,6 +186,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopCreateFolder:          ropCreateFolder,
 	RopDeleteFolder:          ropDeleteFolder,
 	RopEmptyFolder:           ropEmptyFolder,
+	RopSyncConfigure:         ropSyncConfigure,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
