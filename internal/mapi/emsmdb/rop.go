@@ -1,6 +1,9 @@
 package emsmdb
 
-import "github.com/umailserver/umailserver/internal/mapi/wire"
+import (
+	"github.com/umailserver/umailserver/internal/mailappend"
+	"github.com/umailserver/umailserver/internal/mapi/wire"
+)
 
 // ROP operation ids (MS-OXCROPS 2.2). Only the operations on the online-mode
 // mailbox path are named; handlers are registered for those that are
@@ -11,8 +14,11 @@ const (
 	RopOpenMessage           uint8 = 0x03
 	RopGetHierarchyTable     uint8 = 0x04
 	RopGetContentsTable      uint8 = 0x05
+	RopCreateMessage         uint8 = 0x06
 	RopGetPropertiesSpecific uint8 = 0x07
 	RopGetPropertiesAll      uint8 = 0x08
+	RopSetProperties         uint8 = 0x0A
+	RopSaveChangesMessage    uint8 = 0x0C
 	RopSetColumns            uint8 = 0x12
 	RopSortTable             uint8 = 0x13
 	RopQueryRows             uint8 = 0x15
@@ -59,8 +65,9 @@ func stateFor(sess *Session) *sessionObjects {
 // operations read the canonical mailbox store; an optional body store serves
 // message bodies from Maildir.
 type Processor struct {
-	store Store
-	body  BodyStore
+	store    Store
+	body     BodyStore
+	appender *mailappend.Appender
 }
 
 // NewProcessor returns a ROP processor backed by the canonical mailbox store.
@@ -70,17 +77,24 @@ func NewProcessor(store Store) *Processor { return &Processor{store: store} }
 // it is nil, body properties are reported as unavailable.
 func (p *Processor) SetBodyStore(b BodyStore) { p.body = b }
 
+// SetAppender attaches the shared canonical-append core the write ROPs commit
+// through. It is the same Appender SMTP delivery and EWS CreateItem use, so a
+// message authored over MAPI/HTTP lands in the one canonical store every surface
+// reads. When it is nil, the write ROPs report the operation as unsupported.
+func (p *Processor) SetAppender(a *mailappend.Appender) { p.appender = a }
+
 var _ ROPDispatcher = (*Processor)(nil)
 
 // ropCtx carries the per-ROP execution state.
 type ropCtx struct {
-	email   string
-	store   Store
-	body    BodyStore
-	state   *sessionObjects
-	handles []uint32
-	in      *wire.Pull
-	out     *wire.Push
+	email    string
+	store    Store
+	body     BodyStore
+	appender *mailappend.Appender
+	state    *sessionObjects
+	handles  []uint32
+	in       *wire.Pull
+	out      *wire.Push
 }
 
 // setHandle writes a server-object handle value to the given handle-table index,
@@ -122,6 +136,9 @@ var ropHandlers = map[uint8]ropHandler{
 	RopOpenMessage:           ropOpenMessage,
 	RopGetPropertiesSpecific: ropGetPropertiesSpecific,
 	RopGetPropertiesAll:      ropGetPropertiesAll,
+	RopCreateMessage:         ropCreateMessage,
+	RopSetProperties:         ropSetProperties,
+	RopSaveChangesMessage:    ropSaveChangesMessage,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
@@ -146,7 +163,7 @@ func (p *Processor) Dispatch(sess *Session, ropData []byte, handlesIn []uint32, 
 			writeRopError(out, ropID, hindex, ecNotImplemented)
 			break
 		}
-		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, state: st, handles: handles, in: in, out: out}
+		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, appender: p.appender, state: st, handles: handles, in: in, out: out}
 		h(c, logonID, hindex)
 		handles = c.handles
 		if in.Err() != nil {

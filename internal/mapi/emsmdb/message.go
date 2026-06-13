@@ -16,12 +16,16 @@ const msgFlagRead uint32 = 0x00000001
 // STRING_TYPE_NONE): the client reads the real value through RopGetProperties.
 const stringTypeNone uint8 = 0x00
 
-// messageObject is a server object opened on a single message (RopOpenMessage).
-// It locates the message in the canonical store for the property ROPs that read
-// it.
+// messageObject is a server object opened on a single message. When opened for
+// reading (RopOpenMessage) it carries the mailbox and uid that locate the message
+// in the canonical store for the property ROPs that read it. When opened for
+// creation (RopCreateMessage) it carries a non-nil write state instead, holding
+// the in-flight properties until RopSaveChangesMessage commits them and assigns
+// the uid.
 type messageObject struct {
 	mailbox string
 	uid     uint32
+	write   *messageWriteState
 }
 
 // messageID builds a message id (MID) from a message uid, reusing the replica id

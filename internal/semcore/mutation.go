@@ -57,6 +57,7 @@ const (
 	MutationSourceIMAP MutationSource = "imap"
 	MutationSourceJMAP MutationSource = "jmap"
 	MutationSourceEWS  MutationSource = "ews"
+	MutationSourceMAPI MutationSource = "mapi"
 	MutationSourceAPI  MutationSource = "api"
 )
 

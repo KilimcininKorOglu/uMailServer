@@ -301,6 +301,10 @@ func (s *Server) startAPI() {
 			if s.msgStore != nil {
 				emsmdbProcessor.SetBodyStore(s.msgStore)
 			}
+			// The write ROPs commit through the same shared canonical-append core
+			// SMTP delivery and EWS CreateItem use, so a message authored over
+			// MAPI/HTTP lands in the one canonical store every surface reads.
+			emsmdbProcessor.SetAppender(s.appender)
 			emsmdbServer := emsmdb.NewServer(emsmdbProcessor)
 			s.apiServer.SetEMSMDBHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {
