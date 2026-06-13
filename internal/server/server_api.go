@@ -305,6 +305,12 @@ func (s *Server) startAPI() {
 			// SMTP delivery and EWS CreateItem use, so a message authored over
 			// MAPI/HTTP lands in the one canonical store every surface reads.
 			emsmdbProcessor.SetAppender(s.appender)
+			// Wire the canonical mailbox-mutation core so the emsmdb delete/move/folder
+			// ROPs remove or relocate messages in the same store IMAP/EWS converge on,
+			// and refresh connected clients, instead of a MAPI-local mutation.
+			if s.mailstore != nil {
+				emsmdbProcessor.SetMutator(emsmdbMutator{srv: s})
+			}
 			emsmdbServer := emsmdb.NewServer(emsmdbProcessor)
 			s.apiServer.SetEMSMDBHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {

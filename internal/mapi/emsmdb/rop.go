@@ -24,6 +24,7 @@ const (
 	RopSetColumns            uint8 = 0x12
 	RopSortTable             uint8 = 0x13
 	RopQueryRows             uint8 = 0x15
+	RopDeleteMessages        uint8 = 0x1E
 	RopCreateAttachment      uint8 = 0x23
 	RopSaveChangesAttachment uint8 = 0x25
 	RopGetReceiveFolder      uint8 = 0x27
@@ -75,6 +76,7 @@ type Processor struct {
 	store    Store
 	body     BodyStore
 	appender *mailappend.Appender
+	mutator  Mutator
 }
 
 // NewProcessor returns a ROP processor backed by the canonical mailbox store.
@@ -90,6 +92,13 @@ func (p *Processor) SetBodyStore(b BodyStore) { p.body = b }
 // reads. When it is nil, the write ROPs report the operation as unsupported.
 func (p *Processor) SetAppender(a *mailappend.Appender) { p.appender = a }
 
+// SetMutator attaches the canonical mailbox-mutation core the content-changing
+// write ROPs (delete/move/folder) commit through. It is backed by the same
+// mailstore the IMAP and EWS surfaces converge on, so a delete or move over
+// MAPI/HTTP lands in the one canonical store every surface reads. When it is nil,
+// those ROPs report the operation as unsupported.
+func (p *Processor) SetMutator(m Mutator) { p.mutator = m }
+
 var _ ROPDispatcher = (*Processor)(nil)
 
 // ropCtx carries the per-ROP execution state.
@@ -98,6 +107,7 @@ type ropCtx struct {
 	store    Store
 	body     BodyStore
 	appender *mailappend.Appender
+	mutator  Mutator
 	state    *sessionObjects
 	handles  []uint32
 	in       *wire.Pull
@@ -153,6 +163,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopCommitStream:          ropCommitStream,
 	RopCreateAttachment:      ropCreateAttachment,
 	RopSaveChangesAttachment: ropSaveChangesAttachment,
+	RopDeleteMessages:        ropDeleteMessages,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
@@ -177,7 +188,7 @@ func (p *Processor) Dispatch(sess *Session, ropData []byte, handlesIn []uint32, 
 			writeRopError(out, ropID, hindex, ecNotImplemented)
 			break
 		}
-		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, appender: p.appender, state: st, handles: handles, in: in, out: out}
+		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, appender: p.appender, mutator: p.mutator, state: st, handles: handles, in: in, out: out}
 		h(c, logonID, hindex)
 		handles = c.handles
 		if in.Err() != nil {
