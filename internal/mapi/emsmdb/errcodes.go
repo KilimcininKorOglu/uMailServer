@@ -8,5 +8,6 @@ const (
 	ecAccessDenied   uint32 = 0x80070005
 	ecNullObject     uint32 = 0x000004B9 // input handle references no live object
 	ecNotFound       uint32 = 0x8004010F // requested object does not exist
+	ecNotSupported   uint32 = 0x80040102 // MAPI_E_NO_SUPPORT: operation unsupported here
 	ecNotImplemented uint32 = 0x80040FFF // ROP not supported by this server
 )
