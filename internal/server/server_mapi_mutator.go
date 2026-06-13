@@ -126,6 +126,41 @@ func (m emsmdbMutator) CopyMessages(user, srcFolder, dstFolder string, uids []ui
 	return len(copied.DstUIDs), nil
 }
 
+// CreateFolder creates the folder in the canonical mailstore, reporting whether it
+// already existed so the ROP can echo is_existing rather than clobbering a folder.
+func (m emsmdbMutator) CreateFolder(user, mailbox string) (bool, error) {
+	if boxes, err := m.srv.storageDB.ListMailboxes(user); err == nil && slices.Contains(boxes, mailbox) {
+		return true, nil
+	}
+	if err := m.srv.mailstore.CreateMailbox(user, mailbox); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// DeleteFolder removes the folder from the canonical mailstore.
+func (m emsmdbMutator) DeleteFolder(user, mailbox string) error {
+	return m.srv.mailstore.DeleteMailbox(user, mailbox)
+}
+
+// EmptyFolder removes every message in the folder by routing each through the
+// canonical delete (so the empty converges on every surface and notifies them),
+// returning how many messages remain undeleted.
+func (m emsmdbMutator) EmptyFolder(user, folder string) (int, error) {
+	uids, err := m.srv.storageDB.GetMessageUIDs(user, folder)
+	if err != nil {
+		return 0, err
+	}
+	if len(uids) == 0 {
+		return 0, nil
+	}
+	removed, err := m.DeleteMessages(user, folder, uids)
+	if err != nil {
+		return len(uids), err
+	}
+	return len(uids) - removed, nil
+}
+
 // uidsToSeqSet maps source-folder uids to a 1-based sequence-number set string, the
 // form the mailstore Move/Copy methods expect (they resolve the set against
 // sequence positions, not uids). Uids no longer present in the folder are dropped,

@@ -17,8 +17,13 @@ type fakeMutator struct {
 	gotDst    string
 	gotUIDs   []uint32
 	gotCopy   bool
+	gotCreate string
+	gotDelete string
+	gotEmpty  string
+	created   bool // CreateFolder returns this as "existed"
 	removed   int
 	relocated int
+	emptyLeft int
 	err       error
 }
 
@@ -44,6 +49,24 @@ func (f *fakeMutator) CopyMessages(user, srcFolder, dstFolder string, uids []uin
 		return 0, f.err
 	}
 	return f.relocated, nil
+}
+
+func (f *fakeMutator) CreateFolder(user, mailbox string) (bool, error) {
+	f.gotUser, f.gotCreate = user, mailbox
+	return f.created, f.err
+}
+
+func (f *fakeMutator) DeleteFolder(user, mailbox string) error {
+	f.gotUser, f.gotDelete = user, mailbox
+	return f.err
+}
+
+func (f *fakeMutator) EmptyFolder(user, folder string) (int, error) {
+	f.gotUser, f.gotEmpty = user, folder
+	if f.err != nil {
+		return 0, f.err
+	}
+	return f.emptyLeft, nil
 }
 
 // deleteMessagesBody builds a RopDeleteMessages request body: want_asynchronous,
@@ -193,6 +216,101 @@ func TestMoveCopyMessagesCopy(t *testing.T) {
 	}
 	if fm.gotSrc != "INBOX" || fm.gotDst != "Sent" {
 		t.Errorf("copy src/dst = %q/%q, want INBOX/Sent", fm.gotSrc, fm.gotDst)
+	}
+}
+
+// TestCreateFolderFlow drives RopCreateFolder under the IPM subtree and verifies the
+// folder is created top-level, bound at the output handle, and — critically — that
+// the returned folder id resolves back to the folder so a later RopOpenFolder can
+// reopen it.
+func TestCreateFolderFlow(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openSpecialFolder(t, store, 0x09) // IPM subtree (parent) at handle 1
+	fm := &fakeMutator{created: false}
+	p.SetMutator(fm)
+
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint8(2) // output handle index
+	body.Uint8(1) // folder_type: generic
+	body.Uint8(1) // use_unicode
+	body.Uint8(0) // open_existing
+	body.Uint8(0) // reserved
+	body.WStr("Projects")
+	body.WStr("") // comment
+	resp, handles := p.Dispatch(sess, ropRequest(RopCreateFolder, 1, body.Bytes()), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopCreateFolder {
+		t.Fatalf("rop id = %#x, want RopCreateFolder", got)
+	}
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("CreateFolder return value = %#x, want success", rv)
+	}
+	fid := q.Uint64()
+	if isExisting := q.Uint8(); isExisting != 0 {
+		t.Errorf("is_existing = %d, want 0 (a new folder)", isExisting)
+	}
+	if fm.gotCreate != "Projects" {
+		t.Errorf("created mailbox = %q, want Projects (top-level under the IPM subtree)", fm.gotCreate)
+	}
+	fo, ok := stateFor(sess).objects[handles[2]].(*folderObject)
+	if !ok || fo.mailbox != "Projects" {
+		t.Fatalf("new folder object not bound at the output handle: %+v", fo)
+	}
+	if mb, _, rok := fo.logon.resolveFolder(fid); !rok || mb != "Projects" {
+		t.Errorf("resolveFolder(returned id) = (%q, %v), want (Projects, true) so RopOpenFolder can reopen it", mb, rok)
+	}
+}
+
+// TestDeleteFolderRejectsSpecial verifies a special/distinguished folder (the Inbox)
+// cannot be deleted, and that such a request never reaches the mutator.
+func TestDeleteFolderRejectsSpecial(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openInbox(t, store) // folder at handle 1 carries the logon
+	fm := &fakeMutator{}
+	p.SetMutator(fm)
+
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint8(0)                         // flags
+	body.Uint64(makeFID(fidReplID, 0x0d)) // the Inbox — a special folder
+	resp, _ := p.Dispatch(sess, ropRequest(RopDeleteFolder, 1, body.Bytes()), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8() // rop id
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecAccessDenied {
+		t.Errorf("delete of a special folder = %#x, want ecAccessDenied", rv)
+	}
+	if fm.gotDelete != "" {
+		t.Error("a special-folder delete must not reach the mutator")
+	}
+}
+
+// TestEmptyFolderFlow drives RopEmptyFolder over the Inbox and verifies it routes to
+// the mutator's empty path with no partial completion when the folder is fully
+// emptied.
+func TestEmptyFolderFlow(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openInbox(t, store)
+	fm := &fakeMutator{emptyLeft: 0}
+	p.SetMutator(fm)
+
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint8(0) // want_asynchronous
+	body.Uint8(0) // want_delete_associated
+	resp, _ := p.Dispatch(sess, ropRequest(RopEmptyFolder, 1, body.Bytes()), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopEmptyFolder {
+		t.Fatalf("rop id = %#x, want RopEmptyFolder", got)
+	}
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("EmptyFolder return value = %#x, want success", rv)
+	}
+	if pc := q.Uint8(); pc != 0 {
+		t.Errorf("partial completion = %d, want 0 (fully emptied)", pc)
+	}
+	if fm.gotEmpty != "INBOX" {
+		t.Errorf("emptied folder = %q, want INBOX", fm.gotEmpty)
 	}
 }
 

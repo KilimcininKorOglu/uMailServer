@@ -24,6 +24,8 @@ const (
 	RopSetColumns            uint8 = 0x12
 	RopSortTable             uint8 = 0x13
 	RopQueryRows             uint8 = 0x15
+	RopCreateFolder          uint8 = 0x1C
+	RopDeleteFolder          uint8 = 0x1D
 	RopDeleteMessages        uint8 = 0x1E
 	RopCreateAttachment      uint8 = 0x23
 	RopSaveChangesAttachment uint8 = 0x25
@@ -32,6 +34,7 @@ const (
 	RopWriteStream           uint8 = 0x2D
 	RopMoveCopyMessages      uint8 = 0x33
 	RopGetPropertyIdsByNames uint8 = 0x56
+	RopEmptyFolder           uint8 = 0x58
 	RopCommitStream          uint8 = 0x5D
 	RopGetStoreState         uint8 = 0x7B
 	RopLogon                 uint8 = 0xFE
@@ -166,6 +169,9 @@ var ropHandlers = map[uint8]ropHandler{
 	RopSaveChangesAttachment: ropSaveChangesAttachment,
 	RopDeleteMessages:        ropDeleteMessages,
 	RopMoveCopyMessages:      ropMoveCopyMessages,
+	RopCreateFolder:          ropCreateFolder,
+	RopDeleteFolder:          ropDeleteFolder,
+	RopEmptyFolder:           ropEmptyFolder,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
