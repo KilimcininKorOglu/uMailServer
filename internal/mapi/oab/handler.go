@@ -121,6 +121,11 @@ func (h *Handler) current() (*bundle, error) {
 	// let it move backwards — a content revert (such as un-hiding a recipient)
 	// would otherwise pick a lower value — so Outlook always sees a higher
 	// sequence after any change and re-downloads the OAB.
+	//
+	// The sequence and the in-memory build are per process. In multi-node HA a
+	// client must fetch the manifest and the files it names from one node, so the
+	// load balancer pins an OAB download by source affinity (see
+	// config/haproxy.cfg, backend be_http).
 	seq := uint32(time.Now().Unix()) & 0x7FFFFFFF
 	if h.cached != nil && seq <= h.cached.bundle.sequence {
 		seq = h.cached.bundle.sequence + 1
