@@ -30,6 +30,7 @@ import (
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/jmap"
 	"github.com/umailserver/umailserver/internal/logging"
+	"github.com/umailserver/umailserver/internal/mailappend"
 	"github.com/umailserver/umailserver/internal/pop3"
 	"github.com/umailserver/umailserver/internal/push"
 	"github.com/umailserver/umailserver/internal/queue"
@@ -100,6 +101,10 @@ type Server struct {
 	// semanticStores seam (see semantic.go).
 	semcoreStore semanticStores
 	mutationPipe *semcore.MutationPipeline
+	// appender is the shared canonical message-append core (mailappend.Appender)
+	// SMTP delivery, EWS CreateItem, and the MAPI write ROPs all write through, so
+	// a message authored on any surface is visible identically on all of them.
+	appender *mailappend.Appender
 
 	// S/MIME and OpenPGP keystores
 	smimeKeystore   *smtp.SMIMEKeystore
@@ -493,6 +498,26 @@ func New(cfg *config.Config) (*Server, error) {
 		logger.Info("Semantic-core store initialized", "backend", "bbolt")
 	}
 	s.mutationPipe = semcore.NewMutationPipeline(s.semcoreStore.Identity(), s.semcoreStore.Lifecycle())
+
+	// Build the shared canonical-append core from the process stores. SMTP
+	// delivery, EWS CreateItem, and the MAPI write ROPs route their tail-end write
+	// (identity + blob + IMAP index + real-time/search signals) through this one
+	// Appender so every surface converges on the same canonical record. The
+	// notifier and search hooks mirror what deliverLocal published inline.
+	if s.storageDB != nil && s.msgStore != nil {
+		s.appender = mailappend.NewAppender(s.mutationPipe, s.msgStore, s.storageDB, distinguishedRole)
+		s.appender.SetLogger(logger)
+		s.appender.SetNotifier(func(email, folder string, uid uint32) {
+			imap.GetNotificationHub().NotifyNewMessage(email, folder, uid, uid)
+		})
+		s.appender.SetIndexer(func(email string, uid uint32, itemID, conversationID string) {
+			select {
+			case s.indexWork <- indexJob{email: email, uid: uid, itemID: itemID, conversationID: conversationID}:
+			default:
+				logger.Warn("Search index queue full, dropping index job", "email", email, "uid", uid)
+			}
+		})
+	}
 
 	// Wire canonical identity store into search service so that search documents
 	// use ItemId as DocID and can resolve hits back to semantic-core items.

@@ -13,10 +13,10 @@ import (
 
 	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/imap"
+	"github.com/umailserver/umailserver/internal/mailappend"
 	"github.com/umailserver/umailserver/internal/metrics"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/smtp"
-	"github.com/umailserver/umailserver/internal/storage"
 	"github.com/umailserver/umailserver/internal/tracing"
 	"github.com/umailserver/umailserver/internal/webhook"
 	"go.opentelemetry.io/otel/attribute"
@@ -498,53 +498,10 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 		return fmt.Errorf("user does not exist or is not active: %s", email)
 	}
 
-	// Canonical mutation: assign semantic identity through the unified pipeline.
-	// This is the single authoritative write path for all mail mutations.
-	// It assigns ItemId, ChangeKey, and ConversationId consistently for
-	// SMTP-delivered and mailbox-authored messages.
-	//
-	// If the semcore store is not yet initialized (nil), we skip semantic
-	// identity assignment and fall back to the existing storage path.
-	var mutationResult *semcore.MutationResult
-	if s.mutationPipe != nil {
-		// Resolve or create mailbox and folder identities.
-		mboxID, mboxErr := s.mutationPipe.Identity().EnsureMailboxId(email)
-		if mboxErr != nil {
-			s.logger.Warn("Failed to ensure mailbox identity, skipping semantic mutation",
-				"email", email, "error", mboxErr)
-		} else {
-			// Determine distinguished role for known folders.
-			role := distinguishedRole(folder)
-			fldID, fldErr := s.mutationPipe.Identity().EnsureFolderId(email, folder, role)
-			if fldErr != nil {
-				s.logger.Warn("Failed to ensure folder identity, skipping semantic mutation",
-					"email", email, "folder", folder, "error", fldErr)
-			} else {
-				in := &semcore.MutationInput{
-					MailboxID:    mboxID,
-					FolderID:     fldID,
-					RawMessage:   data,
-					InternalDate: time.Now(),
-					Actor:        from,
-					Email:        email,
-					Source:       semcore.MutationSourceSMTP,
-					IsRead:       isRead,
-				}
-				mutationResult, mboxErr = s.mutationPipe.MutateItem(in)
-				if mboxErr != nil {
-					s.logger.Warn("Canonical mutation failed, falling back to legacy path",
-						"email", email, "error", mboxErr)
-					mutationResult = nil
-				} else {
-					s.logger.Debug("Canonical mutation succeeded",
-						"email", email, "folder", folder, "role", role,
-						"item_id", mutationResult.ItemID.String(),
-						"change_key", mutationResult.ChangeKey.String(),
-						"conversation_id", mutationResult.ConversationID.String())
-				}
-			}
-		}
-	}
+	// Canonical semantic identity is assigned by the shared append core below
+	// (s.appender.Append), AFTER the quota and forwarding gates — not here — so a
+	// quota-exceeded or forward-only message never mints an ItemId for a body that
+	// was never stored.
 
 	// Reserve quota atomically before storing
 	if err := s.database.IncrementQuota(domain, user, int64(len(data))); err != nil {
@@ -586,67 +543,47 @@ func (s *Server) deliverLocal(user, domain, from string, data []byte, isRead boo
 		}
 	}
 
-	// Store message locally
-	messageID, err := s.msgStore.StoreMessage(email, data)
-	if err != nil {
-		// Release the quota we reserved since store failed
-		s.database.IncrementQuota(domain, user, -int64(len(data)))
-		return fmt.Errorf("failed to store message: %w", err)
-	}
-
-	s.logger.Debug("Message delivered",
-		"to", email,
-		"from", from,
-		"message_id", messageID,
-	)
-
-	// Store metadata and index message for search
-	if s.storageDB != nil {
-		uid, uidErr := s.storageDB.GetNextUID(email, folder)
-		if uidErr == nil {
-			subject, fromAddr, toAddr, dateStr := parseBasicHeaders(data)
-			hdrMsgID, hdrInReplyTo, hdrRefs := parseThreadingHeaders(data)
-			// Deterministic thread id (RFC 2822 rooting) so this message groups
-			// with the rest of its conversation across mailboxes and protocols.
-			threadID, _ := s.storageDB.GetOrCreateThreadID(email, folder, subject, hdrMsgID, hdrInReplyTo, hdrRefs) //nolint:errcheck
-			meta := &storage.MessageMetadata{
-				MessageID:    messageID,
-				UID:          uid,
-				Flags:        append([]string{"\\Recent"}, extraFlags...),
-				InternalDate: time.Now(),
-				Size:         int64(len(data)),
-				Subject:      subject,
-				Date:         dateStr,
-				From:         fromAddr,
-				To:           toAddr,
-				ThreadID:     threadID,
-				InReplyTo:    hdrInReplyTo,
-				References:   hdrRefs,
+	// Canonical append: identity + blob + IMAP index + real-time/search signals,
+	// through the shared core so SMTP delivery converges with EWS and the MAPI
+	// write ROPs on one record. The blob step is fatal (release quota, fail
+	// delivery); a semcore failure is best-effort (logged; the message stays
+	// IMAP-visible) exactly as the inline path was.
+	// messageID is the stored blob key, surfaced below in the webhook payload.
+	var messageID string
+	if s.appender != nil {
+		res, aerr := s.appender.Append(mailappend.Input{
+			Email:        email,
+			Folder:       folder,
+			Raw:          data,
+			InternalDate: time.Now(),
+			Actor:        from,
+			Source:       semcore.MutationSourceSMTP,
+			IsRead:       isRead,
+			ExtraFlags:   append([]string{"\\Recent"}, extraFlags...),
+		})
+		if aerr != nil {
+			if qerr := s.database.IncrementQuota(domain, user, -int64(len(data))); qerr != nil {
+				s.logger.Error("Failed to release quota after store failure", "email", email, "error", qerr)
 			}
-			if err := s.storageDB.StoreMessageMetadata(email, folder, uid, meta); err != nil {
-				s.logger.Error("Failed to store message metadata", "email", email, "uid", uid, "folder", folder, "error", err)
-			}
-
-			// Publish a new-message notification so real-time consumers react
-			// immediately: IMAP IDLE clients get an untagged EXISTS, and the SSE
-			// stream pushes a "new_mail" event to the webmail UI (push-to-pull —
-			// the UI then fetches the message over HTTP). Best-effort signal.
-			imap.GetNotificationHub().NotifyNewMessage(email, folder, uid, uid)
-
-			if s.searchSvc != nil {
-				// Extract canonical identity from mutation result when available.
-				var itemID, conversationID string
-				if mutationResult != nil {
-					itemID = mutationResult.ItemID.String()
-					conversationID = mutationResult.ConversationID.String()
-				}
-				select {
-				case s.indexWork <- indexJob{email: email, uid: uid, itemID: itemID, conversationID: conversationID}:
-				default:
-					s.logger.Warn("Search index queue full, dropping index job", "email", email, "uid", uid)
-				}
-			}
+			return fmt.Errorf("failed to store message: %w", aerr)
 		}
+		if res.SemcoreErr != nil {
+			s.logger.Warn("Canonical mutation failed; message stored without semantic identity (best-effort)",
+				"email", email, "error", res.SemcoreErr)
+		}
+		messageID = res.MessageID
+		s.logger.Debug("Message delivered", "to", email, "from", from, "message_id", messageID)
+	} else if s.msgStore != nil {
+		// Append core unwired (e.g. tests without a storage backend): persist the
+		// raw blob so the body is not lost.
+		mid, serr := s.msgStore.StoreMessage(email, data)
+		if serr != nil {
+			if qerr := s.database.IncrementQuota(domain, user, -int64(len(data))); qerr != nil {
+				s.logger.Error("Failed to release quota after store failure", "email", email, "error", qerr)
+			}
+			return fmt.Errorf("failed to store message: %w", serr)
+		}
+		messageID = mid
 	}
 
 	// Trigger webhook for mail received
@@ -840,23 +777,8 @@ func parseBasicHeaders(data []byte) (subject, from, to, date string) {
 	return
 }
 
-// parseThreadingHeaders extracts the RFC 2822 threading headers (Message-ID,
-// In-Reply-To, References) from raw message data, stripped of angle brackets.
-func parseThreadingHeaders(data []byte) (messageID, inReplyTo string, references []string) {
-	msg, err := mail.ReadMessage(strings.NewReader(string(data)))
-	if err != nil {
-		return "", "", nil
-	}
-	trim := func(s string) string { return strings.Trim(strings.TrimSpace(s), "<>") }
-	messageID = trim(msg.Header.Get("Message-ID"))
-	inReplyTo = trim(msg.Header.Get("In-Reply-To"))
-	for _, ref := range strings.Fields(msg.Header.Get("References")) {
-		if r := trim(ref); r != "" {
-			references = append(references, r)
-		}
-	}
-	return messageID, inReplyTo, references
-}
+// (parseThreadingHeaders moved to the shared mailappend package, which the
+// canonical append core now owns; SMTP delivery no longer parses inline.)
 
 // generateSecureToken generates a cryptographically random 32-byte hex token.
 func generateSecureToken() string {
