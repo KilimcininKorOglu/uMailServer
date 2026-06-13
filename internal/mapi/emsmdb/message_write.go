@@ -137,6 +137,37 @@ func ropSetProperties(c *ropCtx, _ uint8, hindex uint8) {
 	out.Uint16(0) // PropertyProblemCount: every property was set
 }
 
+// ropDeleteProperties handles RopDeleteProperties (MS-OXCPRPT 2.2.6.4 / MS-OXCROPS
+// 2.2.8.7): it removes the named properties from the in-flight message's property
+// buffer. Tags are matched by property id (so a delete tolerates a String8/Unicode
+// type variant of the value that was set). Every tag is accepted, so the response
+// reports no property problems.
+func ropDeleteProperties(c *ropCtx, _ uint8, hindex uint8) {
+	tags := wire.PullPropertyTagArray(c.in)
+	if c.in.Err() != nil {
+		writeRopError(c.out, RopDeleteProperties, hindex, ecError)
+		return
+	}
+	mo, ok := c.objectAt(hindex).(*messageObject)
+	if !ok || mo.write == nil {
+		writeRopError(c.out, RopDeleteProperties, hindex, ecNullObject)
+		return
+	}
+	for _, t := range tags {
+		for k := range mo.write.props {
+			if k.ID() == t.ID() {
+				delete(mo.write.props, k)
+			}
+		}
+	}
+
+	out := c.out
+	out.Uint8(RopDeleteProperties)
+	out.Uint8(hindex)
+	out.Uint32(ecSuccess)
+	out.Uint16(0) // PropertyProblemCount: every property was deleted
+}
+
 // ropSaveChangesMessage handles RopSaveChangesMessage (MS-OXCMSG 2.2.3.3): it
 // converts the in-flight message's properties to an RFC 5322 message and commits
 // it through the shared canonical-append core, then returns the message id the

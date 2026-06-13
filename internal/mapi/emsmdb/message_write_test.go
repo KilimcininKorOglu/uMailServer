@@ -409,3 +409,76 @@ func TestModifyRecipientsFlow(t *testing.T) {
 		t.Errorf("Cc = %q, want it to carry the property-column recipient bob@local.test (Bob)", cc)
 	}
 }
+
+// TestDeletePropertiesFlow verifies RopDeleteProperties removes a property from
+// the in-flight message before it is committed: the body set by RopSetProperties
+// is deleted, so the saved message keeps its subject but carries no body text.
+func TestDeletePropertiesFlow(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openInbox(t, store)
+	app, blob, _ := newWriteAppender()
+	p.SetAppender(app)
+
+	// CreateMessage at output handle index 2.
+	cm := wire.NewPush(wire.FlagUTF16)
+	cm.Uint8(2)
+	cm.Uint16(1252)
+	cm.Uint64(makeFID(fidReplID, 0x0d))
+	cm.Uint8(0)
+	_, handles = p.Dispatch(sess, ropRequest(RopCreateMessage, 1, cm.Bytes()), handles, 0x10000)
+
+	// SetProperties: a subject (kept) and a body (to be deleted).
+	arr := wire.NewPush(wire.FlagUTF16)
+	if err := wire.PushTPropValArray(arr, []wire.TaggedPropertyValue{
+		{Tag: wire.PidTagSubject, Value: "kept subject"},
+		{Tag: wire.PidTagBody, Value: "doomed body text"},
+	}); err != nil {
+		t.Fatalf("push property array: %v", err)
+	}
+	sp := wire.NewPush(wire.FlagUTF16)
+	sp.Uint16(uint16(len(arr.Bytes())))
+	sp.Raw(arr.Bytes())
+	_, handles = p.Dispatch(sess, ropRequest(RopSetProperties, 2, sp.Bytes()), handles, 0x10000)
+
+	// DeleteProperties: remove the body, leave the subject.
+	dp := wire.NewPush(wire.FlagUTF16)
+	wire.PushPropertyTagArray(dp, []wire.PropTag{wire.PidTagBody})
+	resp, handles := p.Dispatch(sess, ropRequest(RopDeleteProperties, 2, dp.Bytes()), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopDeleteProperties {
+		t.Fatalf("rop id = %#x, want RopDeleteProperties", got)
+	}
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("DeleteProperties return value = %#x, want success", rv)
+	}
+	if pc := q.Uint16(); pc != 0 {
+		t.Errorf("property problem count = %d, want 0", pc)
+	}
+
+	// SaveChanges commits the message.
+	sc := wire.NewPush(wire.FlagUTF16)
+	sc.Uint8(2)
+	sc.Uint8(0)
+	resp2, _ := p.Dispatch(sess, ropRequest(RopSaveChangesMessage, 2, sc.Bytes()), handles, 0x10000)
+	q2 := wire.NewPull(resp2, wire.FlagUTF16)
+	q2.Uint8() // rop id
+	q2.Uint8() // handle index
+	if rv := q2.Uint32(); rv != ecSuccess {
+		t.Fatalf("SaveChanges return value = %#x, want success", rv)
+	}
+
+	if len(blob.msgs) != 1 {
+		t.Fatalf("blob store holds %d messages, want 1", len(blob.msgs))
+	}
+	m, err := mail.ReadMessage(bytes.NewReader(blob.msgs[0]))
+	if err != nil {
+		t.Fatalf("committed blob is not a valid RFC 5322 message: %v", err)
+	}
+	if subj := m.Header.Get("Subject"); subj != "kept subject" {
+		t.Errorf("Subject = %q, want %q (the subject must be kept)", subj, "kept subject")
+	}
+	if bytes.Contains(blob.msgs[0], []byte("doomed body text")) {
+		t.Error("the deleted body text is still present in the committed message")
+	}
+}

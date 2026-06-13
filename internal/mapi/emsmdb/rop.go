@@ -18,6 +18,7 @@ const (
 	RopGetPropertiesSpecific uint8 = 0x07
 	RopGetPropertiesAll      uint8 = 0x08
 	RopSetProperties         uint8 = 0x0A
+	RopDeleteProperties      uint8 = 0x0B
 	RopSaveChangesMessage    uint8 = 0x0C
 	RopModifyRecipients      uint8 = 0x0E
 	RopSetColumns            uint8 = 0x12
@@ -139,6 +140,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopGetPropertiesAll:      ropGetPropertiesAll,
 	RopCreateMessage:         ropCreateMessage,
 	RopSetProperties:         ropSetProperties,
+	RopDeleteProperties:      ropDeleteProperties,
 	RopSaveChangesMessage:    ropSaveChangesMessage,
 	RopModifyRecipients:      ropModifyRecipients,
 }
