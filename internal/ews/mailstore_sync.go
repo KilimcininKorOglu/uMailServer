@@ -2,7 +2,6 @@ package ews
 
 import (
 	"strings"
-	"time"
 
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
@@ -85,48 +84,9 @@ func (s *Server) folderLineagePath(mailboxKey string, id semcore.FolderId) strin
 	return strings.Join(segments, "/")
 }
 
-// mirrorCreateToMailstore writes a metadata entry for an EWS-created item into
-// the IMAP mailstore index and signals real-time consumers. blobKey is the
-// message-store key returned by msgStore.StoreMessage (used as the metadata
-// MessageID so IMAP FETCH/webmail can read the same blob). Best-effort: a
-// failure is logged but never fails the EWS operation (the semcore identity
-// write remains the canonical record).
-func (s *Server) mirrorCreateToMailstore(mailboxKey string, folderID semcore.FolderId, rawMsg []byte, blobKey string) {
-	if s.storageDB == nil {
-		return
-	}
-	name := s.mailboxNameForFolder(mailboxKey, folderID)
-	if name == "" {
-		return // collaboration folder or unresolvable name: not a mail-index folder
-	}
-	uid, err := s.storageDB.GetNextUID(mailboxKey, name)
-	if err != nil {
-		if s.logger != nil {
-			s.logger.Error("ews: mailstore sync GetNextUID failed", "email", mailboxKey, "folder", name, "error", err)
-		}
-		return
-	}
-	meta := &storage.MessageMetadata{
-		MessageID:    blobKey,
-		UID:          uid,
-		Flags:        []string{},
-		InternalDate: time.Now(),
-		Size:         int64(len(rawMsg)),
-		Subject:      rawHeaderValue(rawMsg, "Subject"),
-		Date:         rawHeaderValue(rawMsg, "Date"),
-		From:         rawHeaderValue(rawMsg, "From"),
-		To:           rawHeaderValue(rawMsg, "To"),
-	}
-	if err := s.storageDB.StoreMessageMetadata(mailboxKey, name, uid, meta); err != nil {
-		if s.logger != nil {
-			s.logger.Error("ews: mailstore sync StoreMessageMetadata failed", "email", mailboxKey, "folder", name, "uid", uid, "error", err)
-		}
-		return
-	}
-	if s.messageCreatedNotifier != nil {
-		s.messageCreatedNotifier(mailboxKey, name, uid)
-	}
-}
+// (mirrorCreateToMailstore was removed: EWS CreateItem now writes the IMAP
+// mailstore index through the shared mailappend.Appender, which also adds the
+// thread id and search-index job the EWS-only mirror lacked.)
 
 // mailstoreLocate finds the IMAP mailstore entry for a blob within a mailbox,
 // returning its UID, 1-based sequence number, and metadata. EWS items are keyed

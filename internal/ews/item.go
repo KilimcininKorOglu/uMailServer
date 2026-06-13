@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/mailappend"
 	"github.com/umailserver/umailserver/internal/semcore"
 )
 
@@ -916,52 +917,48 @@ func (s *Server) createRawItemInFolder(ctx context.Context, mboxID semcore.Mailb
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, "no target folder")
 	}
 
-	// Store raw MIME blob.
-	// mailboxKey is raw email (e.g. "alice@local.test").
-	blobKey, err := s.msgStore.StoreMessage(mailboxKey, rawMsg)
-	if err != nil {
-		return errorItemMsg("CreateItem", ErrErrorInternalServer, "failed to store message: "+err.Error())
-	}
-
-	// Perform canonical mutation: assigns ItemId, ChangeKey, ConversationId.
-	// DelegateAuditContext threads the delegate actor through to lifecycle (VAL-DIR-014).
-	in := &semcore.MutationInput{
+	// Canonical append through the shared core: store the blob, assign semantic
+	// identity, and mirror into the IMAP mailstore index (now also with a thread
+	// id and a search-index job) so the EWS item converges with SMTP and the MAPI
+	// write ROPs on one record. The IMAP folder name is resolved here (a
+	// per-surface concern); the mailbox and folder identities EWS already holds
+	// are passed so the core does not re-resolve them. mailboxKey is the raw email.
+	res, err := s.appender.Append(mailappend.Input{
+		Email:                mailboxKey,
 		MailboxID:            mboxID,
+		Folder:               s.mailboxNameForFolder(mailboxKey, folderID),
 		FolderID:             folderID,
-		RawMessage:           rawMsg,
+		Raw:                  rawMsg,
 		InternalDate:         time.Now(),
 		Actor:                mailboxKey,
 		Source:               semcore.MutationSourceEWS,
-		Email:                mailboxKey,
 		DelegateAuditContext: delegateCtx,
-	}
-	result, err := s.mutationPipe.MutateItem(in)
+	})
 	if err != nil {
-		return errorItemMsg("CreateItem", ErrErrorInternalServer, "mutation failed: "+err.Error())
+		return errorItemMsg("CreateItem", ErrErrorInternalServer, "failed to store message: "+err.Error())
 	}
-	if result == nil {
+	// EWS treats a semantic-identity failure as fatal (an EWS item must carry a
+	// canonical identity), unlike SMTP delivery which logs it and continues.
+	if res.SemcoreErr != nil {
+		return errorItemMsg("CreateItem", ErrErrorInternalServer, "mutation failed: "+res.SemcoreErr.Error())
+	}
+	if res.Mutation == nil {
 		return errorItemMsg("CreateItem", ErrErrorInternalServer, "mutation returned nil result")
 	}
 	// Persist lifecycle event so GetEvents and sync consumers see the mutation.
 	if s.lifecycle != nil {
 		//nolint:errcheck
-		_ = s.lifecycle.AppendLifecycle(result.Lifecycle) // best-effort; event was already emitted
+		_ = s.lifecycle.AppendLifecycle(res.Mutation.Lifecycle) // best-effort; event was already emitted
 	}
-
-	// Mirror the item into the IMAP mailstore index so IMAP/POP3/JMAP/webmail —
-	// which read from that index, not the semcore identity store — see this
-	// EWS-created item (cross-protocol integrity). Best-effort; the semcore
-	// write above is the canonical record.
-	s.mirrorCreateToMailstore(mailboxKey, folderID, rawMsg, blobKey)
 
 	msgResp := MessageTypeResponse{
 		ItemID: ItemIdType{
-			ID: result.ItemID.String(),
-			CK: result.ChangeKey.String(),
+			ID: res.Mutation.ItemID.String(),
+			CK: res.Mutation.ChangeKey.String(),
 		},
 		ParentFolderID:   FolderIdComponents{ID: folderID.String()},
 		Subject:          subject,
-		DateTimeReceived: FormatEWSDateTime(result.Lifecycle.At),
+		DateTimeReceived: FormatEWSDateTime(res.Mutation.Lifecycle.At),
 		Size:             len(rawMsg),
 	}
 

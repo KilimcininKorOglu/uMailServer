@@ -17,6 +17,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/mailappend"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 	"github.com/umailserver/umailserver/internal/storage"
@@ -25,13 +26,18 @@ import (
 // Server is the EWS request handler. It receives SOAP requests, routes them
 // to the appropriate operation handler, and returns SOAP responses.
 type Server struct {
-	identity      IdentityStore
-	sync          SyncStore
-	tombstones    TombstoneStore
-	msgStore      *storage.MessageStore
-	storageDB     MailStore
-	db            db.Store
-	mutationPipe  *semcore.MutationPipeline
+	identity     IdentityStore
+	sync         SyncStore
+	tombstones   TombstoneStore
+	msgStore     *storage.MessageStore
+	storageDB    MailStore
+	db           db.Store
+	mutationPipe *semcore.MutationPipeline
+	// appender is the shared canonical message-append core (mailappend.Appender);
+	// EWS CreateItem writes through it so EWS-authored items converge with SMTP
+	// and the MAPI write ROPs on one record (identity + blob + IMAP index +
+	// thread id + search), injected via SetAppender.
+	appender      *mailappend.Appender
 	subscriptions SubscriptionStore
 	lifecycle     LifecycleStore
 	collabStore   CollabStore
@@ -113,7 +119,7 @@ type FreeBusyInterval struct {
 // The sieveMgr is used to recompile the Sieve script after policy changes.
 // The db parameter provides account/domain lookups for GAL directory operations.
 func NewServer(identity IdentityStore, syncState SyncStore, tombstones TombstoneStore, msgStore *storage.MessageStore, storageDB MailStore, db db.Store, mutationPipe *semcore.MutationPipeline, subscriptions SubscriptionStore, lifecycle LifecycleStore, collabStore CollabStore, policyStore PolicyStore, delegateStore DelegateStore, sieveMgr *sieve.Manager, submitMessage func(from string, to []string, data []byte) error) *Server {
-	return &Server{
+	s := &Server{
 		identity:      identity,
 		sync:          syncState,
 		tombstones:    tombstones,
@@ -130,6 +136,18 @@ func NewServer(identity IdentityStore, syncState SyncStore, tombstones Tombstone
 		submitMessage: submitMessage,
 		logger:        slog.Default(),
 	}
+	// Build a fallback canonical-append core from the stores the EWS server holds
+	// so CreateItem works for callers (including tests) that construct the server
+	// directly. Production overrides it via SetAppender with a notifier- and
+	// search-wired core. The notifier reads s.messageCreatedNotifier at call time
+	// so it honors a SetMessageCreatedNotifier wired after construction.
+	s.appender = mailappend.NewAppender(mutationPipe, msgStore, storageDB, semcore.RoleForCanonicalFolderName)
+	s.appender.SetNotifier(func(email, folder string, uid uint32) {
+		if s.messageCreatedNotifier != nil {
+			s.messageCreatedNotifier(email, folder, uid)
+		}
+	})
+	return s
 }
 
 // SetLogger sets the logger for the EWS server.
@@ -164,6 +182,12 @@ func (s *Server) SetPublicFolderAccess(enabled func() bool, getACL func(owner, m
 // is mirrored into the IMAP mailstore index, so IMAP IDLE + webmail SSE refresh.
 func (s *Server) SetMessageCreatedNotifier(fn func(email, folder string, uid uint32)) {
 	s.messageCreatedNotifier = fn
+}
+
+// SetAppender wires the shared canonical message-append core used by EWS
+// CreateItem so EWS-authored items converge with SMTP and MAPI on one record.
+func (s *Server) SetAppender(a *mailappend.Appender) {
+	s.appender = a
 }
 
 // SetMessageExpungedNotifier wires a callback invoked after an EWS item is

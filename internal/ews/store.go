@@ -21,6 +21,10 @@ type MailStore interface {
 	GetMessageUIDs(user, mailbox string) ([]uint32, error)
 	GetMessageMetadata(user, mailbox string, uid uint32) (*storage.MessageMetadata, error)
 	StoreMessageMetadata(user, mailbox string, uid uint32, meta *storage.MessageMetadata) error
+	// GetOrCreateThreadID returns the deterministic conversation/thread id for a
+	// message (RFC 2822 rooting), so EWS-created items group into conversations
+	// the same way SMTP-delivered ones do via the shared append core.
+	GetOrCreateThreadID(user, mailbox, subject, ownMessageID, inReplyTo string, references []string) (string, error)
 	DeleteMessage(user, mailbox string, uid uint32) error
 	// ListMailboxes lists a mailbox owner's folders. It lets the public-folder
 	// tree reconcile its admin-created folders (stored canonically here) into the

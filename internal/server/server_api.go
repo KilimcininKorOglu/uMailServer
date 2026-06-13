@@ -257,6 +257,11 @@ func (s *Server) startAPI() {
 			s.storageDB.GetACL,
 		)
 
+		// Wire the shared canonical-append core so EWS CreateItem converges with
+		// SMTP and the MAPI write ROPs (identity + blob + IMAP index + thread id +
+		// search) on one record, replacing the EWS-only mirror path.
+		ewsServer.SetAppender(s.appender)
+
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 

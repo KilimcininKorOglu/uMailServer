@@ -115,8 +115,17 @@ func (a *Appender) SetIndexer(i Indexer) { a.search = i }
 type Input struct {
 	// Email is the mailbox owner's address (the user key for every store).
 	Email string
-	// Folder is the IMAP-canonical mailbox name (e.g. "INBOX", "Sent").
+	// MailboxID, when non-zero, is the canonical mailbox identity the caller has
+	// already resolved (EWS holds it). When zero, the core resolves it from Email.
+	MailboxID semcore.MailboxId
+	// Folder is the IMAP-canonical mailbox name (e.g. "INBOX", "Sent"), used for
+	// the IMAP index entry and — when FolderID is zero — to resolve the semantic
+	// folder identity through the RoleResolver.
 	Folder string
+	// FolderID, when non-zero, is the canonical folder identity the caller has
+	// already resolved (EWS holds it). When zero, the core resolves it from Folder
+	// via the RoleResolver, the path SMTP delivery and the MAPI write ROPs take.
+	FolderID semcore.FolderId
 	// Raw is the complete RFC 5322 message.
 	Raw []byte
 	// InternalDate is the server receipt/authoring time; defaults to now.
@@ -188,13 +197,19 @@ func (a *Appender) Append(in Input) (*Result, error) {
 // result or the first error encountered.
 func (a *Appender) mutate(in Input) (*semcore.MutationResult, error) {
 	ident := a.pipe.Identity()
-	mboxID, err := ident.EnsureMailboxId(in.Email)
-	if err != nil {
-		return nil, err
+	mboxID := in.MailboxID
+	if mboxID.IsZero() {
+		var err error
+		if mboxID, err = ident.EnsureMailboxId(in.Email); err != nil {
+			return nil, err
+		}
 	}
-	fldID, err := ident.EnsureFolderId(in.Email, in.Folder, a.role(in.Folder))
-	if err != nil {
-		return nil, err
+	fldID := in.FolderID
+	if fldID.IsZero() {
+		var err error
+		if fldID, err = ident.EnsureFolderId(in.Email, in.Folder, a.role(in.Folder)); err != nil {
+			return nil, err
+		}
 	}
 	return a.pipe.MutateItem(&semcore.MutationInput{
 		MailboxID:            mboxID,
@@ -214,6 +229,9 @@ func (a *Appender) mutate(in Input) (*semcore.MutationResult, error) {
 // it, and fire the new-message and search signals. On res it sets UID on success
 // and invokes the optional notifier/indexer; failures are logged and swallowed.
 func (a *Appender) index1(in Input, res *Result) {
+	if a.index == nil {
+		return // no IMAP index store wired; the best-effort index step is a no-op
+	}
 	uid, err := a.index.GetNextUID(in.Email, in.Folder)
 	if err != nil {
 		a.logError("mailappend: GetNextUID failed", in, err)
