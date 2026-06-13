@@ -53,6 +53,102 @@ func TestGetReceiveFolderReturnsInbox(t *testing.T) {
 	}
 }
 
+// TestSetReceiveFolderInboxSucceeds verifies setting a class's receive folder to
+// the Inbox — the one mapping this server's all-to-Inbox model can honor — succeeds
+// and carries no response body, and that RopGetReceiveFolder still reports the Inbox
+// afterward. The set/get round-trip staying consistent is the guard against an
+// accept-and-lie regression.
+func TestSetReceiveFolderInboxSucceeds(t *testing.T) {
+	p, sess, handles := logonSession(t)
+
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint64(makeFID(fidReplID, 0x0d)) // the Inbox
+	body.Str("IPM.Note")
+	resp, _ := p.Dispatch(sess, ropRequest(RopSetReceiveFolder, 0, body.Bytes()), handles, 0x10000)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopSetReceiveFolder {
+		t.Fatalf("rop id = %#x, want RopSetReceiveFolder", got)
+	}
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("set-to-Inbox return value = %#x, want success", rv)
+	}
+	if q.Remaining() != 0 {
+		t.Errorf("response carries %d trailing bytes, want none", q.Remaining())
+	}
+
+	// Round-trip: GetReceiveFolder must still report the Inbox.
+	gb := wire.NewPush(wire.FlagUTF16)
+	gb.Str("IPM.Note")
+	gresp, _ := p.Dispatch(sess, ropRequest(RopGetReceiveFolder, 0, gb.Bytes()), handles, 0x10000)
+	gq := wire.NewPull(gresp, wire.FlagUTF16)
+	gq.Uint8()  // rop id
+	gq.Uint8()  // handle index
+	gq.Uint32() // result
+	if fid := gq.Uint64(); fid != makeFID(fidReplID, 0x0d) {
+		t.Errorf("after set, GetReceiveFolder = %#x, want the Inbox (round-trip consistent)", fid)
+	}
+}
+
+// TestSetReceiveFolderNullClearsToDefault verifies a null folder id — the protocol's
+// "clear this class back to the default receive folder" signal (MS-OXCSTOR
+// 2.2.1.1.2) — is accepted as a no-op, since the default is already the Inbox.
+func TestSetReceiveFolderNullClearsToDefault(t *testing.T) {
+	p, sess, handles := logonSession(t)
+
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint64(0) // null folder id
+	body.Str("IPM.Note")
+	resp, _ := p.Dispatch(sess, ropRequest(RopSetReceiveFolder, 0, body.Bytes()), handles, 0x10000)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8() // rop id
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Errorf("set-to-null return value = %#x, want success", rv)
+	}
+}
+
+// TestSetReceiveFolderNonInboxRejected is the architecture gate: routing a message
+// class to a non-Inbox folder is a capability this server does not have (delivery
+// lands in the Inbox and Sieve redistributes), so it must be rejected with
+// ecNotSupported — never accepted, which would silently deliver to the Inbox and
+// contradict RopGetReceiveFolder.
+func TestSetReceiveFolderNonInboxRejected(t *testing.T) {
+	p, sess, handles := logonSession(t)
+
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint64(makeFID(fidReplID, 0x0a)) // SentItems — a real folder, but not the Inbox
+	body.Str("IPM.Note")
+	resp, _ := p.Dispatch(sess, ropRequest(RopSetReceiveFolder, 0, body.Bytes()), handles, 0x10000)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8() // rop id
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecNotSupported {
+		t.Errorf("set-to-non-Inbox return value = %#x, want ecNotSupported", rv)
+	}
+}
+
+// TestSetReceiveFolderUnknownFolder verifies a folder id that resolves to no folder
+// is reported as not found.
+func TestSetReceiveFolderUnknownFolder(t *testing.T) {
+	p, sess, handles := logonSession(t)
+
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint64(makeFID(fidReplID, 0x500)) // neither a special folder nor a registered custom one
+	body.Str("")
+	resp, _ := p.Dispatch(sess, ropRequest(RopSetReceiveFolder, 0, body.Bytes()), handles, 0x10000)
+
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8() // rop id
+	q.Uint8() // handle index
+	if rv := q.Uint32(); rv != ecNotFound {
+		t.Errorf("set-to-unknown-folder return value = %#x, want ecNotFound", rv)
+	}
+}
+
 // TestOpenFolderBindsInbox verifies opening the Inbox by id binds a folder object
 // at the output handle index and reports a hosted, rule-free folder.
 func TestOpenFolderBindsInbox(t *testing.T) {

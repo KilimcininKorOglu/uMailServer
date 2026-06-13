@@ -69,6 +69,53 @@ func ropGetReceiveFolder(c *ropCtx, _ uint8, hindex uint8) {
 	out.Str(receiveFolderClass)
 }
 
+// ropSetReceiveFolder handles RopSetReceiveFolder (MS-OXCSTOR 2.2.1.1.2): it sets
+// the folder that receives a given message class. This mailbox routes all delivery
+// to the Inbox and redistributes it with Sieve — it keeps no per-class MAPI
+// receive-folder table on any surface (IMAP/EWS/JMAP route the same way) — so the
+// only mappings it can honor are the ones already in effect: a null folder id,
+// which clears a class back to the default receive folder (already the Inbox), and
+// a folder id naming the Inbox itself (idempotent with RopGetReceiveFolder). A class
+// pointed at any other folder is a capability this server does not have, so it is
+// rejected with ecNotSupported rather than accepted and then silently delivered to
+// the Inbox anyway — a success that would contradict RopGetReceiveFolder. (The
+// protocol allows persisting a per-class receive folder; declining that is this
+// server's routing model, not a wire limitation. Whether a Windows client sets a
+// non-Inbox receive folder during provisioning is unverified here — no Windows
+// host.) The response carries no body (the no-body push group).
+func ropSetReceiveFolder(c *ropCtx, _ uint8, hindex uint8) {
+	folderID := c.in.Uint64()
+	_ = c.in.Str() // message class; every mapping this server can honor resolves to the one default folder
+	if c.in.Err() != nil {
+		writeRopError(c.out, RopSetReceiveFolder, hindex, ecError)
+		return
+	}
+	lo, ok := c.objectAt(hindex).(*logonObject)
+	if !ok {
+		writeRopError(c.out, RopSetReceiveFolder, hindex, ecNullObject)
+		return
+	}
+	// A non-null folder id must name a real folder, and only the Inbox is a mapping
+	// this server can honor. A null id clears the class to the default (the Inbox),
+	// which is already in effect, so it is accepted as a no-op.
+	if folderID != 0 {
+		_, special, resolved := lo.resolveFolder(folderID)
+		if !resolved {
+			writeRopError(c.out, RopSetReceiveFolder, hindex, ecNotFound)
+			return
+		}
+		if special != sfInbox {
+			writeRopError(c.out, RopSetReceiveFolder, hindex, ecNotSupported)
+			return
+		}
+	}
+
+	out := c.out
+	out.Uint8(RopSetReceiveFolder)
+	out.Uint8(hindex)
+	out.Uint32(ecSuccess)
+}
+
 // ropOpenFolder handles RopOpenFolder (MS-OXCFOLD 2.2.1.1): it opens a folder by
 // id under the logon and binds the new folder object to the request's output
 // handle index. Only the mailbox's well-known folders are openable on the online

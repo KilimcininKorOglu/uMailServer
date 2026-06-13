@@ -29,6 +29,7 @@ const (
 	RopDeleteMessages        uint8 = 0x1E
 	RopCreateAttachment      uint8 = 0x23
 	RopSaveChangesAttachment uint8 = 0x25
+	RopSetReceiveFolder      uint8 = 0x26
 	RopGetReceiveFolder      uint8 = 0x27
 	RopOpenStream            uint8 = 0x2B
 	RopWriteStream           uint8 = 0x2D
@@ -158,6 +159,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopRelease:               ropRelease,
 	RopLogon:                 ropLogon,
 	RopGetReceiveFolder:      ropGetReceiveFolder,
+	RopSetReceiveFolder:      ropSetReceiveFolder,
 	RopOpenFolder:            ropOpenFolder,
 	RopGetContentsTable:      ropGetContentsTable,
 	RopGetHierarchyTable:     ropGetHierarchyTable,
