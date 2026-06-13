@@ -20,12 +20,15 @@ const stringTypeNone uint8 = 0x00
 // reading (RopOpenMessage) it carries the mailbox and uid that locate the message
 // in the canonical store for the property ROPs that read it. When opened for
 // creation (RopCreateMessage) it carries a non-nil write state instead, holding
-// the in-flight properties until RopSaveChangesMessage commits them and assigns
-// the uid.
+// the in-flight properties until RopSaveChangesMessage commits them, assigns the
+// uid, and captures the blob key and delivery envelope RopSubmitMessage needs to
+// send the saved message.
 type messageObject struct {
-	mailbox string
-	uid     uint32
-	write   *messageWriteState
+	mailbox        string
+	uid            uint32
+	messageID      string   // canonical blob key, set at save; lets RopSubmitMessage read the stored MIME back
+	submitEnvelope []string // To+Cc+Bcc recipients captured at save; the delivery envelope for RopSubmitMessage
+	write          *messageWriteState
 }
 
 // messageID builds a message id (MID) from a message uid, reusing the replica id

@@ -305,6 +305,11 @@ func (s *Server) startAPI() {
 			// SMTP delivery and EWS CreateItem use, so a message authored over
 			// MAPI/HTTP lands in the one canonical store every surface reads.
 			emsmdbProcessor.SetAppender(s.appender)
+			// Wire the canonical submission path so RopSubmitMessage delivers a sent
+			// message — including to its Bcc recipients, without leaking them in the
+			// headers — through the same Sieve + send-policy + delivery core SMTP
+			// submission, EWS SendItem, and JMAP EmailSubmission use.
+			emsmdbProcessor.SetSubmitter(s.submitMessageWithSieve)
 			// Wire the canonical mailbox-mutation core so the emsmdb delete/move/folder
 			// ROPs remove or relocate messages in the same store IMAP/EWS converge on,
 			// and refresh connected clients, instead of a MAPI-local mutation.

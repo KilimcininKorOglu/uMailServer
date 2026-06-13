@@ -244,6 +244,11 @@ func ropSaveChangesMessage(c *ropCtx, _ uint8, hindex uint8) {
 		return
 	}
 	mo.uid = res.UID
+	// Capture what RopSubmitMessage needs to send this message later: the blob key to
+	// read the stored (Bcc-free) MIME back, and the full recipient set — including the
+	// Bcc recipients dropped from the headers — as the delivery envelope.
+	mo.messageID = res.MessageID
+	mo.submitEnvelope = envelopeAddresses(mo.write.recipients)
 	mo.write = nil // the message is persisted; further reads resolve from the store
 
 	out := c.out
@@ -447,6 +452,21 @@ func formatRecipient(r recipient) string {
 		return ""
 	}
 	return (&mail.Address{Name: r.name, Address: r.email}).String()
+}
+
+// envelopeAddresses returns the bare email addresses of every recipient — To, Cc,
+// and Bcc — as the SMTP delivery envelope for RopSubmitMessage. The Bcc addresses
+// are included even though buildMIMEFromProps keeps them out of the message
+// headers, so a blind-carbon recipient is delivered to without appearing in the
+// copy the other recipients receive. Recipients with no address are skipped.
+func envelopeAddresses(recipients []recipient) []string {
+	addrs := make([]string, 0, len(recipients))
+	for _, r := range recipients {
+		if r.email != "" {
+			addrs = append(addrs, r.email)
+		}
+	}
+	return addrs
 }
 
 // stringProp returns a PtypString/PtypString8 property value, or "" when absent.

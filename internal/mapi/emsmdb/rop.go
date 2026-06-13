@@ -32,6 +32,7 @@ const (
 	RopGetReceiveFolder      uint8 = 0x27
 	RopOpenStream            uint8 = 0x2B
 	RopWriteStream           uint8 = 0x2D
+	RopSubmitMessage         uint8 = 0x32
 	RopMoveCopyMessages      uint8 = 0x33
 	RopGetPropertyIdsByNames uint8 = 0x56
 	RopEmptyFolder           uint8 = 0x58
@@ -77,10 +78,11 @@ func stateFor(sess *Session) *sessionObjects {
 // operations read the canonical mailbox store; an optional body store serves
 // message bodies from Maildir.
 type Processor struct {
-	store    Store
-	body     BodyStore
-	appender *mailappend.Appender
-	mutator  Mutator
+	store     Store
+	body      BodyStore
+	appender  *mailappend.Appender
+	mutator   Mutator
+	submitter SubmitFunc
 }
 
 // NewProcessor returns a ROP processor backed by the canonical mailbox store.
@@ -103,19 +105,27 @@ func (p *Processor) SetAppender(a *mailappend.Appender) { p.appender = a }
 // those ROPs report the operation as unsupported.
 func (p *Processor) SetMutator(m Mutator) { p.mutator = m }
 
+// SetSubmitter attaches the canonical submission path RopSubmitMessage delivers a
+// sent message through. It is the same path SMTP submission, EWS SendItem, and
+// JMAP EmailSubmission use, so a message sent over MAPI/HTTP is delivered,
+// Sieve-filtered, and send-policy-gated identically to every other surface. When
+// it is nil, RopSubmitMessage reports the operation as unsupported.
+func (p *Processor) SetSubmitter(f SubmitFunc) { p.submitter = f }
+
 var _ ROPDispatcher = (*Processor)(nil)
 
 // ropCtx carries the per-ROP execution state.
 type ropCtx struct {
-	email    string
-	store    Store
-	body     BodyStore
-	appender *mailappend.Appender
-	mutator  Mutator
-	state    *sessionObjects
-	handles  []uint32
-	in       *wire.Pull
-	out      *wire.Push
+	email     string
+	store     Store
+	body      BodyStore
+	appender  *mailappend.Appender
+	mutator   Mutator
+	submitter SubmitFunc
+	state     *sessionObjects
+	handles   []uint32
+	in        *wire.Pull
+	out       *wire.Push
 }
 
 // setHandle writes a server-object handle value to the given handle-table index,
@@ -169,6 +179,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopSaveChangesAttachment: ropSaveChangesAttachment,
 	RopDeleteMessages:        ropDeleteMessages,
 	RopMoveCopyMessages:      ropMoveCopyMessages,
+	RopSubmitMessage:         ropSubmitMessage,
 	RopCreateFolder:          ropCreateFolder,
 	RopDeleteFolder:          ropDeleteFolder,
 	RopEmptyFolder:           ropEmptyFolder,
@@ -196,7 +207,7 @@ func (p *Processor) Dispatch(sess *Session, ropData []byte, handlesIn []uint32, 
 			writeRopError(out, ropID, hindex, ecNotImplemented)
 			break
 		}
-		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, appender: p.appender, mutator: p.mutator, state: st, handles: handles, in: in, out: out}
+		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, appender: p.appender, mutator: p.mutator, submitter: p.submitter, state: st, handles: handles, in: in, out: out}
 		h(c, logonID, hindex)
 		handles = c.handles
 		if in.Err() != nil {
