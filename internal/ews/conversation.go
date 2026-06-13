@@ -146,21 +146,28 @@ func (s *Server) handleFindConversation(ctx context.Context, body []byte) []byte
 			if cKey == "" {
 				continue
 			}
+			// Skip identities whose body is absent in msgStore — the same readable
+			// filter FindItem/SyncFolderItems/folderCounts apply — so a conversation's
+			// item count never includes an orphaned identity the other EWS surfaces
+			// hide (e.g. an identity left behind when the store drifted ahead of
+			// msgStore). Reading the body up front both enforces that filter and
+			// supplies the subject/date below.
+			rawMsg, err := s.msgStore.ReadMessage(item.Email, item.MsgKey)
+			if err != nil {
+				continue
+			}
 			if _, exists := convMap[cKey]; !exists {
 				convMap[cKey] = &convInfo{id: item.ConversationID}
 			}
 			convMap[cKey].items = append(convMap[cKey].items, item)
 
-			// Get subject and last delivery time from the message.
-			rawMsg, err := s.msgStore.ReadMessage(item.Email, item.MsgKey)
-			if err == nil {
-				subject, _, dateStr, _, _, _ := parseMimeHeaders(rawMsg)
-				if convMap[cKey].subject == "" && subject != "" {
-					convMap[cKey].subject = subject
-				}
-				if dateStr > convMap[cKey].lastTime {
-					convMap[cKey].lastTime = dateStr
-				}
+			// Subject and last delivery time come from the message body.
+			subject, _, dateStr, _, _, _ := parseMimeHeaders(rawMsg)
+			if convMap[cKey].subject == "" && subject != "" {
+				convMap[cKey].subject = subject
+			}
+			if dateStr > convMap[cKey].lastTime {
+				convMap[cKey].lastTime = dateStr
 			}
 		}
 	}

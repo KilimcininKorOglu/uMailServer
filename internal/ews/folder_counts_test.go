@@ -114,3 +114,65 @@ func TestFolderCounts_FromIdentityMatchFindItem(t *testing.T) {
 		t.Errorf("FindItem TotalItemsInView: want 3 (must equal GetFolder TotalCount), body:\n%s", fiBody)
 	}
 }
+
+// TestFindConversation_ExcludesBodylessOrphan verifies FindConversation applies
+// the same readable-body filter as FindItem/GetFolder: a body-less orphan identity
+// that shares a conversation must not inflate that conversation's item count, or
+// the conversation view would disagree with every other EWS item surface.
+func TestFindConversation_ExcludesBodylessOrphan(t *testing.T) {
+	srv, cleanup := tmpEWSItemServer(t)
+	defer cleanup()
+
+	const email = "alice@local.test"
+	ensureMailboxFixtures(t, srv, email)
+	mboxID, err := srv.identity.EnsureMailboxId(email)
+	if err != nil {
+		t.Fatalf("EnsureMailboxId: %v", err)
+	}
+	inboxID, err := srv.identity.EnsureFolderId(email, "inbox", "inbox")
+	if err != nil {
+		t.Fatalf("EnsureFolderId: %v", err)
+	}
+
+	// Two messages in the SAME conversation (the orphan threads onto the stored
+	// one via In-Reply-To/References): one has its body stored (renderable), the
+	// other is registered without a body (an orphaned identity).
+	const subject = "Quarterly report thread"
+	stored := []byte("From: s@x.test\r\nTo: alice@local.test\r\nSubject: " + subject +
+		"\r\nMessage-ID: <conv-root@x.test>\r\n\r\nthe stored message body\r\n")
+	orphan := []byte("From: s@x.test\r\nTo: alice@local.test\r\nSubject: Re: " + subject +
+		"\r\nMessage-ID: <conv-orphan@x.test>\r\nIn-Reply-To: <conv-root@x.test>" +
+		"\r\nReferences: <conv-root@x.test>\r\n\r\nthis body is never stored\r\n")
+	if _, err := srv.msgStore.StoreMessage(email, stored); err != nil {
+		t.Fatalf("StoreMessage: %v", err)
+	}
+	for _, raw := range [][]byte{stored, orphan} {
+		if _, err := srv.mutationPipe.MutateItem(&semcore.MutationInput{
+			MailboxID:    mboxID,
+			FolderID:     inboxID,
+			RawMessage:   raw,
+			InternalDate: time.Unix(1700000000, 0),
+			Actor:        email,
+			Email:        email,
+			Source:       semcore.MutationSourceSMTP,
+		}); err != nil {
+			t.Fatalf("MutateItem: %v", err)
+		}
+	}
+
+	rec := ewsItemRequest(t, srv, email, ewsEnvelope("FindConversation", `
+		<ItemShape><t:BaseShape>IdOnly</t:BaseShape></ItemShape>
+		<ParentFolderIds><t:DistinguishedFolderId Id="inbox"/></ParentFolderIds>`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("FindConversation HTTP status: got %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	// The conversation holds one renderable message; the body-less orphan must be
+	// excluded, so TotalCount is 1, not 2.
+	if !strings.Contains(body, ">1</TotalCount>") {
+		t.Errorf("conversation TotalCount: want 1 (orphan excluded), body:\n%s", body)
+	}
+	if strings.Contains(body, ">2</TotalCount>") {
+		t.Errorf("conversation TotalCount=2: the body-less orphan was wrongly counted, body:\n%s", body)
+	}
+}
