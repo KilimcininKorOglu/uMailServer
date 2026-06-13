@@ -9,38 +9,39 @@ import (
 // mailbox path are named; handlers are registered for those that are
 // implemented.
 const (
-	RopRelease               uint8 = 0x01
-	RopOpenFolder            uint8 = 0x02
-	RopOpenMessage           uint8 = 0x03
-	RopGetHierarchyTable     uint8 = 0x04
-	RopGetContentsTable      uint8 = 0x05
-	RopCreateMessage         uint8 = 0x06
-	RopGetPropertiesSpecific uint8 = 0x07
-	RopGetPropertiesAll      uint8 = 0x08
-	RopSetProperties         uint8 = 0x0A
-	RopDeleteProperties      uint8 = 0x0B
-	RopSaveChangesMessage    uint8 = 0x0C
-	RopModifyRecipients      uint8 = 0x0E
-	RopSetColumns            uint8 = 0x12
-	RopSortTable             uint8 = 0x13
-	RopQueryRows             uint8 = 0x15
-	RopCreateFolder          uint8 = 0x1C
-	RopDeleteFolder          uint8 = 0x1D
-	RopDeleteMessages        uint8 = 0x1E
-	RopCreateAttachment      uint8 = 0x23
-	RopSaveChangesAttachment uint8 = 0x25
-	RopSetReceiveFolder      uint8 = 0x26
-	RopGetReceiveFolder      uint8 = 0x27
-	RopOpenStream            uint8 = 0x2B
-	RopWriteStream           uint8 = 0x2D
-	RopSubmitMessage         uint8 = 0x32
-	RopMoveCopyMessages      uint8 = 0x33
-	RopGetPropertyIdsByNames uint8 = 0x56
-	RopEmptyFolder           uint8 = 0x58
-	RopCommitStream          uint8 = 0x5D
-	RopSyncConfigure         uint8 = 0x70
-	RopGetStoreState         uint8 = 0x7B
-	RopLogon                 uint8 = 0xFE
+	RopRelease                     uint8 = 0x01
+	RopOpenFolder                  uint8 = 0x02
+	RopOpenMessage                 uint8 = 0x03
+	RopGetHierarchyTable           uint8 = 0x04
+	RopGetContentsTable            uint8 = 0x05
+	RopCreateMessage               uint8 = 0x06
+	RopGetPropertiesSpecific       uint8 = 0x07
+	RopGetPropertiesAll            uint8 = 0x08
+	RopSetProperties               uint8 = 0x0A
+	RopDeleteProperties            uint8 = 0x0B
+	RopSaveChangesMessage          uint8 = 0x0C
+	RopModifyRecipients            uint8 = 0x0E
+	RopSetColumns                  uint8 = 0x12
+	RopSortTable                   uint8 = 0x13
+	RopQueryRows                   uint8 = 0x15
+	RopCreateFolder                uint8 = 0x1C
+	RopDeleteFolder                uint8 = 0x1D
+	RopDeleteMessages              uint8 = 0x1E
+	RopCreateAttachment            uint8 = 0x23
+	RopSaveChangesAttachment       uint8 = 0x25
+	RopSetReceiveFolder            uint8 = 0x26
+	RopGetReceiveFolder            uint8 = 0x27
+	RopOpenStream                  uint8 = 0x2B
+	RopWriteStream                 uint8 = 0x2D
+	RopSubmitMessage               uint8 = 0x32
+	RopMoveCopyMessages            uint8 = 0x33
+	RopFastTransferSourceGetBuffer uint8 = 0x4E
+	RopGetPropertyIdsByNames       uint8 = 0x56
+	RopEmptyFolder                 uint8 = 0x58
+	RopCommitStream                uint8 = 0x5D
+	RopSyncConfigure               uint8 = 0x70
+	RopGetStoreState               uint8 = 0x7B
+	RopLogon                       uint8 = 0xFE
 )
 
 // sessionObjects is the per-session server-object table (the LOGMAP): handle
@@ -157,36 +158,37 @@ func (c *ropCtx) objectAt(index uint8) any {
 type ropHandler func(c *ropCtx, logonID, hindex uint8)
 
 var ropHandlers = map[uint8]ropHandler{
-	RopRelease:               ropRelease,
-	RopLogon:                 ropLogon,
-	RopGetReceiveFolder:      ropGetReceiveFolder,
-	RopSetReceiveFolder:      ropSetReceiveFolder,
-	RopOpenFolder:            ropOpenFolder,
-	RopGetContentsTable:      ropGetContentsTable,
-	RopGetHierarchyTable:     ropGetHierarchyTable,
-	RopSetColumns:            ropSetColumns,
-	RopSortTable:             ropSortTable,
-	RopQueryRows:             ropQueryRows,
-	RopOpenMessage:           ropOpenMessage,
-	RopGetPropertiesSpecific: ropGetPropertiesSpecific,
-	RopGetPropertiesAll:      ropGetPropertiesAll,
-	RopCreateMessage:         ropCreateMessage,
-	RopSetProperties:         ropSetProperties,
-	RopDeleteProperties:      ropDeleteProperties,
-	RopSaveChangesMessage:    ropSaveChangesMessage,
-	RopModifyRecipients:      ropModifyRecipients,
-	RopOpenStream:            ropOpenStream,
-	RopWriteStream:           ropWriteStream,
-	RopCommitStream:          ropCommitStream,
-	RopCreateAttachment:      ropCreateAttachment,
-	RopSaveChangesAttachment: ropSaveChangesAttachment,
-	RopDeleteMessages:        ropDeleteMessages,
-	RopMoveCopyMessages:      ropMoveCopyMessages,
-	RopSubmitMessage:         ropSubmitMessage,
-	RopCreateFolder:          ropCreateFolder,
-	RopDeleteFolder:          ropDeleteFolder,
-	RopEmptyFolder:           ropEmptyFolder,
-	RopSyncConfigure:         ropSyncConfigure,
+	RopRelease:                     ropRelease,
+	RopLogon:                       ropLogon,
+	RopGetReceiveFolder:            ropGetReceiveFolder,
+	RopSetReceiveFolder:            ropSetReceiveFolder,
+	RopOpenFolder:                  ropOpenFolder,
+	RopGetContentsTable:            ropGetContentsTable,
+	RopGetHierarchyTable:           ropGetHierarchyTable,
+	RopSetColumns:                  ropSetColumns,
+	RopSortTable:                   ropSortTable,
+	RopQueryRows:                   ropQueryRows,
+	RopOpenMessage:                 ropOpenMessage,
+	RopGetPropertiesSpecific:       ropGetPropertiesSpecific,
+	RopGetPropertiesAll:            ropGetPropertiesAll,
+	RopCreateMessage:               ropCreateMessage,
+	RopSetProperties:               ropSetProperties,
+	RopDeleteProperties:            ropDeleteProperties,
+	RopSaveChangesMessage:          ropSaveChangesMessage,
+	RopModifyRecipients:            ropModifyRecipients,
+	RopOpenStream:                  ropOpenStream,
+	RopWriteStream:                 ropWriteStream,
+	RopCommitStream:                ropCommitStream,
+	RopCreateAttachment:            ropCreateAttachment,
+	RopSaveChangesAttachment:       ropSaveChangesAttachment,
+	RopDeleteMessages:              ropDeleteMessages,
+	RopMoveCopyMessages:            ropMoveCopyMessages,
+	RopSubmitMessage:               ropSubmitMessage,
+	RopCreateFolder:                ropCreateFolder,
+	RopDeleteFolder:                ropDeleteFolder,
+	RopEmptyFolder:                 ropEmptyFolder,
+	RopSyncConfigure:               ropSyncConfigure,
+	RopFastTransferSourceGetBuffer: ropFastTransferSourceGetBuffer,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded

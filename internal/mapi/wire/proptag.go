@@ -98,14 +98,19 @@ const (
 	PidTagLastModificationTime PropTag = PropTag(0x3008)<<16 | PropTag(PtSysTime)
 	PidTagFolderId             PropTag = PropTag(0x6748)<<16 | PropTag(PtI8)
 	PidTagMid                  PropTag = PropTag(0x674A)<<16 | PropTag(PtI8)
-	PidTagContentCount         PropTag = PropTag(0x3602)<<16 | PropTag(PtLong)
-	PidTagContentUnreadCount   PropTag = PropTag(0x3603)<<16 | PropTag(PtLong)
-	PidTagSubfolders           PropTag = PropTag(0x360A)<<16 | PropTag(PtBoolean)
-	PidTagContainerClass       PropTag = PropTag(0x3613)<<16 | PropTag(PtUnicode)
-	PidTagBody                 PropTag = PropTag(0x1000)<<16 | PropTag(PtUnicode)
-	PidTagHtml                 PropTag = PropTag(0x1013)<<16 | PropTag(PtBinary)
-	PidTagInstID               PropTag = PropTag(0x674D)<<16 | PropTag(PtI8)
-	PidTagInstanceNum          PropTag = PropTag(0x674E)<<16 | PropTag(PtLong)
+	// ICS message-change-header identity/version properties (MS-OXCFXICS 2.2.1.2.*).
+	PidTagSourceKey             PropTag = PropTag(0x65E0)<<16 | PropTag(PtBinary)
+	PidTagChangeKey             PropTag = PropTag(0x65E2)<<16 | PropTag(PtBinary)
+	PidTagPredecessorChangeList PropTag = PropTag(0x65E3)<<16 | PropTag(PtBinary)
+	PidTagAssociated            PropTag = PropTag(0x67AA)<<16 | PropTag(PtBoolean)
+	PidTagContentCount          PropTag = PropTag(0x3602)<<16 | PropTag(PtLong)
+	PidTagContentUnreadCount    PropTag = PropTag(0x3603)<<16 | PropTag(PtLong)
+	PidTagSubfolders            PropTag = PropTag(0x360A)<<16 | PropTag(PtBoolean)
+	PidTagContainerClass        PropTag = PropTag(0x3613)<<16 | PropTag(PtUnicode)
+	PidTagBody                  PropTag = PropTag(0x1000)<<16 | PropTag(PtUnicode)
+	PidTagHtml                  PropTag = PropTag(0x1013)<<16 | PropTag(PtBinary)
+	PidTagInstID                PropTag = PropTag(0x674D)<<16 | PropTag(PtI8)
+	PidTagInstanceNum           PropTag = PropTag(0x674E)<<16 | PropTag(PtLong)
 
 	// Attachment tags (MS-OXCMSG 2.2.2 / MS-OXPROPS). The data is carried by value
 	// in PidTagAttachDataBinary; the filename, MIME type, and content id reconstruct

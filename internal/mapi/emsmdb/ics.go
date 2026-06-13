@@ -22,6 +22,15 @@ type syncContextObject struct {
 	syncFlags   uint16
 	sendOptions uint8
 	proptags    []wire.PropTag
+	// replicaGUID is the store's stable per-mailbox replica GUID, used for the XIDs
+	// (source/change keys) and the IDSET state the download stream carries.
+	replicaGUID wire.GUID
+	// stream holds the serialized FastTransfer download produced on the first
+	// RopFastTransferSourceGetBuffer call; pos is how far it has been drained. produced
+	// guards lazy production so the stream is built once and chunked across calls.
+	stream   []byte
+	pos      int
+	produced bool
 }
 
 // ropSyncConfigure handles RopSynchronizationConfigure (MS-OXCFXICS 2.2.3.2.1.1;
@@ -63,6 +72,7 @@ func ropSyncConfigure(c *ropCtx, _ uint8, hindex uint8) {
 		syncFlags:   syncFlags,
 		sendOptions: sendOptions,
 		proptags:    proptags,
+		replicaGUID: fo.logon.replGUID,
 	}))
 
 	out := c.out
