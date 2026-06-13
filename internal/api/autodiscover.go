@@ -295,12 +295,15 @@ func (s *Server) buildAutodiscoverResponse(email, domain, host string, accountTi
 
 		// NSPI (Name Service Provider Interface) protocol entry — provides the Outlook
 		// directory / GAL address-book lookup endpoint. The RedirectUrl is the NSPI
-		// endpoint that Outlook resolves for address-book searches.
+		// endpoint that Outlook resolves for address-book searches. It is https to
+		// match the SSL=on declaration and the Basic-over-TLS auth the endpoint
+		// enforces, consistent with the MAPI and OAB entries.
 		nspiProtocol := AutodiscoverProtocol{
 			Type:        "NSPI",
 			Server:      s.serverHost(),
 			SSL:         "on",
-			RedirectURL: "http://" + s.serverHost() + "/mapi/nspi",
+			AuthPackage: "basic",
+			RedirectURL: "https://" + s.serverHost() + "/mapi/nspi",
 		}
 		resp.Response.Account.Protocol = append(resp.Response.Account.Protocol, nspiProtocol)
 
