@@ -13,6 +13,14 @@ type Mutator interface {
 	// completion. The implementation performs the canonical hard removal (index,
 	// blob, and semantic identity) and notifies the other surfaces.
 	DeleteMessages(user, folder string, uids []uint32) (removed int, err error)
+
+	// MoveMessages relocates the given messages (by source-folder uid) from the
+	// source folder to the destination folder, returning how many were moved.
+	MoveMessages(user, srcFolder, dstFolder string, uids []uint32) (moved int, err error)
+
+	// CopyMessages copies the given messages (by source-folder uid) into the
+	// destination folder, returning how many were copied.
+	CopyMessages(user, srcFolder, dstFolder string, uids []uint32) (copied int, err error)
 }
 
 // pullEntryIDArray reads an EntryID array whose count is a 16-bit value followed by
@@ -72,6 +80,65 @@ func ropDeleteMessages(c *ropCtx, _ uint8, hindex uint8) {
 
 	out := c.out
 	out.Uint8(RopDeleteMessages)
+	out.Uint8(hindex)
+	out.Uint32(ecSuccess)
+	out.Uint8(partial) // PartialCompletion
+}
+
+// ropMoveCopyMessages handles RopMoveCopyMessages (MS-OXCFOLD 2.2.1.7 / MS-OXCROPS
+// 2.2.4.6): it moves or copies the listed messages from the source folder named by
+// the request handle to the destination folder named by the destination handle
+// index, routing through the canonical mailstore mutator so the result lands in the
+// one store every surface reads. want_copy selects copy (non-zero) over move
+// (zero); want_asynchronous is honored synchronously. The response reports partial
+// completion when not every message could be relocated. A null destination handle
+// is rejected with the generic failure rather than the dedicated null-destination
+// response shape, which is an error-path refinement.
+func ropMoveCopyMessages(c *ropCtx, _ uint8, hindex uint8) {
+	dhindex := c.in.Uint8()
+	mids := pullEntryIDArray(c.in)
+	_ = c.in.Uint8() // want_asynchronous: handled synchronously
+	wantCopy := c.in.Uint8()
+	if c.in.Err() != nil {
+		writeRopError(c.out, RopMoveCopyMessages, hindex, ecError)
+		return
+	}
+	if c.mutator == nil {
+		writeRopError(c.out, RopMoveCopyMessages, hindex, ecNotImplemented)
+		return
+	}
+	src, ok := c.objectAt(hindex).(*folderObject)
+	if !ok || src.mailbox == "" {
+		writeRopError(c.out, RopMoveCopyMessages, hindex, ecNullObject)
+		return
+	}
+	dst, ok := c.objectAt(dhindex).(*folderObject)
+	if !ok || dst.mailbox == "" {
+		writeRopError(c.out, RopMoveCopyMessages, hindex, ecNullObject)
+		return
+	}
+	uids := make([]uint32, 0, len(mids))
+	for _, mid := range mids {
+		uids = append(uids, messageUID(mid))
+	}
+	var done int
+	var err error
+	if wantCopy != 0 {
+		done, err = c.mutator.CopyMessages(c.email, src.mailbox, dst.mailbox, uids)
+	} else {
+		done, err = c.mutator.MoveMessages(c.email, src.mailbox, dst.mailbox, uids)
+	}
+	if err != nil {
+		writeRopError(c.out, RopMoveCopyMessages, hindex, ecError)
+		return
+	}
+	var partial uint8
+	if done < len(uids) {
+		partial = 1
+	}
+
+	out := c.out
+	out.Uint8(RopMoveCopyMessages)
 	out.Uint8(hindex)
 	out.Uint32(ecSuccess)
 	out.Uint8(partial) // PartialCompletion
