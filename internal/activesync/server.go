@@ -68,6 +68,7 @@ type Server struct {
 	mail         MailSource
 	calendar     CalendarSource
 	calMutator   CalendarMutator
+	meetings     MeetingResponder
 	mutator      Mutator
 	submitter    Submitter
 }
@@ -87,6 +88,7 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 	s.Handle("SmartForward", s.handleSendMail)
 	s.Handle("SmartReply", s.handleSendMail)
 	s.Handle("ItemOperations", s.handleItemOperations)
+	s.Handle("MeetingResponse", s.handleMeetingResponse)
 	return s
 }
 
@@ -122,6 +124,12 @@ func (s *Server) SetCalendarSource(c CalendarSource) {
 // accepted but not applied.
 func (s *Server) SetCalendarMutator(m CalendarMutator) {
 	s.calMutator = m
+}
+
+// SetMeetingResponder wires the responder that applies a client's MeetingResponse
+// (accept/tentative/decline) to the canonical calendar.
+func (s *Server) SetMeetingResponder(m MeetingResponder) {
+	s.meetings = m
 }
 
 // SetMutator wires the canonical-mailstore mutator used to apply the client's

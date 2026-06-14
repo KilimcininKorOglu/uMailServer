@@ -132,7 +132,9 @@ func (s *Server) startAPI() {
 		eas.SetSyncState(easSyncState{identity: s.semcoreStore.Identity(), sync: s.semcoreStore.SyncState()})
 		eas.SetMailSource(easMailSource{db: s.storageDB, msg: s.msgStore})
 		eas.SetCalendarSource(easCalendarSource{collab: s.semcoreStore.Collaboration()})
-		eas.SetCalendarMutator(easCalendarMutator{store: caldav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())})
+		calMut := easCalendarMutator{store: caldav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())}
+		eas.SetCalendarMutator(calMut)
+		eas.SetMeetingResponder(easMeetingResponder{msg: s.msgStore, cal: calMut})
 		eas.SetMutator(easMutator{emsmdbMutator{srv: s}})
 		eas.SetSubmitter(s.easSendMail)
 		s.apiServer.SetActiveSyncHandler(eas)

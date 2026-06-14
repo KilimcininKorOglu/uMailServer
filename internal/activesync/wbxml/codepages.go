@@ -70,6 +70,7 @@ const (
 	PageEmail           byte = 2  // Email data class
 	PageCalendar        byte = 4  // Calendar data class
 	PageMove            byte = 5  // MoveItems command
+	PageMeetingResponse byte = 8  // MeetingResponse command
 	PageGetItemEstimate byte = 6  // GetItemEstimate command
 	PageFolderHierarchy byte = 7  // FolderSync/FolderCreate/FolderDelete/FolderUpdate
 	PageProvision       byte = 14 // Provision command + policy document
@@ -242,6 +243,24 @@ var _ = register(PageMove, "Move", map[byte]string{
 	0x0A: "Response",
 	0x0B: "Status",
 	0x0C: "DstMsgId",
+})
+
+// MeetingResponse command (MS-ASWBXML 2.1.2.1.9, Code Page 8). CollectionId and
+// RequestId are this page's own tokens (not the AirSync page's), so the request
+// carries them on page 8.
+var _ = register(PageMeetingResponse, "MeetingResponse", map[byte]string{
+	0x05: "CalendarId",
+	0x06: "CollectionId",
+	0x07: "MeetingResponse",
+	0x08: "RequestId",
+	0x09: "Request",
+	0x0A: "Result",
+	0x0B: "Status",
+	0x0C: "UserResponse",
+	0x0E: "InstanceId",
+	0x10: "ProposedStartTime",
+	0x11: "ProposedEndTime",
+	0x12: "SendResponse",
 })
 
 var _ = register(PageGetItemEstimate, "GetItemEstimate", map[byte]string{

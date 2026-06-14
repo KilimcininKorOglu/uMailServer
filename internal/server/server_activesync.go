@@ -311,6 +311,42 @@ func (m easCalendarMutator) DeleteItem(email, _, serverID string) error {
 	return m.store.DeleteEvent(email, easCalendarID, serverID)
 }
 
+// easMeetingResponder applies an EAS MeetingResponse to the canonical calendar.
+// The meeting request is an email in the mailbox (RequestId is its storage blob
+// key), so the invite's event is read from the message blob and then written to
+// (accept/tentative) or removed from (decline) the calendar through the same
+// SaveEvent/DeleteEvent path the webmail RSVP and CalDAV use — converging the
+// response across every surface. Matching that RSVP path, no iTIP reply email is
+// sent (the calendar state is the canonical record of the response).
+type easMeetingResponder struct {
+	msg *storage.MessageStore
+	cal easCalendarMutator
+}
+
+func (m easMeetingResponder) Respond(email, _, requestID, response string) (string, error) {
+	raw, err := m.msg.ReadMessage(email, requestID)
+	if err != nil {
+		return "", err
+	}
+	inv, ok := activesync.InviteEventFromMIME(raw)
+	if !ok {
+		return "", fmt.Errorf("activesync meetingresponse: message %q is not a meeting invite", requestID)
+	}
+	if response == "decline" {
+		// Decline removes the event if a prior accept added it; a missing event
+		// is success. No CalendarId is returned (nothing is on the calendar).
+		if err := m.cal.DeleteItem(email, "", inv.UID); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	if response == "tentative" {
+		inv.Subject = "[Tentative] " + inv.Subject
+		inv.BusyStatus = "1"
+	}
+	return m.cal.CreateItem(email, "", inv)
+}
+
 // easMutator applies a mobile client's EAS Sync up-sync changes to the canonical
 // mailstore, converging them on the one store every surface reads — a read-flag
 // set or a deletion authored on a phone is reflected over IMAP/POP3/JMAP/webmail

@@ -103,6 +103,23 @@ func CalendarItemFromICal(serverID, etag, raw string) CalendarItem {
 	return item
 }
 
+// InviteEventFromMIME extracts the meeting event from a raw iMIP message — the
+// text/calendar part of a meeting-request email — into a CalendarItem. It is the
+// source for a MeetingResponse: the accepted/declined invite's event is read
+// here, then written to (or removed from) the calendar. Returns false when the
+// message carries no calendar part or the event has no UID.
+func InviteEventFromMIME(raw []byte) (CalendarItem, bool) {
+	ical := extractPart(raw, "text/calendar")
+	if ical == nil {
+		return CalendarItem{}, false
+	}
+	it := CalendarItemFromICal("", "", string(ical))
+	if it.UID == "" {
+		return CalendarItem{}, false
+	}
+	return it, true
+}
+
 // calendarAppData projects a CalendarItem into its EAS ApplicationData elements:
 // the Calendar-class fields (code page 4) plus the AirSyncBase Body and Location
 // (code page 17), which carry the description and location for 16.x clients (the
