@@ -63,6 +63,8 @@ type Server struct {
 	logger       *slog.Logger
 	commands     map[string]CommandFunc
 	devices      DeviceStore
+	folders      FolderSource
+	sync         SyncState
 }
 
 // NewServer builds an EAS endpoint that authenticates through authenticate.
@@ -73,12 +75,23 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 		commands:     make(map[string]CommandFunc),
 	}
 	s.Handle("Provision", s.handleProvision)
+	s.Handle("FolderSync", s.handleFolderSync)
 	return s
 }
 
 // SetDeviceStore wires the EAS device-partnership store used by Provision.
 func (s *Server) SetDeviceStore(d DeviceStore) {
 	s.devices = d
+}
+
+// SetFolderSource wires the mailbox folder source used by FolderSync.
+func (s *Server) SetFolderSource(f FolderSource) {
+	s.folders = f
+}
+
+// SetSyncState wires the per-(email, collection, device) sync-watermark store.
+func (s *Server) SetSyncState(st SyncState) {
+	s.sync = st
 }
 
 // SetLogger overrides the default logger.
