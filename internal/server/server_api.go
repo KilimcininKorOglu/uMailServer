@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/activesync"
 	"github.com/umailserver/umailserver/internal/api"
 	"github.com/umailserver/umailserver/internal/backup"
 	"github.com/umailserver/umailserver/internal/cluster"
@@ -118,6 +119,20 @@ func (s *Server) startAPI() {
 	// MAPI/HTTP NTLM is read live so enabling it captures the per-account NT hash
 	// at password-set and login time without a restart.
 	s.apiServer.SetNTLMEnabled(func() bool { return s.cfg().MAPI.NTLMEnabled })
+	// Exchange ActiveSync (mobile sync) at /Microsoft-Server-ActiveSync is read
+	// live; it shares the canonical mailstore (storageDB/msgStore), the change
+	// journal, the EAS device-partnership store, and semcore's sync-state store.
+	s.apiServer.SetActiveSyncEnabled(func() bool { return s.cfg().ActiveSync.Enabled })
+	if s.storageDB != nil && s.msgStore != nil && s.semcoreStore != nil {
+		eas := activesync.NewServer(s.apiServer.ActiveSyncBasicAuth)
+		eas.SetLogger(s.logger)
+		eas.SetDeviceStore(s.database)
+		eas.SetFolderSource(easFolderSource{db: s.storageDB})
+		eas.SetSyncState(easSyncState{identity: s.semcoreStore.Identity(), sync: s.semcoreStore.SyncState()})
+		eas.SetMailSource(easMailSource{db: s.storageDB, msg: s.msgStore})
+		s.apiServer.SetActiveSyncHandler(eas)
+		s.logger.Info("Exchange ActiveSync handler initialized")
+	}
 	// Set contacts handler data directory for CardDAV-backed contacts API
 	s.apiServer.SetContactsDataDir(s.cfg().Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API

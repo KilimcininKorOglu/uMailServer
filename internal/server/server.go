@@ -202,6 +202,10 @@ type storageBackend interface {
 	// changes; MailboxUsedBytes is the authoritative stored size it reconciles to.
 	SetQuotaHook(func(user string))
 	MailboxUsedBytes(user string) (int64, error)
+	// CurrentChangeState returns the change-journal head as an opaque token. The
+	// EAS Sync handoff anchors its incremental cursor to it once the initial
+	// snapshot is drained; both the bbolt and PostgreSQL backends implement it.
+	CurrentChangeState(user string) (string, error)
 }
 
 // openStorage selects the message-metadata backend for the configured engine.

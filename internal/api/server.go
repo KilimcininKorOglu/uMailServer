@@ -175,6 +175,11 @@ type Server struct {
 	// /rpc/rpcproxy.dll. It carries the same EMSMDB ROPs over MS-RPCH + DCERPC.
 	rpchHandler http.Handler
 
+	// Exchange ActiveSync handler at /Microsoft-Server-ActiveSync, with its live
+	// config gate (when off the endpoint is not advertised).
+	activesyncHandler http.Handler
+	activeSyncEnabled func() bool
+
 	// Canonical semantic-core store, used by admin surfaces (delegation,
 	// directory/resources, rules, jobs). Held as the SemanticStore interface so
 	// the API server names no concrete *semcore.Bolt*Store; a relational
@@ -682,6 +687,18 @@ func (s *Server) initRouter() {
 			//nolint:staticcheck // intentional: string key for cross-package context access
 			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
 			s.rpchHandler.ServeHTTP(w, r)
+		})
+	}
+	if s.activesyncHandler != nil {
+		// Exchange ActiveSync. OPTIONS advertises the protocol and POST commands
+		// authenticate inside the handler (Basic), so the whole endpoint is gated
+		// only by the live opt-in — when off it is not advertised at all.
+		mux.HandleFunc("/Microsoft-Server-ActiveSync", func(w http.ResponseWriter, r *http.Request) {
+			if !s.activeSyncOn() {
+				http.NotFound(w, r)
+				return
+			}
+			s.activesyncHandler.ServeHTTP(w, r)
 		})
 	}
 
@@ -2182,4 +2199,54 @@ func (s *Server) rejectNTLM(w http.ResponseWriter) string {
 	w.Header().Set("WWW-Authenticate", "NTLM")
 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	return ""
+}
+
+// SetActiveSyncHandler wires the Exchange ActiveSync endpoint handler.
+func (s *Server) SetActiveSyncHandler(h http.Handler) { s.activesyncHandler = h }
+
+// SetActiveSyncEnabled wires the live ActiveSync opt-in gate.
+func (s *Server) SetActiveSyncEnabled(fn func() bool) { s.activeSyncEnabled = fn }
+
+// activeSyncOn reports whether the EAS surface is enabled, read live.
+func (s *Server) activeSyncOn() bool {
+	return s.activeSyncEnabled != nil && s.activeSyncEnabled()
+}
+
+// ActiveSyncBasicAuth authenticates an Exchange ActiveSync request via HTTP
+// Basic and enforces the same account-state gate as the other Exchange surfaces
+// — active account, no forced password change, tenant not suspended, password
+// verified. It is the authenticate func injected into the ActiveSync handler,
+// returning the mailbox email with ok=true, or ("", false) on any failure; it
+// never writes to the response (the handler emits the 401).
+func (s *Server) ActiveSyncBasicAuth(r *http.Request) (string, bool) {
+	if s.db == nil {
+		return "", false
+	}
+	authHdr := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHdr, "Basic ") {
+		return "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHdr, "Basic "))
+	if err != nil {
+		return "", false
+	}
+	email, password, ok := strings.Cut(string(decoded), ":")
+	if !ok {
+		return "", false
+	}
+	localPart, domain, ok := strings.Cut(email, "@")
+	if !ok {
+		return "", false
+	}
+	account, err := s.db.GetAccount(domain, localPart)
+	if err != nil || account == nil {
+		return "", false
+	}
+	if !account.IsActive || account.MustChangePassword || s.tenantSuspendedForDomain(domain) {
+		return "", false
+	}
+	if matches, _ := s.verifyPassword(password, account.PasswordHash); !matches {
+		return "", false
+	}
+	return account.Email, true
 }
