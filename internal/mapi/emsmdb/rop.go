@@ -46,6 +46,7 @@ const (
 	RopSyncUploadStateStreamContinue uint8 = 0x76
 	RopSyncUploadStateStreamEnd      uint8 = 0x77
 	RopGetStoreState                 uint8 = 0x7B
+	RopSyncOpenCollector             uint8 = 0x7E
 	RopLogon                         uint8 = 0xFE
 )
 
@@ -199,6 +200,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopSyncUploadStateStreamBegin:    ropSyncUploadStateStreamBegin,
 	RopSyncUploadStateStreamContinue: ropSyncUploadStateStreamContinue,
 	RopSyncUploadStateStreamEnd:      ropSyncUploadStateStreamEnd,
+	RopSyncOpenCollector:             ropSyncOpenCollector,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
