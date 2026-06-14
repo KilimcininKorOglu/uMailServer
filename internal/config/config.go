@@ -49,6 +49,7 @@ type Config struct {
 	PublicFolders    PublicFoldersConfig    `yaml:"public_folders"`
 	Relay            RelayConfig            `yaml:"relay"`
 	MAPI             MAPIConfig             `yaml:"mapi"`
+	ActiveSync       ActiveSyncConfig       `yaml:"activesync"`
 }
 
 // MAPIConfig holds settings for the MAPI/HTTP (Outlook Anywhere) surface.
@@ -61,6 +62,15 @@ type MAPIConfig struct {
 	// is an unsalted MD4 — a weaker secondary credential — so this is opt-in and
 	// off by default.
 	NTLMEnabled bool `yaml:"ntlm_enabled"`
+}
+
+// ActiveSyncConfig holds settings for the Exchange ActiveSync (EAS) mobile-sync
+// surface at /Microsoft-Server-ActiveSync.
+type ActiveSyncConfig struct {
+	// Enabled turns on the EAS endpoint. Off by default until the surface is
+	// complete, so the server never advertises a mobile-sync capability it
+	// cannot serve.
+	Enabled bool `yaml:"enabled"`
 }
 
 // RelayConfig holds outbound relay settings. IPGroups defines named pools of

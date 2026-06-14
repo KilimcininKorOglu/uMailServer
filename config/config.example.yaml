@@ -433,3 +433,10 @@ mapi:
   # successful login, and cannot be derived from the bcrypt/argon2 password hash.
   # Off by default because the NT hash is a weaker secondary credential.
   ntlm_enabled: false
+
+activesync:
+  # Enable the Exchange ActiveSync (EAS) mobile-sync surface at
+  # /Microsoft-Server-ActiveSync (iOS Mail, Android, Outlook mobile). Off by
+  # default until the surface is complete, so the server never advertises a
+  # mobile-sync capability it cannot serve.
+  enabled: false

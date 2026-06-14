@@ -56,6 +56,10 @@ const (
 
 	// FeatureMAPIHTTP enables MAPI/HTTP and NSPI/OAB surfaces (Phase 7).
 	FeatureMAPIHTTP FeatureName = "mapi_http"
+
+	// FeatureEAS enables the Exchange ActiveSync mobile-sync surface
+	// (/Microsoft-Server-ActiveSync).
+	FeatureEAS FeatureName = "eas"
 )
 
 // CompatibilityTier represents the protocol compatibility level for a mailbox.
