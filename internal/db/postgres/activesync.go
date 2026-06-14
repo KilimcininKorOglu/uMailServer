@@ -16,13 +16,15 @@ import (
 
 const easDeviceSelect = `
 	SELECT email, device_id, device_type, user_agent, policy_key, protocol_version,
-		wipe_requested, first_sync, last_sync
+		wipe_requested, model, imei, friendly_name, os, os_language, phone_number,
+		mobile_operator, first_sync, last_sync
 	FROM activesync_devices`
 
 func scanEASDevice(row rowScanner) (*db.EASDevice, error) {
 	var e db.EASDevice
 	if err := row.Scan(&e.Email, &e.DeviceID, &e.DeviceType, &e.UserAgent, &e.PolicyKey,
-		&e.ProtocolVersion, &e.WipeRequested, &e.FirstSync, &e.LastSync); err != nil {
+		&e.ProtocolVersion, &e.WipeRequested, &e.Model, &e.IMEI, &e.FriendlyName, &e.OS,
+		&e.OSLanguage, &e.PhoneNumber, &e.MobileOperator, &e.FirstSync, &e.LastSync); err != nil {
 		return nil, err
 	}
 	return &e, nil
@@ -36,14 +38,19 @@ func (d *DB) PutEASDevice(dev *db.EASDevice) error {
 	}
 	if _, err := d.pool.Exec(ctx, `
 		INSERT INTO activesync_devices (email, device_id, device_type, user_agent,
-			policy_key, protocol_version, wipe_requested, first_sync, last_sync)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			policy_key, protocol_version, wipe_requested, model, imei, friendly_name,
+			os, os_language, phone_number, mobile_operator, first_sync, last_sync)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		ON CONFLICT (email, device_id) DO UPDATE SET device_type=EXCLUDED.device_type,
 			user_agent=EXCLUDED.user_agent, policy_key=EXCLUDED.policy_key,
 			protocol_version=EXCLUDED.protocol_version,
-			wipe_requested=EXCLUDED.wipe_requested, last_sync=EXCLUDED.last_sync`,
+			wipe_requested=EXCLUDED.wipe_requested, model=EXCLUDED.model,
+			imei=EXCLUDED.imei, friendly_name=EXCLUDED.friendly_name, os=EXCLUDED.os,
+			os_language=EXCLUDED.os_language, phone_number=EXCLUDED.phone_number,
+			mobile_operator=EXCLUDED.mobile_operator, last_sync=EXCLUDED.last_sync`,
 		dev.Email, dev.DeviceID, dev.DeviceType, dev.UserAgent, dev.PolicyKey,
-		dev.ProtocolVersion, dev.WipeRequested, dev.FirstSync, dev.LastSync,
+		dev.ProtocolVersion, dev.WipeRequested, dev.Model, dev.IMEI, dev.FriendlyName,
+		dev.OS, dev.OSLanguage, dev.PhoneNumber, dev.MobileOperator, dev.FirstSync, dev.LastSync,
 	); err != nil {
 		return fmt.Errorf("postgres: put EAS device %q/%q: %w", dev.Email, dev.DeviceID, err)
 	}

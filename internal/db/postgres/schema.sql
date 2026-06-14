@@ -276,6 +276,15 @@ CREATE TABLE IF NOT EXISTS activesync_devices (
     PRIMARY KEY (email, device_id)
 );
 CREATE INDEX IF NOT EXISTS idx_activesync_devices_email ON activesync_devices (email);
+-- Device-identity attributes reported via the Settings DeviceInformation command
+-- (MS-ASCMD). Informational metadata only; access control never depends on them.
+ALTER TABLE activesync_devices ADD COLUMN IF NOT EXISTS model           TEXT NOT NULL DEFAULT '';
+ALTER TABLE activesync_devices ADD COLUMN IF NOT EXISTS imei            TEXT NOT NULL DEFAULT '';
+ALTER TABLE activesync_devices ADD COLUMN IF NOT EXISTS friendly_name   TEXT NOT NULL DEFAULT '';
+ALTER TABLE activesync_devices ADD COLUMN IF NOT EXISTS os              TEXT NOT NULL DEFAULT '';
+ALTER TABLE activesync_devices ADD COLUMN IF NOT EXISTS os_language     TEXT NOT NULL DEFAULT '';
+ALTER TABLE activesync_devices ADD COLUMN IF NOT EXISTS phone_number    TEXT NOT NULL DEFAULT '';
+ALTER TABLE activesync_devices ADD COLUMN IF NOT EXISTS mobile_operator TEXT NOT NULL DEFAULT '';
 
 -- Typed replacements for the generic-KV preference/vacation buckets ----------
 -- These hold what the bbolt store kept as opaque JSON under BucketPreferences /

@@ -111,15 +111,25 @@ type ClientSession struct {
 // admin-requested remote-wipe flag. Unlike a ClientSession (a short-lived auth
 // token), a partnership lives until the device is removed or wiped.
 type EASDevice struct {
-	Email           string    `json:"email"`
-	DeviceID        string    `json:"device_id"`
-	DeviceType      string    `json:"device_type"`
-	UserAgent       string    `json:"user_agent"`
-	PolicyKey       string    `json:"policy_key"`       // current accepted provisioning policy key
-	ProtocolVersion string    `json:"protocol_version"` // negotiated EAS version, e.g. "16.1"
-	WipeRequested   bool      `json:"wipe_requested"`   // admin-requested remote wipe
-	FirstSync       time.Time `json:"first_sync"`
-	LastSync        time.Time `json:"last_sync"`
+	Email           string `json:"email"`
+	DeviceID        string `json:"device_id"`
+	DeviceType      string `json:"device_type"`
+	UserAgent       string `json:"user_agent"`
+	PolicyKey       string `json:"policy_key"`       // current accepted provisioning policy key
+	ProtocolVersion string `json:"protocol_version"` // negotiated EAS version, e.g. "16.1"
+	WipeRequested   bool   `json:"wipe_requested"`   // admin-requested remote wipe
+	// Device-identity attributes the client reports through the Settings
+	// DeviceInformation command (MS-ASCMD). They are informational metadata
+	// surfaced to admins; access control never depends on them.
+	Model          string    `json:"model,omitempty"`
+	IMEI           string    `json:"imei,omitempty"`
+	FriendlyName   string    `json:"friendly_name,omitempty"`
+	OS             string    `json:"os,omitempty"`
+	OSLanguage     string    `json:"os_language,omitempty"`
+	PhoneNumber    string    `json:"phone_number,omitempty"`
+	MobileOperator string    `json:"mobile_operator,omitempty"`
+	FirstSync      time.Time `json:"first_sync"`
+	LastSync       time.Time `json:"last_sync"`
 }
 
 // DomainData holds domain information

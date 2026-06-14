@@ -121,6 +121,13 @@ func easDeviceToJSON(d *db.EASDevice) map[string]any {
 		"user_agent":       d.UserAgent,
 		"protocol_version": d.ProtocolVersion,
 		"wipe_requested":   d.WipeRequested,
+		"model":            d.Model,
+		"imei":             d.IMEI,
+		"friendly_name":    d.FriendlyName,
+		"os":               d.OS,
+		"os_language":      d.OSLanguage,
+		"phone_number":     d.PhoneNumber,
+		"mobile_operator":  d.MobileOperator,
 		"first_sync":       d.FirstSync,
 		"last_sync":        d.LastSync,
 	}
