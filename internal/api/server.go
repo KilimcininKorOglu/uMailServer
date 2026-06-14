@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -23,6 +26,7 @@ import (
 	"github.com/umailserver/umailserver/internal/cluster"
 	"github.com/umailserver/umailserver/internal/config"
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/mapi/ntlmssp"
 	"github.com/umailserver/umailserver/internal/mcp"
 	"github.com/umailserver/umailserver/internal/metrics"
 	"github.com/umailserver/umailserver/internal/queue"
@@ -59,6 +63,31 @@ const (
 // The SA1029 warning is suppressed because this pattern is required for
 // the API server to inject email into context and EWS/MAPI handlers to read it.
 const ContextKeyEmail = "X-Email" //nolint:staticcheck
+
+// ntlmConnState holds the per-TCP-connection NTLM CHALLENGE for HTTP-layer NTLM
+// on the RPC proxy. HTTP NTLM (RFC 4559) is connection-oriented: the CHALLENGE
+// emitted in the 401 must be matched against the AUTHENTICATE that arrives on
+// the next request over the same keep-alive connection. The server's ConnContext
+// attaches one to every connection; only the RPC-proxy auth reads it.
+type ntlmConnState struct {
+	mu        sync.Mutex
+	challenge [8]byte
+	have      bool
+}
+
+// ntlmConnKey is the context key under which ntlmConnState is stored per
+// connection; a distinct unexported type avoids any context-key collision.
+type ntlmConnKey struct{}
+
+// ntlmConnFromContext returns the per-connection NTLM state, or nil when the
+// connection was established without ConnContext (e.g. in unit tests).
+func ntlmConnFromContext(ctx context.Context) *ntlmConnState {
+	cs, ok := ctx.Value(ntlmConnKey{}).(*ntlmConnState)
+	if !ok {
+		return nil
+	}
+	return cs
+}
 
 // Server represents the admin API server
 type Server struct {
@@ -641,13 +670,13 @@ func (s *Server) initRouter() {
 	}
 	if s.rpchHandler != nil {
 		// RPC-over-HTTP (Outlook Anywhere). The client opens the RPC_OUT_DATA and
-		// RPC_IN_DATA channels with a query of the form ?<host>:<port>; Basic auth
-		// identifies the mailbox, so the query is parsed and ignored.
+		// RPC_IN_DATA channels with a query of the form ?<host>:<port>; the proxy
+		// authenticates the mailbox at the HTTP layer (Basic, or NTLM when the
+		// opt-in is live), so the query is parsed and ignored.
 		mux.HandleFunc("/rpc/rpcproxy.dll", func(w http.ResponseWriter, r *http.Request) {
-			email := s.mapiBasicAuth(w, r)
-			if email == "" {
-				w.Header().Set("WWW-Authenticate", `Basic realm="MAPI/HTTP"`)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			email, ok := s.mapiRPCProxyAuth(w, r)
+			if !ok {
+				// A 401 challenge (or rejection) has already been written.
 				return
 			}
 			//nolint:staticcheck // intentional: string key for cross-package context access
@@ -1090,6 +1119,12 @@ func (s *Server) AuditLogger() *audit.Logger {
 func (s *Server) Start(addr string) error {
 	s.config.Addr = addr
 
+	// HTTP-layer NTLM on the RPC proxy is connection-oriented, so every
+	// connection carries its own NTLM challenge state (see ntlmConnState).
+	ntlmConnContext := func(ctx context.Context, _ net.Conn) context.Context {
+		return context.WithValue(ctx, ntlmConnKey{}, &ntlmConnState{})
+	}
+
 	primaryHTTPServer := &http.Server{
 		Addr:              addr,
 		Handler:           s,
@@ -1097,6 +1132,7 @@ func (s *Server) Start(addr string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		ConnContext:       ntlmConnContext,
 	}
 
 	var plainHTTPServer *http.Server
@@ -1108,6 +1144,7 @@ func (s *Server) Start(addr string) error {
 			ReadHeaderTimeout: 10 * time.Second,
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       60 * time.Second,
+			ConnContext:       ntlmConnContext,
 		}
 	}
 
@@ -1995,4 +2032,154 @@ func (s *Server) mapiBasicAuth(w http.ResponseWriter, r *http.Request) string {
 	}
 
 	return email
+}
+
+// mapiNTLMCredential resolves an NTLM (user, domain) identity to the mailbox
+// email and its stored NT hash. It applies the same authorization gate as
+// mapiBasicAuth minus the password check — NTLM proves the password itself via
+// the NT hash — so the RPC-proxy NTLM path cannot bypass the active,
+// password-change, tenant-suspension and Outlook-tier policies. It is the NTLM
+// counterpart of mapiBasicAuth; keep the two gates aligned. ok is false when the
+// account is absent, fails the gate, or has no stored NT hash.
+func (s *Server) mapiNTLMCredential(user, domain string) (string, [16]byte, bool) {
+	var nt [16]byte
+	if s.db == nil {
+		return "", nt, false
+	}
+	email := user
+	if !strings.Contains(email, "@") && domain != "" {
+		email = user + "@" + domain
+	}
+	localPart, dom, ok := strings.Cut(email, "@")
+	if !ok {
+		return "", nt, false
+	}
+	account, err := s.db.GetAccount(dom, localPart)
+	if err != nil || account == nil || account.NTHash == "" {
+		return "", nt, false
+	}
+	if !account.IsActive || account.MustChangePassword || s.tenantSuspendedForDomain(dom) {
+		return "", nt, false
+	}
+	tier := semcore.AccountCompatibilityTier(account.CompatibilityTier)
+	if tier != semcore.TierOutlook || !semcore.Gate().IsEnabled(semcore.FeatureMAPIHTTP) {
+		return "", nt, false
+	}
+	raw, err := hex.DecodeString(account.NTHash)
+	if err != nil || len(raw) != 16 {
+		return "", nt, false
+	}
+	copy(nt[:], raw)
+	return account.Email, nt, true
+}
+
+// ntlmTargetName is the server name advertised in the NTLM CHALLENGE target info.
+const ntlmTargetName = "UMAILSERVER"
+
+// ntlmFileTimeNow returns the current time as a Windows FILETIME (100ns ticks
+// since 1601-01-01), placed in the CHALLENGE target-info timestamp.
+func ntlmFileTimeNow() uint64 {
+	const epochOffset = 11644473600 // seconds between 1601-01-01 and 1970-01-01
+	return uint64(time.Now().Unix()+epochOffset) * 10000000
+}
+
+// mapiRPCProxyAuth authenticates an Outlook Anywhere RPC-proxy request at
+// /rpc/rpcproxy.dll, returning the resolved mailbox email with ok=true when the
+// channel may be tunneled. On failure it has already written a 401 challenge (or
+// rejection) and ok is false. Basic-over-TLS is always accepted; HTTP-layer NTLM
+// (NTLMSSP carried in the WWW-Authenticate/Authorization headers, RFC 4559) is
+// offered and verified only when the NTLM opt-in is live — that is the scheme
+// Outlook's and impacket's RPC-proxy clients drive, so the mount cannot be
+// anonymous.
+func (s *Server) mapiRPCProxyAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
+	authz := r.Header.Get("Authorization")
+	ntlmOn := s.ntlmHashEnabled()
+
+	if ntlmOn && strings.HasPrefix(authz, "NTLM ") {
+		return s.mapiNTLMAuth(w, r, strings.TrimPrefix(authz, "NTLM "))
+	}
+	if email := s.mapiBasicAuth(w, r); email != "" {
+		return email, true
+	}
+	// No usable identity: challenge. Offer NTLM first (preferred by Outlook) when
+	// enabled, then Basic so existing Basic-over-TLS clients still authenticate.
+	if ntlmOn {
+		w.Header().Add("WWW-Authenticate", "NTLM")
+	}
+	w.Header().Add("WWW-Authenticate", `Basic realm="MAPI/HTTP"`)
+	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	return "", false
+}
+
+// mapiNTLMAuth drives one step of the HTTP-layer NTLM handshake for an RPC-proxy
+// request. A NEGOTIATE (type 1) is answered with a fresh per-connection CHALLENGE
+// in a keep-alive 401, so the AUTHENTICATE arrives on the same connection. An
+// AUTHENTICATE (type 3) is verified against the stored NT hash via
+// mapiNTLMCredential using that connection's challenge; on success the resolved
+// email is returned with ok=true. Any malformed or failed exchange yields a
+// connection-closing 401.
+func (s *Server) mapiNTLMAuth(w http.ResponseWriter, r *http.Request, token string) (string, bool) {
+	raw, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return s.rejectNTLM(w), false
+	}
+	cs := ntlmConnFromContext(r.Context())
+	if cs == nil {
+		return s.rejectNTLM(w), false
+	}
+	msgType, ok := ntlmssp.MessageType(raw)
+	if !ok {
+		return s.rejectNTLM(w), false
+	}
+
+	switch msgType {
+	case 1: // NEGOTIATE -> issue a CHALLENGE in a keep-alive 401
+		var challenge [8]byte
+		if _, err := rand.Read(challenge[:]); err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return "", false
+		}
+		cs.mu.Lock()
+		cs.challenge = challenge
+		cs.have = true
+		cs.mu.Unlock()
+
+		type2 := ntlmssp.BuildChallenge(challenge, ntlmTargetName, ntlmFileTimeNow())
+		w.Header().Set("WWW-Authenticate", "NTLM "+base64.StdEncoding.EncodeToString(type2))
+		// Zero-length, keep-alive: the AUTHENTICATE must reuse this connection.
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusUnauthorized)
+		return "", false
+
+	case 3: // AUTHENTICATE -> verify against this connection's challenge
+		cs.mu.Lock()
+		challenge, have := cs.challenge, cs.have
+		cs.have = false // single-use: a fresh handshake must renegotiate
+		cs.mu.Unlock()
+		if !have {
+			return s.rejectNTLM(w), false
+		}
+		auth, err := ntlmssp.ParseAuthenticate(raw)
+		if err != nil {
+			return s.rejectNTLM(w), false
+		}
+		email, ntHash, ok := s.mapiNTLMCredential(auth.User, auth.DomainName())
+		if !ok || !ntlmssp.VerifyNTLMv2(auth, challenge, ntHash) {
+			return s.rejectNTLM(w), false
+		}
+		return email, true
+
+	default:
+		return s.rejectNTLM(w), false
+	}
+}
+
+// rejectNTLM writes a connection-closing 401 after a malformed or failed NTLM
+// exchange, so a half-open handshake cannot be reused on the connection. It
+// returns "" so callers can write `return s.rejectNTLM(w), false`.
+func (s *Server) rejectNTLM(w http.ResponseWriter) string {
+	w.Header().Set("Connection", "close")
+	w.Header().Set("WWW-Authenticate", "NTLM")
+	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	return ""
 }

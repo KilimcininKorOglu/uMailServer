@@ -3,9 +3,9 @@
 // AUTHENTICATE (type 3) messages, producing the server CHALLENGE (type 2)
 // message, and verifying an NTLMv2 response against a stored NT hash.
 //
-// It is transport-agnostic. For the EMSMDB endpoint over RPC-over-HTTP the
-// three messages ride in the DCERPC auth verifier (sec_trailer) of the BIND,
-// BIND_ACK and AUTH3 PDUs.
+// It is transport-agnostic. For Outlook Anywhere (RPC-over-HTTP) the three
+// messages ride in the HTTP WWW-Authenticate and Authorization headers of the
+// RPC-proxy requests (the "NTLM" scheme, RFC 4559).
 //
 // NTLMv2 is keyed solely on the NT hash (MD4 of the UTF-16LE password, MS-NLMP
 // 3.3.2), so that one secret is all the server must hold to verify a
@@ -68,6 +68,17 @@ func NTHashForStorage(enabled bool, password string) string {
 	}
 	h := NTHash(password)
 	return hex.EncodeToString(h[:])
+}
+
+// MessageType returns the NTLMSSP message type of b (1=NEGOTIATE, 2=CHALLENGE,
+// 3=AUTHENTICATE) after validating the "NTLMSSP\0" signature. ok is false when b
+// is too short or lacks the signature. It lets a caller dispatch on the message
+// type before choosing the matching parser.
+func MessageType(b []byte) (uint32, bool) {
+	if len(b) < 12 || !hasSignature(b) {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(b[8:12]), true
 }
 
 // Negotiate is the decoded client NEGOTIATE (type 1) message.
@@ -144,6 +155,12 @@ type Authenticate struct {
 	User       string // decoded from UTF-16LE
 	Domain     []byte // raw UTF-16LE bytes, used verbatim in NTOWFv2
 	NTResponse []byte // NtChallengeResponse: NTProofStr(16) + temp
+}
+
+// DomainName returns the AUTHENTICATE domain decoded from UTF-16LE, for account
+// lookup. The raw Domain bytes are kept verbatim for the NTOWFv2 computation.
+func (a *Authenticate) DomainName() string {
+	return decodeUTF16LE(a.Domain)
 }
 
 // ParseAuthenticate decodes an AUTHENTICATE message, following the message's own
