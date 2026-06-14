@@ -297,3 +297,16 @@ func EncodeFault(callID uint32, contextID uint16, status uint32) []byte {
 	p.Uint32(status) // 4-alignment inserts the reserved byte
 	return patchFragLength(p.Bytes())
 }
+
+// EncodeRTS builds an RTS (Request To Send) PDU used by the RPC-over-HTTP
+// tunnel: the common header with the RTS packet type, then the RTS-specific
+// flags and command count, then the caller's pre-marshaled command bytes. RTS
+// PDUs carry no auth and use call id 0 (MS-RPCH 2.2.3.6.1).
+func EncodeRTS(flags, numCommands uint16, commands []byte) []byte {
+	p := ndr.NewPush()
+	writeHeader(p, PktRTS, PFCFirstFrag|PFCLastFrag, 0, 0)
+	p.Uint16(flags)
+	p.Uint16(numCommands)
+	p.Raw(commands)
+	return patchFragLength(p.Bytes())
+}
