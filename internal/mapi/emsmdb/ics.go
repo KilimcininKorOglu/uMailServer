@@ -25,6 +25,8 @@ type syncContextObject struct {
 	// replicaGUID is the store's stable per-mailbox replica GUID, used for the XIDs
 	// (source/change keys) and the IDSET state the download stream carries.
 	replicaGUID wire.GUID
+	// logon backs a hierarchy sync's folder enumeration (mapping folder names to ids).
+	logon *logonObject
 	// stream holds the serialized FastTransfer download produced on the first
 	// RopFastTransferSourceGetBuffer call; pos is how far it has been drained. produced
 	// guards lazy production so the stream is built once and chunked across calls.
@@ -80,6 +82,7 @@ func ropSyncConfigure(c *ropCtx, _ uint8, hindex uint8) {
 		sendOptions: sendOptions,
 		proptags:    proptags,
 		replicaGUID: fo.logon.replGUID,
+		logon:       fo.logon,
 	}))
 
 	out := c.out

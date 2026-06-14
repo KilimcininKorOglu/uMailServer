@@ -224,12 +224,20 @@ func ropFastTransferSourceGetBuffer(c *ropCtx, _ uint8, hindex uint8) {
 		writeRopError(c.out, RopFastTransferSourceGetBuffer, hindex, ecNullObject)
 		return
 	}
-	if sc.syncType != syncTypeContents {
-		writeRopError(c.out, RopFastTransferSourceGetBuffer, hindex, ecNotImplemented)
-		return
-	}
 	if !sc.produced {
-		stream, err := c.buildContentsDownload(sc)
+		var (
+			stream []byte
+			err    error
+		)
+		switch sc.syncType {
+		case syncTypeContents:
+			stream, err = c.buildContentsDownload(sc)
+		case syncTypeHierarchy:
+			stream, err = c.buildHierarchyDownload(sc)
+		default:
+			writeRopError(c.out, RopFastTransferSourceGetBuffer, hindex, ecNotImplemented)
+			return
+		}
 		if err != nil {
 			writeRopError(c.out, RopFastTransferSourceGetBuffer, hindex, ecError)
 			return

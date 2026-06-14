@@ -100,6 +100,7 @@ const (
 	PidTagMid                  PropTag = PropTag(0x674A)<<16 | PropTag(PtI8)
 	// ICS message-change-header identity/version properties (MS-OXCFXICS 2.2.1.2.*).
 	PidTagSourceKey             PropTag = PropTag(0x65E0)<<16 | PropTag(PtBinary)
+	PidTagParentSourceKey       PropTag = PropTag(0x65E1)<<16 | PropTag(PtBinary)
 	PidTagChangeKey             PropTag = PropTag(0x65E2)<<16 | PropTag(PtBinary)
 	PidTagPredecessorChangeList PropTag = PropTag(0x65E3)<<16 | PropTag(PtBinary)
 	PidTagAssociated            PropTag = PropTag(0x67AA)<<16 | PropTag(PtBoolean)
