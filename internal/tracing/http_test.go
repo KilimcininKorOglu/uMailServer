@@ -5,7 +5,40 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
+
+// deadlineWriter is a minimal ResponseWriter that also supports a write
+// deadline — the capability http.ResponseController looks for, and the one the
+// real *http.response provides. It records the last deadline set through it.
+type deadlineWriter struct {
+	http.ResponseWriter
+	deadline    time.Time
+	deadlineSet bool
+}
+
+func (w *deadlineWriter) SetWriteDeadline(t time.Time) error {
+	w.deadline, w.deadlineSet = t, true
+	return nil
+}
+
+// TestStatusCaptureWriter_UnwrapReachesDeadline proves the tracing wrapper is
+// transparent to http.ResponseController: a handler wrapped by the enabled
+// middleware can still lift the write deadline. This is load-bearing for the
+// ActiveSync Ping, which clears the deadline to hold the connection past the
+// listener's WriteTimeout; without Unwrap the controller stops at the wrapper
+// and SetWriteDeadline returns ErrNotSupported, silently capping the heartbeat.
+func TestStatusCaptureWriter_UnwrapReachesDeadline(t *testing.T) {
+	underlying := &deadlineWriter{ResponseWriter: httptest.NewRecorder()}
+	wrapped := &statusCaptureWriter{ResponseWriter: underlying, status: http.StatusOK}
+
+	if err := http.NewResponseController(wrapped).SetWriteDeadline(time.Time{}); err != nil {
+		t.Fatalf("SetWriteDeadline through wrapper: %v (Ping would degrade to a sub-WriteTimeout heartbeat)", err)
+	}
+	if !underlying.deadlineSet {
+		t.Fatal("deadline did not reach the underlying writer through Unwrap")
+	}
+}
 
 func TestHTTPMiddleware_NilProvider_PassesThrough(t *testing.T) {
 	called := false

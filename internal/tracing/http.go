@@ -27,6 +27,15 @@ func (w *statusCaptureWriter) Flush() {
 	}
 }
 
+// Unwrap exposes the wrapped writer so http.ResponseController can reach the
+// underlying connection. Without it the controller's walk stops at this wrapper
+// and SetWriteDeadline/SetReadDeadline report ErrNotSupported — which would
+// silently degrade long-poll handlers (the ActiveSync Ping lifts the write
+// deadline to hold past the listener's WriteTimeout) whenever tracing is on.
+func (w *statusCaptureWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // HTTPMiddleware returns an http.Handler that wraps next in an http.<METHOD>
 // server-kind span when the provider is enabled. W3C trace context is
 // extracted from the incoming request headers so the span joins any upstream
