@@ -60,6 +60,7 @@ type Context struct {
 type DeviceStore interface {
 	GetEASDevice(email, deviceID string) (*db.EASDevice, error)
 	PutEASDevice(dev *db.EASDevice) error
+	DeleteEASDevice(email, deviceID string) error
 }
 
 type Server struct {
@@ -247,6 +248,16 @@ func (s *Server) servePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request: missing Cmd", http.StatusBadRequest)
 		return
 	}
+
+	// Provisioning gate (MS-ASHTTP): every command except Provision requires the
+	// device's current policy key. An unprovisioned, stale-key or wipe-flagged
+	// device gets 449, the signal to (re)run Provision — which is also how an
+	// admin-requested remote wipe reaches the device.
+	if cmd != "Provision" && !s.deviceProvisioned(r, email) {
+		http.Error(w, "Provisioning required", statusProvisioningRequired)
+		return
+	}
+
 	handler, known := s.commands[cmd]
 	if !known {
 		// A command this server does not implement: report it rather than
