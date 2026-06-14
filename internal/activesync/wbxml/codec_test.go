@@ -169,3 +169,66 @@ func TestTruncatedString(t *testing.T) {
 		t.Fatalf("expected ErrTruncated, got %v", err)
 	}
 }
+
+// TestCodePageTokens pins representative token values against the published
+// MS-ASWBXML tables, and asserts the absence of the 2.5-era tokens an earlier
+// hand-keyed table wrongly carried. This is the regression that a symmetric
+// round-trip cannot catch: a wrong token value round-trips fine but fails real
+// clients, so the tables are anchored on the spec's own assignments here.
+func TestCodePageTokens(t *testing.T) {
+	present := []struct {
+		page byte
+		name string
+		tok  byte
+	}{
+		{PageAirSync, "Sync", 0x05},
+		{PageAirSync, "Status", 0x0E},
+		{PageAirSync, "CollectionId", 0x12},
+		{PageAirSync, "HeartbeatInterval", 0x29},
+		{PageEmail, "Subject", 0x14},
+		{PageEmail, "From", 0x18},
+		{PageEmail, "DisallowNewTimeProposal", 0x3F},
+		{PageGetItemEstimate, "GetItemEstimate", 0x05},
+		{PageGetItemEstimate, "Estimate", 0x0C},
+		{PageFolderHierarchy, "FolderSync", 0x16}, // not 0x16=Count, a prior mis-key
+		{PageFolderHierarchy, "Delete", 0x10},     // not "Remove"
+		{PageFolderHierarchy, "Count", 0x17},
+		{PageProvision, "Provision", 0x05},
+		{PageProvision, "PolicyKey", 0x09},
+		{PageProvision, "EASProvisionDoc", 0x0D},
+		{PageAirSyncBase, "BodyPreference", 0x05},
+		{PageAirSyncBase, "Body", 0x0A},
+		{PageAirSyncBase, "Data", 0x0B},
+	}
+	for _, c := range present {
+		cp, ok := codePage(c.page)
+		if !ok {
+			t.Errorf("code page %d not registered", c.page)
+			continue
+		}
+		if got, ok := cp.token(c.name); !ok || got != c.tok {
+			t.Errorf("page %d %q token = 0x%02x (ok=%v), want 0x%02x", c.page, c.name, got, ok, c.tok)
+		}
+		if got, ok := cp.name(c.tok); !ok || got != c.name {
+			t.Errorf("page %d 0x%02x name = %q (ok=%v), want %q", c.page, c.tok, got, ok, c.name)
+		}
+	}
+
+	// These tokens are NOT in the current MS-ASWBXML tables; an earlier table
+	// wrongly included them. Their absence is the fix.
+	absent := []struct {
+		page byte
+		name string
+	}{
+		{PageAirSync, "Version"},
+		{PageAirSync, "RtfTruncation"},
+		{PageAirSync, "NotifyGUID"},
+		{PageEmail, "AttRemoved"},
+	}
+	for _, c := range absent {
+		cp, _ := codePage(c.page)
+		if _, ok := cp.token(c.name); ok {
+			t.Errorf("page %d wrongly defines %q (spec omits it)", c.page, c.name)
+		}
+	}
+}
