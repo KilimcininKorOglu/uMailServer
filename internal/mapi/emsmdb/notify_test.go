@@ -153,6 +153,24 @@ func TestExecuteDrainEmitsRopNotify(t *testing.T) {
 	}
 }
 
+// TestReleasedSubscriptionNotNotified verifies that once a client releases a
+// subscription handle, a later event produces no RopNotify for it — the drain skips a
+// subscription whose handle no longer resolves.
+func TestReleasedSubscriptionNotNotified(t *testing.T) {
+	src := newFakeNotifySource()
+	p, sess, handles := notifyLogon(t, src)
+	_, handles = p.Dispatch(sess, ropRequest(RopRegisterNotification, 0, registerNotificationRequest(1, true)), handles, 0x10000)
+
+	// Release the subscription bound at handle index 1.
+	_, handles = p.Dispatch(sess, ropRequest(RopRelease, 1, nil), handles, 0x10000)
+
+	src.push(MailboxEvent{Mailbox: "INBOX", UID: 7})
+	resp, _ := p.Dispatch(sess, nil, handles, 0x10000)
+	if len(resp) != 0 {
+		t.Errorf("released subscription should produce no RopNotify, got % x", resp)
+	}
+}
+
 // TestNoSubscriptionNoNotify verifies a session that never registered drains nothing,
 // so an ordinary Execute is unaffected by the notification path.
 func TestNoSubscriptionNoNotify(t *testing.T) {

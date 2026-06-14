@@ -188,6 +188,7 @@ func emitNotifications(sess *Session, out *wire.Push) {
 	if len(events) == 0 {
 		return
 	}
+	st := stateFor(sess)
 	subs := n.snapshotSubs()
 	for _, ev := range events {
 		slot := specialSlotForName(ev.Mailbox)
@@ -199,6 +200,9 @@ func emitNotifications(sess *Session, out *wire.Push) {
 		for _, sub := range subs {
 			if !sub.wholeStore {
 				continue // folder-scoped subscriptions are a refinement
+			}
+			if st.objects[sub.handle] != sub {
+				continue // the subscription handle was released (RopRelease)
 			}
 			writeNewMailNotify(out, sub.handle, sub.logonID, folderID, mid)
 		}
