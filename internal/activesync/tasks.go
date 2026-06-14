@@ -193,6 +193,28 @@ func BuildVTODO(it TaskItem) string {
 	return b.String()
 }
 
+// taskOwnedProps is the set of VTODO properties BuildVTODO emits — the only ones
+// the EAS task projection can represent. MergeVTODO replaces exactly these on a
+// client edit and preserves everything else (RRULE, VALARM, CATEGORIES, X-*).
+// Keep it in lockstep with BuildVTODO.
+var taskOwnedProps = map[string]bool{
+	"UID": true, "DTSTAMP": true, "DTSTART": true, "DUE": true, "SUMMARY": true,
+	"DESCRIPTION": true, "STATUS": true, "PERCENT-COMPLETE": true, "COMPLETED": true,
+	"PRIORITY": true, "CLASS": true,
+}
+
+// MergeVTODO rebuilds the to-do from the edited item but preserves every VTODO
+// property the projection does not model, so a phone edit that touches only
+// modeled fields does not erase the canonical task's recurrence, reminders, or
+// categories. Falls back to a fresh build when there is no existing record.
+func MergeVTODO(existing string, it TaskItem) string {
+	rebuilt := BuildVTODO(it)
+	if strings.TrimSpace(existing) == "" {
+		return rebuilt
+	}
+	return mergeRFCSection(existing, rebuilt, "VTODO", taskOwnedProps)
+}
+
 // taskImportanceOf maps an iCalendar PRIORITY (1 highest .. 9 lowest, 0
 // undefined) to an EAS task Importance ("0" low, "1" normal, "2" high). It is
 // distinct from the mail importanceOf, which maps the RFC 4021 header words.

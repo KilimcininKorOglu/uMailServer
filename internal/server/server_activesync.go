@@ -326,8 +326,15 @@ func (m easCalendarMutator) CreateItem(email, _ string, it activesync.CalendarIt
 
 func (m easCalendarMutator) UpdateItem(email, _, serverID string, it activesync.CalendarItem) error {
 	it.UID = serverID // the EAS calendar ServerId is the iCal UID
+	// Merge onto the canonical event's verbatim iCalendar so a phone edit cannot
+	// erase properties the EAS projection does not model (recurrence, attendees,
+	// alarms). A read failure aborts the write rather than truncating silently.
+	existing, err := m.store.GetEvent(email, easCalendarID, serverID)
+	if err != nil {
+		return err
+	}
 	ev := &caldav.CalendarEvent{UID: serverID, Summary: it.Subject, Created: time.Now(), Modified: time.Now()}
-	return m.store.SaveEvent(email, easCalendarID, ev, activesync.BuildICalEvent(it))
+	return m.store.SaveEvent(email, easCalendarID, ev, activesync.MergeICalEvent(existing, it))
 }
 
 func (m easCalendarMutator) DeleteItem(email, _, serverID string) error {
@@ -426,7 +433,14 @@ func (m easContactMutator) CreateItem(email, _ string, it activesync.ContactItem
 
 func (m easContactMutator) UpdateItem(email, _, serverID string, it activesync.ContactItem) error {
 	it.UID = serverID // the EAS contact ServerId is the vCard UID
-	return m.store.SaveContact(email, easAddressbookID, &carddav.Contact{UID: serverID}, activesync.BuildVCard(it))
+	// Merge onto the canonical card's verbatim vCard so a phone edit cannot erase
+	// properties the EAS projection does not model (photo, categories, extended
+	// fields). A read failure aborts the write rather than truncating silently.
+	existing, err := m.store.GetContact(email, easAddressbookID, serverID)
+	if err != nil {
+		return err
+	}
+	return m.store.SaveContact(email, easAddressbookID, &carddav.Contact{UID: serverID}, activesync.MergeVCard(existing, it))
 }
 
 func (m easContactMutator) DeleteItem(email, _, serverID string) error {
@@ -490,8 +504,15 @@ func (m easTaskMutator) CreateItem(email, _ string, it activesync.TaskItem) (str
 
 func (m easTaskMutator) UpdateItem(email, _, serverID string, it activesync.TaskItem) error {
 	it.UID = serverID // the EAS task ServerId is the VTODO UID
+	// Merge onto the canonical to-do's verbatim VTODO so a phone edit cannot erase
+	// properties the EAS projection does not model (recurrence, reminders,
+	// categories). A read failure aborts the write rather than truncating silently.
+	existing, err := m.store.GetEvent(email, easTaskListID, serverID)
+	if err != nil {
+		return err
+	}
 	ev := &caldav.CalendarEvent{UID: serverID, Summary: it.Subject, Created: time.Now(), Modified: time.Now()}
-	return m.store.SaveEvent(email, easTaskListID, ev, activesync.BuildVTODO(it))
+	return m.store.SaveEvent(email, easTaskListID, ev, activesync.MergeVTODO(existing, it))
 }
 
 func (m easTaskMutator) DeleteItem(email, _, serverID string) error {

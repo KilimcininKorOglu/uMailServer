@@ -258,6 +258,30 @@ func BuildICalEvent(it CalendarItem) string {
 	return b.String()
 }
 
+// calendarOwnedProps is the set of VEVENT properties BuildICalEvent emits — the
+// only ones the EAS calendar projection can represent. MergeICalEvent replaces
+// exactly these on a client edit and preserves everything else (RRULE, EXDATE,
+// ATTENDEE, ORGANIZER, VALARM, STATUS, X-*). Keep it in lockstep with
+// BuildICalEvent: a property emitted there but missing here duplicates on edit;
+// one listed here but not emitted is dropped on edit.
+var calendarOwnedProps = map[string]bool{
+	"UID": true, "DTSTAMP": true, "DTSTART": true, "DTEND": true,
+	"SUMMARY": true, "LOCATION": true, "DESCRIPTION": true, "CLASS": true, "TRANSP": true,
+}
+
+// MergeICalEvent rebuilds the VEVENT from the edited item but preserves every
+// VEVENT property the projection does not model, so a phone edit that touches
+// only modeled fields does not erase the canonical event's recurrence,
+// attendees, or alarms. Falls back to a fresh build when there is no existing
+// record (a Change against a missing event, or a first write).
+func MergeICalEvent(existing string, it CalendarItem) string {
+	rebuilt := BuildICalEvent(it)
+	if strings.TrimSpace(existing) == "" {
+		return rebuilt
+	}
+	return mergeRFCSection(existing, rebuilt, "VEVENT", calendarOwnedProps)
+}
+
 // classOfSensitivity maps an EAS Sensitivity to an iCalendar CLASS, or "" for
 // the default (normal) sensitivity.
 func classOfSensitivity(s string) string {

@@ -292,6 +292,31 @@ func BuildVCard(it ContactItem) string {
 	return b.String()
 }
 
+// contactOwnedProps is the set of vCard properties BuildVCard emits — the only
+// ones the EAS contact projection can represent. MergeVCard replaces exactly
+// these on a client edit and preserves everything else (PHOTO, NICKNAME, IMPP,
+// CATEGORIES, X-*). Keep it in lockstep with BuildVCard. Note that EMAIL/TEL/ADR
+// are owned by name, so a card's extra phones or emails beyond the modeled
+// mobile/home/work + the two addresses are not yet preserved across an edit —
+// full multi-value (Supported) ghosting is deferred.
+var contactOwnedProps = map[string]bool{
+	"VERSION": true, "PRODID": true, "UID": true, "N": true, "FN": true,
+	"ORG": true, "TITLE": true, "EMAIL": true, "TEL": true, "ADR": true,
+	"NOTE": true, "BDAY": true,
+}
+
+// MergeVCard rebuilds the card from the edited item but preserves every vCard
+// property the projection does not model, so a phone edit that touches only
+// modeled fields does not erase the canonical card's photo, categories, or
+// other extended properties. Falls back to a fresh build with no existing card.
+func MergeVCard(existing string, it ContactItem) string {
+	rebuilt := BuildVCard(it)
+	if strings.TrimSpace(existing) == "" {
+		return rebuilt
+	}
+	return mergeRFCSection(existing, rebuilt, "VCARD", contactOwnedProps)
+}
+
 // buildVCardADR renders an address as a vCard ADR value: POBox;Ext;Street;City;
 // Region;PostalCode;Country (the leading PO-box and extended fields are unused).
 func buildVCardADR(a contactAddress) string {
