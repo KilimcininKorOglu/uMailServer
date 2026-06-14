@@ -16,6 +16,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+
+	"github.com/umailserver/umailserver/internal/db"
 )
 
 // maxRequestBody caps a WBXML request body, a guard against a hostile
@@ -48,19 +50,35 @@ type Context struct {
 // Server is the EAS endpoint handler. authenticate is the injected Basic-auth
 // gate (it also enforces the FeatureEAS opt-in and account-state policy); it
 // returns the mailbox email and ok=false when the request must be rejected.
+// DeviceStore persists EAS device partnerships (the provisioning policy key the
+// device echoes on each request); it is the subset of db.Store that the
+// ActiveSync surface needs.
+type DeviceStore interface {
+	GetEASDevice(email, deviceID string) (*db.EASDevice, error)
+	PutEASDevice(dev *db.EASDevice) error
+}
+
 type Server struct {
 	authenticate func(*http.Request) (email string, ok bool)
 	logger       *slog.Logger
 	commands     map[string]CommandFunc
+	devices      DeviceStore
 }
 
 // NewServer builds an EAS endpoint that authenticates through authenticate.
 func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
-	return &Server{
+	s := &Server{
 		authenticate: authenticate,
 		logger:       slog.Default(),
 		commands:     make(map[string]CommandFunc),
 	}
+	s.Handle("Provision", s.handleProvision)
+	return s
+}
+
+// SetDeviceStore wires the EAS device-partnership store used by Provision.
+func (s *Server) SetDeviceStore(d DeviceStore) {
+	s.devices = d
 }
 
 // SetLogger overrides the default logger.

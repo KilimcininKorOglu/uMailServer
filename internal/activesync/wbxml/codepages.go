@@ -72,6 +72,7 @@ const (
 	PageFolderHierarchy byte = 7  // FolderSync/FolderCreate/FolderDelete/FolderUpdate
 	PageProvision       byte = 14 // Provision command + policy document
 	PageAirSyncBase     byte = 17 // shared Body/Attachments/BodyPart (12.0+) + Location
+	PageSettings        byte = 18 // Settings: DeviceInformation, OOF, UserInformation
 )
 
 var _ = register(PageAirSync, "AirSync", map[byte]string{
@@ -301,4 +302,45 @@ var _ = register(PageAirSyncBase, "AirSyncBase", map[byte]string{
 	0x2B: "AltitudeAccuracy",
 	0x2C: "LocationUri",
 	0x2D: "InstanceId",
+})
+
+var _ = register(PageSettings, "Settings", map[byte]string{
+	0x05: "Settings",
+	0x06: "Status",
+	0x07: "Get",
+	0x08: "Set",
+	0x09: "Oof",
+	0x0A: "OofState",
+	0x0B: "StartTime",
+	0x0C: "EndTime",
+	0x0D: "OofMessage",
+	0x0E: "AppliesToInternal",
+	0x0F: "AppliesToExternalKnown",
+	0x10: "AppliesToExternalUnknown",
+	0x11: "Enabled",
+	0x12: "ReplyMessage",
+	0x13: "BodyType",
+	0x14: "DevicePassword",
+	0x15: "Password",
+	0x16: "DeviceInformation",
+	0x17: "Model",
+	0x18: "IMEI",
+	0x19: "FriendlyName",
+	0x1A: "OS",
+	0x1B: "OSLanguage",
+	0x1C: "PhoneNumber",
+	0x1D: "UserInformation",
+	0x1E: "EmailAddresses",
+	0x1F: "SMTPAddress",
+	0x20: "UserAgent",
+	0x21: "EnableOutboundSMS",
+	0x22: "MobileOperator",
+	0x23: "PrimarySmtpAddress",
+	0x24: "Accounts",
+	0x25: "Account",
+	0x26: "AccountId",
+	0x27: "AccountName",
+	0x28: "UserDisplayName",
+	0x29: "SendDisabled",
+	0x2B: "RightsManagementInformation",
 })
