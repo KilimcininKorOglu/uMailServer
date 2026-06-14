@@ -231,6 +231,46 @@ func TestMoveItems(t *testing.T) {
 	}
 }
 
+// TestSendMail verifies SendMail extracts the byte-exact opaque Mime and the
+// SaveInSentItems flag, invokes the submitter, and returns an empty 200 (the
+// MS-ASCMD success contract).
+func TestSendMail(t *testing.T) {
+	var gotMime []byte
+	var gotSave, called bool
+	s := NewServer(allowAuth)
+	s.SetSubmitter(func(_ string, mime []byte, saveToSent bool) error {
+		called, gotMime, gotSave = true, mime, saveToSent
+		return nil
+	})
+	raw := []byte("From: u@x.test\r\nTo: r@y.test\r\nSubject: hi\r\n\r\nbody\r\n")
+	body, err := wbxml.Marshal(&wbxml.Element{Page: wbxml.PageComposeMail, Name: "SendMail", Children: []*wbxml.Element{
+		{Page: wbxml.PageComposeMail, Name: "ClientId", Text: "c1"},
+		{Page: wbxml.PageComposeMail, Name: "SaveInSentItems"},
+		{Page: wbxml.PageComposeMail, Name: "Mime", Opaque: raw},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/Microsoft-Server-ActiveSync?Cmd=SendMail&DeviceId=DEV1", bytes.NewReader(body))
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("SendMail status = %d, want 200", rec.Code)
+	}
+	if !called {
+		t.Fatalf("submitter was not invoked")
+	}
+	if string(gotMime) != string(raw) {
+		t.Fatalf("Mime not byte-exact: got %q", gotMime)
+	}
+	if !gotSave {
+		t.Fatalf("SaveInSentItems flag not detected")
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("SendMail success must be an empty body, got %d bytes", rec.Body.Len())
+	}
+}
+
 // doSyncRaw sends a Sync request carrying arbitrary extra collection children
 // (e.g. a Commands block) and returns the response Collection.
 func doSyncRaw(t *testing.T, s *Server, syncKey string, extra ...*wbxml.Element) *wbxml.Element {

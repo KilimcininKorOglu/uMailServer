@@ -74,6 +74,7 @@ const (
 	PageProvision       byte = 14 // Provision command + policy document
 	PageAirSyncBase     byte = 17 // shared Body/Attachments/BodyPart (12.0+) + Location
 	PageSettings        byte = 18 // Settings: DeviceInformation, OOF, UserInformation
+	PageComposeMail     byte = 21 // SendMail/SmartForward/SmartReply
 )
 
 var _ = register(PageAirSync, "AirSync", map[byte]string{
@@ -314,6 +315,26 @@ var _ = register(PageAirSyncBase, "AirSyncBase", map[byte]string{
 	0x2B: "AltitudeAccuracy",
 	0x2C: "LocationUri",
 	0x2D: "InstanceId",
+})
+
+var _ = register(PageComposeMail, "ComposeMail", map[byte]string{
+	0x05: "SendMail",
+	0x06: "SmartForward",
+	0x07: "SmartReply",
+	0x08: "SaveInSentItems",
+	0x09: "ReplaceMime",
+	0x0B: "Source",
+	0x0C: "FolderId",
+	0x0D: "ItemId",
+	0x0E: "LongId",
+	0x0F: "InstanceId",
+	0x10: "Mime",
+	0x11: "ClientId",
+	0x12: "Status",
+	0x15: "Forwardees",
+	0x16: "Forwardee",
+	0x17: "Name",
+	0x18: "Email",
 })
 
 var _ = register(PageSettings, "Settings", map[byte]string{

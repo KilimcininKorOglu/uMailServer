@@ -1,12 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"net/mail"
 	"slices"
 
 	"github.com/umailserver/umailserver/internal/activesync"
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/imap"
+	"github.com/umailserver/umailserver/internal/mailappend"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 )
@@ -269,4 +273,57 @@ func (m easMutator) uidByServerID(email, folder, serverID string) (uint32, bool)
 		}
 	}
 	return 0, false
+}
+
+// easSendMail submits a composed message for the EAS SendMail/SmartForward/
+// SmartReply commands: it parses the recipients from the message headers, queues
+// delivery through the shared Sieve-aware submit path (so the recipient's rules
+// run), and — when the client asked to keep a copy — files the message in Sent
+// through the canonical Appender, never a hand-rolled write.
+func (s *Server) easSendMail(email string, mime []byte, saveToSent bool) error {
+	to := recipientsFromMIME(mime)
+	if len(to) == 0 {
+		return fmt.Errorf("activesync sendmail: message has no recipients")
+	}
+	if err := s.submitMessageWithSieve(email, to, mime); err != nil {
+		return err
+	}
+	if saveToSent && s.appender != nil {
+		if _, err := s.appender.Append(mailappend.Input{
+			Email:      email,
+			Folder:     "Sent",
+			Raw:        mime,
+			Actor:      email,
+			Source:     semcore.MutationSourceAPI,
+			IsRead:     true,
+			ExtraFlags: []string{"\\Seen"},
+		}); err != nil {
+			s.logger.Warn("activesync sendmail: save to Sent failed", "email", email, "error", err)
+		}
+	}
+	return nil
+}
+
+// recipientsFromMIME collects the unique To/Cc/Bcc addresses of a composed
+// message — the envelope recipients the submit path delivers to.
+func recipientsFromMIME(raw []byte) []string {
+	msg, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+	var to []string
+	seen := map[string]bool{}
+	for _, hdr := range []string{"To", "Cc", "Bcc"} {
+		addrs, aerr := msg.Header.AddressList(hdr)
+		if aerr != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if !seen[a.Address] {
+				seen[a.Address] = true
+				to = append(to, a.Address)
+			}
+		}
+	}
+	return to
 }

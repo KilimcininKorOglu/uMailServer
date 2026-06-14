@@ -131,6 +131,7 @@ func (s *Server) startAPI() {
 		eas.SetSyncState(easSyncState{identity: s.semcoreStore.Identity(), sync: s.semcoreStore.SyncState()})
 		eas.SetMailSource(easMailSource{db: s.storageDB, msg: s.msgStore})
 		eas.SetMutator(easMutator{emsmdbMutator{srv: s}})
+		eas.SetSubmitter(s.easSendMail)
 		s.apiServer.SetActiveSyncHandler(eas)
 		s.logger.Info("Exchange ActiveSync handler initialized")
 	}

@@ -67,6 +67,7 @@ type Server struct {
 	sync         SyncState
 	mail         MailSource
 	mutator      Mutator
+	submitter    Submitter
 }
 
 // NewServer builds an EAS endpoint that authenticates through authenticate.
@@ -80,6 +81,9 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 	s.Handle("FolderSync", s.handleFolderSync)
 	s.Handle("Sync", s.handleSync)
 	s.Handle("MoveItems", s.handleMoveItems)
+	s.Handle("SendMail", s.handleSendMail)
+	s.Handle("SmartForward", s.handleSendMail)
+	s.Handle("SmartReply", s.handleSendMail)
 	return s
 }
 
@@ -107,6 +111,12 @@ func (s *Server) SetMailSource(m MailSource) {
 // Sync up-sync changes (read-flag Changes, Deletes).
 func (s *Server) SetMutator(m Mutator) {
 	s.mutator = m
+}
+
+// SetSubmitter wires the outbound submitter used by SendMail/SmartForward/
+// SmartReply.
+func (s *Server) SetSubmitter(sub Submitter) {
+	s.submitter = sub
 }
 
 // SetLogger overrides the default logger.
