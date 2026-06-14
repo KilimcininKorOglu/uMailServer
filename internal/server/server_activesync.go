@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net/mail"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/umailserver/umailserver/internal/activesync"
 	"github.com/umailserver/umailserver/internal/caldav"
 	"github.com/umailserver/umailserver/internal/carddav"
+	"github.com/umailserver/umailserver/internal/db"
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mailappend"
@@ -635,6 +637,33 @@ func recipientsFromMIME(raw []byte) []string {
 		}
 	}
 	return to
+}
+
+// aliasLister is the slice of db.Store the EAS UserInformation adapter needs:
+// the canonical alias table.
+type aliasLister interface {
+	ListAliases() ([]*db.AliasData, error)
+}
+
+// easAliasSource lists a mailbox's alias addresses for the EAS Settings
+// UserInformation sub-command from the canonical alias table — the same
+// db.ListAliases the admin alias API reads — so the address set converges with
+// every other surface rather than maintaining a parallel list. Only active
+// aliases targeting the mailbox are returned.
+type easAliasSource struct{ db aliasLister }
+
+func (a easAliasSource) AliasesFor(email string) ([]string, error) {
+	all, err := a.db.ListAliases()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, al := range all {
+		if al != nil && al.IsActive && strings.EqualFold(al.Target, email) {
+			out = append(out, al.Alias)
+		}
+	}
+	return out, nil
 }
 
 // easMailNotifier bridges the shared IMAP notification hub to the EAS Ping

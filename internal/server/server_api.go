@@ -143,6 +143,8 @@ func (s *Server) startAPI() {
 		eas.SetMutator(easMutator{emsmdbMutator{srv: s}})
 		eas.SetSubmitter(s.easSendMail)
 		eas.SetMailNotifier(easMailNotifier{})
+		eas.SetAliasSource(easAliasSource{db: s.database})
+		eas.SetOOFStore(s.apiServer)
 		s.apiServer.SetActiveSyncHandler(eas)
 		s.logger.Info("Exchange ActiveSync handler initialized")
 	}

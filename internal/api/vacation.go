@@ -294,6 +294,20 @@ func (s *Server) setVacationConfig(user string, config *vacation.Config) error {
 	return s.db.PutVacation(user, config)
 }
 
+// GetVacationConfig and SetVacationConfig expose the canonical out-of-office
+// accessors webmail uses (the semcore policy store plus a Sieve recompile) so the
+// EAS Settings Oof sub-command converges on the same policy as webmail/EWS/JMAP
+// rather than a parallel store. They satisfy activesync.OOFStore.
+func (s *Server) GetVacationConfig(email string) (*vacation.Config, error) {
+	return s.getVacationConfig(email)
+}
+
+// SetVacationConfig persists the out-of-office policy and recompiles the user's
+// Sieve so the auto-reply fires at delivery; see GetVacationConfig.
+func (s *Server) SetVacationConfig(email string, config *vacation.Config) error {
+	return s.setVacationConfig(email, config)
+}
+
 // deleteVacationConfig deletes vacation config for a user
 func (s *Server) deleteVacationConfig(user string) error {
 	// Check for mock error injection (used in tests)

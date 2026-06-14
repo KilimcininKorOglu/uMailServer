@@ -81,6 +81,8 @@ type Server struct {
 	mutator      Mutator
 	submitter    Submitter
 	notifier     MailboxNotifier
+	aliases      AliasSource
+	oof          OOFStore
 	pings        *pingCache
 }
 
@@ -102,6 +104,7 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 	s.Handle("ItemOperations", s.handleItemOperations)
 	s.Handle("MeetingResponse", s.handleMeetingResponse)
 	s.Handle("Ping", s.handlePing)
+	s.Handle("Settings", s.handleSettings)
 	return s
 }
 
@@ -190,6 +193,19 @@ func (s *Server) SetSubmitter(sub Submitter) {
 // returns on expiry (Status 1) for mail folders.
 func (s *Server) SetMailNotifier(n MailboxNotifier) {
 	s.notifier = n
+}
+
+// SetAliasSource wires the canonical alias source the Settings UserInformation
+// sub-command reads. When nil, UserInformation returns just the primary address.
+func (s *Server) SetAliasSource(a AliasSource) {
+	s.aliases = a
+}
+
+// SetOOFStore wires the canonical out-of-office accessor the Settings Oof
+// sub-command reads and writes. When nil, Oof Get reports disabled and Oof Set is
+// accepted without persisting.
+func (s *Server) SetOOFStore(o OOFStore) {
+	s.oof = o
 }
 
 // SetLogger overrides the default logger.
