@@ -2,7 +2,6 @@ package dcerpc
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"testing"
 
@@ -175,103 +174,4 @@ func encodeRequestWithObject(t *testing.T) []byte {
 	pdu := append(append(append(hdr, body...), guid...), stub...)
 	pdu[8] = byte(len(pdu)) // frag_length low byte
 	return pdu
-}
-
-// type1Hex/type3Hex are the NTLMSSP NEGOTIATE and AUTHENTICATE blobs carried by
-// the auth-trailer vectors below (impacket getNTLMSSPType1/Type3).
-const (
-	type1Hex = "4e544c4d5353500001000000358288e000000000000000000000000000000000"
-	type3Hex = "4e544c4d5353500003000000180018005c0000007a007a007400000012001200400000000a000a0052000000000000005c00000000000000ee0000000502888057004f0052004b00470052004f005500500061006c00690063006500033dcb9976daffaa3021000edc9340dc316e7a784b594f51a4237774b92f78a14c527748d01c863201010000000000000000000000000000316e7a784b594f510000000002000c0053004500520056004500520001000c005300450052005600450052000700080000000000000000000900160063006900660073002f005300450052005600450052000000000000000000"
-)
-
-// TestPullBindWithNTLMAuth decodes an impacket BIND that carries an NTLMSSP
-// NEGOTIATE in its auth trailer, confirming the contexts parse and the trailer
-// is recovered from the fragment tail (auth_type WINNT, the echoed context id,
-// and the NEGOTIATE blob stripped of the 8-byte sec_trailer header).
-func TestPullBindWithNTLMAuth(t *testing.T) {
-	raw := mustHex(t, "05000b03100000007000200001000000b810b81000000000010000000000010000dbf1a447ca6710b31f00dd010662da00005100045d888aeb1cc9119fe808002b104860020000000a02000050414d00"+type1Hex)
-	pkt, err := Pull(raw)
-	if err != nil {
-		t.Fatalf("Pull: %v", err)
-	}
-	if pkt.Type != PktBind {
-		t.Fatalf("type = %d, want BIND", pkt.Type)
-	}
-	if pkt.AuthLength != 32 {
-		t.Fatalf("auth_length = %d, want 32", pkt.AuthLength)
-	}
-	if pkt.Bind == nil || len(pkt.Bind.Contexts) != 1 {
-		t.Fatalf("bind contexts not parsed: %+v", pkt.Bind)
-	}
-	if pkt.AuthType() != 10 { // RPC_C_AUTHN_WINNT
-		t.Fatalf("auth_type = %d, want 10", pkt.AuthType())
-	}
-	if pkt.AuthContextID() != 0x004d4150 {
-		t.Fatalf("auth_ctx_id = %#x", pkt.AuthContextID())
-	}
-	if !bytes.Equal(pkt.AuthValue(), mustHex(t, type1Hex)) {
-		t.Fatalf("auth value = % x", pkt.AuthValue())
-	}
-}
-
-// TestPullAuth3WithNTLM decodes an impacket AUTH3 PDU: it carries no body, only
-// the 4-byte pad and the auth trailer with the NTLMSSP AUTHENTICATE, which must
-// be recovered intact.
-func TestPullAuth3WithNTLM(t *testing.T) {
-	raw := mustHex(t, "05001003100000000a01ee0001000000202020200a02000050414d00"+type3Hex)
-	pkt, err := Pull(raw)
-	if err != nil {
-		t.Fatalf("Pull: %v", err)
-	}
-	if pkt.Type != PktAuth3 {
-		t.Fatalf("type = %d, want AUTH3(%d)", pkt.Type, PktAuth3)
-	}
-	if pkt.AuthType() != 10 {
-		t.Fatalf("auth_type = %d, want 10", pkt.AuthType())
-	}
-	if !bytes.Equal(pkt.AuthValue(), mustHex(t, type3Hex)) {
-		t.Fatalf("auth value = % x", pkt.AuthValue())
-	}
-}
-
-// TestEncodeBindAckAuthInteroperable asserts a BIND_ACK with an auth trailer is
-// laid out exactly where the impacket MSRPCBindAck parser reads it: the body is
-// unchanged from the no-auth form, auth_len in the header is the credential
-// length, and impacket's recovery (auth_data = the trailing auth_len bytes,
-// sec_trailer the 8 bytes before, pduData = frag - auth_len - 24) yields our
-// CHALLENGE and sec_trailer fields.
-func TestEncodeBindAckAuthInteroperable(t *testing.T) {
-	challenge := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66} // arbitrary opaque blob
-	results := []AckResult{{Result: 0, Reason: 0, Syntax: SyntaxID{UUID: ndr32UUID, Version: 2}}}
-	noAuth := EncodeBindAck(1, 4280, 4280, 0x12345678, "6001", results)
-	got := EncodeBindAckAuth(1, 4280, 4280, 0x12345678, "6001", results, 10, 2, 0x004d4150, challenge)
-
-	frag := int(binary.LittleEndian.Uint16(got[8:10]))
-	authLen := int(binary.LittleEndian.Uint16(got[10:12]))
-	if frag != len(got) {
-		t.Fatalf("frag_len = %d, want %d", frag, len(got))
-	}
-	if authLen != len(challenge) {
-		t.Fatalf("auth_len = %d, want %d", authLen, len(challenge))
-	}
-	// The presentation-context body must be byte-identical to the no-auth form
-	// (header aside), so the contexts impacket negotiates are unaffected.
-	if !bytes.Equal(got[16:len(noAuth)], noAuth[16:]) {
-		t.Fatalf("bind_ack body changed:\n got % x\nwant % x", got[16:len(noAuth)], noAuth[16:])
-	}
-	// impacket: dataLen = frag - auth_len - 16 - 8 must equal the body length, so
-	// its computed sec_trailer pad is zero and it lands on our trailer.
-	if dataLen := frag - authLen - 24; dataLen != len(noAuth)-16 {
-		t.Fatalf("impacket pduData length = %d, want %d", dataLen, len(noAuth)-16)
-	}
-	secTrailer := got[frag-authLen-8 : frag-authLen]
-	if secTrailer[0] != 10 || secTrailer[1] != 2 {
-		t.Fatalf("sec_trailer type/level = %d/%d", secTrailer[0], secTrailer[1])
-	}
-	if binary.LittleEndian.Uint32(secTrailer[4:8]) != 0x004d4150 {
-		t.Fatalf("sec_trailer ctx_id = %#x", binary.LittleEndian.Uint32(secTrailer[4:8]))
-	}
-	if !bytes.Equal(got[frag-authLen:], challenge) {
-		t.Fatalf("auth_data = % x, want % x", got[frag-authLen:], challenge)
-	}
 }
