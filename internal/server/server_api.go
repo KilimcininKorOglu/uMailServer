@@ -316,6 +316,10 @@ func (s *Server) startAPI() {
 			if s.mailstore != nil {
 				emsmdbProcessor.SetMutator(emsmdbMutator{srv: s})
 			}
+			// Wire the shared notification hub so RopRegisterNotification pushes the
+			// same mailbox-change events that drive IMAP IDLE and webmail SSE, instead
+			// of a MAPI-local notification mechanism.
+			emsmdbProcessor.SetNotificationSource(emsmdbNotifier{})
 			emsmdbServer := emsmdb.NewServer(emsmdbProcessor)
 			s.apiServer.SetEMSMDBHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {

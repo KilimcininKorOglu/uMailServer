@@ -68,12 +68,60 @@ type Session struct {
 
 	mu    sync.Mutex
 	Logon any // opaque per-session ROP state owned by the ROP dispatcher
+
+	// notifyMu guards notify, the push-notification state. It is separate from mu
+	// (the Execute serialization lock) so a parked NotificationWait long-poll never
+	// blocks an Execute on the same session.
+	notifyMu sync.Mutex
+	notify   *notifyState
 }
 
 // Lock guards the session for the duration of a single Execute, so a client's
 // serialized ROP requests do not race on the handle table.
 func (s *Session) Lock()   { s.mu.Lock() }
 func (s *Session) Unlock() { s.mu.Unlock() }
+
+// ensureNotify subscribes the session to the change-event feed on the first
+// RopRegisterNotification. Subscribe runs synchronously here (inside the Execute that
+// processes the registration), so an event raised immediately afterward is captured.
+func (s *Session) ensureNotify(email string, src NotificationSource) {
+	s.notifyMu.Lock()
+	defer s.notifyMu.Unlock()
+	if s.notify != nil {
+		return
+	}
+	events, cancel := src.Subscribe(email)
+	s.notify = &notifyState{events: events, cancel: cancel}
+}
+
+// addSubscription records a registered subscription on the session's notify state.
+func (s *Session) addSubscription(sub *subscriptionObject) {
+	s.notifyMu.Lock()
+	n := s.notify
+	s.notifyMu.Unlock()
+	if n != nil {
+		n.add(sub)
+	}
+}
+
+// getNotify returns the session's notify state, or nil when the client has not
+// registered for notifications.
+func (s *Session) getNotify() *notifyState {
+	s.notifyMu.Lock()
+	defer s.notifyMu.Unlock()
+	return s.notify
+}
+
+// closeNotify tears down the notification subscription when the session ends.
+func (s *Session) closeNotify() {
+	s.notifyMu.Lock()
+	n := s.notify
+	s.notify = nil
+	s.notifyMu.Unlock()
+	if n != nil && n.cancel != nil {
+		n.cancel()
+	}
+}
 
 // ROPDispatcher processes a decoded ROP request buffer against a session and
 // returns the response ROP bytes and the output server-object handle table.
@@ -185,14 +233,25 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request, body []by
 }
 
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request, _ []byte) {
-	s.dropSession(sidCookie(r))
+	id := sidCookie(r)
+	if sess := s.getSession(id); sess != nil {
+		sess.closeNotify()
+	}
+	s.dropSession(id)
 	s.writeResponse(w, r, "Disconnect", "", DisconnectResponse{}.Encode())
 }
 
 func (s *Server) handleNotificationWait(w http.ResponseWriter, r *http.Request, _ []byte) {
-	// Push notifications are not implemented; report no pending events so the
-	// client falls back to polling.
-	s.writeResponse(w, r, "NotificationWait", "", NotificationWaitResponse{}.Encode())
+	// Long-poll: hold the request up to the advertised pending period waiting for a
+	// queued change, then report whether one is pending so the client issues an
+	// Execute to drain the RopNotify ROPs (MS-OXCMAPIHTTP 2.2.4.4).
+	var flagsOut uint32
+	if sess := s.getSession(sidCookie(r)); sess != nil {
+		if n := sess.getNotify(); n != nil && n.wait(pendingPeriodMS*time.Millisecond) {
+			flagsOut = flagNotificationPending
+		}
+	}
+	s.writeResponse(w, r, "NotificationWait", "", NotificationWaitResponse{FlagsOut: flagsOut}.Encode())
 }
 
 // writeResponse emits a MAPI/HTTP success response: the common headers, then the

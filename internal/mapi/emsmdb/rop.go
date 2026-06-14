@@ -31,6 +31,8 @@ const (
 	RopSaveChangesAttachment         uint8 = 0x25
 	RopSetReceiveFolder              uint8 = 0x26
 	RopGetReceiveFolder              uint8 = 0x27
+	RopRegisterNotification          uint8 = 0x29
+	RopNotify                        uint8 = 0x2A
 	RopOpenStream                    uint8 = 0x2B
 	RopWriteStream                   uint8 = 0x2D
 	RopSubmitMessage                 uint8 = 0x32
@@ -95,6 +97,7 @@ type Processor struct {
 	appender  *mailappend.Appender
 	mutator   Mutator
 	submitter SubmitFunc
+	notifier  NotificationSource
 }
 
 // NewProcessor returns a ROP processor backed by the canonical mailbox store.
@@ -124,6 +127,13 @@ func (p *Processor) SetMutator(m Mutator) { p.mutator = m }
 // it is nil, RopSubmitMessage reports the operation as unsupported.
 func (p *Processor) SetSubmitter(f SubmitFunc) { p.submitter = f }
 
+// SetNotificationSource attaches the change-event feed RopRegisterNotification
+// subscribes to. It is backed by the same notification hub that drives IMAP IDLE and
+// webmail SSE, so a MAPI client's push notifications reflect the one canonical event
+// stream every surface sees. When it is nil, RopRegisterNotification reports the
+// operation as unsupported.
+func (p *Processor) SetNotificationSource(n NotificationSource) { p.notifier = n }
+
 var _ ROPDispatcher = (*Processor)(nil)
 
 // ropCtx carries the per-ROP execution state.
@@ -134,6 +144,8 @@ type ropCtx struct {
 	appender  *mailappend.Appender
 	mutator   Mutator
 	submitter SubmitFunc
+	notifier  NotificationSource
+	sess      *Session
 	state     *sessionObjects
 	handles   []uint32
 	in        *wire.Pull
@@ -207,6 +219,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopSyncImportMessageChange:       ropSyncImportMessageChange,
 	RopSyncImportHierarchyChange:     ropSyncImportHierarchyChange,
 	RopSyncImportDeletes:             ropSyncImportDeletes,
+	RopRegisterNotification:          ropRegisterNotification,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
@@ -231,13 +244,16 @@ func (p *Processor) Dispatch(sess *Session, ropData []byte, handlesIn []uint32, 
 			writeRopError(out, ropID, hindex, ecNotImplemented)
 			break
 		}
-		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, appender: p.appender, mutator: p.mutator, submitter: p.submitter, state: st, handles: handles, in: in, out: out}
+		c := &ropCtx{email: sess.Email, store: p.store, body: p.body, appender: p.appender, mutator: p.mutator, submitter: p.submitter, notifier: p.notifier, sess: sess, state: st, handles: handles, in: in, out: out}
 		h(c, logonID, hindex)
 		handles = c.handles
 		if in.Err() != nil {
 			break
 		}
 	}
+	// Drain any queued mailbox-change notifications into the response as RopNotify
+	// ROPs, after the requested ROPs' responses (MS-OXCROPS 2.2.14.2).
+	emitNotifications(sess, out)
 	return out.Bytes(), handles
 }
 
