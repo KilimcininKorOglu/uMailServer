@@ -43,6 +43,7 @@ const (
 	RopCommitStream                  uint8 = 0x5D
 	RopSyncConfigure                 uint8 = 0x70
 	RopSyncImportMessageChange       uint8 = 0x72
+	RopSyncImportHierarchyChange     uint8 = 0x73
 	RopSyncImportDeletes             uint8 = 0x74
 	RopSyncUploadStateStreamBegin    uint8 = 0x75
 	RopSyncUploadStateStreamContinue uint8 = 0x76
@@ -204,6 +205,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopSyncUploadStateStreamEnd:      ropSyncUploadStateStreamEnd,
 	RopSyncOpenCollector:             ropSyncOpenCollector,
 	RopSyncImportMessageChange:       ropSyncImportMessageChange,
+	RopSyncImportHierarchyChange:     ropSyncImportHierarchyChange,
 	RopSyncImportDeletes:             ropSyncImportDeletes,
 }
 

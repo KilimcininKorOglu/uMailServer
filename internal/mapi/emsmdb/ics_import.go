@@ -173,3 +173,85 @@ func ropSyncImportDeletes(c *ropCtx, _ uint8, hindex uint8) {
 	out.Uint8(hindex)
 	out.Uint32(ecSuccess)
 }
+
+// importProp returns the value of the property with the given id from an import
+// property array, matched by id so a type variant still resolves.
+func importProp(propvals []wire.TaggedPropertyValue, id uint16) (any, bool) {
+	for _, pv := range propvals {
+		if pv.Tag.ID() == id {
+			return pv.Value, true
+		}
+	}
+	return nil, false
+}
+
+// ropSyncImportHierarchyChange handles RopSynchronizationImportHierarchyChange (MS-OXCFXICS
+// 2.2.3.2.4.4; MS-OXCROPS 2.2.13.3): the client uploads a folder change on a hierarchy
+// collector. The hierarchy values carry the folder's parent source key, its own source
+// key, change identity, and display name. An empty parent source key means the folder is
+// created directly under the collector's folder (a top-level folder under the IPM
+// subtree, the common cached-mode case); a non-empty key names an arbitrary parent,
+// whose reverse resolution is a later refinement. The folder is created through the
+// canonical folder path (the same one RopCreateFolder uses), and the response returns the
+// folder id the client reopens it by.
+func ropSyncImportHierarchyChange(c *ropCtx, _ uint8, hindex uint8) {
+	hichyvals, err := wire.PullTPropValArray(c.in)
+	if err != nil {
+		writeRopError(c.out, RopSyncImportHierarchyChange, hindex, ecError)
+		return
+	}
+	if _, err = wire.PullTPropValArray(c.in); err != nil || c.in.Err() != nil {
+		// The trailing property array (extra folder properties) is read for alignment;
+		// applying it is a later refinement.
+		writeRopError(c.out, RopSyncImportHierarchyChange, hindex, ecError)
+		return
+	}
+	if c.mutator == nil {
+		writeRopError(c.out, RopSyncImportHierarchyChange, hindex, ecNotImplemented)
+		return
+	}
+	col, ok := c.objectAt(hindex).(*syncCollectorObject)
+	if !ok || col.contents {
+		// Import-hierarchy needs a hierarchy collector (not a contents one).
+		writeRopError(c.out, RopSyncImportHierarchyChange, hindex, ecNullObject)
+		return
+	}
+	name, _ := importPropString(hichyvals, wire.PidTagDisplayName)
+	if name == "" {
+		writeRopError(c.out, RopSyncImportHierarchyChange, hindex, ecError)
+		return
+	}
+	if parent, ok := importProp(hichyvals, wire.PidTagParentSourceKey.ID()); ok {
+		if b, isBin := parent.([]byte); isBin && len(b) != 0 {
+			// A non-empty parent source key names an arbitrary parent folder; resolving
+			// it back to a folder is a later refinement.
+			writeRopError(c.out, RopSyncImportHierarchyChange, hindex, ecNotSupported)
+			return
+		}
+	}
+	mailbox := name
+	if col.mailbox != "" {
+		mailbox = col.mailbox + "/" + name
+	}
+	if _, cerr := c.mutator.CreateFolder(c.email, mailbox); cerr != nil {
+		writeRopError(c.out, RopSyncImportHierarchyChange, hindex, ecError)
+		return
+	}
+
+	out := c.out
+	out.Uint8(RopSyncImportHierarchyChange)
+	out.Uint8(hindex)
+	out.Uint32(ecSuccess)
+	out.Uint64(col.logon.folderIDForName(mailbox))
+}
+
+// importPropString returns the string value of the property with the given tag's id
+// from an import property array.
+func importPropString(propvals []wire.TaggedPropertyValue, tag wire.PropTag) (string, bool) {
+	if v, ok := importProp(propvals, tag.ID()); ok {
+		if s, ok := v.(string); ok {
+			return s, true
+		}
+	}
+	return "", false
+}

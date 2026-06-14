@@ -38,6 +38,88 @@ func importMessageChangeRequest(t *testing.T, ohindex uint8, sourceKey []byte) [
 	return body.Bytes()
 }
 
+// openHierarchyCollector drives RopOpenFolder(Inbox) -> RopSynchronizationOpenCollector
+// with is_content_collector=0 and returns the handle table with the hierarchy collector
+// bound at index 2.
+func openHierarchyCollector(t *testing.T, store Store) (*Processor, *Session, []uint32) {
+	t.Helper()
+	p, sess, handles := openInbox(t, store) // folder at handle index 1
+	oc := wire.NewPush(0)
+	oc.Uint8(2) // output handle index
+	oc.Uint8(0) // is_content_collector=0: a hierarchy collector
+	_, handles = p.Dispatch(sess, ropRequest(RopSyncOpenCollector, 1, oc.Bytes()), handles, 0x10000)
+	return p, sess, handles
+}
+
+// importHierarchyChangeRequest builds a RopSynchronizationImportHierarchyChange body:
+// the hierarchy-values array (parent source key + display name) then a trailing
+// (empty) property array.
+func importHierarchyChangeRequest(t *testing.T, parentKey []byte, name string) []byte {
+	t.Helper()
+	hichy := wire.NewPush(wire.FlagUTF16)
+	if err := wire.PushTPropValArray(hichy, []wire.TaggedPropertyValue{
+		{Tag: wire.PidTagParentSourceKey, Value: parentKey},
+		{Tag: wire.PidTagDisplayName, Value: name},
+	}); err != nil {
+		t.Fatalf("push hierarchy values: %v", err)
+	}
+	extra := wire.NewPush(wire.FlagUTF16)
+	if err := wire.PushTPropValArray(extra, nil); err != nil {
+		t.Fatalf("push extra properties: %v", err)
+	}
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Raw(hichy.Bytes())
+	body.Raw(extra.Bytes())
+	return body.Bytes()
+}
+
+// TestImportHierarchyChangeCreatesFolder verifies an empty parent source key creates a
+// folder directly under the collector's folder, routed to the canonical folder path,
+// and the response carries a resolvable folder id.
+func TestImportHierarchyChangeCreatesFolder(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openHierarchyCollector(t, store)
+	fm := &fakeMutator{}
+	p.SetMutator(fm)
+
+	resp, _ := p.Dispatch(sess, ropRequest(RopSyncImportHierarchyChange, 2, importHierarchyChangeRequest(t, nil, "Projects")), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopSyncImportHierarchyChange {
+		t.Fatalf("rop id = %#x, want RopSyncImportHierarchyChange", got)
+	}
+	q.Uint8()
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("ImportHierarchyChange return value = %#x, want success", rv)
+	}
+	if fid := q.Uint64(); fid == 0 {
+		t.Error("response folder id = 0, want a resolvable id")
+	}
+	if fm.gotCreate != "INBOX/Projects" {
+		t.Errorf("created folder = %q, want INBOX/Projects", fm.gotCreate)
+	}
+}
+
+// TestImportHierarchyChangeArbitraryParentDeferred verifies a non-empty parent source
+// key (an arbitrary parent) is deferred rather than mis-resolved.
+func TestImportHierarchyChangeArbitraryParentDeferred(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openHierarchyCollector(t, store)
+	fm := &fakeMutator{}
+	p.SetMutator(fm)
+
+	parentKey := wire.SerializeXID(derivedGUID("replica", "qa.bob@local.test"), 0x0d)
+	resp, _ := p.Dispatch(sess, ropRequest(RopSyncImportHierarchyChange, 2, importHierarchyChangeRequest(t, parentKey, "Sub")), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8()
+	q.Uint8()
+	if rv := q.Uint32(); rv != ecNotSupported {
+		t.Errorf("ImportHierarchyChange with an arbitrary parent = %#x, want ecNotSupported", rv)
+	}
+	if fm.gotCreate != "" {
+		t.Errorf("a folder was created for a deferred arbitrary-parent import: %q", fm.gotCreate)
+	}
+}
+
 // importDeletesRequest builds a RopSynchronizationImportDeletes body: flags, then a
 // property array carrying the deletion set as a single MV_BINARY of source-key XIDs.
 func importDeletesRequest(t *testing.T, xids ...[]byte) []byte {
