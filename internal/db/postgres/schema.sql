@@ -260,6 +260,23 @@ CREATE TABLE IF NOT EXISTS client_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_client_sessions_email ON client_sessions (email);
 
+-- Exchange ActiveSync device partnerships: one row per (email, device_id),
+-- holding the provisioning policy key the device must echo, the negotiated
+-- protocol version, and an admin-requested remote-wipe flag.
+CREATE TABLE IF NOT EXISTS activesync_devices (
+    email            TEXT        NOT NULL,
+    device_id        TEXT        NOT NULL,
+    device_type      TEXT        NOT NULL DEFAULT '',
+    user_agent       TEXT        NOT NULL DEFAULT '',
+    policy_key       TEXT        NOT NULL DEFAULT '',
+    protocol_version TEXT        NOT NULL DEFAULT '',
+    wipe_requested   BOOLEAN     NOT NULL DEFAULT FALSE,
+    first_sync       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_sync        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (email, device_id)
+);
+CREATE INDEX IF NOT EXISTS idx_activesync_devices_email ON activesync_devices (email);
+
 -- Typed replacements for the generic-KV preference/vacation buckets ----------
 -- These hold what the bbolt store kept as opaque JSON under BucketPreferences /
 -- BucketVacation, now as real columns (ratified: fully typed, with an opaque

@@ -109,6 +109,14 @@ type Store interface {
 	RevokeClientSession(id string) error
 	CleanupExpiredSessions(maxAge time.Duration) error
 
+	// Exchange ActiveSync device partnerships (policy key, negotiated version,
+	// remote-wipe state); keyed by (email, deviceID). GetEASDevice returns a
+	// wrapped ErrNotFound when no partnership exists.
+	PutEASDevice(dev *EASDevice) error
+	GetEASDevice(email, deviceID string) (*EASDevice, error)
+	ListEASDevicesByEmail(email string) ([]*EASDevice, error)
+	DeleteEASDevice(email, deviceID string) error
+
 	// Typed preferences (replacing the generic-KV buckets).
 	GetUIPrefs(user string) (map[string]bool, error)
 	PutUIPrefs(user string, prefs map[string]bool) error

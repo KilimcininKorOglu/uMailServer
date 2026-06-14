@@ -36,6 +36,7 @@ const (
 	BucketTenants        = "tenants"
 	BucketScheduled      = "scheduled"
 	BucketRecoverable    = "recoverable_items"
+	BucketEASDevices     = "activesync_devices"
 )
 
 // DB wraps bbolt database
@@ -102,6 +103,23 @@ type ClientSession struct {
 	CreatedAt  time.Time `json:"created_at"`
 	LastActive time.Time `json:"last_active"`
 	Revoked    bool      `json:"revoked"` // true if session was manually revoked
+}
+
+// EASDevice is an Exchange ActiveSync device partnership: one row per
+// (Email, DeviceID). It persists the provisioning PolicyKey the client must
+// echo on every request, the negotiated protocol version, and an
+// admin-requested remote-wipe flag. Unlike a ClientSession (a short-lived auth
+// token), a partnership lives until the device is removed or wiped.
+type EASDevice struct {
+	Email           string    `json:"email"`
+	DeviceID        string    `json:"device_id"`
+	DeviceType      string    `json:"device_type"`
+	UserAgent       string    `json:"user_agent"`
+	PolicyKey       string    `json:"policy_key"`       // current accepted provisioning policy key
+	ProtocolVersion string    `json:"protocol_version"` // negotiated EAS version, e.g. "16.1"
+	WipeRequested   bool      `json:"wipe_requested"`   // admin-requested remote wipe
+	FirstSync       time.Time `json:"first_sync"`
+	LastSync        time.Time `json:"last_sync"`
 }
 
 // DomainData holds domain information
@@ -310,6 +328,7 @@ func (d *DB) initBuckets() error {
 		BucketTenants,
 		BucketScheduled,
 		BucketRecoverable,
+		BucketEASDevices,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {
@@ -1259,4 +1278,46 @@ func (d *DB) CleanupExpiredSessions(maxAge time.Duration) error {
 		}
 	}
 	return nil
+}
+
+// easDeviceKey is the bbolt key for an EAS device partnership: the owning email
+// and the device id joined by a NUL, so ListEASDevicesByEmail can prefix-scan.
+func easDeviceKey(email, deviceID string) string {
+	return email + "\x00" + deviceID
+}
+
+// PutEASDevice creates or updates an EAS device partnership.
+func (d *DB) PutEASDevice(dev *EASDevice) error {
+	return d.Put(BucketEASDevices, easDeviceKey(dev.Email, dev.DeviceID), dev)
+}
+
+// GetEASDevice returns the partnership for (email, deviceID), or a wrapped
+// ErrNotFound when none exists.
+func (d *DB) GetEASDevice(email, deviceID string) (*EASDevice, error) {
+	var dev EASDevice
+	if err := d.Get(BucketEASDevices, easDeviceKey(email, deviceID), &dev); err != nil {
+		return nil, err
+	}
+	return &dev, nil
+}
+
+// ListEASDevicesByEmail returns every partnership owned by email.
+func (d *DB) ListEASDevicesByEmail(email string) ([]*EASDevice, error) {
+	var devices []*EASDevice
+	err := d.ForEach(BucketEASDevices, func(_ string, value []byte) error {
+		var dev EASDevice
+		if err := json.Unmarshal(value, &dev); err != nil {
+			return err
+		}
+		if dev.Email == email {
+			devices = append(devices, &dev)
+		}
+		return nil
+	})
+	return devices, err
+}
+
+// DeleteEASDevice removes an EAS device partnership.
+func (d *DB) DeleteEASDevice(email, deviceID string) error {
+	return d.Delete(BucketEASDevices, easDeviceKey(email, deviceID))
 }
