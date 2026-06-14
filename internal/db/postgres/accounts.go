@@ -32,10 +32,10 @@ func (d *DB) CreateAccount(account *db.AccountData) error {
 			is_active, compatibility_tier, created_at, updated_at, last_login_at,
 			avatar, avatar_type, display_name, title, department, phone,
 			timezone, locale, theme, onboarded, send_policy, receive_policy,
-			quota_warn, quota_prohibit_send, quota_warn_sent)
+			quota_warn, quota_prohibit_send, quota_warn_sent, nt_hash)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
 			$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
-			$36,$37,$38)`,
+			$36,$37,$38,$39)`,
 		account.Email, account.LocalPart, account.Domain, account.PasswordHash, account.APOPHash,
 		account.TOTPSecret, account.TOTPEnabled, account.TOTPLastUsedStep, account.QuotaUsed, account.QuotaLimit,
 		account.MaxMessageSize, account.ForwardTo, account.ForwardKeepCopy, account.SieveScript,
@@ -44,6 +44,7 @@ func (d *DB) CreateAccount(account *db.AccountData) error {
 		nullBytes(account.Avatar), account.AvatarType, account.DisplayName, account.Title, account.Department, account.Phone,
 		account.Timezone, account.Locale, account.Theme, account.Onboarded, account.SendPolicy, account.ReceivePolicy,
 		account.QuotaWarn, account.QuotaProhibitSend, account.QuotaWarnSent,
+		account.NTHash,
 	); err != nil {
 		return fmt.Errorf("postgres: insert account %q: %w", account.Email, err)
 	}
@@ -102,7 +103,7 @@ func (d *DB) UpdateAccount(account *db.AccountData) error {
 			last_login_at=$22, avatar=$23, avatar_type=$24, display_name=$25, title=$26,
 			department=$27, phone=$28, timezone=$29, locale=$30, theme=$31, onboarded=$32,
 			send_policy=$33, receive_policy=$34,
-			quota_warn=$35, quota_prohibit_send=$36, quota_warn_sent=$37
+			quota_warn=$35, quota_prohibit_send=$36, quota_warn_sent=$37, nt_hash=$38
 		WHERE email=$1`,
 		account.Email, account.LocalPart, account.Domain, account.PasswordHash, account.APOPHash,
 		account.TOTPSecret, account.TOTPEnabled, account.TOTPLastUsedStep, account.QuotaUsed,
@@ -114,6 +115,7 @@ func (d *DB) UpdateAccount(account *db.AccountData) error {
 		account.Timezone, account.Locale, account.Theme, account.Onboarded,
 		account.SendPolicy, account.ReceivePolicy,
 		account.QuotaWarn, account.QuotaProhibitSend, account.QuotaWarnSent,
+		account.NTHash,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: update account %q: %w", account.Email, err)
@@ -232,7 +234,7 @@ const accountSelect = `
 		is_active, compatibility_tier, created_at, updated_at, last_login_at,
 		avatar, avatar_type, display_name, title, department, phone,
 		timezone, locale, theme, onboarded, send_policy, receive_policy,
-		quota_warn, quota_prohibit_send, quota_warn_sent
+		quota_warn, quota_prohibit_send, quota_warn_sent, nt_hash
 	FROM accounts`
 
 func scanAccount(row rowScanner) (*db.AccountData, error) {
@@ -245,7 +247,7 @@ func scanAccount(row rowScanner) (*db.AccountData, error) {
 		&a.IsActive, &a.CompatibilityTier, &a.CreatedAt, &a.UpdatedAt, &lastLogin,
 		&a.Avatar, &a.AvatarType, &a.DisplayName, &a.Title, &a.Department, &a.Phone,
 		&a.Timezone, &a.Locale, &a.Theme, &a.Onboarded, &a.SendPolicy, &a.ReceivePolicy,
-		&a.QuotaWarn, &a.QuotaProhibitSend, &a.QuotaWarnSent); err != nil {
+		&a.QuotaWarn, &a.QuotaProhibitSend, &a.QuotaWarnSent, &a.NTHash); err != nil {
 		return nil, err
 	}
 	if lastLogin != nil {

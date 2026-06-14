@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/mapi/ntlmssp"
 	"github.com/umailserver/umailserver/internal/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -35,6 +36,22 @@ type Server struct {
 	// tracingProvider wraps every JSON-RPC method dispatch in an
 	// `mcp.<method>` server-kind span when set.
 	tracingProvider *tracing.Provider
+
+	// ntlmEnabled reports, read live, whether MAPI/HTTP NTLM is on, gating capture
+	// of the per-account NT hash when this tool provisions an account. Injected
+	// from the running server's config; nil leaves it off.
+	ntlmEnabled func() bool
+}
+
+// SetNTLMEnabled wires the live MAPI/HTTP NTLM gate, so accounts provisioned via
+// the MCP tool capture an NT hash exactly when stored accounts elsewhere do.
+func (s *Server) SetNTLMEnabled(fn func() bool) {
+	s.ntlmEnabled = fn
+}
+
+// ntlmHashEnabled reports whether to capture the NT hash, off when not wired.
+func (s *Server) ntlmHashEnabled() bool {
+	return s.ntlmEnabled != nil && s.ntlmEnabled()
 }
 
 // rateAttempt tracks MCP requests per IP for rate limiting
@@ -745,6 +762,7 @@ func (s *Server) toolAddAccount(email, password string) (map[string]interface{},
 		LocalPart:    localPart,
 		Domain:       domain,
 		PasswordHash: string(hash),
+		NTHash:       ntlmssp.NTHashForStorage(s.ntlmHashEnabled(), password),
 		IsAdmin:      false,
 	}
 	if err := s.db.CreateAccount(account); err != nil {

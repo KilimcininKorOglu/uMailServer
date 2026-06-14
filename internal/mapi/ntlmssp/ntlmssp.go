@@ -17,6 +17,7 @@ import (
 	"crypto/hmac"
 	"crypto/md5" // #nosec G501 -- HMAC-MD5/MD4 are mandated by NTLMv2 (MS-NLMP)
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"unicode/utf16"
@@ -55,6 +56,18 @@ const challengeFixedLen = 48
 // (MS-NLMP 3.3.2). This is the value stored to enable NTLM.
 func NTHash(password string) [16]byte {
 	return md4Sum(utf16LE(password))
+}
+
+// NTHashForStorage returns the hex-encoded NT hash to persist on an account, or
+// the empty string when NTLM is disabled. Callers store the result unconditionally
+// so that disabling NTLM clears any previously captured hash on the next
+// password set, never leaving a stale credential behind.
+func NTHashForStorage(enabled bool, password string) string {
+	if !enabled {
+		return ""
+	}
+	h := NTHash(password)
+	return hex.EncodeToString(h[:])
 }
 
 // Negotiate is the decoded client NEGOTIATE (type 1) message.

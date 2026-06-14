@@ -48,6 +48,19 @@ type Config struct {
 	RecoverableItems RecoverableItemsConfig `yaml:"recoverable_items"`
 	PublicFolders    PublicFoldersConfig    `yaml:"public_folders"`
 	Relay            RelayConfig            `yaml:"relay"`
+	MAPI             MAPIConfig             `yaml:"mapi"`
+}
+
+// MAPIConfig holds settings for the MAPI/HTTP (Outlook Anywhere) surface.
+type MAPIConfig struct {
+	// NTLMEnabled turns on NTLM authentication for the RPC-over-HTTP (Outlook
+	// Anywhere) endpoint. NTLM is a challenge-response scheme, so the server must
+	// hold an NT hash (MD4 of the UTF-16LE password) per account; that hash is
+	// captured at password-set time and on the next successful login, since it
+	// cannot be derived from the one-way bcrypt/argon2 password hash. The NT hash
+	// is an unsalted MD4 — a weaker secondary credential — so this is opt-in and
+	// off by default.
+	NTLMEnabled bool `yaml:"ntlm_enabled"`
 }
 
 // RelayConfig holds outbound relay settings. IPGroups defines named pools of

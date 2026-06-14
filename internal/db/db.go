@@ -50,6 +50,7 @@ type AccountData struct {
 	Domain           string `json:"domain"`
 	PasswordHash     string `json:"password_hash"`
 	APOPHash         string `json:"apop_hash,omitempty"` // SHA-256(password) for APOP authentication
+	NTHash           string `json:"nt_hash,omitempty"`   // hex MD4(UTF-16LE password) for NTLM; set only when MAPI NTLM is enabled
 	TOTPSecret       string `json:"totp_secret,omitempty"`
 	TOTPEnabled      bool   `json:"totp_enabled"`
 	TOTPLastUsedStep int64  `json:"totp_last_used_step,omitempty"`

@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/umailserver/umailserver/internal/mapi/ntlmssp"
+)
 
 // handleAccountPassword lets an authenticated user change their own password
 // (the "Manage Account" action in webmail). It verifies the current password
@@ -48,6 +52,7 @@ func (s *Server) handleAccountPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	account.PasswordHash = newHash
+	account.NTHash = ntlmssp.NTHashForStorage(s.ntlmHashEnabled(), req.NewPassword)
 	account.MustChangePassword = false
 	if err := s.db.UpdateAccount(account); err != nil {
 		s.sendError(w, http.StatusInternalServerError, "failed to update password")

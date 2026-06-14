@@ -17,6 +17,7 @@ func (s *Server) startMCP() {
 
 	mcpAddr := fmt.Sprintf("%s:%d", s.cfg().MCP.Bind, s.cfg().MCP.Port)
 	mcpSrv := mcp.NewServer(s.database)
+	mcpSrv.SetNTLMEnabled(func() bool { return s.cfg().MAPI.NTLMEnabled })
 	if s.cfg().MCP.AuthToken == "" {
 		token := generateSecureToken()
 		s.cfg().MCP.AuthToken = token

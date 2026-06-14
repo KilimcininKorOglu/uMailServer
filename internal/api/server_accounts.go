@@ -8,6 +8,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/audit"
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/mapi/ntlmssp"
 	"github.com/umailserver/umailserver/internal/semcore"
 )
 
@@ -249,6 +250,7 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		Domain:        domain,
 		PasswordHash:  hashedPassword,
 		APOPHash:      fmt.Sprintf("%x", sha256.Sum256([]byte(req.Password))),
+		NTHash:        ntlmssp.NTHashForStorage(s.ntlmHashEnabled(), req.Password),
 		IsAdmin:       req.IsAdmin && isAdmin,
 		IsTenantAdmin: req.IsTenantAdmin && isAdmin,
 		IsActive:      true,
@@ -469,6 +471,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request, email str
 		}
 		account.PasswordHash = hashedPassword
 		account.APOPHash = fmt.Sprintf("%x", sha256.Sum256([]byte(*req.Password)))
+		account.NTHash = ntlmssp.NTHashForStorage(s.ntlmHashEnabled(), *req.Password)
 		if canControlMustChangePassword {
 			if req.MustChangePassword != nil {
 				account.MustChangePassword = *req.MustChangePassword

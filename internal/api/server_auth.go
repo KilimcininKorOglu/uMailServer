@@ -15,6 +15,7 @@ import (
 	"github.com/umailserver/umailserver/internal/audit"
 	"github.com/umailserver/umailserver/internal/auth"
 	"github.com/umailserver/umailserver/internal/db"
+	"github.com/umailserver/umailserver/internal/mapi/ntlmssp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -610,6 +611,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			account.PasswordHash = newHash
 			_ = s.db.UpdateAccount(account)
+		}
+	}
+
+	// Capture the NTLM NT hash on a successful login: it is keyed on the plaintext
+	// password, which is only available here, so existing accounts gain it on
+	// their next login once NTLM is enabled, and it is cleared when NTLM is off.
+	// Best-effort — a write failure must not block an otherwise valid login.
+	if want := ntlmssp.NTHashForStorage(s.ntlmHashEnabled(), req.Password); account.NTHash != want {
+		account.NTHash = want
+		if err := s.db.UpdateAccount(account); err != nil {
+			s.logger.Warn("failed to persist NTLM NT hash on login", "email", account.Email, "error", err)
 		}
 	}
 

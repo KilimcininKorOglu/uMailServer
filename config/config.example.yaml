@@ -424,3 +424,12 @@ relay:
   #     ips: ["203.0.113.10", "203.0.113.11"]
   #   - name: transactional
   #     ips: ["203.0.113.20"]
+
+# MAPI/HTTP (Outlook Anywhere) settings.
+mapi:
+  # Enable NTLM authentication for the RPC-over-HTTP endpoint. NTLM is
+  # challenge-response, so the server must store an NT hash (unsalted MD4 of the
+  # password) per account; it is captured at password-set time and on the next
+  # successful login, and cannot be derived from the bcrypt/argon2 password hash.
+  # Off by default because the NT hash is a weaker secondary credential.
+  ntlm_enabled: false

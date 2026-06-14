@@ -185,6 +185,12 @@ type Server struct {
 	// a hot-reload toggle applies without a restart; nil leaves it off.
 	publicFoldersEnabled func() bool
 
+	// ntlmEnabled reports, read live, whether MAPI/HTTP NTLM is enabled. It gates
+	// capturing the per-account NT hash at password-set and login time. Injected
+	// from the running server's config so a hot-reload toggle applies without a
+	// restart; nil leaves it off.
+	ntlmEnabled func() bool
+
 	// HTTP router (cached)
 	router http.Handler
 
@@ -1589,6 +1595,22 @@ func (s *Server) SetPublicFoldersEnabled(fn func() bool) {
 	if s.mailHandler != nil {
 		s.mailHandler.SetPublicFoldersEnabled(fn)
 	}
+}
+
+// SetNTLMEnabled wires the live MAPI/HTTP NTLM gate onto the API server and the
+// MCP server, so capturing the per-account NT hash at password-set and login
+// time honors a hot-reload toggle without a restart.
+func (s *Server) SetNTLMEnabled(fn func() bool) {
+	s.ntlmEnabled = fn
+	if s.mcpServer != nil {
+		s.mcpServer.SetNTLMEnabled(fn)
+	}
+}
+
+// ntlmHashEnabled reports whether the NT hash should be captured for stored
+// accounts, defaulting to off when no gate is wired.
+func (s *Server) ntlmHashEnabled() bool {
+	return s.ntlmEnabled != nil && s.ntlmEnabled()
 }
 
 // SetMsgStore sets the message store for email operations

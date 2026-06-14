@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     domain               TEXT        NOT NULL REFERENCES domains (name) ON DELETE CASCADE,
     password_hash        TEXT        NOT NULL DEFAULT '',
     apop_hash            TEXT        NOT NULL DEFAULT '',
+    nt_hash              TEXT        NOT NULL DEFAULT '',
     totp_secret          TEXT        NOT NULL DEFAULT '',
     totp_enabled         BOOLEAN     NOT NULL DEFAULT FALSE,
     totp_last_used_step  BIGINT      NOT NULL DEFAULT 0,
@@ -116,6 +117,7 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS receive_policy TEXT    NOT NULL DE
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS quota_warn          BIGINT  NOT NULL DEFAULT 0;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS quota_prohibit_send BIGINT  NOT NULL DEFAULT 0;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS quota_warn_sent     BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS nt_hash             TEXT    NOT NULL DEFAULT '';
 
 -- Aliases. The alias column holds the local part (e.g. "info"); identity is
 -- (domain, local part). Matching the bbolt store, the key is case-insensitive

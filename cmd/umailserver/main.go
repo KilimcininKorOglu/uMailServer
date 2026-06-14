@@ -38,6 +38,7 @@ import (
 	"github.com/umailserver/umailserver/internal/mailcheck"
 	"github.com/umailserver/umailserver/internal/mailexport"
 	"github.com/umailserver/umailserver/internal/mailimport"
+	"github.com/umailserver/umailserver/internal/mapi/ntlmssp"
 	"github.com/umailserver/umailserver/internal/migratestore"
 	"github.com/umailserver/umailserver/internal/msg"
 	"github.com/umailserver/umailserver/internal/pimport"
@@ -821,6 +822,14 @@ func cmdAccount(args []string) {
 	database := openConfiguredStore()
 	defer database.Close()
 
+	// Whether to capture the NTLM NT hash when this command sets a password.
+	cliCfg, err := loadCLIConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	ntlmEnabled := cliCfg.MAPI.NTLMEnabled
+
 	switch subcmd {
 	case "add":
 		if len(args) < 2 {
@@ -869,6 +878,7 @@ func cmdAccount(args []string) {
 			LocalPart:    parts[0],
 			Domain:       parts[1],
 			PasswordHash: string(hash),
+			NTHash:       ntlmssp.NTHashForStorage(ntlmEnabled, password),
 			IsAdmin:      false,
 			IsActive:     true,
 			CreatedAt:    time.Now(),
@@ -959,6 +969,7 @@ func cmdAccount(args []string) {
 		}
 
 		account.PasswordHash = string(hash)
+		account.NTHash = ntlmssp.NTHashForStorage(ntlmEnabled, password)
 		account.UpdatedAt = time.Now()
 
 		if err := database.UpdateAccount(account); err != nil {

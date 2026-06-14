@@ -115,6 +115,9 @@ func (s *Server) startAPI() {
 	// Public folders are read live (hot-reloaded) by the discovery endpoint and
 	// the per-folder webmail access check.
 	s.apiServer.SetPublicFoldersEnabled(func() bool { return s.cfg().PublicFolders.Enabled })
+	// MAPI/HTTP NTLM is read live so enabling it captures the per-account NT hash
+	// at password-set and login time without a restart.
+	s.apiServer.SetNTLMEnabled(func() bool { return s.cfg().MAPI.NTLMEnabled })
 	// Set contacts handler data directory for CardDAV-backed contacts API
 	s.apiServer.SetContactsDataDir(s.cfg().Server.DataDir)
 	// Set calendar handler data directory for CalDAV-backed calendar API
