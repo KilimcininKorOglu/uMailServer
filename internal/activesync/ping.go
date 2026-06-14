@@ -1,7 +1,9 @@
 package activesync
 
 import (
+	"maps"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +33,13 @@ const (
 // heartbeatUnit is the real-time duration of one heartbeat second. It is a var
 // only so tests can shrink the hold; production always uses one second.
 var heartbeatUnit = time.Second
+
+// pimPollInterval is how often a held Ping re-enumerates a monitored PIM
+// collection (calendar/contacts/tasks) to detect a change. Those classes have
+// no notification hub (unlike mail), so the only way to notice an add/change/
+// delete mid-hold is to re-list and diff. A var so tests can shrink it; the
+// cost is one folder enumeration per interval per held Ping.
+var pimPollInterval = 30 * time.Second
 
 // MailboxNotifier subscribes to a mailbox's change events for the Ping command.
 // The server bridges the shared notification hub (the one that drives IMAP IDLE
@@ -116,9 +125,18 @@ func (s *Server) handlePing(ctx *Context) ([]byte, error) {
 
 	monitored := make(map[string]bool, len(folders))
 	watchMail := false
+	// PIM collections have no notification hub, so capture a serverId->etag
+	// baseline per monitored PIM folder now and re-enumerate on a ticker. Only
+	// folders that enumerate cleanly are watched; a folder that errors here is
+	// left to the heartbeat rather than risking a spurious wake later.
+	baselines := make(map[string]map[string]string)
 	for _, f := range folders {
 		monitored[f.id] = true
-		if !isPIMCollection(f.id) {
+		if isPIMCollection(f.id) {
+			if snap, ok := s.pimSnapshot(ctx.Email, f.id); ok {
+				baselines[f.id] = snap
+			}
+		} else {
 			watchMail = true
 		}
 	}
@@ -128,6 +146,13 @@ func (s *Server) handlePing(ctx *Context) ([]byte, error) {
 		ch, cancel := s.notifier.Subscribe(ctx.Email)
 		defer cancel()
 		events = ch
+	}
+
+	var pimTick <-chan time.Time
+	if len(baselines) > 0 {
+		ticker := time.NewTicker(pimPollInterval)
+		defer ticker.Stop()
+		pimTick = ticker.C
 	}
 
 	timer := time.NewTimer(time.Duration(heartbeat) * heartbeatUnit)
@@ -149,8 +174,65 @@ func (s *Server) handlePing(ctx *Context) ([]byte, error) {
 			if monitored[folder] {
 				return marshalPing(pingStatusChanges, 0, []string{folder})
 			}
+		case <-pimTick:
+			// Re-enumerate each monitored PIM folder; a serverId->etag set that
+			// differs from the baseline means an add, change or delete landed.
+			// A transient enumeration error keeps the baseline and retries.
+			var changed []string
+			for id, base := range baselines {
+				if snap, ok := s.pimSnapshot(ctx.Email, id); ok && !maps.Equal(snap, base) {
+					changed = append(changed, id)
+				}
+			}
+			if len(changed) > 0 {
+				sort.Strings(changed)
+				return marshalPing(pingStatusChanges, 0, changed)
+			}
 		}
 	}
+}
+
+// pimSnapshot enumerates a monitored PIM collection and returns its
+// serverId->etag set, the same identity the enumerate-and-diff Sync path uses,
+// so a change the Ping detects is the same change the client's follow-up Sync
+// reports (no spurious wake). The prefix dispatch mirrors handleSync exactly.
+// ok is false when the collection is not a wired PIM source or enumeration
+// fails; the caller then leaves the folder to the heartbeat.
+func (s *Server) pimSnapshot(email, collectionID string) (map[string]string, bool) {
+	if folderID, ok := strings.CutPrefix(collectionID, calendarCollectionPrefix); ok && s.calendar != nil {
+		items, err := s.calendar.ListItems(email, folderID)
+		if err != nil {
+			return nil, false
+		}
+		snap := make(map[string]string, len(items))
+		for _, it := range items {
+			snap[it.ServerID] = it.ETag
+		}
+		return snap, true
+	}
+	if folderID, ok := strings.CutPrefix(collectionID, contactsCollectionPrefix); ok && s.contacts != nil {
+		items, err := s.contacts.ListItems(email, folderID)
+		if err != nil {
+			return nil, false
+		}
+		snap := make(map[string]string, len(items))
+		for _, it := range items {
+			snap[it.ServerID] = it.ETag
+		}
+		return snap, true
+	}
+	if folderID, ok := strings.CutPrefix(collectionID, tasksCollectionPrefix); ok && s.tasks != nil {
+		items, err := s.tasks.ListItems(email, folderID)
+		if err != nil {
+			return nil, false
+		}
+		snap := make(map[string]string, len(items))
+		for _, it := range items {
+			snap[it.ServerID] = it.ETag
+		}
+		return snap, true
+	}
+	return nil, false
 }
 
 // parsePing extracts the HeartbeatInterval (seconds, 0 when absent) and the

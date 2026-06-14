@@ -6,11 +6,46 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/activesync/wbxml"
 )
+
+// pimCalendarSource is a concurrency-safe CalendarSource for the Ping PIM-ticker
+// tests: a held Ping re-enumerates it from the select loop while another
+// goroutine mutates it mid-hold, so access must be locked. With rotate set it
+// returns the same set in a different order each call, exercising the
+// order-independent (map-equality) change comparison.
+type pimCalendarSource struct {
+	mu     sync.Mutex
+	items  []CalendarItem
+	rotate bool
+	calls  int
+}
+
+func (c *pimCalendarSource) ListItems(string, string) ([]CalendarItem, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls++
+	out := make([]CalendarItem, len(c.items))
+	copy(out, c.items)
+	if c.rotate && len(out) > 1 {
+		k := c.calls % len(out)
+		rot := make([]CalendarItem, 0, len(out))
+		rot = append(rot, out[k:]...)
+		rot = append(rot, out[:k]...)
+		out = rot
+	}
+	return out, nil
+}
+
+func (c *pimCalendarSource) set(items []CalendarItem) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items = items
+}
 
 // stubNotifier is a MailboxNotifier whose channel the test fills with the folder
 // names a held Ping should observe as changes.
@@ -220,5 +255,58 @@ func TestPingClientDisconnect(t *testing.T) {
 	s.ServeHTTP(rec, req)
 	if rec.Body.Len() != 0 {
 		t.Fatalf("disconnect should write no body, got %d bytes", rec.Body.Len())
+	}
+}
+
+// TestPingPIMChangeWakesViaTicker proves a Ping on a pure-PIM collection (no
+// mail folder, so the hub channel is never used) wakes with Status 2 when the
+// collection changes mid-hold. PIM classes have no hub, so the ticker that
+// re-enumerates and diffs is the only thing that can detect the change — this is
+// the push that lets a phone see a new calendar event without a manual sync.
+func TestPingPIMChangeWakesViaTicker(t *testing.T) {
+	oldUnit, oldPoll := heartbeatUnit, pimPollInterval
+	heartbeatUnit, pimPollInterval = 20*time.Millisecond, 5*time.Millisecond
+	defer func() { heartbeatUnit, pimPollInterval = oldUnit, oldPoll }()
+
+	src := &pimCalendarSource{items: []CalendarItem{{ServerID: "e1", ETag: "v1"}}}
+	s := NewServer(allowAuth)
+	s.SetCalendarSource(src)
+
+	// Advance the item's ETag after the baseline is captured; the ticker must
+	// observe the differing serverId->etag set and wake.
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		src.set([]CalendarItem{{ServerID: "e1", ETag: "v2"}})
+	}()
+
+	calID := calendarCollectionPrefix + "fid"
+	resp := doPing(t, s, pingReq(600, [2]string{calID, "Calendar"}))
+	if st := textOf(resp.Sub("Status")); st != pingStatusChanges {
+		t.Fatalf("Status = %q, want 2 (PIM change via ticker)", st)
+	}
+	if got := folderTexts(resp.Sub("Folders")); len(got) != 1 || got[0] != calID {
+		t.Fatalf("changed folders = %v, want [%s]", got, calID)
+	}
+}
+
+// TestPingPIMStableSetDoesNotWake proves a PIM collection whose contents are
+// unchanged does not wake the Ping even when the source returns the same items
+// in a different order each poll. The comparison is map equality, not an
+// order-sensitive digest, so a re-enumeration in a new order is not mistaken for
+// a change; the Ping holds to the heartbeat and returns Status 1.
+func TestPingPIMStableSetDoesNotWake(t *testing.T) {
+	oldUnit, oldPoll := heartbeatUnit, pimPollInterval
+	heartbeatUnit, pimPollInterval = time.Millisecond, 2*time.Millisecond
+	defer func() { heartbeatUnit, pimPollInterval = oldUnit, oldPoll }()
+
+	src := &pimCalendarSource{rotate: true, items: []CalendarItem{
+		{ServerID: "a", ETag: "1"}, {ServerID: "b", ETag: "1"}, {ServerID: "c", ETag: "1"},
+	}}
+	s := NewServer(allowAuth)
+	s.SetCalendarSource(src)
+
+	resp := doPing(t, s, pingReq(60, [2]string{calendarCollectionPrefix + "fid", "Calendar"}))
+	if st := textOf(resp.Sub("Status")); st != pingStatusNoChanges {
+		t.Fatalf("Status = %q, want 1 (a reordered but unchanged set must not wake)", st)
 	}
 }
