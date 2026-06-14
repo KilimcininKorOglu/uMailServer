@@ -38,6 +38,22 @@ func importMessageChangeRequest(t *testing.T, ohindex uint8, sourceKey []byte) [
 	return body.Bytes()
 }
 
+// importDeletesRequest builds a RopSynchronizationImportDeletes body: flags, then a
+// property array carrying the deletion set as a single MV_BINARY of source-key XIDs.
+func importDeletesRequest(t *testing.T, xids ...[]byte) []byte {
+	t.Helper()
+	arr := wire.NewPush(wire.FlagUTF16)
+	if err := wire.PushTPropValArray(arr, []wire.TaggedPropertyValue{
+		{Tag: wire.MakeTag(0, wire.PtMvBinary), Value: [][]byte(xids)},
+	}); err != nil {
+		t.Fatalf("push deletion array: %v", err)
+	}
+	body := wire.NewPush(wire.FlagUTF16)
+	body.Uint8(0) // flags
+	body.Raw(arr.Bytes())
+	return body.Bytes()
+}
+
 // TestSyncOpenCollectorBindsContentsCollector drives RopOpenFolder ->
 // RopSynchronizationOpenCollector and verifies a contents collector is bound at the
 // output handle, ready for the import ROPs.
@@ -169,5 +185,56 @@ func TestImportMessageChangeServerGUIDExistingDeferred(t *testing.T) {
 	// The defer path early-returns before allocating, so no object is bound.
 	if after := len(stateFor(sess).objects); after != before {
 		t.Errorf("an object was allocated on the deferred-update path: %d -> %d", before, after)
+	}
+}
+
+// TestImportDeletesServerGUIDDeletes verifies a deletion whose source key is in this
+// store's namespace routes the message's uid (the XID's GLOBCNT) to the canonical
+// delete path.
+func TestImportDeletesServerGUIDDeletes(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openCollector(t, store)
+	fm := &fakeMutator{removed: 1}
+	p.SetMutator(fm)
+
+	serverGUID := derivedGUID("replica", "qa.bob@local.test")
+	sk := wire.SerializeXID(serverGUID, 7)
+	resp, _ := p.Dispatch(sess, ropRequest(RopSyncImportDeletes, 2, importDeletesRequest(t, sk)), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	if got := q.Uint8(); got != RopSyncImportDeletes {
+		t.Fatalf("rop id = %#x, want RopSyncImportDeletes", got)
+	}
+	q.Uint8()
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("ImportDeletes return value = %#x, want success", rv)
+	}
+	if fm.gotFolder != "INBOX" {
+		t.Errorf("delete folder = %q, want INBOX", fm.gotFolder)
+	}
+	if len(fm.gotUIDs) != 1 || fm.gotUIDs[0] != 7 {
+		t.Errorf("deleted uids = %v, want [7] (the source key's GLOBCNT)", fm.gotUIDs)
+	}
+}
+
+// TestImportDeletesForeignGUIDSkipped verifies a deletion whose source key belongs to
+// another replica names nothing in this store and is skipped — the canonical delete is
+// not invoked, and the ROP still succeeds.
+func TestImportDeletesForeignGUIDSkipped(t *testing.T) {
+	store := newFakeStore()
+	p, sess, handles := openCollector(t, store)
+	fm := &fakeMutator{}
+	p.SetMutator(fm)
+
+	foreign := wire.GUID{TimeLow: 0xFEEDFACE, Node: [6]byte{9, 8, 7, 6, 5, 4}}
+	sk := wire.SerializeXID(foreign, 99)
+	resp, _ := p.Dispatch(sess, ropRequest(RopSyncImportDeletes, 2, importDeletesRequest(t, sk)), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8()
+	q.Uint8()
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("ImportDeletes (foreign GUID) = %#x, want success", rv)
+	}
+	if fm.gotUIDs != nil {
+		t.Errorf("a foreign-replica deletion invoked the canonical delete with %v, want none", fm.gotUIDs)
 	}
 }

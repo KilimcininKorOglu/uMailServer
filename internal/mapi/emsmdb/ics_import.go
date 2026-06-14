@@ -117,3 +117,59 @@ func ropSyncImportMessageChange(c *ropCtx, _ uint8, hindex uint8) {
 	out.Uint32(ecSuccess)
 	out.Uint64(0) // message id: the server assigns identity at save (returned by RopSaveChangesMessage)
 }
+
+// importDeletedXIDs returns the source-key XIDs from an import-deletes property array:
+// the single PtMvBinary value (a BINARY_ARRAY of XIDs), matched by type.
+func importDeletedXIDs(propvals []wire.TaggedPropertyValue) [][]byte {
+	for _, pv := range propvals {
+		if pv.Tag.Type() == wire.PtMvBinary {
+			if arr, ok := pv.Value.([][]byte); ok {
+				return arr
+			}
+		}
+	}
+	return nil
+}
+
+// ropSyncImportDeletes handles RopSynchronizationImportDeletes (MS-OXCFXICS 2.2.3.2.4.3;
+// MS-OXCROPS 2.2.13.4): the client uploads deletions it made, as a single MV_BINARY of
+// source-key XIDs, on a contents collector. Each XID in THIS store's namespace names a
+// message by uid (its GLOBCNT); the canonical delete path (the same one
+// RopDeleteMessages and the IMAP/EWS deletes converge on) removes them. XIDs from
+// another replica name nothing here and are skipped. The response carries no body.
+func ropSyncImportDeletes(c *ropCtx, _ uint8, hindex uint8) {
+	_ = c.in.Uint8() // flags: hard/soft-delete + hierarchy; the canonical store hard-deletes mail
+	propvals, err := wire.PullTPropValArray(c.in)
+	if err != nil || c.in.Err() != nil {
+		writeRopError(c.out, RopSyncImportDeletes, hindex, ecError)
+		return
+	}
+	if c.mutator == nil {
+		writeRopError(c.out, RopSyncImportDeletes, hindex, ecNotImplemented)
+		return
+	}
+	col, ok := c.objectAt(hindex).(*syncCollectorObject)
+	if !ok || !col.contents {
+		writeRopError(c.out, RopSyncImportDeletes, hindex, ecNullObject)
+		return
+	}
+	uids := make([]uint32, 0)
+	for _, x := range importDeletedXIDs(propvals) {
+		guid, globcnt, perr := wire.ParseXID(x)
+		if perr != nil || guid != col.logon.replGUID {
+			continue // not this store's id; nothing to delete here
+		}
+		uids = append(uids, uint32(globcnt))
+	}
+	if len(uids) > 0 {
+		if _, derr := c.mutator.DeleteMessages(c.email, col.mailbox, uids); derr != nil {
+			writeRopError(c.out, RopSyncImportDeletes, hindex, ecError)
+			return
+		}
+	}
+
+	out := c.out
+	out.Uint8(RopSyncImportDeletes)
+	out.Uint8(hindex)
+	out.Uint32(ecSuccess)
+}

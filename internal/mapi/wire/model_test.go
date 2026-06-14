@@ -29,6 +29,7 @@ func TestPropValueRoundTrip(t *testing.T) {
 		{"unicode", PtUnicode, "ünïçode"},
 		{"clsid", PtClsid, GUID{TimeLow: 1, TimeMid: 2, TimeHiAndVersion: 3, ClockSeq: [2]byte{4, 5}, Node: [6]byte{6, 7, 8, 9, 10, 11}}},
 		{"binary", PtBinary, []byte{0xDE, 0xAD, 0xBE, 0xEF}},
+		{"mv-binary", PtMvBinary, [][]byte{{0x01, 0x02}, {0x03, 0x04, 0x05}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -209,6 +210,18 @@ func valueEqual(a, b any) bool {
 	if ab, ok := a.([]byte); ok {
 		bb, ok := b.([]byte)
 		return ok && bytes.Equal(ab, bb)
+	}
+	if aa, ok := a.([][]byte); ok {
+		bb, ok := b.([][]byte)
+		if !ok || len(aa) != len(bb) {
+			return false
+		}
+		for i := range aa {
+			if !bytes.Equal(aa[i], bb[i]) {
+				return false
+			}
+		}
+		return true
 	}
 	return a == b
 }

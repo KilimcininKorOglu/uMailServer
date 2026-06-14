@@ -96,6 +96,15 @@ func PushPropValue(p *Push, t PropType, v any) error {
 			return valueTypeErr(t, v)
 		}
 		p.Bin(x)
+	case PtMvBinary:
+		x, ok := v.([][]byte)
+		if !ok {
+			return valueTypeErr(t, v)
+		}
+		p.Uint32(uint32(len(x))) // BINARY_ARRAY: a u32 count then each counted binary
+		for _, b := range x {
+			p.Bin(b)
+		}
 	default:
 		return fmt.Errorf("%w: %#04x", ErrUnsupportedType, uint16(t))
 	}
@@ -140,6 +149,17 @@ func PullPropValue(p *Pull, t PropType) (any, error) {
 		return p.GUID(), p.err
 	case PtBinary:
 		return p.Bin(), p.err
+	case PtMvBinary:
+		n := int(p.Uint32())
+		arr := make([][]byte, 0, min(n, 256)) // cap the pre-alloc against a malformed count
+		for range n {
+			b := p.Bin()
+			if p.err != nil {
+				return nil, p.err
+			}
+			arr = append(arr, b)
+		}
+		return arr, p.err
 	default:
 		return nil, fmt.Errorf("%w: %#04x", ErrUnsupportedType, uint16(t))
 	}
