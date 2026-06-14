@@ -196,6 +196,45 @@ func TestRawDoesNotAlign(t *testing.T) {
 	}
 }
 
+// TestExplicitAlign covers the alignment DCERPC payloads request directly: an
+// 8-aligned stub boundary and a 4-aligned result list, padded with zeros.
+func TestExplicitAlign(t *testing.T) {
+	p := NewPush()
+	p.Uint8(0xAA)
+	p.Align(8)
+	if got := p.Len(); got != 8 {
+		t.Fatalf("offset after Align(8) = %d, want 8", got)
+	}
+	want := []byte{0xAA, 0, 0, 0, 0, 0, 0, 0}
+	if !bytes.Equal(p.Bytes(), want) {
+		t.Fatalf("got % x, want % x", p.Bytes(), want)
+	}
+
+	q := NewPull(want)
+	if v := q.Uint8(); v != 0xAA {
+		t.Fatalf("u8 = %#x", v)
+	}
+	q.Align(8)
+	if off := q.Offset(); off != 8 {
+		t.Fatalf("offset after Align(8) = %d, want 8", off)
+	}
+	if err := q.Err(); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFaultLatchesFormatError(t *testing.T) {
+	q := NewPull([]byte{0x01, 0x02, 0x03, 0x04})
+	q.Fault()
+	if !errors.Is(q.Err(), ErrFormat) {
+		t.Fatalf("err = %v, want ErrFormat", q.Err())
+	}
+	// A latched fault makes subsequent reads no-ops.
+	if v := q.Uint32(); v != 0 {
+		t.Fatalf("post-fault read = %#x, want 0", v)
+	}
+}
+
 func TestTruncationLatchesError(t *testing.T) {
 	q := NewPull([]byte{0x01, 0x02})
 	_ = q.Uint32()

@@ -117,6 +117,11 @@ func (p *Push) UniquePtr(present bool) {
 	p.ULong(ptr)
 }
 
+// Align pads the stream with zero bytes to the next n-byte boundary. DCERPC
+// payloads use it explicitly to place 8-aligned request/response stub data and
+// 4-aligned result lists relative to the start of the PDU.
+func (p *Push) Align(n int) { p.align(n) }
+
 // Pull is an NDR32 little-endian decoder. Scalar reads self-align the stream
 // offset to the value size before reading, mirroring Push.
 type Pull struct {
@@ -136,6 +141,18 @@ func (p *Pull) Offset() int { return p.off }
 
 // Remaining returns the number of unread bytes.
 func (p *Pull) Remaining() int { return len(p.b) - p.off }
+
+// Align advances the offset to the next n-byte boundary, skipping padding.
+func (p *Pull) Align(n int) { p.align(n) }
+
+// Fault latches ErrFormat so a higher-level parser can reject structurally
+// invalid input (for example a fragment length smaller than its header) and
+// stop consuming.
+func (p *Pull) Fault() {
+	if p.err == nil {
+		p.err = ErrFormat
+	}
+}
 
 // align advances the offset to the next multiple of n, latching ErrTruncated if
 // that runs past the end of the buffer.
