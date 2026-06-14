@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/umailserver/umailserver/internal/activesync"
 	"github.com/umailserver/umailserver/internal/caldav"
+	"github.com/umailserver/umailserver/internal/carddav"
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mailappend"
@@ -74,6 +75,17 @@ func (f easFolderSource) Folders(email string) ([]activesync.Folder, error) {
 				ParentID:    "0",
 				DisplayName: "Calendar",
 				Type:        activesync.FolderTypeCalendar,
+			})
+		}
+		// Expose the canonical Contacts folder for the same reason — the collab
+		// folder is created lazily, so it is ensured here rather than only shown
+		// when CardDAV/EWS happened to create it first.
+		if fid, err := f.identity.EnsureFolderId(email, "contacts", "contacts"); err == nil && !fid.IsZero() {
+			folders = append(folders, activesync.Folder{
+				ServerID:    activesync.ContactCollectionID(fid.String()),
+				ParentID:    "0",
+				DisplayName: "Contacts",
+				Type:        activesync.FolderTypeContacts,
 			})
 		}
 	}
@@ -345,6 +357,69 @@ func (m easMeetingResponder) Respond(email, _, requestID, response string) (stri
 		inv.BusyStatus = "1"
 	}
 	return m.cal.CreateItem(email, "", inv)
+}
+
+// easContactSource projects a mailbox's address book for the EAS Sync command
+// from the shared collaboration store — the SAME store EWS and CardDAV read — so
+// a phone's contacts converge with every other surface on one source. Each card's
+// canonical vCard (RawData) is projected by the activesync package, keyed by the
+// vCard UID (its stable EAS ServerId, the key the canonical store mutates on) and
+// the collab ETag (which drives the enumerate-and-diff cursor).
+type easContactSource struct{ collab ews.CollabStore }
+
+func (c easContactSource) ListItems(email, folderID string) ([]activesync.ContactItem, error) {
+	fid, err := semcore.NewFolderId(folderID)
+	if err != nil {
+		return nil, nil
+	}
+	recs, err := c.collab.ListContactsByFolder(fid)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]activesync.ContactItem, 0, len(recs))
+	for i := range recs {
+		r := &recs[i]
+		// The vCard UID is the EAS ServerId the canonical store keys on, so a card
+		// without one cannot round-trip. The webmail and CardDAV write paths both
+		// assign a UID, so this skips nothing in practice.
+		if r.IcalUID == "" {
+			continue
+		}
+		items = append(items, activesync.ContactItemFromVCard(r.IcalUID, r.ETag, r.RawData))
+	}
+	return items, nil
+}
+
+// easAddressbookID is the address-book id handed to the collaboration contact
+// store. The store resolves the mailbox's contacts folder by its canonical
+// "contacts" role, so this value is a stable label, not a lookup key.
+const easAddressbookID = "default"
+
+// easContactMutator applies a mobile client's contacts up-sync (Add/Change/
+// Delete) through the canonical collaboration store — the same SaveContact path
+// CardDAV and the webmail contacts API use — so a card authored on a phone
+// converges over EWS/CardDAV/webmail. The EAS ServerId is the card's vCard UID,
+// which the store keys on, so a Change/Delete maps to it directly and a new Add
+// returns the UID as the client's permanent ServerId.
+type easContactMutator struct{ store *carddav.CollabStore }
+
+func (m easContactMutator) CreateItem(email, _ string, it activesync.ContactItem) (string, error) {
+	if it.UID == "" {
+		it.UID = uuid.NewString()
+	}
+	if err := m.store.SaveContact(email, easAddressbookID, &carddav.Contact{UID: it.UID}, activesync.BuildVCard(it)); err != nil {
+		return "", err
+	}
+	return it.UID, nil
+}
+
+func (m easContactMutator) UpdateItem(email, _, serverID string, it activesync.ContactItem) error {
+	it.UID = serverID // the EAS contact ServerId is the vCard UID
+	return m.store.SaveContact(email, easAddressbookID, &carddav.Contact{UID: serverID}, activesync.BuildVCard(it))
+}
+
+func (m easContactMutator) DeleteItem(email, _, serverID string) error {
+	return m.store.DeleteContact(email, easAddressbookID, serverID)
 }
 
 // easMutator applies a mobile client's EAS Sync up-sync changes to the canonical

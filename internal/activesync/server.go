@@ -69,6 +69,8 @@ type Server struct {
 	calendar     CalendarSource
 	calMutator   CalendarMutator
 	meetings     MeetingResponder
+	contacts     ContactSource
+	conMutator   ContactMutator
 	mutator      Mutator
 	submitter    Submitter
 }
@@ -130,6 +132,20 @@ func (s *Server) SetCalendarMutator(m CalendarMutator) {
 // (accept/tentative/decline) to the canonical calendar.
 func (s *Server) SetMeetingResponder(m MeetingResponder) {
 	s.meetings = m
+}
+
+// SetContactSource wires the contacts source the Sync command uses for contacts
+// collections. When nil, contacts collections fall through to the mail path,
+// which a mail-only deployment never reaches (it advertises no contacts folder).
+func (s *Server) SetContactSource(c ContactSource) {
+	s.contacts = c
+}
+
+// SetContactMutator wires the canonical-store mutator that applies a client's
+// contacts up-sync changes (Add/Change/Delete). When nil, those commands are
+// accepted but not applied.
+func (s *Server) SetContactMutator(m ContactMutator) {
+	s.conMutator = m
 }
 
 // SetMutator wires the canonical-mailstore mutator used to apply the client's

@@ -1,10 +1,6 @@
 package activesync
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"maps"
-	"sort"
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/activesync/wbxml"
@@ -91,7 +87,7 @@ func (s *Server) handleCalendarSync(ctx *Context, collection *wbxml.Element, col
 	if err != nil {
 		return nil, err
 	}
-	prev := decodeCalCursor(cursor)
+	prev := decodeCursor(cursor)
 	for _, it := range items {
 		if touched[it.ServerID] {
 			prev[it.ServerID] = it.ETag
@@ -157,87 +153,26 @@ func (s *Server) applyCalendarCommands(email, folderID string, collection *wbxml
 }
 
 // diffCalendar compares the current event set against the previous synced state
-// (serverId->etag) and returns the next window of changes, the advanced cursor
-// reflecting only the emitted changes, and whether more remain. Carrying the
-// emitted changes into the cursor lets a later sync resume the remainder, so a
-// large folder drains across several syncs and still converges.
+// (serverId->etag) and returns the next window of calendar commands, the
+// advanced cursor and whether more remain. It is a thin projection over the
+// shared diffCollab engine: the diff/window/cursor logic is identical for every
+// journal-less class, so calendar only maps each neutral op back to a calCommand
+// carrying the event (Add/Change) or the gone ServerId (Delete).
 func diffCalendar(prev map[string]string, items []CalendarItem, window int) (cmds []calCommand, nextCursor string, more bool) {
-	seen := make(map[string]bool, len(items))
-	var all []calCommand
-	for _, it := range items {
-		seen[it.ServerID] = true
-		etag, known := prev[it.ServerID]
-		switch {
-		case !known:
-			all = append(all, calCommand{op: "Add", item: it})
-		case etag != it.ETag:
-			all = append(all, calCommand{op: "Change", item: it})
-		}
+	entries := make([]collabEntry, len(items))
+	for i, it := range items {
+		entries[i] = collabEntry{serverID: it.ServerID, etag: it.ETag}
 	}
-	for id := range prev {
-		if !seen[id] {
-			all = append(all, calCommand{op: "Delete", id: id})
-		}
-	}
-	// Stable order so a windowed drain is deterministic across syncs.
-	sort.Slice(all, func(i, j int) bool { return calCommandKey(all[i]) < calCommandKey(all[j]) })
-
-	end := len(all)
-	if window > 0 && window < end {
-		end = window
-	}
-	emitted := all[:end]
-	more = end < len(all)
-
-	next := make(map[string]string, len(prev))
-	maps.Copy(next, prev)
-	for _, c := range emitted {
-		if c.op == "Delete" {
-			delete(next, c.id)
+	ops, nextCursor, more := diffCollab(prev, entries, window)
+	cmds = make([]calCommand, len(ops))
+	for i, o := range ops {
+		if o.op == "Delete" {
+			cmds[i] = calCommand{op: "Delete", id: o.id}
 		} else {
-			next[c.item.ServerID] = c.item.ETag
+			cmds[i] = calCommand{op: o.op, item: items[o.idx]}
 		}
 	}
-	return emitted, encodeCalCursor(next), more
-}
-
-// calCommandKey is the sort key for a calendar command (its item or delete id).
-func calCommandKey(c calCommand) string {
-	if c.op == "Delete" {
-		return c.id
-	}
-	return c.item.ServerID
-}
-
-// encodeCalCursor serializes the synced-state digest into the opaque watermark
-// (base64 JSON, free of the "|" the watermark splits on); an empty map is "".
-func encodeCalCursor(m map[string]string) string {
-	if len(m) == 0 {
-		return ""
-	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString(b)
-}
-
-// decodeCalCursor reverses encodeCalCursor, returning an empty map for the
-// empty or malformed cursor (a malformed cursor degrades to a full re-add,
-// which is safe).
-func decodeCalCursor(s string) map[string]string {
-	if s == "" {
-		return map[string]string{}
-	}
-	b, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return map[string]string{}
-	}
-	m := map[string]string{}
-	if err := json.Unmarshal(b, &m); err != nil {
-		return map[string]string{}
-	}
-	return m
+	return cmds, nextCursor, more
 }
 
 // marshalCalendarSync builds a Sync response for a calendar collection: the

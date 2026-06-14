@@ -67,8 +67,10 @@ func codePage(n byte) (*codePageTable, bool) {
 // Code page numbers used so far (MS-ASWBXML 2.1.2.1).
 const (
 	PageAirSync         byte = 0  // Sync command envelope, shared by every data class
+	PageContacts        byte = 1  // Contacts data class (MS-ASCNTC)
 	PageEmail           byte = 2  // Email data class
 	PageCalendar        byte = 4  // Calendar data class
+	PageContacts2       byte = 12 // Contacts data class extension (MS-ASCNTC)
 	PageMove            byte = 5  // MoveItems command
 	PageMeetingResponse byte = 8  // MeetingResponse command
 	PageGetItemEstimate byte = 6  // GetItemEstimate command
@@ -232,6 +234,86 @@ var _ = register(PageCalendar, "Calendar", map[byte]string{
 	0x3A: "OnlineMeetingConfLink",
 	0x3B: "OnlineMeetingExternalLink",
 	0x3C: "ClientUid",
+})
+
+// Contacts data class (MS-ASWBXML 2.1.2.1.2, Code Page 1 / MS-ASCNTC). The full
+// token set is registered so a client's up-sync ApplicationData decodes whatever
+// element it sends. Tokens 0x09 Body / 0x0A BodySize / 0x0B BodyTruncated are
+// 2.5-only legacy; 16.x carries the body through AirSyncBase (page 17) instead.
+// 0x3B is unassigned in the spec table (it jumps from 0x3A to 0x3C).
+var _ = register(PageContacts, "Contacts", map[byte]string{
+	0x05: "Anniversary",
+	0x06: "AssistantName",
+	0x07: "AssistantPhoneNumber",
+	0x08: "Birthday",
+	0x09: "Body",
+	0x0A: "BodySize",
+	0x0B: "BodyTruncated",
+	0x0C: "Business2PhoneNumber",
+	0x0D: "BusinessAddressCity",
+	0x0E: "BusinessAddressCountry",
+	0x0F: "BusinessAddressPostalCode",
+	0x10: "BusinessAddressState",
+	0x11: "BusinessAddressStreet",
+	0x12: "BusinessFaxNumber",
+	0x13: "BusinessPhoneNumber",
+	0x14: "CarPhoneNumber",
+	0x15: "Categories",
+	0x16: "Category",
+	0x17: "Children",
+	0x18: "Child",
+	0x19: "CompanyName",
+	0x1A: "Department",
+	0x1B: "Email1Address",
+	0x1C: "Email2Address",
+	0x1D: "Email3Address",
+	0x1E: "FileAs",
+	0x1F: "FirstName",
+	0x20: "Home2PhoneNumber",
+	0x21: "HomeAddressCity",
+	0x22: "HomeAddressCountry",
+	0x23: "HomeAddressPostalCode",
+	0x24: "HomeAddressState",
+	0x25: "HomeAddressStreet",
+	0x26: "HomeFaxNumber",
+	0x27: "HomePhoneNumber",
+	0x28: "JobTitle",
+	0x29: "LastName",
+	0x2A: "MiddleName",
+	0x2B: "MobilePhoneNumber",
+	0x2C: "OfficeLocation",
+	0x2D: "OtherAddressCity",
+	0x2E: "OtherAddressCountry",
+	0x2F: "OtherAddressPostalCode",
+	0x30: "OtherAddressState",
+	0x31: "OtherAddressStreet",
+	0x32: "PagerNumber",
+	0x33: "RadioPhoneNumber",
+	0x34: "Spouse",
+	0x35: "Suffix",
+	0x36: "Title",
+	0x37: "WebPage",
+	0x38: "YomiCompanyName",
+	0x39: "YomiFirstName",
+	0x3A: "YomiLastName",
+	0x3C: "Picture",
+})
+
+// Contacts2 data class (MS-ASWBXML 2.1.2.1.13, Code Page 12 / MS-ASCNTC). These
+// are the extended contact fields a 16.x client may carry on its own page; the
+// table is registered so an up-sync that includes them decodes rather than
+// failing on an unknown page.
+var _ = register(PageContacts2, "Contacts2", map[byte]string{
+	0x05: "CustomerId",
+	0x06: "GovernmentId",
+	0x07: "IMAddress",
+	0x08: "IMAddress2",
+	0x09: "IMAddress3",
+	0x0A: "ManagerName",
+	0x0B: "CompanyMainPhone",
+	0x0C: "AccountName",
+	0x0D: "NickName",
+	0x0E: "MMS",
 })
 
 var _ = register(PageMove, "Move", map[byte]string{

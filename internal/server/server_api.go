@@ -10,8 +10,9 @@ import (
 
 	"github.com/umailserver/umailserver/internal/activesync"
 	"github.com/umailserver/umailserver/internal/api"
-	"github.com/umailserver/umailserver/internal/caldav"
 	"github.com/umailserver/umailserver/internal/backup"
+	"github.com/umailserver/umailserver/internal/caldav"
+	"github.com/umailserver/umailserver/internal/carddav"
 	"github.com/umailserver/umailserver/internal/cluster"
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/imap"
@@ -135,6 +136,8 @@ func (s *Server) startAPI() {
 		calMut := easCalendarMutator{store: caldav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())}
 		eas.SetCalendarMutator(calMut)
 		eas.SetMeetingResponder(easMeetingResponder{msg: s.msgStore, cal: calMut})
+		eas.SetContactSource(easContactSource{collab: s.semcoreStore.Collaboration()})
+		eas.SetContactMutator(easContactMutator{store: carddav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())})
 		eas.SetMutator(easMutator{emsmdbMutator{srv: s}})
 		eas.SetSubmitter(s.easSendMail)
 		s.apiServer.SetActiveSyncHandler(eas)

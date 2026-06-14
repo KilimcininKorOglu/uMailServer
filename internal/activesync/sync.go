@@ -31,7 +31,7 @@ type SyncMessage struct {
 	Importance   string // "0" low, "1" normal, "2" high
 	BodyType     string // AirSyncBase Type: "1" plain text, "2" HTML
 	Body         string
-	Truncated    bool   // set when Body was clamped to the client's TruncationSize
+	Truncated    bool // set when Body was clamped to the client's TruncationSize
 }
 
 // MailSource supplies a folder's mail for the Sync command: a current snapshot
@@ -102,11 +102,15 @@ func (s *Server) handleSync(ctx *Context) ([]byte, error) {
 	window := windowSize(root, collection)
 	trunc := truncationSize(collection)
 
-	// A calendar collection syncs on its own enumerate-and-diff path, leaving the
-	// mail machinery below untouched; its ServerId namespace is prefix-tagged so
-	// it never collides with a mail folder's bare name.
+	// The journal-less PIM collections (calendar, contacts) sync on the shared
+	// enumerate-and-diff path, leaving the mail machinery below untouched; each
+	// ServerId namespace is prefix-tagged so it never collides with a mail
+	// folder's bare name.
 	if folderID, ok := strings.CutPrefix(collectionID, calendarCollectionPrefix); ok && s.calendar != nil {
 		return s.handleCalendarSync(ctx, collection, collectionID, folderID, reqKey, window, deviceID)
+	}
+	if folderID, ok := strings.CutPrefix(collectionID, contactsCollectionPrefix); ok && s.contacts != nil {
+		return s.handleContactsSync(ctx, collection, collectionID, folderID, reqKey, window, deviceID)
 	}
 
 	if reqKey == "0" {

@@ -173,7 +173,7 @@ func TestDiffCalendar(t *testing.T) {
 	}
 
 	// Re-sync with the produced cursor and the same set -> no changes.
-	prev := decodeCalCursor(cur)
+	prev := decodeCursor(cur)
 	cmds, _, _ = diffCalendar(prev, []CalendarItem{a, b}, 0)
 	if len(cmds) != 0 {
 		t.Fatalf("unchanged set must produce no commands: %+v", cmds)
@@ -201,7 +201,7 @@ func TestDiffCalendar(t *testing.T) {
 	if len(cmds) != 1 || !more {
 		t.Fatalf("windowed drain must emit 1 with more=true: %+v more=%v", cmds, more)
 	}
-	cmds, _, more = diffCalendar(decodeCalCursor(cur), []CalendarItem{a, b}, 1)
+	cmds, _, more = diffCalendar(decodeCursor(cur), []CalendarItem{a, b}, 1)
 	if len(cmds) != 1 || more {
 		t.Fatalf("second window must emit the remaining 1 with more=false: %+v more=%v", cmds, more)
 	}
