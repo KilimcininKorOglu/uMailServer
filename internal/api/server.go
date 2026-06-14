@@ -142,6 +142,10 @@ type Server struct {
 	// connector (Connect/Execute/Disconnect over MS-OXCROPS).
 	emsmdbHandler http.Handler
 
+	// RPC-over-HTTP (Outlook Anywhere) tunnel handler, served at
+	// /rpc/rpcproxy.dll. It carries the same EMSMDB ROPs over MS-RPCH + DCERPC.
+	rpchHandler http.Handler
+
 	// Canonical semantic-core store, used by admin surfaces (delegation,
 	// directory/resources, rules, jobs). Held as the SemanticStore interface so
 	// the API server names no concrete *semcore.Bolt*Store; a relational
@@ -627,6 +631,22 @@ func (s *Server) initRouter() {
 			//nolint:staticcheck // intentional: string key for cross-package context access
 			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
 			s.emsmdbHandler.ServeHTTP(w, r)
+		})
+	}
+	if s.rpchHandler != nil {
+		// RPC-over-HTTP (Outlook Anywhere). The client opens the RPC_OUT_DATA and
+		// RPC_IN_DATA channels with a query of the form ?<host>:<port>; Basic auth
+		// identifies the mailbox, so the query is parsed and ignored.
+		mux.HandleFunc("/rpc/rpcproxy.dll", func(w http.ResponseWriter, r *http.Request) {
+			email := s.mapiBasicAuth(w, r)
+			if email == "" {
+				w.Header().Set("WWW-Authenticate", `Basic realm="MAPI/HTTP"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			//nolint:staticcheck // intentional: string key for cross-package context access
+			r = r.WithContext(context.WithValue(r.Context(), ContextKeyEmail, email))
+			s.rpchHandler.ServeHTTP(w, r)
 		})
 	}
 
@@ -1881,6 +1901,12 @@ func (s *Server) SetNSPIHandler(handler http.Handler) {
 // surfaces.
 func (s *Server) SetEMSMDBHandler(handler http.Handler) {
 	s.emsmdbHandler = handler
+}
+
+// SetRPCHHandler configures the RPC-over-HTTP (Outlook Anywhere) tunnel handler,
+// served at /rpc/rpcproxy.dll behind Basic auth like the other MAPI surfaces.
+func (s *Server) SetRPCHHandler(handler http.Handler) {
+	s.rpchHandler = handler
 }
 
 // mapiBasicAuth performs HTTP Basic Auth validation for MAPI/HTTP endpoints.

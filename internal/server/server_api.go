@@ -17,6 +17,7 @@ import (
 	"github.com/umailserver/umailserver/internal/mapi/emsmdb"
 	"github.com/umailserver/umailserver/internal/mapi/nspi"
 	"github.com/umailserver/umailserver/internal/mapi/oab"
+	"github.com/umailserver/umailserver/internal/mapi/rpch"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
 )
@@ -328,6 +329,20 @@ func (s *Server) startAPI() {
 				emsmdbServer.ServeHTTP(w, r)
 			}))
 			s.logger.Info("MAPI/HTTP emsmdb handler initialized")
+
+			// Wire the RPC-over-HTTP (Outlook Anywhere) tunnel at /rpc/rpcproxy.dll.
+			// It reuses the same ROP dispatcher (emsmdbProcessor) over the MS-RPCH +
+			// DCERPC transport, so a ROP carried over RPC-over-HTTP lands in the same
+			// canonical store as one carried over MAPI/HTTP.
+			rpcServer := emsmdb.NewRPCServer(emsmdbProcessor)
+			rpchHandler := rpch.NewHandler(rpcServer)
+			s.apiServer.SetRPCHHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {
+					r = r.WithContext(emsmdb.WithEmail(r.Context(), email))
+				}
+				rpchHandler.ServeHTTP(w, r)
+			}))
+			s.logger.Info("RPC-over-HTTP (Outlook Anywhere) handler initialized")
 		}
 
 		// Set up feature gates for Exchange-facing surfaces.

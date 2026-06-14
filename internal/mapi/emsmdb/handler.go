@@ -51,7 +51,10 @@ func WithEmail(ctx context.Context, email string) context.Context {
 	return context.WithValue(ctx, emailKey, email)
 }
 
-func emailFromContext(ctx context.Context) string {
+// EmailFromContext returns the authenticated mailbox email a front end stored
+// with WithEmail, or "" when absent. The RPC-over-HTTP tunnel reads it the same
+// way the MAPI/HTTP handler does.
+func EmailFromContext(ctx context.Context) string {
 	e, ok := ctx.Value(emailKey).(string)
 	if !ok {
 		return ""
@@ -188,7 +191,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, body []byte) {
-	email := emailFromContext(r.Context())
+	email := EmailFromContext(r.Context())
 	if _, err := DecodeConnectRequest(body); err != nil || email == "" {
 		s.writeResponse(w, r, "Connect", "", ConnectResponse{StatusCode: 0, ErrorCode: ecAccessDenied}.Encode())
 		return
