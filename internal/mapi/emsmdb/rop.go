@@ -36,6 +36,8 @@ const (
 	RopSubmitMessage                 uint8 = 0x32
 	RopMoveCopyMessages              uint8 = 0x33
 	RopFastTransferSourceGetBuffer   uint8 = 0x4E
+	RopFastTransferDestConfigure     uint8 = 0x53
+	RopFastTransferDestPutBuffer     uint8 = 0x54
 	RopGetPropertyIdsByNames         uint8 = 0x56
 	RopEmptyFolder                   uint8 = 0x58
 	RopCommitStream                  uint8 = 0x5D
@@ -192,6 +194,8 @@ var ropHandlers = map[uint8]ropHandler{
 	RopEmptyFolder:                   ropEmptyFolder,
 	RopSyncConfigure:                 ropSyncConfigure,
 	RopFastTransferSourceGetBuffer:   ropFastTransferSourceGetBuffer,
+	RopFastTransferDestConfigure:     ropFastTransferDestConfigure,
+	RopFastTransferDestPutBuffer:     ropFastTransferDestPutBuffer,
 	RopSyncUploadStateStreamBegin:    ropSyncUploadStateStreamBegin,
 	RopSyncUploadStateStreamContinue: ropSyncUploadStateStreamContinue,
 	RopSyncUploadStateStreamEnd:      ropSyncUploadStateStreamEnd,
