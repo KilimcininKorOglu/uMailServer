@@ -65,6 +65,7 @@ type Server struct {
 	devices      DeviceStore
 	folders      FolderSource
 	sync         SyncState
+	mail         MailSource
 }
 
 // NewServer builds an EAS endpoint that authenticates through authenticate.
@@ -76,6 +77,7 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 	}
 	s.Handle("Provision", s.handleProvision)
 	s.Handle("FolderSync", s.handleFolderSync)
+	s.Handle("Sync", s.handleSync)
 	return s
 }
 
@@ -92,6 +94,11 @@ func (s *Server) SetFolderSource(f FolderSource) {
 // SetSyncState wires the per-(email, collection, device) sync-watermark store.
 func (s *Server) SetSyncState(st SyncState) {
 	s.sync = st
+}
+
+// SetMailSource wires the mail source used by the Sync command.
+func (s *Server) SetMailSource(m MailSource) {
+	s.mail = m
 }
 
 // SetLogger overrides the default logger.
