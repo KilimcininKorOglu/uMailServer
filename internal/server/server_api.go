@@ -142,6 +142,7 @@ func (s *Server) startAPI() {
 		eas.SetTaskMutator(easTaskMutator{store: caldav.NewCollabTaskStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())})
 		eas.SetMutator(easMutator{emsmdbMutator{srv: s}})
 		eas.SetSubmitter(s.easSendMail)
+		eas.SetMailNotifier(easMailNotifier{})
 		s.apiServer.SetActiveSyncHandler(eas)
 		s.logger.Info("Exchange ActiveSync handler initialized")
 	}

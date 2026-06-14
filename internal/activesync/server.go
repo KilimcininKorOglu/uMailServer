@@ -45,6 +45,10 @@ type Context struct {
 	Email   string
 	Request *http.Request
 	Body    []byte
+	// W is the response writer. Most handlers return their body as bytes and
+	// ignore it; the Ping handler needs it to lift the write deadline for a
+	// long heartbeat (http.NewResponseController).
+	W http.ResponseWriter
 }
 
 // Server is the EAS endpoint handler. authenticate is the injected Basic-auth
@@ -75,6 +79,8 @@ type Server struct {
 	taskMutator  TaskMutator
 	mutator      Mutator
 	submitter    Submitter
+	notifier     MailboxNotifier
+	pings        *pingCache
 }
 
 // NewServer builds an EAS endpoint that authenticates through authenticate.
@@ -83,6 +89,7 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 		authenticate: authenticate,
 		logger:       slog.Default(),
 		commands:     make(map[string]CommandFunc),
+		pings:        newPingCache(),
 	}
 	s.Handle("Provision", s.handleProvision)
 	s.Handle("FolderSync", s.handleFolderSync)
@@ -93,6 +100,7 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 	s.Handle("SmartReply", s.handleSendMail)
 	s.Handle("ItemOperations", s.handleItemOperations)
 	s.Handle("MeetingResponse", s.handleMeetingResponse)
+	s.Handle("Ping", s.handlePing)
 	return s
 }
 
@@ -176,6 +184,13 @@ func (s *Server) SetSubmitter(sub Submitter) {
 	s.submitter = sub
 }
 
+// SetMailNotifier wires the mailbox change notifier the Ping command long-polls
+// for mail-folder changes. Without it, Ping still honors the heartbeat but only
+// returns on expiry (Status 1) for mail folders.
+func (s *Server) SetMailNotifier(n MailboxNotifier) {
+	s.notifier = n
+}
+
 // SetLogger overrides the default logger.
 func (s *Server) SetLogger(l *slog.Logger) {
 	if l != nil {
@@ -245,7 +260,7 @@ func (s *Server) servePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	resp, err := handler(&Context{Email: email, Request: r, Body: body})
+	resp, err := handler(&Context{Email: email, Request: r, Body: body, W: w})
 	if err != nil {
 		s.logger.Warn("activesync command failed", "cmd", cmd, "email", email, "error", err)
 		http.Error(w, "Server Error", http.StatusInternalServerError)

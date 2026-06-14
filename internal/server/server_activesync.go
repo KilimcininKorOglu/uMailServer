@@ -636,3 +636,29 @@ func recipientsFromMIME(raw []byte) []string {
 	}
 	return to
 }
+
+// easMailNotifier bridges the shared IMAP notification hub to the EAS Ping
+// command, satisfying activesync.MailboxNotifier. A held Ping subscribes through
+// it and receives the name of any mail folder that changed — the same string a
+// mail collection uses as its EAS CollectionId — so a delivery, expunge, or flag
+// change wakes the long-poll. It keeps the activesync package free of any imap
+// import (the adapter does the translation), mirroring emsmdbNotifier; a
+// non-blocking forward drops events when the consumer is behind, matching the
+// hub's own back-pressure policy.
+type easMailNotifier struct{}
+
+func (easMailNotifier) Subscribe(email string) (<-chan string, func()) {
+	hub := imap.GetNotificationHub()
+	in := hub.Subscribe(email)
+	out := make(chan string, 64)
+	go func() {
+		defer close(out)
+		for n := range in {
+			select {
+			case out <- n.Mailbox:
+			default:
+			}
+		}
+	}()
+	return out, func() { hub.Unsubscribe(email, in) }
+}

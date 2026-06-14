@@ -81,6 +81,7 @@ const (
 	PageSettings        byte = 18 // Settings: DeviceInformation, OOF, UserInformation
 	PageItemOperations  byte = 20 // ItemOperations: Fetch/EmptyFolderContents/Move
 	PageComposeMail     byte = 21 // SendMail/SmartForward/SmartReply
+	PagePing            byte = 13 // Ping command (long-poll change notification)
 )
 
 var _ = register(PageAirSync, "AirSync", map[byte]string{
@@ -594,4 +595,17 @@ var _ = register(PageSettings, "Settings", map[byte]string{
 	0x28: "UserDisplayName",
 	0x29: "SendDisabled",
 	0x2B: "RightsManagementInformation",
+})
+
+// Code Page 13: Ping (MS-ASWBXML 2.1.2.14). 0x06 (AutdState) is retired and
+// unassigned in the current spec, so it is intentionally absent.
+var _ = register(PagePing, "Ping", map[byte]string{
+	0x05: "Ping",
+	0x07: "Status",
+	0x08: "HeartbeatInterval",
+	0x09: "Folders",
+	0x0A: "Folder",
+	0x0B: "Id",
+	0x0C: "Class",
+	0x0D: "MaxFolders",
 })
