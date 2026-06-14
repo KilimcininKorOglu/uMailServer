@@ -159,6 +159,7 @@ var errMutator = errors.New("mutator failure")
 type stubMutator struct {
 	reads   map[string]bool
 	deletes []string
+	moves   map[string]string // serverID -> destination collection
 	failOn  string
 }
 
@@ -179,6 +180,55 @@ func (m *stubMutator) Delete(_, _, serverID string) error {
 	}
 	m.deletes = append(m.deletes, serverID)
 	return nil
+}
+
+func (m *stubMutator) Move(_, _, dst, serverID string) (bool, error) {
+	if serverID == m.failOn {
+		return false, errMutator
+	}
+	if m.moves == nil {
+		m.moves = map[string]string{}
+	}
+	m.moves[serverID] = dst
+	return true, nil
+}
+
+// TestMoveItems verifies the MoveItems command relocates an item via the Mutator
+// and reports per-Move success (status 3, not 1) with the destination id.
+func TestMoveItems(t *testing.T) {
+	mut := &stubMutator{}
+	s := NewServer(allowAuth)
+	s.SetMutator(mut)
+	body, err := wbxml.Marshal(&wbxml.Element{Page: wbxml.PageMove, Name: "MoveItems", Children: []*wbxml.Element{
+		{Page: wbxml.PageMove, Name: "Move", Children: []*wbxml.Element{
+			{Page: wbxml.PageMove, Name: "SrcMsgId", Text: "blob1"},
+			{Page: wbxml.PageMove, Name: "SrcFldId", Text: "INBOX"},
+			{Page: wbxml.PageMove, Name: "DstFldId", Text: "Archive"},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/Microsoft-Server-ActiveSync?Cmd=MoveItems&DeviceId=DEV1", bytes.NewReader(body))
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("MoveItems status = %d, want 200", rec.Code)
+	}
+	resp, err := wbxml.Unmarshal(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	r := resp.Sub("Response")
+	if r == nil || r.Sub("Status").Text != moveStatusSuccess {
+		t.Fatalf("move Status = %v, want %s", r, moveStatusSuccess)
+	}
+	if r.Sub("DstMsgId").Text != "blob1" {
+		t.Fatalf("DstMsgId = %q, want blob1", r.Sub("DstMsgId").Text)
+	}
+	if mut.moves["blob1"] != "Archive" {
+		t.Fatalf("move not applied to canonical store: %v", mut.moves)
+	}
 }
 
 // doSyncRaw sends a Sync request carrying arbitrary extra collection children

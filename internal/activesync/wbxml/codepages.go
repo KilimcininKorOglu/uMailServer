@@ -68,6 +68,7 @@ func codePage(n byte) (*codePageTable, bool) {
 const (
 	PageAirSync         byte = 0  // Sync command envelope, shared by every data class
 	PageEmail           byte = 2  // Email data class
+	PageMove            byte = 5  // MoveItems command
 	PageGetItemEstimate byte = 6  // GetItemEstimate command
 	PageFolderHierarchy byte = 7  // FolderSync/FolderCreate/FolderDelete/FolderUpdate
 	PageProvision       byte = 14 // Provision command + policy document
@@ -171,6 +172,17 @@ var _ = register(PageEmail, "Email", map[byte]string{
 	0x3D: "FlagType",
 	0x3E: "CompleteTime",
 	0x3F: "DisallowNewTimeProposal",
+})
+
+var _ = register(PageMove, "Move", map[byte]string{
+	0x05: "MoveItems",
+	0x06: "Move",
+	0x07: "SrcMsgId",
+	0x08: "SrcFldId",
+	0x09: "DstFldId",
+	0x0A: "Response",
+	0x0B: "Status",
+	0x0C: "DstMsgId",
 })
 
 var _ = register(PageGetItemEstimate, "GetItemEstimate", map[byte]string{

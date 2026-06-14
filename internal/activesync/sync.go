@@ -56,6 +56,9 @@ type MailSource interface {
 type Mutator interface {
 	SetRead(email, collectionID, serverID string, read bool) error
 	Delete(email, collectionID, serverID string) error
+	// Move relocates an item between collections. moved is false when the source
+	// item is no longer present (a stale id); a real store failure returns err.
+	Move(email, srcCollectionID, dstCollectionID, serverID string) (moved bool, err error)
 }
 
 // clientResponse is one entry in the Sync Responses block: the per-item status of

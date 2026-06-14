@@ -243,6 +243,18 @@ func (m easMutator) Delete(email, collectionID, serverID string) error {
 	return err
 }
 
+func (m easMutator) Move(email, srcCollectionID, dstCollectionID, serverID string) (bool, error) {
+	uid, ok := m.uidByServerID(email, srcCollectionID, serverID)
+	if !ok {
+		return false, nil
+	}
+	moved, err := m.MoveMessages(email, srcCollectionID, dstCollectionID, []uint32{uid})
+	if err != nil {
+		return false, err
+	}
+	return moved > 0, nil
+}
+
 // uidByServerID resolves an EAS ServerId (the storage blob key) to the message's
 // IMAP uid within the folder by scanning its metadata.
 func (m easMutator) uidByServerID(email, folder, serverID string) (uint32, bool) {

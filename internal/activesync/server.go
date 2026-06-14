@@ -79,6 +79,7 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 	s.Handle("Provision", s.handleProvision)
 	s.Handle("FolderSync", s.handleFolderSync)
 	s.Handle("Sync", s.handleSync)
+	s.Handle("MoveItems", s.handleMoveItems)
 	return s
 }
 
