@@ -111,6 +111,22 @@ func globcntToValue(cb [6]byte) uint64 {
 		uint64(cb[3])<<16 | uint64(cb[4])<<8 | uint64(cb[5])
 }
 
+// ParseXID decodes a 22-byte XID (MS-OXCDATA 2.2.2.2), inverting SerializeXID: the
+// replica GUID (16 bytes, standard GUID wire layout) followed by the 6-byte big-endian
+// GLOBCNT. It returns the replica GUID and the 48-bit GLOBCNT value, so a caller can
+// decide whether an imported source/change key belongs to this store and recover the
+// id within it.
+func ParseXID(b []byte) (GUID, uint64, error) {
+	if len(b) != 22 {
+		return GUID{}, 0, fmt.Errorf("xid: length %d, want 22", len(b))
+	}
+	p := NewPull(b, 0)
+	g := p.GUID()
+	var gc [6]byte
+	copy(gc[:], b[16:22])
+	return g, globcntToValue(gc), nil
+}
+
 // ParseGlobset decodes a GLOBSET (MS-OXCFXICS 2.2.2.6) back into its ranges,
 // inverting SerializeGlobset. It walks the stack commands — push (0x01-0x06), range
 // (0x52), pop (0x50), the bitmask form (0x42, which the encoder never emits but a

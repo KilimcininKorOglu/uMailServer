@@ -5,6 +5,38 @@ import (
 	"testing"
 )
 
+// TestParseXID verifies the 22-byte XID decoder inverts SerializeXID across a range
+// of GLOBCNT values (including the 48-bit boundary) and rejects a wrong length.
+func TestParseXID(t *testing.T) {
+	guid := GUID{
+		TimeLow:          0xA1B2C3D4,
+		TimeMid:          0xE5F6,
+		TimeHiAndVersion: 0x0718,
+		ClockSeq:         [2]byte{0x29, 0x3A},
+		Node:             [6]byte{0x4B, 0x5C, 0x6D, 0x7E, 0x8F, 0x90},
+	}
+	for _, v := range []uint64{0, 1, 0x0d, 0x0a, 0x123456, 0xFFFFFFFFFFFF} {
+		x := SerializeXID(guid, v)
+		if len(x) != 22 {
+			t.Fatalf("SerializeXID(%#x) length = %d, want 22", v, len(x))
+		}
+		g, gc, err := ParseXID(x)
+		if err != nil {
+			t.Errorf("ParseXID(%#x): %v", v, err)
+			continue
+		}
+		if g != guid {
+			t.Errorf("ParseXID(%#x) guid = %+v, want %+v", v, g, guid)
+		}
+		if gc != v {
+			t.Errorf("ParseXID(%#x) globcnt = %#x, want %#x", v, gc, v)
+		}
+	}
+	if _, _, err := ParseXID(make([]byte, 21)); err == nil {
+		t.Error("ParseXID accepted a 21-byte value, want a length error")
+	}
+}
+
 // TestSerializeGlobset asserts the GLOBSET encoder against hand-computed spec
 // vectors (MS-OXCFXICS 2.2.2.6, mirroring the reference encoder), NOT round-trip:
 // the bytes a real ICS client must accept are fixed, so the test pins them rather

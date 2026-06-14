@@ -42,6 +42,7 @@ const (
 	RopEmptyFolder                   uint8 = 0x58
 	RopCommitStream                  uint8 = 0x5D
 	RopSyncConfigure                 uint8 = 0x70
+	RopSyncImportMessageChange       uint8 = 0x72
 	RopSyncUploadStateStreamBegin    uint8 = 0x75
 	RopSyncUploadStateStreamContinue uint8 = 0x76
 	RopSyncUploadStateStreamEnd      uint8 = 0x77
@@ -201,6 +202,7 @@ var ropHandlers = map[uint8]ropHandler{
 	RopSyncUploadStateStreamContinue: ropSyncUploadStateStreamContinue,
 	RopSyncUploadStateStreamEnd:      ropSyncUploadStateStreamEnd,
 	RopSyncOpenCollector:             ropSyncOpenCollector,
+	RopSyncImportMessageChange:       ropSyncImportMessageChange,
 }
 
 // Dispatch parses ropData as a chained ROP request list and returns the encoded
