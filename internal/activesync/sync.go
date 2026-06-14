@@ -45,6 +45,9 @@ type MailSource interface {
 	// CurrentSeq returns the journal head — the baseline a full enumeration
 	// advances to, after which incremental syncs run from the change feed.
 	CurrentSeq(email string) (uint64, error)
+	// Fetch returns one message by its server id as the full, untruncated item
+	// (the ItemOperations Fetch payload), or nil when it no longer exists.
+	Fetch(email, collectionID, serverID string) (*SyncMessage, error)
 }
 
 // Mutator applies a mobile client's up-sync changes to the canonical mailstore:

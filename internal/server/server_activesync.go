@@ -210,6 +210,17 @@ func (s easMailSource) ChangesSince(email, collectionID string, since uint64) (a
 	return adds, changes, deletes, lastSeq, nil
 }
 
+// Fetch returns the full, untruncated message for an ItemOperations Fetch by its
+// ServerId (the storage blob key), or nil when the blob is gone.
+func (s easMailSource) Fetch(email, collectionID, serverID string) (*activesync.SyncMessage, error) {
+	raw, err := s.msg.ReadMessage(email, serverID)
+	if err != nil {
+		return nil, nil
+	}
+	m := activesync.MessageFromRaw(serverID, raw)
+	return &m, nil
+}
+
 // easMutator applies a mobile client's EAS Sync up-sync changes to the canonical
 // mailstore, converging them on the one store every surface reads — a read-flag
 // set or a deletion authored on a phone is reflected over IMAP/POP3/JMAP/webmail

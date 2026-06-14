@@ -74,6 +74,7 @@ const (
 	PageProvision       byte = 14 // Provision command + policy document
 	PageAirSyncBase     byte = 17 // shared Body/Attachments/BodyPart (12.0+) + Location
 	PageSettings        byte = 18 // Settings: DeviceInformation, OOF, UserInformation
+	PageItemOperations  byte = 20 // ItemOperations: Fetch/EmptyFolderContents/Move
 	PageComposeMail     byte = 21 // SendMail/SmartForward/SmartReply
 )
 
@@ -315,6 +316,26 @@ var _ = register(PageAirSyncBase, "AirSyncBase", map[byte]string{
 	0x2B: "AltitudeAccuracy",
 	0x2C: "LocationUri",
 	0x2D: "InstanceId",
+})
+
+var _ = register(PageItemOperations, "ItemOperations", map[byte]string{
+	0x05: "ItemOperations",
+	0x06: "Fetch",
+	0x07: "Store",
+	0x08: "Options",
+	0x09: "Range",
+	0x0A: "Total",
+	0x0B: "Properties",
+	0x0C: "Data",
+	0x0D: "Status",
+	0x0E: "Response",
+	0x0F: "Version",
+	0x10: "Schema",
+	0x11: "Part",
+	0x12: "EmptyFolderContents",
+	0x13: "DeleteSubFolders",
+	0x14: "UserName",
+	0x15: "Password",
 })
 
 var _ = register(PageComposeMail, "ComposeMail", map[byte]string{

@@ -84,6 +84,7 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 	s.Handle("SendMail", s.handleSendMail)
 	s.Handle("SmartForward", s.handleSendMail)
 	s.Handle("SmartReply", s.handleSendMail)
+	s.Handle("ItemOperations", s.handleItemOperations)
 	return s
 }
 

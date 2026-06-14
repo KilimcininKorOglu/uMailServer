@@ -25,6 +25,15 @@ func (m *stubMail) CurrentSeq(string) (uint64, error)                  { return 
 func (m *stubMail) ChangesSince(string, string, uint64) ([]SyncMessage, []SyncMessage, []string, uint64, error) {
 	return m.adds, m.changes, m.deletes, m.seq, nil
 }
+func (m *stubMail) Fetch(_, _, serverID string) (*SyncMessage, error) {
+	for i := range m.list {
+		if m.list[i].ServerID == serverID {
+			sm := m.list[i]
+			return &sm, nil
+		}
+	}
+	return nil, nil
+}
 
 func msg(id, subject string) SyncMessage {
 	return SyncMessage{ServerID: "inbox:" + id, Subject: subject, From: "a@x.test", DateReceived: "2026-06-14T12:00:00.000Z", Body: "body of " + id}
@@ -268,6 +277,52 @@ func TestSendMail(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("SendMail success must be an empty body, got %d bytes", rec.Body.Len())
+	}
+}
+
+// TestItemOperations verifies a Fetch returns the item's full body under
+// Properties (AirSyncBase Body > Data) with per-Fetch success status.
+func TestItemOperations(t *testing.T) {
+	s := syncServer(&stubMail{list: []SyncMessage{
+		{ServerID: "blob1", Subject: "full subject", From: "a@x.test", Body: "the full untruncated body", BodyType: "1"},
+	}})
+	body, err := wbxml.Marshal(&wbxml.Element{Page: wbxml.PageItemOperations, Name: "ItemOperations", Children: []*wbxml.Element{
+		{Page: wbxml.PageItemOperations, Name: "Fetch", Children: []*wbxml.Element{
+			{Page: wbxml.PageItemOperations, Name: "Store", Text: "Mailbox"},
+			{Page: wbxml.PageAirSync, Name: "CollectionId", Text: "inbox"},
+			{Page: wbxml.PageAirSync, Name: "ServerId", Text: "blob1"},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/Microsoft-Server-ActiveSync?Cmd=ItemOperations&DeviceId=DEV1", bytes.NewReader(body))
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ItemOperations status = %d, want 200", rec.Code)
+	}
+	resp, err := wbxml.Unmarshal(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	fetch := resp.Sub("Response").Sub("Fetch")
+	if fetch == nil || fetch.Sub("Status").Text != itemOpStatusSuccess {
+		t.Fatalf("Fetch Status = %v, want %s", fetch, itemOpStatusSuccess)
+	}
+	if fetch.Sub("ServerId").Text != "blob1" {
+		t.Fatalf("Fetch ServerId = %q, want blob1", fetch.Sub("ServerId").Text)
+	}
+	data := ""
+	if p := fetch.Sub("Properties"); p != nil {
+		if b := p.Sub("Body"); b != nil {
+			if d := b.Sub("Data"); d != nil {
+				data = d.Text
+			}
+		}
+	}
+	if data != "the full untruncated body" {
+		t.Fatalf("Properties body = %q, want the full untruncated body", data)
 	}
 }
 
