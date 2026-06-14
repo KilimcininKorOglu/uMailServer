@@ -14,14 +14,16 @@ type fakeStore struct {
 	mailboxes []string
 	uids      map[string][]uint32
 	meta      map[string]map[uint32]*storage.MessageMetadata
-	raw       map[string][]byte // storage message id -> raw RFC 822
+	raw       map[string][]byte            // storage message id -> raw RFC 822
+	expunged  map[string]map[uint32]uint64 // mailbox -> uid -> expunge change number
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		uids: map[string][]uint32{},
-		meta: map[string]map[uint32]*storage.MessageMetadata{},
-		raw:  map[string][]byte{},
+		uids:     map[string][]uint32{},
+		meta:     map[string]map[uint32]*storage.MessageMetadata{},
+		raw:      map[string][]byte{},
+		expunged: map[string]map[uint32]uint64{},
 	}
 }
 
@@ -67,6 +69,42 @@ func (f *fakeStore) GetMessageMetadata(_, mailbox string, uid uint32) (*storage.
 		return m, nil
 	}
 	return nil, errors.New("message not found")
+}
+
+// expunge records an RFC 7162 tombstone (uid expunged at the given change number),
+// mirroring the canonical store's expunge bucket so the ICS download can report it.
+func (f *fakeStore) expunge(mailbox string, uid uint32, changeNumber uint64) {
+	if f.expunged[mailbox] == nil {
+		f.expunged[mailbox] = map[uint32]uint64{}
+	}
+	f.expunged[mailbox][uid] = changeNumber
+}
+
+// GetHighestModSeq returns the mailbox change high-water: the maximum over the live
+// messages' ModSeqs and the expunge tombstones' change numbers, matching the canonical
+// store whose modseq counter advances for both.
+func (f *fakeStore) GetHighestModSeq(_, mailbox string) (uint64, error) {
+	var high uint64
+	for _, m := range f.meta[mailbox] {
+		high = max(high, m.ModSeq)
+	}
+	for _, cn := range f.expunged[mailbox] {
+		high = max(high, cn)
+	}
+	return high, nil
+}
+
+// ExpungedUIDsSince returns, in ascending order, the uids expunged at a change number
+// greater than sinceModSeq.
+func (f *fakeStore) ExpungedUIDsSince(_, mailbox string, sinceModSeq uint64) ([]uint32, error) {
+	var uids []uint32
+	for uid, cn := range f.expunged[mailbox] {
+		if cn > sinceModSeq {
+			uids = append(uids, uid)
+		}
+	}
+	slices.Sort(uids)
+	return uids, nil
 }
 
 // putRaw records the raw RFC 822 bytes for a message id, for the body store.

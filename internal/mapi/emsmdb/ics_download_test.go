@@ -34,7 +34,7 @@ func TestBuildContentsSyncStream(t *testing.T) {
 		{uid: 1, modseq: 5, lastMod: when, props: []wire.TaggedPropertyValue{{Tag: wire.PidTagSubject, Value: "first"}}},
 		{uid: 2, modseq: 7, lastMod: when, props: []wire.TaggedPropertyValue{{Tag: wire.PidTagSubject, Value: "second"}}},
 	}
-	stream, err := buildContentsSyncStream(msgs, []uint32{1, 2}, 7, guid)
+	stream, err := buildContentsSyncStream(msgs, []uint32{1, 2}, nil, 7, guid)
 	if err != nil {
 		t.Fatalf("buildContentsSyncStream: %v", err)
 	}
@@ -85,6 +85,126 @@ func TestBuildContentsSyncStream(t *testing.T) {
 	// The message proplist carries the requested Subject ("first" as UTF-16LE).
 	if !bytes.Contains(changeRegion, []byte{0x66, 0x00, 0x69, 0x00, 0x72, 0x00, 0x73, 0x00, 0x74, 0x00}) {
 		t.Error("the Subject value \"first\" (UTF-16LE) not found in the message proplist")
+	}
+}
+
+// TestBuildContentsSyncStreamDeletions asserts the deletions block: when deleted uids
+// are reported, an INCRSYNCDEL block carrying MetaTagIdsetDeleted (an IDSET over the
+// coalesced deleted uids) appears after the change blocks and before the state block;
+// when none are reported, no INCRSYNCDEL marker is emitted. The exact IDSET bytes are
+// matched against the same serializer the producer uses, so the GLOBSET compression of
+// the singleton is irrelevant.
+func TestBuildContentsSyncStreamDeletions(t *testing.T) {
+	guid := wire.GUID{
+		TimeLow:          0x11223344,
+		TimeMid:          0x5566,
+		TimeHiAndVersion: 0x7788,
+		ClockSeq:         [2]byte{0x99, 0xAA},
+		Node:             [6]byte{0xBB, 0xCC, 0xDD, 0xEE, 0x12, 0x34},
+	}
+	when := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	msgs := []syncMessage{
+		{uid: 10, modseq: 5, lastMod: when, props: []wire.TaggedPropertyValue{{Tag: wire.PidTagSubject, Value: "live"}}},
+	}
+	deleted := []uint32{4, 5, 6, 9} // 4-6 coalesce into one range, 9 stands alone
+	stream, err := buildContentsSyncStream(msgs, []uint32{10}, deleted, 9, guid)
+	if err != nil {
+		t.Fatalf("buildContentsSyncStream: %v", err)
+	}
+
+	del := bytes.Index(stream, le32(markerIncrSyncDel))
+	begin := bytes.Index(stream, le32(markerIncrSyncStateBegin))
+	if del <= 0 {
+		t.Fatal("no INCRSYNCDEL block emitted for a non-empty deletion set")
+	}
+	if begin <= del {
+		t.Fatalf("INCRSYNCDEL must precede the state block: del=%d stateBegin=%d", del, begin)
+	}
+	// The deletions region (INCRSYNCDEL .. state block) carries the IDSET over the
+	// coalesced deleted uids verbatim.
+	deletionsRegion := stream[del:begin]
+	if !bytes.Contains(deletionsRegion, wire.SerializeIDSET(guid, coalesceUIDs(deleted))) {
+		t.Error("MetaTagIdsetDeleted does not carry the IDSET over the deleted uids")
+	}
+
+	// With no deletions, the block is absent.
+	noDel, err := buildContentsSyncStream(msgs, []uint32{10}, nil, 9, guid)
+	if err != nil {
+		t.Fatalf("buildContentsSyncStream (no deletions): %v", err)
+	}
+	if bytes.Contains(noDel, le32(markerIncrSyncDel)) {
+		t.Error("INCRSYNCDEL emitted for an empty deletion set")
+	}
+}
+
+// TestContentsDownloadDeletions drives the live ROP chain against a store with an
+// expunge tombstone and verifies the download reports the deletion: the stream carries
+// an INCRSYNCDEL block with the expunged uid's IDSET, and the CnsetSeen high-water
+// advances to the expunge change number (so it is not re-reported next sync).
+func TestContentsDownloadDeletions(t *testing.T) {
+	store := newFakeStore()
+	store.addMailbox("INBOX")
+	when := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	store.put("INBOX", &storage.MessageMetadata{UID: 10, ModSeq: 5, Subject: "alpha", MessageID: "m10", InternalDate: when})
+	store.put("INBOX", &storage.MessageMetadata{UID: 20, ModSeq: 7, Subject: "bravo", MessageID: "m20", InternalDate: when})
+	// A message previously deleted at change number 9 (gone from the live set, kept as
+	// a tombstone), the latest event in the mailbox.
+	store.expunge("INBOX", 5, 9)
+
+	p := NewProcessor(store)
+	p.SetBodyStore(store)
+	sess := &Session{ID: "s", Email: "qa.bob@local.test"}
+	logon := append([]byte{RopLogon, 0x00, 0x00}, encodeLogonRequest()...)
+	_, handles := p.Dispatch(sess, logon, []uint32{0xFFFFFFFF}, 0x10000)
+
+	of := wire.NewPush(wire.FlagUTF16)
+	of.Uint8(1)
+	of.Uint64(makeFID(fidReplID, 0x0d))
+	of.Uint8(0)
+	_, handles = p.Dispatch(sess, ropRequest(RopOpenFolder, 0, of.Bytes()), handles, 0x10000)
+
+	cfg := wire.NewPush(wire.FlagUTF16)
+	cfg.Uint8(2)
+	cfg.Uint8(syncTypeContents)
+	cfg.Uint8(0x01)
+	cfg.Uint16(0)
+	cfg.Uint16(0)
+	cfg.Uint32(0)
+	wire.PushPropertyTagArray(cfg, []wire.PropTag{wire.PidTagSubject})
+	_, handles = p.Dispatch(sess, ropRequest(RopSyncConfigure, 1, cfg.Bytes()), handles, 0x10000)
+
+	gb := wire.NewPush(wire.FlagUTF16)
+	gb.Uint16(0xFFFF)
+	resp, _ := p.Dispatch(sess, ropRequest(RopFastTransferSourceGetBuffer, 2, gb.Bytes()), handles, 0x10000)
+	q := wire.NewPull(resp, wire.FlagUTF16)
+	q.Uint8()
+	q.Uint8()
+	if rv := q.Uint32(); rv != ecSuccess {
+		t.Fatalf("GetBuffer return value = %#x, want success", rv)
+	}
+	if status := q.Uint16(); status != transferStatusDone {
+		t.Fatalf("GetBuffer status = %#x, want DONE", status)
+	}
+	q.Uint16()
+	q.Uint16()
+	q.Uint8()
+	full := q.Bin()
+
+	guid := derivedGUID("replica", "qa.bob@local.test")
+	del := bytes.Index(full, le32(markerIncrSyncDel))
+	begin := bytes.Index(full, le32(markerIncrSyncStateBegin))
+	if del <= 0 || begin <= del {
+		t.Fatalf("deletions block missing or misordered: del=%d stateBegin=%d", del, begin)
+	}
+	if !bytes.Contains(full[del:begin], wire.SerializeIDSET(guid, coalesceUIDs([]uint32{5}))) {
+		t.Error("the expunged uid 5 is not reported in the deletions block")
+	}
+	// CnsetSeen covers [1,9] — the expunge change number, not the max live ModSeq (7).
+	if !bytes.Contains(full[begin:], wire.SerializeIDSET(guid, []wire.GlobcntRange{{Lo: 1, Hi: 9}})) {
+		t.Error("CnsetSeen high-water did not advance to the expunge change number 9")
+	}
+	if !bytes.HasSuffix(full, le32(markerIncrSyncEnd)) {
+		t.Error("stream does not end with INCRSYNCEND")
 	}
 }
 

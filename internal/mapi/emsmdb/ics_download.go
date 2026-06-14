@@ -12,6 +12,7 @@ import (
 // named.
 const (
 	markerIncrSyncChg        uint32 = 0x40120003
+	markerIncrSyncDel        uint32 = 0x40130003
 	markerIncrSyncMessage    uint32 = 0x40150003
 	markerIncrSyncEnd        uint32 = 0x40140003
 	markerIncrSyncStateBegin uint32 = 0x403A0003
@@ -22,8 +23,9 @@ const (
 // value is a serialized IDSET framed as PtypBinary. MetaTagIdsetGiven1 is the
 // PtypBinary form (id 0x4017) that carries the actual id bytes.
 const (
-	metaTagIdsetGiven1 wire.PropTag = 0x40170102
-	metaTagCnsetSeen   wire.PropTag = 0x67960102
+	metaTagIdsetGiven1  wire.PropTag = 0x40170102
+	metaTagCnsetSeen    wire.PropTag = 0x67960102
+	metaTagIdsetDeleted wire.PropTag = 0x67E50102
 )
 
 // FastTransfer transfer-status values (MS-OXCFXICS 2.2.3.1.1.5.2).
@@ -45,14 +47,16 @@ type syncMessage struct {
 
 // buildContentsSyncStream serializes a contents-download FastTransfer stream
 // (MS-OXCFXICS 2.2.4.1): a change block (INCRSYNCCHG + change header + INCRSYNCMESSAGE
-// + message proplist) for each message in streamed, then the ICS state block
-// (INCRSYNCSTATEBEGIN + IdsetGiven over allUIDs + CnsetSeen over [1, maxModSeq] +
-// INCRSYNCSTATEEND) and the terminating INCRSYNCEND. streamed is the set of changed
-// messages to send (every message for a full sync, only the newer ones for a delta);
-// allUIDs and maxModSeq describe the FULL current folder state the client should hold
-// afterward, independent of which messages were streamed. It is a pure function so
-// the wire shape can be asserted directly.
-func buildContentsSyncStream(streamed []syncMessage, allUIDs []uint32, maxModSeq uint64, replicaGUID wire.GUID) ([]byte, error) {
+// + message proplist) for each message in streamed, then a deletions block
+// (INCRSYNCDEL + MetaTagIdsetDeleted over the deleted uids) when any are reported, then
+// the ICS state block (INCRSYNCSTATEBEGIN + IdsetGiven over allUIDs + CnsetSeen over
+// [1, highWaterModSeq] + INCRSYNCSTATEEND) and the terminating INCRSYNCEND. streamed is
+// the set of changed messages to send (every message for a full sync, only the newer
+// ones for a delta); allUIDs and highWaterModSeq describe the FULL current folder state
+// the client should hold afterward, independent of which messages were streamed.
+// deleted carries the uids expunged since the client's baseline so it drops them. It is
+// a pure function so the wire shape can be asserted directly.
+func buildContentsSyncStream(streamed []syncMessage, allUIDs, deleted []uint32, highWaterModSeq uint64, replicaGUID wire.GUID) ([]byte, error) {
 	p := wire.NewPush(0)
 	for _, m := range streamed {
 		p.Uint32(markerIncrSyncChg)
@@ -67,14 +71,25 @@ func buildContentsSyncStream(streamed []syncMessage, allUIDs []uint32, maxModSeq
 		}
 	}
 
+	// Deletions block: a bare proplist carrying MetaTagIdsetDeleted, an IDSET over the
+	// GLOBCNTs (the message uids) the client must drop. Emitted only when there are
+	// deletions, and before the state block, per the contents-sync stream order.
+	if len(deleted) > 0 {
+		p.Uint32(markerIncrSyncDel)
+		idsetDeleted := wire.SerializeIDSET(replicaGUID, coalesceUIDs(deleted))
+		if err := wire.PushFastTransferPropval(p, metaTagIdsetDeleted, idsetDeleted); err != nil {
+			return nil, err
+		}
+	}
+
 	p.Uint32(markerIncrSyncStateBegin)
 	idsetGiven := wire.SerializeIDSET(replicaGUID, coalesceUIDs(allUIDs))
 	if err := wire.PushFastTransferPropval(p, metaTagIdsetGiven1, idsetGiven); err != nil {
 		return nil, err
 	}
 	var cnRanges []wire.GlobcntRange
-	if maxModSeq > 0 {
-		cnRanges = []wire.GlobcntRange{{Lo: 1, Hi: maxModSeq}}
+	if highWaterModSeq > 0 {
+		cnRanges = []wire.GlobcntRange{{Lo: 1, Hi: highWaterModSeq}}
 	}
 	cnsetSeen := wire.SerializeIDSET(replicaGUID, cnRanges)
 	if err := wire.PushFastTransferPropval(p, metaTagCnsetSeen, cnsetSeen); err != nil {
@@ -174,24 +189,18 @@ func (c *ropCtx) buildContentsDownload(sc *syncContextObject) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// allUIDs is the full current membership for IdsetGiven; maxModSeq is the current
-	// change high-water for CnsetSeen — both describe the post-sync state regardless of
-	// which messages are streamed. streamed carries only the messages whose change
-	// number (ModSeq) exceeds what the client reported seeing (sc.seenModSeq), so an
-	// initial sync (seenModSeq 0) streams everything and a follow-up streams only the
-	// changes.
+	// allUIDs is the full current membership for IdsetGiven. streamed carries only the
+	// messages whose change number (ModSeq) exceeds what the client reported seeing
+	// (sc.seenModSeq), so an initial sync (seenModSeq 0) streams everything and a
+	// follow-up streams only the changes.
 	allUIDs := make([]uint32, 0, len(uids))
 	streamed := make([]syncMessage, 0, len(uids))
-	var maxModSeq uint64
 	for _, uid := range uids {
 		meta, merr := c.store.GetMessageMetadata(c.email, sc.mailbox, uid)
 		if merr != nil {
 			continue
 		}
 		allUIDs = append(allUIDs, uid)
-		if meta.ModSeq > maxModSeq {
-			maxModSeq = meta.ModSeq
-		}
 		if meta.ModSeq > sc.seenModSeq {
 			streamed = append(streamed, syncMessage{
 				uid:     uid,
@@ -201,7 +210,21 @@ func (c *ropCtx) buildContentsDownload(sc *syncContextObject) ([]byte, error) {
 			})
 		}
 	}
-	return buildContentsSyncStream(streamed, allUIDs, maxModSeq, sc.replicaGUID)
+	// Deletions since the client's baseline: the uids expunged at a change number past
+	// sc.seenModSeq (RFC 7162 tombstones, the same change-number space as the message
+	// ModSeqs), so the client drops them from its replica.
+	deleted, err := c.store.ExpungedUIDsSince(c.email, sc.mailbox, sc.seenModSeq)
+	if err != nil {
+		return nil, err
+	}
+	// The CnsetSeen high-water is the mailbox change high-water, which advances for both
+	// message changes and expunge events; using it (not the max live message ModSeq)
+	// keeps an expunge from being re-reported on every subsequent sync.
+	highWater, err := c.store.GetHighestModSeq(c.email, sc.mailbox)
+	if err != nil {
+		return nil, err
+	}
+	return buildContentsSyncStream(streamed, allUIDs, deleted, highWater, sc.replicaGUID)
 }
 
 // ropFastTransferSourceGetBuffer handles RopFastTransferSourceGetBuffer (MS-OXCFXICS
