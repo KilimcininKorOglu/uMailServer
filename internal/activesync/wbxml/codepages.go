@@ -70,6 +70,7 @@ const (
 	PageContacts        byte = 1  // Contacts data class (MS-ASCNTC)
 	PageEmail           byte = 2  // Email data class
 	PageCalendar        byte = 4  // Calendar data class
+	PageTasks           byte = 9  // Tasks data class (MS-ASTASK)
 	PageContacts2       byte = 12 // Contacts data class extension (MS-ASCNTC)
 	PageMove            byte = 5  // MoveItems command
 	PageMeetingResponse byte = 8  // MeetingResponse command
@@ -314,6 +315,44 @@ var _ = register(PageContacts2, "Contacts2", map[byte]string{
 	0x0C: "AccountName",
 	0x0D: "NickName",
 	0x0E: "MMS",
+})
+
+// Tasks data class (MS-ASWBXML 2.1.2.1.10, Code Page 9 / MS-ASTASK). The full
+// token set is registered so a client's up-sync ApplicationData decodes whatever
+// element it sends. Tokens 0x05 Body / 0x06 BodySize / 0x07 BodyTruncated are
+// 2.5-only legacy; 16.x carries the body through AirSyncBase (page 17) instead.
+// 0x21 is unassigned in the spec table (it jumps from 0x20 to 0x22).
+var _ = register(PageTasks, "Tasks", map[byte]string{
+	0x05: "Body",
+	0x06: "BodySize",
+	0x07: "BodyTruncated",
+	0x08: "Categories",
+	0x09: "Category",
+	0x0A: "Complete",
+	0x0B: "DateCompleted",
+	0x0C: "DueDate",
+	0x0D: "UtcDueDate",
+	0x0E: "Importance",
+	0x0F: "Recurrence",
+	0x10: "Type",
+	0x11: "Start",
+	0x12: "Until",
+	0x13: "Occurrences",
+	0x14: "Interval",
+	0x15: "DayOfMonth",
+	0x16: "DayOfWeek",
+	0x17: "WeekOfMonth",
+	0x18: "MonthOfYear",
+	0x19: "Regenerate",
+	0x1A: "DeadOccur",
+	0x1B: "ReminderSet",
+	0x1C: "ReminderTime",
+	0x1D: "Sensitivity",
+	0x1E: "StartDate",
+	0x1F: "UtcStartDate",
+	0x20: "Subject",
+	0x22: "OrdinalDate",
+	0x23: "SubOrdinalDate",
 })
 
 var _ = register(PageMove, "Move", map[byte]string{

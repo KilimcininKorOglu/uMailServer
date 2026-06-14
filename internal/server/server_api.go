@@ -138,6 +138,8 @@ func (s *Server) startAPI() {
 		eas.SetMeetingResponder(easMeetingResponder{msg: s.msgStore, cal: calMut})
 		eas.SetContactSource(easContactSource{collab: s.semcoreStore.Collaboration()})
 		eas.SetContactMutator(easContactMutator{store: carddav.NewCollabStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())})
+		eas.SetTaskSource(easTaskSource{collab: s.semcoreStore.Collaboration()})
+		eas.SetTaskMutator(easTaskMutator{store: caldav.NewCollabTaskStore(s.semcoreStore.Collaboration(), s.semcoreStore.Identity())})
 		eas.SetMutator(easMutator{emsmdbMutator{srv: s}})
 		eas.SetSubmitter(s.easSendMail)
 		s.apiServer.SetActiveSyncHandler(eas)

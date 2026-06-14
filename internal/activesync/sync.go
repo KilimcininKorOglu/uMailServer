@@ -102,15 +102,18 @@ func (s *Server) handleSync(ctx *Context) ([]byte, error) {
 	window := windowSize(root, collection)
 	trunc := truncationSize(collection)
 
-	// The journal-less PIM collections (calendar, contacts) sync on the shared
-	// enumerate-and-diff path, leaving the mail machinery below untouched; each
-	// ServerId namespace is prefix-tagged so it never collides with a mail
+	// The journal-less PIM collections (calendar, contacts, tasks) sync on the
+	// shared enumerate-and-diff path, leaving the mail machinery below untouched;
+	// each ServerId namespace is prefix-tagged so it never collides with a mail
 	// folder's bare name.
 	if folderID, ok := strings.CutPrefix(collectionID, calendarCollectionPrefix); ok && s.calendar != nil {
 		return s.handleCalendarSync(ctx, collection, collectionID, folderID, reqKey, window, deviceID)
 	}
 	if folderID, ok := strings.CutPrefix(collectionID, contactsCollectionPrefix); ok && s.contacts != nil {
 		return s.handleContactsSync(ctx, collection, collectionID, folderID, reqKey, window, deviceID)
+	}
+	if folderID, ok := strings.CutPrefix(collectionID, tasksCollectionPrefix); ok && s.tasks != nil {
+		return s.handleTasksSync(ctx, collection, collectionID, folderID, reqKey, window, deviceID)
 	}
 
 	if reqKey == "0" {

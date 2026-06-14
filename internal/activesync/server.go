@@ -71,6 +71,8 @@ type Server struct {
 	meetings     MeetingResponder
 	contacts     ContactSource
 	conMutator   ContactMutator
+	tasks        TaskSource
+	taskMutator  TaskMutator
 	mutator      Mutator
 	submitter    Submitter
 }
@@ -146,6 +148,20 @@ func (s *Server) SetContactSource(c ContactSource) {
 // accepted but not applied.
 func (s *Server) SetContactMutator(m ContactMutator) {
 	s.conMutator = m
+}
+
+// SetTaskSource wires the tasks source the Sync command uses for tasks
+// collections. When nil, tasks collections fall through to the mail path, which
+// a mail-only deployment never reaches (it advertises no tasks folder).
+func (s *Server) SetTaskSource(t TaskSource) {
+	s.tasks = t
+}
+
+// SetTaskMutator wires the canonical-store mutator that applies a client's tasks
+// up-sync changes (Add/Change/Delete). When nil, those commands are accepted but
+// not applied.
+func (s *Server) SetTaskMutator(m TaskMutator) {
+	s.taskMutator = m
 }
 
 // SetMutator wires the canonical-mailstore mutator used to apply the client's

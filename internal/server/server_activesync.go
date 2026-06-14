@@ -88,6 +88,17 @@ func (f easFolderSource) Folders(email string) ([]activesync.Folder, error) {
 				Type:        activesync.FolderTypeContacts,
 			})
 		}
+		// Expose the canonical Tasks folder for the same reason — the collab folder
+		// is created lazily, so it is ensured here rather than only shown when
+		// EWS/the webmail tasks API happened to create it first.
+		if fid, err := f.identity.EnsureFolderId(email, "tasks", "tasks"); err == nil && !fid.IsZero() {
+			folders = append(folders, activesync.Folder{
+				ServerID:    activesync.TaskCollectionID(fid.String()),
+				ParentID:    "0",
+				DisplayName: "Tasks",
+				Type:        activesync.FolderTypeTasks,
+			})
+		}
 	}
 	return folders, nil
 }
@@ -420,6 +431,71 @@ func (m easContactMutator) UpdateItem(email, _, serverID string, it activesync.C
 
 func (m easContactMutator) DeleteItem(email, _, serverID string) error {
 	return m.store.DeleteContact(email, easAddressbookID, serverID)
+}
+
+// easTaskSource projects a mailbox's task list for the EAS Sync command from the
+// shared collaboration store — the SAME store EWS and the webmail tasks API read
+// — so a phone's to-dos converge with every other surface on one source. Each
+// task's canonical VTODO (RawData) is projected by the activesync package, keyed
+// by the VTODO UID (its stable EAS ServerId, the key the canonical store mutates
+// on) and the collab ETag (which drives the enumerate-and-diff cursor).
+type easTaskSource struct{ collab ews.CollabStore }
+
+func (t easTaskSource) ListItems(email, folderID string) ([]activesync.TaskItem, error) {
+	fid, err := semcore.NewFolderId(folderID)
+	if err != nil {
+		return nil, nil
+	}
+	recs, err := t.collab.ListTasksByFolder(fid)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]activesync.TaskItem, 0, len(recs))
+	for i := range recs {
+		r := &recs[i]
+		// The VTODO UID is the EAS ServerId the canonical store keys on, so a to-do
+		// without one cannot round-trip. The webmail task write path assigns a UID,
+		// so this skips nothing in practice.
+		if r.IcalUID == "" {
+			continue
+		}
+		items = append(items, activesync.TaskItemFromVTODO(r.IcalUID, r.ETag, r.RawData))
+	}
+	return items, nil
+}
+
+// easTaskListID is the list id handed to the collaboration task store. The store
+// resolves the mailbox's tasks folder by its canonical "tasks" role, so this
+// value is a stable label, not a lookup key.
+const easTaskListID = "tasks"
+
+// easTaskMutator applies a mobile client's tasks up-sync (Add/Change/Delete)
+// through the canonical collaboration task store — the same SaveEvent path the
+// webmail tasks API uses — so a to-do authored on a phone converges over
+// EWS/webmail. The EAS ServerId is the to-do's VTODO UID, which the store keys
+// on, so a Change/Delete maps to it directly and a new Add returns the UID as the
+// client's permanent ServerId.
+type easTaskMutator struct{ store caldav.Store }
+
+func (m easTaskMutator) CreateItem(email, _ string, it activesync.TaskItem) (string, error) {
+	if it.UID == "" {
+		it.UID = uuid.NewString()
+	}
+	ev := &caldav.CalendarEvent{UID: it.UID, Summary: it.Subject, Created: time.Now(), Modified: time.Now()}
+	if err := m.store.SaveEvent(email, easTaskListID, ev, activesync.BuildVTODO(it)); err != nil {
+		return "", err
+	}
+	return it.UID, nil
+}
+
+func (m easTaskMutator) UpdateItem(email, _, serverID string, it activesync.TaskItem) error {
+	it.UID = serverID // the EAS task ServerId is the VTODO UID
+	ev := &caldav.CalendarEvent{UID: serverID, Summary: it.Subject, Created: time.Now(), Modified: time.Now()}
+	return m.store.SaveEvent(email, easTaskListID, ev, activesync.BuildVTODO(it))
+}
+
+func (m easTaskMutator) DeleteItem(email, _, serverID string) error {
+	return m.store.DeleteEvent(email, easTaskListID, serverID)
 }
 
 // easMutator applies a mobile client's EAS Sync up-sync changes to the canonical
