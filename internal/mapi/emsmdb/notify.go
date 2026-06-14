@@ -12,8 +12,20 @@ import (
 // set per notification; the high bits are modifiers. Only the values this connector
 // emits are named — new mail by message.
 const (
-	fnevNewMail uint16 = 0x0002
-	nfByMessage uint16 = 0x8000
+	fnevNewMail       uint16 = 0x0002
+	fnevObjectDeleted uint16 = 0x0008
+	nfByMessage       uint16 = 0x8000
+)
+
+// NotifyKind classifies a mailbox change so the push path can serialize the matching
+// RopNotify form. The server bridge sets it when translating a hub event.
+type NotifyKind int
+
+const (
+	// NotifyNewMail is a message delivered to a folder (fnevNewMail).
+	NotifyNewMail NotifyKind = iota
+	// NotifyDeleted is a message removed from a folder (fnevObjectDeleted).
+	NotifyDeleted
 )
 
 // flagNotificationPending is the NotificationWait response FlagsOut value that tells
@@ -25,8 +37,9 @@ const flagNotificationPending uint32 = 0x00000001
 // surface-neutral shape so the emsmdb package takes no dependency on the IMAP (or any
 // other) notification type.
 type MailboxEvent struct {
-	Mailbox string // IMAP-canonical folder name (e.g. "INBOX")
-	UID     uint32 // message uid within that mailbox
+	Kind    NotifyKind // new mail or deletion
+	Mailbox string     // IMAP-canonical folder name (e.g. "INBOX")
+	UID     uint32     // message uid within that mailbox
 }
 
 // NotificationSource feeds mailbox change events to the emsmdb push path. It is
@@ -204,7 +217,11 @@ func emitNotifications(sess *Session, out *wire.Push) {
 			if st.objects[sub.handle] != sub {
 				continue // the subscription handle was released (RopRelease)
 			}
-			writeNewMailNotify(out, sub.handle, sub.logonID, folderID, mid)
+			if ev.Kind == NotifyDeleted {
+				writeDeletedNotify(out, sub.handle, sub.logonID, folderID, mid)
+			} else {
+				writeNewMailNotify(out, sub.handle, sub.logonID, folderID, mid)
+			}
 		}
 	}
 }
@@ -225,4 +242,17 @@ func writeNewMailNotify(out *wire.Push, handle uint32, logonID uint8, folderID, 
 	out.Uint32(0)       // message flags: a freshly delivered message is unread
 	out.Uint8(0)        // unicode flag: the message class is an 8-bit string
 	out.Str("IPM.Note") // message class
+}
+
+// writeDeletedNotify serializes an object-deleted RopNotify for a message
+// (MS-OXCROPS 2.2.14.2.1). For fnevObjectDeleted|NF_BY_MESSAGE the NotificationData
+// carries only the folder id and the message id: no parent id (the by-search/by-message
+// presence rule excludes it), no property tags, and no new-mail block.
+func writeDeletedNotify(out *wire.Push, handle uint32, logonID uint8, folderID, messageID uint64) {
+	out.Uint8(RopNotify)
+	out.Uint32(handle)
+	out.Uint8(logonID)
+	out.Uint16(fnevObjectDeleted | nfByMessage)
+	out.Uint64(folderID)
+	out.Uint64(messageID)
 }

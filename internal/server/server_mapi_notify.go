@@ -27,11 +27,17 @@ func (emsmdbNotifier) Subscribe(email string) (<-chan emsmdb.MailboxEvent, func(
 	go func() {
 		defer close(out)
 		for n := range in {
-			if n.Type != imap.NotificationNewMessage {
-				continue // the connector currently pushes new-mail notifications only
+			var kind emsmdb.NotifyKind
+			switch n.Type {
+			case imap.NotificationNewMessage:
+				kind = emsmdb.NotifyNewMail
+			case imap.NotificationExpunge:
+				kind = emsmdb.NotifyDeleted
+			default:
+				continue // flag/mailbox-update events are not pushed yet
 			}
 			select {
-			case out <- emsmdb.MailboxEvent{Mailbox: n.Mailbox, UID: n.MessageUID}:
+			case out <- emsmdb.MailboxEvent{Kind: kind, Mailbox: n.Mailbox, UID: n.MessageUID}:
 			default:
 			}
 		}

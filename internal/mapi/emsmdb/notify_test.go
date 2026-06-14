@@ -153,6 +153,52 @@ func TestExecuteDrainEmitsRopNotify(t *testing.T) {
 	}
 }
 
+// TestDeletedNotifySerialization pins the object-deleted RopNotify layout for a message
+// (fnevObjectDeleted|NF_BY_MESSAGE): op id, handle, logon id, flags, folder id, message
+// id — and no trailing fields.
+func TestDeletedNotifySerialization(t *testing.T) {
+	p := wire.NewPush(wire.FlagUTF16)
+	writeDeletedNotify(p, 0x11223344, 0x05, 0x0D00000000000001, 0x0700000000000001)
+	want := []byte{
+		RopNotify,
+		0x44, 0x33, 0x22, 0x11, // handle u32 LE
+		0x05,       // logon id
+		0x08, 0x80, // nflags u16 LE = fnevObjectDeleted|NF_BY_MESSAGE
+		0x01, 0, 0, 0, 0, 0, 0, 0x0D, // folder id u64 LE
+		0x01, 0, 0, 0, 0, 0, 0, 0x07, // message id u64 LE
+	}
+	if !bytes.Equal(p.Bytes(), want) {
+		t.Errorf("deleted RopNotify =\n% x\nwant\n% x", p.Bytes(), want)
+	}
+}
+
+// TestExecuteDrainEmitsDeleteNotify verifies a deletion event surfaces as an
+// object-deleted RopNotify carrying the Inbox folder id and the message's id.
+func TestExecuteDrainEmitsDeleteNotify(t *testing.T) {
+	src := newFakeNotifySource()
+	p, sess, handles := notifyLogon(t, src)
+	_, handles = p.Dispatch(sess, ropRequest(RopRegisterNotification, 0, registerNotificationRequest(1, true)), handles, 0x10000)
+
+	src.push(MailboxEvent{Kind: NotifyDeleted, Mailbox: "INBOX", UID: 7})
+	resp, _ := p.Dispatch(sess, nil, handles, 0x10000)
+
+	pull := wire.NewPull(resp, wire.FlagUTF16)
+	if op := pull.Uint8(); op != RopNotify {
+		t.Fatalf("op = %#x, want RopNotify", op)
+	}
+	pull.Uint32() // handle
+	pull.Uint8()  // logon id
+	if nf := pull.Uint16(); nf != fnevObjectDeleted|nfByMessage {
+		t.Errorf("nflags = %#x, want %#x", nf, fnevObjectDeleted|nfByMessage)
+	}
+	if fid := pull.Uint64(); fid != makeFID(fidReplID, specialFolderGC[sfInbox]) {
+		t.Errorf("folder id = %#x, want Inbox", fid)
+	}
+	if mid := pull.Uint64(); mid != messageID(7) {
+		t.Errorf("message id = %#x, want %#x", mid, messageID(7))
+	}
+}
+
 // TestReleasedSubscriptionNotNotified verifies that once a client releases a
 // subscription handle, a later event produces no RopNotify for it — the drain skips a
 // subscription whose handle no longer resolves.
