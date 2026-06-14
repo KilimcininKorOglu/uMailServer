@@ -5,10 +5,11 @@
 //
 // PDU bodies are encoded with the NDR transfer syntax, so this package builds
 // on internal/mapi/ndr for type-size alignment relative to the start of the
-// PDU. The server pulls BIND and REQUEST PDUs from the client and pushes
+// PDU. The server pulls BIND, REQUEST and AUTH3 PDUs from the client and pushes
 // BIND_ACK, RESPONSE and FAULT PDUs back; those are the directions implemented
-// here. Auth trailers (NTLMSSP) are located by AuthLength but parsed by the
-// auth layer, not here.
+// here. Auth trailers (NTLMSSP) are located by AuthLength and exposed raw via
+// Packet.AuthTrailer; the NTLMSSP messages themselves are parsed by the auth
+// layer (internal/mapi/ntlmssp), not here.
 package dcerpc
 
 import (
@@ -75,7 +76,6 @@ type Bind struct {
 	MaxRecvFrag  uint16
 	AssocGroupID uint32
 	Contexts     []CtxList
-	AuthInfo     []byte // raw auth verifier (NTLMSSP negotiate); empty under Basic
 }
 
 // Request is a decoded REQUEST PDU body.
@@ -99,6 +99,34 @@ type Packet struct {
 	Bind        *Bind
 	Request     *Request
 	AuthTrailer []byte // raw DCERPC_AUTH trailer (header + credentials) when AuthLength > 0
+}
+
+// AuthValue returns the auth verifier credential blob (the NTLMSSP message)
+// carried in the PDU's auth trailer, stripped of the 8-byte sec_trailer header,
+// or nil when the PDU carries no auth trailer.
+func (p *Packet) AuthValue() []byte {
+	if len(p.AuthTrailer) <= authTrailerHeaderLen {
+		return nil
+	}
+	return p.AuthTrailer[authTrailerHeaderLen:]
+}
+
+// AuthType returns the auth trailer's security provider id (MS-RPCE 2.2.2.11),
+// for example 10 (RPC_C_AUTHN_WINNT) for NTLM, or 0 when there is no trailer.
+func (p *Packet) AuthType() uint8 {
+	if len(p.AuthTrailer) == 0 {
+		return 0
+	}
+	return p.AuthTrailer[0]
+}
+
+// AuthContextID returns the auth trailer's context id, which the server echoes
+// in the BIND_ACK sec_trailer, or 0 when there is no trailer.
+func (p *Packet) AuthContextID() uint32 {
+	if len(p.AuthTrailer) < authTrailerHeaderLen {
+		return 0
+	}
+	return binary.LittleEndian.Uint32(p.AuthTrailer[4:8])
 }
 
 // Pull decodes one PDU from the front of b. b may contain trailing bytes (for
@@ -133,12 +161,22 @@ func Pull(b []byte) (*Packet, error) {
 
 	switch pkt.Type {
 	case PktBind, PktAlter:
-		pkt.Bind = pullBind(p, pkt)
+		pkt.Bind = pullBind(p)
 	case PktRequest:
 		pkt.Request = pullRequest(p, pkt)
 	}
 	if err := p.Err(); err != nil {
 		return nil, err
+	}
+	// The auth trailer (sec_trailer header + credentials) is the last
+	// AuthLength+8 bytes of the fragment, regardless of any padding before it.
+	// AUTH3 in particular carries no body, only this trailer.
+	if pkt.AuthLength > 0 {
+		start := int(pkt.FragLength) - int(pkt.AuthLength) - authTrailerHeaderLen
+		if start < headerLen {
+			return nil, fmt.Errorf("dcerpc: auth trailer (%d bytes) overruns PDU", pkt.AuthLength)
+		}
+		pkt.AuthTrailer = b[start:int(pkt.FragLength)]
 	}
 	return pkt, nil
 }
@@ -162,7 +200,7 @@ func pullCtxList(p *ndr.Pull) CtxList {
 	return c
 }
 
-func pullBind(p *ndr.Pull, pkt *Packet) *Bind {
+func pullBind(p *ndr.Pull) *Bind {
 	p.Align(4)
 	b := &Bind{}
 	b.MaxXmitFrag = p.Uint16()
@@ -172,10 +210,8 @@ func pullBind(p *ndr.Pull, pkt *Packet) *Bind {
 	for i := 0; i < int(n); i++ {
 		b.Contexts = append(b.Contexts, pullCtxList(p))
 	}
-	// The auth verifier, when present, is everything left within the fragment.
-	if rem := int(pkt.FragLength) - p.Offset(); rem > 0 {
-		b.AuthInfo = p.Bytes(rem)
-	}
+	// The auth verifier, when present, follows the context list; it is captured
+	// from the fragment tail by Pull (see Packet.AuthTrailer), not here.
 	return b
 }
 
@@ -199,9 +235,6 @@ func pullRequest(p *ndr.Pull, pkt *Packet) *Request {
 		return r
 	}
 	r.Stub = p.Bytes(stubLen)
-	if pkt.AuthLength > 0 {
-		pkt.AuthTrailer = p.Bytes(int(pkt.AuthLength) + authTrailerHeaderLen)
-	}
 	return r
 }
 
@@ -243,8 +276,34 @@ func pushSyntax(p *ndr.Push, s SyntaxID) {
 // presentation contexts. secAddr is the secondary address annotation (empty for
 // a zero-length field).
 func EncodeBindAck(callID uint32, maxXmit, maxRecv uint16, assocGroup uint32, secAddr string, results []AckResult) []byte {
+	return encodeBindAck(callID, maxXmit, maxRecv, assocGroup, secAddr, results, nil)
+}
+
+// EncodeBindAckAuth builds a BIND_ACK that also carries a DCERPC auth trailer,
+// used to return the NTLMSSP CHALLENGE in the connection-oriented bind. authType
+// and authLevel identify the security provider and level (MS-RPCE 2.2.2.11),
+// authCtxID echoes the client's auth context id, and authValue is the CHALLENGE
+// blob.
+func EncodeBindAckAuth(callID uint32, maxXmit, maxRecv uint16, assocGroup uint32, secAddr string, results []AckResult, authType, authLevel uint8, authCtxID uint32, authValue []byte) []byte {
+	return encodeBindAck(callID, maxXmit, maxRecv, assocGroup, secAddr, results,
+		&authTrailer{authType: authType, authLevel: authLevel, ctxID: authCtxID, value: authValue})
+}
+
+// authTrailer carries the sec_trailer fields appended to an outgoing PDU.
+type authTrailer struct {
+	authType  uint8
+	authLevel uint8
+	ctxID     uint32
+	value     []byte
+}
+
+func encodeBindAck(callID uint32, maxXmit, maxRecv uint16, assocGroup uint32, secAddr string, results []AckResult, auth *authTrailer) []byte {
 	p := ndr.NewPush()
-	writeHeader(p, PktBindAck, PFCFirstFrag|PFCLastFrag, 0, callID)
+	var authLen uint16
+	if auth != nil {
+		authLen = uint16(len(auth.value))
+	}
+	writeHeader(p, PktBindAck, PFCFirstFrag|PFCLastFrag, authLen, callID)
 	p.Uint16(maxXmit)
 	p.Uint16(maxRecv)
 	p.Uint32(assocGroup)
@@ -262,6 +321,17 @@ func EncodeBindAck(callID uint32, maxXmit, maxRecv uint16, assocGroup uint32, se
 		p.Uint16(r.Result)
 		p.Uint16(r.Reason)
 		pushSyntax(p, r.Syntax)
+	}
+	if auth != nil {
+		// The sec_trailer is 4-byte aligned relative to the PDU start; the result
+		// list already ends on a 4-byte boundary, so this inserts no pad here.
+		p.Align(4)
+		p.Uint8(auth.authType)
+		p.Uint8(auth.authLevel)
+		p.Uint8(0) // auth_pad_length
+		p.Uint8(0) // auth_reserved
+		p.Uint32(auth.ctxID)
+		p.Raw(auth.value)
 	}
 	return patchFragLength(p.Bytes())
 }
