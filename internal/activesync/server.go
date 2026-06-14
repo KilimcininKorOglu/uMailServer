@@ -67,6 +67,7 @@ type Server struct {
 	sync         SyncState
 	mail         MailSource
 	calendar     CalendarSource
+	calMutator   CalendarMutator
 	mutator      Mutator
 	submitter    Submitter
 }
@@ -114,6 +115,13 @@ func (s *Server) SetMailSource(m MailSource) {
 // which a mail-only deployment never reaches (it advertises no calendar folder).
 func (s *Server) SetCalendarSource(c CalendarSource) {
 	s.calendar = c
+}
+
+// SetCalendarMutator wires the canonical-store mutator that applies a client's
+// calendar up-sync changes (Add/Change/Delete). When nil, those commands are
+// accepted but not applied.
+func (s *Server) SetCalendarMutator(m CalendarMutator) {
+	s.calMutator = m
 }
 
 // SetMutator wires the canonical-mailstore mutator used to apply the client's

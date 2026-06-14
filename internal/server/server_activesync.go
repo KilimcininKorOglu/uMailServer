@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"net/mail"
 	"slices"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/umailserver/umailserver/internal/activesync"
+	"github.com/umailserver/umailserver/internal/caldav"
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mailappend"
@@ -262,15 +265,50 @@ func (c easCalendarSource) ListItems(email, folderID string) ([]activesync.Calen
 	items := make([]activesync.CalendarItem, 0, len(recs))
 	for i := range recs {
 		r := &recs[i]
-		// Skip recurrence-exception instances: they are fragments of a master
-		// event, not standalone items. The master (MasterID zero) carries the
-		// event; recurrence/exception projection is a later phase.
-		if !r.MasterID.IsZero() {
+		// Skip recurrence-exception instances (fragments of a master event, not
+		// standalone items) and any item without an iCal UID. The UID is the EAS
+		// ServerId — the key the canonical store mutates on for up-sync — so an
+		// event without one cannot round-trip.
+		if !r.MasterID.IsZero() || r.IcalUID == "" {
 			continue
 		}
-		items = append(items, activesync.CalendarItemFromICal(r.ID.String(), r.ETag, r.RawData))
+		items = append(items, activesync.CalendarItemFromICal(r.IcalUID, r.ETag, r.RawData))
 	}
 	return items, nil
+}
+
+// easCalendarID is the calendar id handed to the collaboration store's
+// SaveEvent/DeleteEvent. The store resolves the mailbox's calendar folder by its
+// canonical "calendar" role, so this value is a stable label, not a lookup key.
+const easCalendarID = "calendar"
+
+// easCalendarMutator applies a mobile client's calendar up-sync (Add/Change/
+// Delete) through the canonical collaboration store — the same SaveEvent path
+// CalDAV and the webmail calendar API use — so an event authored on a phone
+// converges over EWS/CalDAV/JMAP/webmail. The EAS ServerId is the event's iCal
+// UID, which the store keys on, so a Change/Delete maps to it directly and a
+// new Add returns the UID as the client's permanent ServerId.
+type easCalendarMutator struct{ store caldav.Store }
+
+func (m easCalendarMutator) CreateItem(email, _ string, it activesync.CalendarItem) (string, error) {
+	if it.UID == "" {
+		it.UID = uuid.NewString()
+	}
+	ev := &caldav.CalendarEvent{UID: it.UID, Summary: it.Subject, Created: time.Now(), Modified: time.Now()}
+	if err := m.store.SaveEvent(email, easCalendarID, ev, activesync.BuildICalEvent(it)); err != nil {
+		return "", err
+	}
+	return it.UID, nil
+}
+
+func (m easCalendarMutator) UpdateItem(email, _, serverID string, it activesync.CalendarItem) error {
+	it.UID = serverID // the EAS calendar ServerId is the iCal UID
+	ev := &caldav.CalendarEvent{UID: serverID, Summary: it.Subject, Created: time.Now(), Modified: time.Now()}
+	return m.store.SaveEvent(email, easCalendarID, ev, activesync.BuildICalEvent(it))
+}
+
+func (m easCalendarMutator) DeleteItem(email, _, serverID string) error {
+	return m.store.DeleteEvent(email, easCalendarID, serverID)
 }
 
 // easMutator applies a mobile client's EAS Sync up-sync changes to the canonical

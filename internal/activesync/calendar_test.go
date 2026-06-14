@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/umailserver/umailserver/internal/activesync/wbxml"
 )
@@ -16,6 +17,54 @@ import (
 type stubCalendar struct{ items []CalendarItem }
 
 func (c *stubCalendar) ListItems(string, string) ([]CalendarItem, error) { return c.items, nil }
+
+// stubCalendarMutator records the up-sync changes applied to it and reflects a
+// create into src so the reconciliation path (a just-added item must not echo
+// back) is exercised. failOn fails the command whose subject/server id matches.
+type stubCalendarMutator struct {
+	src             *stubCalendar
+	created, edited map[string]CalendarItem
+	deleted         []string
+	failOn          string
+}
+
+func (m *stubCalendarMutator) CreateItem(_, _ string, it CalendarItem) (string, error) {
+	if it.Subject == m.failOn {
+		return "", errMutator
+	}
+	id := it.UID
+	if id == "" {
+		id = "srv-" + it.Subject
+	}
+	it.ServerID, it.ETag = id, "e1"
+	if m.created == nil {
+		m.created = map[string]CalendarItem{}
+	}
+	m.created[id] = it
+	if m.src != nil {
+		m.src.items = append(m.src.items, it)
+	}
+	return id, nil
+}
+
+func (m *stubCalendarMutator) UpdateItem(_, _, serverID string, it CalendarItem) error {
+	if serverID == m.failOn {
+		return errMutator
+	}
+	if m.edited == nil {
+		m.edited = map[string]CalendarItem{}
+	}
+	m.edited[serverID] = it
+	return nil
+}
+
+func (m *stubCalendarMutator) DeleteItem(_, _, serverID string) error {
+	if serverID == m.failOn {
+		return errMutator
+	}
+	m.deleted = append(m.deleted, serverID)
+	return nil
+}
 
 // TestCalendarItemFromICal verifies the iCalendar projection resolves the three
 // DTSTART forms to the correct absolute instant and decodes the descriptive
@@ -252,5 +301,135 @@ func TestCalendarSyncFlow(t *testing.T) {
 	fourth := doCalSync(t, s, "4", 0)
 	if countOps(fourth, "Delete") != 1 {
 		t.Fatalf("removed event must produce a Delete: %d", countOps(fourth, "Delete"))
+	}
+}
+
+// TestBuildICalEventRoundTrip verifies the write projection produces canonical
+// iCalendar that the read projection parses back identically — an event authored
+// on a phone must survive the store round-trip so it renders the same on every
+// surface.
+func TestBuildICalEventRoundTrip(t *testing.T) {
+	src := CalendarItem{
+		UID: "rt-1", Subject: "Quarterly review", Body: "Bring; notes, and slides",
+		Location: "Boardroom", Start: time.Date(2026, 9, 20, 14, 0, 0, 0, time.UTC),
+		End: time.Date(2026, 9, 20, 15, 30, 0, 0, time.UTC), Sensitivity: "2", BusyStatus: "2",
+	}
+	ics := BuildICalEvent(src)
+	got := CalendarItemFromICal("rt-1", "e", ics)
+	if got.UID != src.UID || got.Subject != src.Subject || got.Location != src.Location {
+		t.Fatalf("text fields lost in round-trip: %+v", got)
+	}
+	if got.Body != src.Body {
+		t.Fatalf("DESCRIPTION escaping lost in round-trip: %q != %q", got.Body, src.Body)
+	}
+	if !got.Start.Equal(src.Start) || !got.End.Equal(src.End) {
+		t.Fatalf("times lost: start %v end %v", got.Start, got.End)
+	}
+	if got.Sensitivity != "2" {
+		t.Fatalf("CLASS:PRIVATE not round-tripped: sensitivity=%q", got.Sensitivity)
+	}
+}
+
+// TestCalendarItemFromAppData verifies the client ApplicationData parse reads the
+// scheduling fields from the Calendar page and the body/location from AirSyncBase
+// — the shape a 16.x client sends in an up-sync Add/Change.
+func TestCalendarItemFromAppData(t *testing.T) {
+	app := &wbxml.Element{Page: wbxml.PageAirSync, Name: "ApplicationData", Children: []*wbxml.Element{
+		{Page: wbxml.PageCalendar, Name: "UID", Text: "c-1"},
+		{Page: wbxml.PageCalendar, Name: "Subject", Text: "Sync up"},
+		{Page: wbxml.PageCalendar, Name: "StartTime", Text: "20260920T140000Z"},
+		{Page: wbxml.PageCalendar, Name: "EndTime", Text: "20260920T150000Z"},
+		{Page: wbxml.PageCalendar, Name: "AllDayEvent", Text: "0"},
+		{Page: wbxml.PageAirSyncBase, Name: "Body", Children: []*wbxml.Element{
+			{Page: wbxml.PageAirSyncBase, Name: "Data", Text: "agenda"},
+		}},
+		{Page: wbxml.PageAirSyncBase, Name: "Location", Children: []*wbxml.Element{
+			{Page: wbxml.PageAirSyncBase, Name: "DisplayName", Text: "Room 9"},
+		}},
+	}}
+	it := calendarItemFromAppData(app)
+	if it.UID != "c-1" || it.Subject != "Sync up" || it.Body != "agenda" || it.Location != "Room 9" {
+		t.Fatalf("parsed fields wrong: %+v", it)
+	}
+	if it.Start.UTC().Format(compactDateTime) != "20260920T140000Z" {
+		t.Fatalf("StartTime parse wrong: %v", it.Start)
+	}
+}
+
+// calAddCmd builds a client up-sync Add command (ClientId + page-4 ApplicationData).
+func calAddCmd(clientID, uid, subject, start string) *wbxml.Element {
+	return &wbxml.Element{Page: wbxml.PageAirSync, Name: "Add", Children: []*wbxml.Element{
+		{Page: wbxml.PageAirSync, Name: "ClientId", Text: clientID},
+		{Page: wbxml.PageAirSync, Name: "ApplicationData", Children: []*wbxml.Element{
+			{Page: wbxml.PageCalendar, Name: "UID", Text: uid},
+			{Page: wbxml.PageCalendar, Name: "Subject", Text: subject},
+			{Page: wbxml.PageCalendar, Name: "StartTime", Text: start},
+			{Page: wbxml.PageCalendar, Name: "EndTime", Text: start},
+		}},
+	}}
+}
+
+// doCalSyncCmds drives a calendar Sync carrying client up-sync Commands.
+func doCalSyncCmds(t *testing.T, s *Server, syncKey string, cmds ...*wbxml.Element) *wbxml.Element {
+	t.Helper()
+	coll := []*wbxml.Element{
+		{Page: wbxml.PageAirSync, Name: "SyncKey", Text: syncKey},
+		{Page: wbxml.PageAirSync, Name: "CollectionId", Text: CalendarCollectionID("CAL1")},
+		{Page: wbxml.PageAirSync, Name: "Commands", Children: cmds},
+	}
+	body, err := wbxml.Marshal(&wbxml.Element{Page: wbxml.PageAirSync, Name: "Sync", Children: []*wbxml.Element{
+		{Page: wbxml.PageAirSync, Name: "Collections", Children: []*wbxml.Element{
+			{Page: wbxml.PageAirSync, Name: "Collection", Children: coll},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/Microsoft-Server-ActiveSync?Cmd=Sync&DeviceId=DEV1", bytes.NewReader(body))
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("calendar Sync status = %d, want 200", rec.Code)
+	}
+	resp, err := wbxml.Unmarshal(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	return resp.Sub("Collections").Sub("Collection")
+}
+
+// TestCalendarUpSync verifies the client up-sync path: an Add creates the event
+// through the mutator and is echoed as an Add response mapping the ClientId to
+// the assigned ServerId, without being re-emitted as a server-side change in the
+// same response; a Delete removes it through the mutator.
+func TestCalendarUpSync(t *testing.T) {
+	cal := &stubCalendar{}
+	mut := &stubCalendarMutator{src: cal}
+	s := calServer(cal)
+	s.SetCalendarMutator(mut)
+	doCalSync(t, s, "0", 0) // prime -> key 1
+
+	coll := doCalSyncCmds(t, s, "1", calAddCmd("c1", "ev-up-1", "Planning", "20260920T140000Z"))
+
+	add := coll.Sub("Responses").Sub("Add")
+	if add == nil || add.Sub("ClientId").Text != "c1" || add.Sub("ServerId").Text != "ev-up-1" {
+		t.Fatalf("Add response must map ClientId->ServerId: %v", add)
+	}
+	if add.Sub("Status").Text != syncStatusSuccess {
+		t.Fatalf("Add response status = %v, want 1", add.Sub("Status"))
+	}
+	if mut.created["ev-up-1"].Subject != "Planning" {
+		t.Fatalf("CreateItem not applied with parsed fields: %+v", mut.created)
+	}
+	// Reconciliation: the client's own Add must not echo back as a server Command.
+	if countOps(coll, "Add") != 0 {
+		t.Fatalf("client's own Add must not be re-emitted as a server Add: %d", countOps(coll, "Add"))
+	}
+
+	// Delete the event on the client; the mutator removes it from the canonical store.
+	cur := coll.Sub("SyncKey").Text
+	doCalSyncCmds(t, s, cur, deleteCmd("ev-up-1"))
+	if len(mut.deleted) != 1 || mut.deleted[0] != "ev-up-1" {
+		t.Fatalf("DeleteItem not applied: %v", mut.deleted)
 	}
 }

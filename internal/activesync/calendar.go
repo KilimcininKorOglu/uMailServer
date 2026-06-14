@@ -147,6 +147,119 @@ func calendarAppData(it CalendarItem) []*wbxml.Element {
 	return els
 }
 
+// calendarItemFromAppData parses a client's calendar ApplicationData (an EAS Add
+// or Change body) into a CalendarItem. It is the inverse of calendarAppData: the
+// scheduling fields come from the Calendar page (4) and the description/location
+// from AirSyncBase (page 17), the shape a 16.x client sends. Times are EAS
+// Compact DateTime (UTC); ServerID/ETag are not set (the caller assigns them).
+func calendarItemFromAppData(app *wbxml.Element) CalendarItem {
+	it := CalendarItem{Sensitivity: "0", BusyStatus: "2"}
+	if app == nil {
+		return it
+	}
+	get := func(name string) string {
+		if e := app.Sub(name); e != nil {
+			return e.Text
+		}
+		return ""
+	}
+	it.UID = get("UID")
+	it.Subject = get("Subject")
+	it.Location = get("Location") // page-4 Location (<=14.1); AirSyncBase overrides below
+	it.AllDay = get("AllDayEvent") == "1"
+	if s := get("Sensitivity"); s != "" {
+		it.Sensitivity = s
+	}
+	if b := get("BusyStatus"); b != "" {
+		it.BusyStatus = b
+	}
+	it.Start = parseCompactTime(get("StartTime"))
+	it.End = parseCompactTime(get("EndTime"))
+	// AirSyncBase Body (Data) and Location (DisplayName) are the 16.x carriers.
+	if body := app.Sub("Body"); body != nil {
+		if d := body.Sub("Data"); d != nil {
+			it.Body = d.Text
+		}
+	}
+	if loc := app.Sub("Location"); loc != nil {
+		if dn := loc.Sub("DisplayName"); dn != nil {
+			it.Location = dn.Text
+		}
+	}
+	return it
+}
+
+// parseCompactTime parses an EAS Compact DateTime (UTC) into a time, or the zero
+// time when empty or malformed.
+func parseCompactTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(compactDateTime, s); err == nil {
+		return t.UTC()
+	}
+	return time.Time{}
+}
+
+// BuildICalEvent renders a CalendarItem as a canonical RFC 5545 iCalendar object.
+// EAS calendar times are UTC instants (the Timezone element is for display and
+// recurrence, not the stored instant), so timed events are written as UTC
+// DTSTART/DTEND and all-day events as VALUE=DATE. The EAS surface owns this
+// builder; the payload is stored verbatim and read back by EWS/CalDAV/JMAP, so
+// it carries the cross-surface UID and the core scheduling fields.
+func BuildICalEvent(it CalendarItem) string {
+	var b strings.Builder
+	b.WriteString("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//uMailServer//ActiveSync//EN\r\n")
+	b.WriteString("BEGIN:VEVENT\r\n")
+	b.WriteString("UID:" + it.UID + "\r\n")
+	b.WriteString("DTSTAMP:" + time.Now().UTC().Format(compactDateTime) + "\r\n")
+	if it.AllDay {
+		b.WriteString("DTSTART;VALUE=DATE:" + it.Start.UTC().Format("20060102") + "\r\n")
+		if !it.End.IsZero() {
+			b.WriteString("DTEND;VALUE=DATE:" + it.End.UTC().Format("20060102") + "\r\n")
+		}
+	} else {
+		b.WriteString("DTSTART:" + it.Start.UTC().Format(compactDateTime) + "\r\n")
+		if !it.End.IsZero() {
+			b.WriteString("DTEND:" + it.End.UTC().Format(compactDateTime) + "\r\n")
+		}
+	}
+	b.WriteString("SUMMARY:" + escapeICalText(it.Subject) + "\r\n")
+	if it.Location != "" {
+		b.WriteString("LOCATION:" + escapeICalText(it.Location) + "\r\n")
+	}
+	if it.Body != "" {
+		b.WriteString("DESCRIPTION:" + escapeICalText(it.Body) + "\r\n")
+	}
+	if c := classOfSensitivity(it.Sensitivity); c != "" {
+		b.WriteString("CLASS:" + c + "\r\n")
+	}
+	if it.BusyStatus == "0" {
+		b.WriteString("TRANSP:TRANSPARENT\r\n")
+	}
+	b.WriteString("END:VEVENT\r\nEND:VCALENDAR\r\n")
+	return b.String()
+}
+
+// classOfSensitivity maps an EAS Sensitivity to an iCalendar CLASS, or "" for
+// the default (normal) sensitivity.
+func classOfSensitivity(s string) string {
+	switch s {
+	case "2":
+		return "PRIVATE"
+	case "3":
+		return "CONFIDENTIAL"
+	default:
+		return ""
+	}
+}
+
+// escapeICalText applies RFC 5545 TEXT escaping (\\ \, \; \n).
+func escapeICalText(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, ";", `\;`, ",", `\,`, "\n", `\n`)
+	return r.Replace(s)
+}
+
 // sensitivityOf maps an iCalendar CLASS to an EAS Sensitivity value.
 func sensitivityOf(class string) string {
 	switch strings.ToUpper(strings.TrimSpace(class)) {
