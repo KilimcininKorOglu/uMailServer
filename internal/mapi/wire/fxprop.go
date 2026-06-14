@@ -110,3 +110,139 @@ func pushFTUnicode(p *Push, s string) {
 	p.Uint32(uint32(len(buf)))
 	p.Raw(buf)
 }
+
+// FastTransfer stream markers (MS-OXCFXICS 2.2.4.1.4). A marker is a u32 atom whose
+// property-id half lies in the reserved 0x4000-0x40FF range, so it never collides with
+// a real (tagged) property's propdef in the stream — that range is reserved for
+// markers. Only the markers this codec recognizes when parsing an incoming (upload)
+// stream are named.
+const (
+	FXStartMessage       uint32 = 0x400C0003
+	FXEndMessage         uint32 = 0x400D0003
+	FXStartRecip         uint32 = 0x40030003
+	FXEndToRecip         uint32 = 0x40040003
+	FXNewAttach          uint32 = 0x40000003
+	FXEndAttach          uint32 = 0x400E0003
+	FXIncrSyncChg        uint32 = 0x40120003
+	FXIncrSyncDel        uint32 = 0x40130003
+	FXIncrSyncEnd        uint32 = 0x40140003
+	FXIncrSyncMessage    uint32 = 0x40150003
+	FXIncrSyncStateBegin uint32 = 0x403A0003
+	FXIncrSyncStateEnd   uint32 = 0x403B0003
+)
+
+// fxMarkerSet is the set of recognized FastTransfer markers. An atom in this set is a
+// structural marker, never a property value; an atom outside it is decoded as a
+// property's propdef.
+var fxMarkerSet = map[uint32]struct{}{
+	FXStartMessage: {}, FXEndMessage: {},
+	FXStartRecip: {}, FXEndToRecip: {},
+	FXNewAttach: {}, FXEndAttach: {},
+	FXIncrSyncChg: {}, FXIncrSyncDel: {}, FXIncrSyncEnd: {},
+	FXIncrSyncMessage: {}, FXIncrSyncStateBegin: {}, FXIncrSyncStateEnd: {},
+}
+
+// FTElement is one element parsed from a FastTransfer stream: either a structural
+// marker (Marker != 0) or a tagged property value (Marker == 0, read Tag and Value).
+type FTElement struct {
+	Marker uint32
+	Tag    PropTag
+	Value  any
+}
+
+// PullFastTransferElement reads one element from a FastTransfer stream (MS-OXCFXICS
+// 2.2.4.1): a u32 atom that is either a recognized marker or a property's propdef
+// (proptype in the low half, propid in the high half) followed by its
+// FastTransfer-encoded value — the inverse of PushFastTransferPropval. An atom that is
+// neither a known marker nor a supported, tagged property type is a hard error;
+// silently skipping it would desync the rest of the stream into plausible garbage.
+func PullFastTransferElement(p *Pull) (FTElement, error) {
+	atom := p.Uint32()
+	if p.Err() != nil {
+		return FTElement{}, p.Err()
+	}
+	if _, ok := fxMarkerSet[atom]; ok {
+		return FTElement{Marker: atom}, nil
+	}
+	// proptype | propid<<16 reads back as the PropTag value (propid<<16 | proptype).
+	tag := PropTag(atom)
+	if tag.ID() >= 0x8000 {
+		return FTElement{}, fmt.Errorf("%w: named property %#08x in FastTransfer stream", ErrUnsupportedType, atom)
+	}
+	v, err := pullFTValue(p, tag.Type())
+	if err != nil {
+		return FTElement{}, err
+	}
+	return FTElement{Tag: tag, Value: v}, nil
+}
+
+// pullFTValue decodes a single FastTransfer-framed value of the given type, the
+// inverse of the value branch of PushFastTransferPropval. Returned Go types match what
+// PushFastTransferPropval accepts (uint32 for PtLong, string for PtString8/PtUnicode,
+// []byte for PtBinary, bool for PtBoolean, and so on).
+func pullFTValue(p *Pull, t PropType) (any, error) {
+	switch t {
+	case PtShort:
+		return p.Uint16(), errOrNil(p)
+	case PtLong, PtError:
+		return p.Uint32(), errOrNil(p)
+	case PtFloat:
+		return p.Float32(), errOrNil(p)
+	case PtDouble, PtAppTime:
+		return p.Float64(), errOrNil(p)
+	case PtBoolean:
+		return p.Uint16() != 0, errOrNil(p) // FastTransfer frames a boolean as a u16
+	case PtCurrency, PtSysTime, PtI8:
+		return p.Uint64(), errOrNil(p)
+	case PtString8:
+		n := int(p.Uint32())
+		b := p.Bytes(n)
+		if p.Err() != nil {
+			return nil, p.Err()
+		}
+		if n > 0 {
+			b = b[:n-1] // the count includes the terminating NUL
+		}
+		return string(b), nil
+	case PtUnicode:
+		s := pullFTUnicode(p)
+		if p.Err() != nil {
+			return nil, p.Err()
+		}
+		return s, nil
+	case PtClsid:
+		g := p.GUID()
+		return g, errOrNil(p)
+	case PtBinary:
+		n := int(p.Uint32())
+		b := p.Bytes(n)
+		if p.Err() != nil {
+			return nil, p.Err()
+		}
+		return b, nil
+	default:
+		return nil, fmt.Errorf("%w: %#04x", ErrUnsupportedType, uint16(t))
+	}
+}
+
+// pullFTUnicode decodes a FastTransfer PtypString value: a u32 byte count then the
+// UTF-16LE bytes, both including the trailing UTF-16 NUL (the inverse of pushFTUnicode).
+func pullFTUnicode(p *Pull) string {
+	n := int(p.Uint32())
+	b := p.Bytes(n)
+	if p.Err() != nil || b == nil {
+		return ""
+	}
+	if n >= 2 {
+		b = b[:n-2] // drop the trailing UTF-16 NUL
+	}
+	units := make([]uint16, len(b)/2)
+	for i := range units {
+		units[i] = uint16(b[2*i]) | uint16(b[2*i+1])<<8
+	}
+	return string(utf16.Decode(units))
+}
+
+// errOrNil returns the pull's latched error, or nil; it lets the fixed-size value
+// cases report a truncated read without repeating the check.
+func errOrNil(p *Pull) error { return p.Err() }
