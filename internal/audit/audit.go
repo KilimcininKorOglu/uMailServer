@@ -32,6 +32,7 @@ const (
 	TenantActivate EventType = "tenant_activate"
 	TenantDelete   EventType = "tenant_delete"
 	TenantExport   EventType = "tenant_export"
+	EASRemoteWipe  EventType = "eas_remote_wipe"
 )
 
 // Event represents a single audit log entry

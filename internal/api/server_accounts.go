@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/umailserver/umailserver/internal/audit"
@@ -42,6 +43,12 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 //	@Router /api/v1/accounts [post]
 func (s *Server) handleAccountDetail(w http.ResponseWriter, r *http.Request) {
 	suffix := r.URL.Path[len("/api/v1/accounts/"):]
+
+	// EAS device-partnership management sub-paths (.../devices[/{id}[/wipe]]).
+	if email, rest, found := strings.Cut(suffix, "/devices"); found {
+		s.handleAccountDevices(w, r, email, rest)
+		return
+	}
 
 	// Handle TOTP 2FA sub-paths
 	if len(suffix) > 11 && suffix[len(suffix)-11:] == "/totp/setup" {
