@@ -32,16 +32,21 @@ var easFolderType = map[string]string{
 	"Notes":   activesync.FolderTypeNotes,
 }
 
-// easFolderSource projects a mailbox's canonical folder list into EAS folders,
-// using the folder name as the stable EAS ServerId.
-type easFolderSource struct{ db storageBackend }
+// easFolderSource projects a mailbox's canonical folder list into EAS folders.
+// A mail folder uses its name as the stable EAS ServerId; the Calendar collab
+// folder is prefix-tagged (activesync.CalendarCollectionID) so the Sync router
+// recognizes it and reads it from the collaboration store, not the mailstore.
+type easFolderSource struct {
+	db       storageBackend
+	identity semIdentity
+}
 
 func (f easFolderSource) Folders(email string) ([]activesync.Folder, error) {
 	names, err := f.db.ListMailboxes(email)
 	if err != nil {
 		return nil, err
 	}
-	folders := make([]activesync.Folder, 0, len(names))
+	folders := make([]activesync.Folder, 0, len(names)+1)
 	for _, name := range names {
 		typ := easFolderType[name]
 		if typ == "" {
@@ -53,6 +58,21 @@ func (f easFolderSource) Folders(email string) ([]activesync.Folder, error) {
 			DisplayName: name,
 			Type:        typ,
 		})
+	}
+	// Expose the canonical Calendar folder so a mobile client always has a
+	// calendar to sync. The collab folder set is populated lazily (on first
+	// CalDAV/EWS access), so it is ensured here — mirroring how EWS reconciles
+	// folder identities on its hierarchy sync — rather than only shown when a
+	// prior surface happened to create it.
+	if f.identity != nil {
+		if fid, err := f.identity.EnsureFolderId(email, "calendar", "calendar"); err == nil && !fid.IsZero() {
+			folders = append(folders, activesync.Folder{
+				ServerID:    activesync.CalendarCollectionID(fid.String()),
+				ParentID:    "0",
+				DisplayName: "Calendar",
+				Type:        activesync.FolderTypeCalendar,
+			})
+		}
 	}
 	return folders, nil
 }
@@ -219,6 +239,38 @@ func (s easMailSource) Fetch(email, collectionID, serverID string) (*activesync.
 	}
 	m := activesync.MessageFromRaw(serverID, raw)
 	return &m, nil
+}
+
+// easCalendarSource projects a mailbox's calendar events for the EAS Sync
+// command from the shared collaboration store — the SAME store EWS, CalDAV and
+// JMAP read — so a phone's calendar converges with every other surface on one
+// source. The folder id arrives already stripped of the routing prefix. Each
+// event's canonical iCalendar (RawData) is projected by the activesync package,
+// keyed by the collab item id (its stable EAS ServerId) and the collab ETag
+// (which drives the enumerate-and-diff cursor).
+type easCalendarSource struct{ collab ews.CollabStore }
+
+func (c easCalendarSource) ListItems(email, folderID string) ([]activesync.CalendarItem, error) {
+	fid, err := semcore.NewFolderId(folderID)
+	if err != nil {
+		return nil, nil
+	}
+	recs, err := c.collab.ListCalendarItemsByFolder(fid)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]activesync.CalendarItem, 0, len(recs))
+	for i := range recs {
+		r := &recs[i]
+		// Skip recurrence-exception instances: they are fragments of a master
+		// event, not standalone items. The master (MasterID zero) carries the
+		// event; recurrence/exception projection is a later phase.
+		if !r.MasterID.IsZero() {
+			continue
+		}
+		items = append(items, activesync.CalendarItemFromICal(r.ID.String(), r.ETag, r.RawData))
+	}
+	return items, nil
 }
 
 // easMutator applies a mobile client's EAS Sync up-sync changes to the canonical

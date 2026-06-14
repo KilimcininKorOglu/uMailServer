@@ -102,6 +102,13 @@ func (s *Server) handleSync(ctx *Context) ([]byte, error) {
 	window := windowSize(root, collection)
 	trunc := truncationSize(collection)
 
+	// A calendar collection syncs on its own enumerate-and-diff path, leaving the
+	// mail machinery below untouched; its ServerId namespace is prefix-tagged so
+	// it never collides with a mail folder's bare name.
+	if folderID, ok := strings.CutPrefix(collectionID, calendarCollectionPrefix); ok && s.calendar != nil {
+		return s.handleCalendarSync(ctx, collectionID, folderID, reqKey, window, deviceID)
+	}
+
 	if reqKey == "0" {
 		if err := s.sync.PutSyncState(ctx.Email, collectionID, deviceID, "1|e:0"); err != nil {
 			return nil, err
