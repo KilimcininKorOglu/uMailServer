@@ -7,10 +7,12 @@ import (
 )
 
 // marshalSync builds a Sync response for one collection: SyncKey, CollectionId
-// and Status, an optional MoreAvailable flag, and a Commands block holding the
-// encoded Add/Change/Delete operations. A non-success status resets the
-// returned SyncKey to "0", which tells the client to restart this collection.
-func marshalSync(collectionID, status, syncKey string, cmds []syncCommand, more bool) ([]byte, error) {
+// and Status, an optional Responses block reporting the per-item status of the
+// client's up-sync commands (failures only), an optional MoreAvailable flag, and
+// a Commands block holding the encoded server-side Add/Change/Delete operations.
+// A non-success status resets the returned SyncKey to "0", which tells the client
+// to restart this collection.
+func marshalSync(collectionID, status, syncKey string, responses []clientResponse, cmds []syncCommand, more bool) ([]byte, error) {
 	if status != syncStatusSuccess {
 		syncKey = "0"
 	}
@@ -19,6 +21,16 @@ func marshalSync(collectionID, status, syncKey string, cmds []syncCommand, more 
 		{Page: wbxml.PageAirSync, Name: "CollectionId", Text: collectionID},
 		{Page: wbxml.PageAirSync, Name: "Status", Text: status},
 	}}
+	if len(responses) > 0 {
+		block := &wbxml.Element{Page: wbxml.PageAirSync, Name: "Responses"}
+		for _, r := range responses {
+			block.Children = append(block.Children, &wbxml.Element{Page: wbxml.PageAirSync, Name: r.op, Children: []*wbxml.Element{
+				{Page: wbxml.PageAirSync, Name: "ServerId", Text: r.serverID},
+				{Page: wbxml.PageAirSync, Name: "Status", Text: r.status},
+			}})
+		}
+		collection.Children = append(collection.Children, block)
+	}
 	if more {
 		collection.Children = append(collection.Children, &wbxml.Element{Page: wbxml.PageAirSync, Name: "MoreAvailable"})
 	}

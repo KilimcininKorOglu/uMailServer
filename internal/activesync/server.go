@@ -66,6 +66,7 @@ type Server struct {
 	folders      FolderSource
 	sync         SyncState
 	mail         MailSource
+	mutator      Mutator
 }
 
 // NewServer builds an EAS endpoint that authenticates through authenticate.
@@ -99,6 +100,12 @@ func (s *Server) SetSyncState(st SyncState) {
 // SetMailSource wires the mail source used by the Sync command.
 func (s *Server) SetMailSource(m MailSource) {
 	s.mail = m
+}
+
+// SetMutator wires the canonical-mailstore mutator used to apply the client's
+// Sync up-sync changes (read-flag Changes, Deletes).
+func (s *Server) SetMutator(m Mutator) {
+	s.mutator = m
 }
 
 // SetLogger overrides the default logger.

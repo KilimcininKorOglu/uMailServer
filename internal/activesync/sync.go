@@ -9,10 +9,12 @@ import (
 )
 
 // Sync status codes (MS-ASCMD 2.2.3.177.4): 1 = success, 3 = invalid SyncKey
-// (the client must restart this collection's sync from 0).
+// (the client must restart this collection's sync from 0), 4 = a protocol/server
+// error applying a client change (reported per item in the Responses block).
 const (
-	syncStatusSuccess    = "1"
-	syncStatusInvalidKey = "3"
+	syncStatusSuccess       = "1"
+	syncStatusInvalidKey    = "3"
+	syncStatusProtocolError = "4"
 )
 
 // defaultWindowSize bounds a Sync response when the client sends no WindowSize.
@@ -45,6 +47,26 @@ type MailSource interface {
 	CurrentSeq(email string) (uint64, error)
 }
 
+// Mutator applies a mobile client's up-sync changes to the canonical mailstore:
+// a Change updates a message's read state, a Delete removes it. Implementations
+// converge the mutation on the one store every surface reads, so a flag set or a
+// deletion authored on a phone is reflected over IMAP/JMAP/webmail too. A change
+// to an item that is already gone is not an error (the client's view is merely
+// stale); only a real store failure returns one.
+type Mutator interface {
+	SetRead(email, collectionID, serverID string, read bool) error
+	Delete(email, collectionID, serverID string) error
+}
+
+// clientResponse is one entry in the Sync Responses block: the per-item status of
+// a client command the server applied. It is emitted only on failure — a success
+// is acknowledged by the advanced SyncKey, not echoed.
+type clientResponse struct {
+	op       string // "Change" or "Delete"
+	serverID string
+	status   string
+}
+
 // handleSync answers the Sync command for one mail collection. SyncKey 0 primes
 // (returns key 1 with no items); the first real sync streams the folder's
 // current messages as Adds, windowed by WindowSize; once the snapshot is
@@ -67,7 +89,7 @@ func (s *Server) handleSync(ctx *Context) ([]byte, error) {
 	}
 	collection := collectionOf(root)
 	if collection == nil {
-		return marshalSync("", syncStatusInvalidKey, "", nil, false)
+		return marshalSync("", syncStatusInvalidKey, "", nil, nil, false)
 	}
 	collectionID := textOf(collection.Sub("CollectionId"))
 	reqKey := textOf(collection.Sub("SyncKey"))
@@ -78,17 +100,22 @@ func (s *Server) handleSync(ctx *Context) ([]byte, error) {
 		if err := s.sync.PutSyncState(ctx.Email, collectionID, deviceID, "1|e:0"); err != nil {
 			return nil, err
 		}
-		return marshalSync(collectionID, syncStatusSuccess, "1", nil, false)
+		return marshalSync(collectionID, syncStatusSuccess, "1", nil, nil, false)
 	}
 
 	stored, err := s.sync.GetSyncState(ctx.Email, collectionID, deviceID)
 	if err != nil || stored == "" {
-		return marshalSync(collectionID, syncStatusInvalidKey, "", nil, false)
+		return marshalSync(collectionID, syncStatusInvalidKey, "", nil, nil, false)
 	}
 	lastKey, cursor, ok := strings.Cut(stored, "|")
 	if !ok || reqKey != lastKey {
-		return marshalSync(collectionID, syncStatusInvalidKey, "", nil, false)
+		return marshalSync(collectionID, syncStatusInvalidKey, "", nil, nil, false)
 	}
+
+	// Apply the client's up-sync changes (read-flag Changes, Deletes) before
+	// enumerating server-side changes, so a just-read or just-deleted item is
+	// reflected in both directions of this one exchange.
+	responses := s.applyClientCommands(ctx.Email, collectionID, collection)
 
 	cmds, nextCursor, more, err := s.nextBatch(ctx.Email, collectionID, cursor, window, trunc)
 	if err != nil {
@@ -98,7 +125,46 @@ func (s *Server) handleSync(ctx *Context) ([]byte, error) {
 	if err := s.sync.PutSyncState(ctx.Email, collectionID, deviceID, nextKey+"|"+nextCursor); err != nil {
 		return nil, err
 	}
-	return marshalSync(collectionID, syncStatusSuccess, nextKey, cmds, more)
+	return marshalSync(collectionID, syncStatusSuccess, nextKey, responses, cmds, more)
+}
+
+// applyClientCommands applies the client's up-sync changes for a collection — a
+// Change updates read state, a Delete removes the item — and returns the failure
+// responses. Successful commands are acknowledged by the advanced SyncKey, not
+// echoed. It is a no-op when no Mutator is wired or the request carries no
+// Commands. Only the read flag is honored on a Change in this phase; other
+// property writes are left untouched rather than guessed.
+func (s *Server) applyClientCommands(email, collectionID string, collection *wbxml.Element) []clientResponse {
+	cmds := collection.Sub("Commands")
+	if cmds == nil || s.mutator == nil {
+		return nil
+	}
+	var responses []clientResponse
+	for _, c := range cmds.Children {
+		serverID := textOf(c.Sub("ServerId"))
+		if serverID == "" {
+			continue
+		}
+		switch c.Name {
+		case "Change":
+			appData := c.Sub("ApplicationData")
+			if appData == nil {
+				continue
+			}
+			readEl := appData.Sub("Read")
+			if readEl == nil {
+				continue // only the read flag is honored in this phase
+			}
+			if err := s.mutator.SetRead(email, collectionID, serverID, readEl.Text == "1"); err != nil {
+				responses = append(responses, clientResponse{op: "Change", serverID: serverID, status: syncStatusProtocolError})
+			}
+		case "Delete":
+			if err := s.mutator.Delete(email, collectionID, serverID); err != nil {
+				responses = append(responses, clientResponse{op: "Delete", serverID: serverID, status: syncStatusProtocolError})
+			}
+		}
+	}
+	return responses
 }
 
 // syncCommand is one decoded change to emit (an Add/Change carries a message; a

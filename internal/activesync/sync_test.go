@@ -2,6 +2,7 @@ package activesync
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -148,5 +149,133 @@ func TestSyncInvalidKey(t *testing.T) {
 	bad := doSync(t, s, "99", 50)
 	if bad.Sub("Status").Text != syncStatusInvalidKey || bad.Sub("SyncKey").Text != "0" {
 		t.Fatalf("invalid key: Status=%v SyncKey=%v, want 3/0", bad.Sub("Status"), bad.Sub("SyncKey"))
+	}
+}
+
+var errMutator = errors.New("mutator failure")
+
+// stubMutator records the up-sync changes applied to it; failOn makes the named
+// ServerId fail so the Responses path can be exercised.
+type stubMutator struct {
+	reads   map[string]bool
+	deletes []string
+	failOn  string
+}
+
+func (m *stubMutator) SetRead(_, _, serverID string, read bool) error {
+	if serverID == m.failOn {
+		return errMutator
+	}
+	if m.reads == nil {
+		m.reads = map[string]bool{}
+	}
+	m.reads[serverID] = read
+	return nil
+}
+
+func (m *stubMutator) Delete(_, _, serverID string) error {
+	if serverID == m.failOn {
+		return errMutator
+	}
+	m.deletes = append(m.deletes, serverID)
+	return nil
+}
+
+// doSyncRaw sends a Sync request carrying arbitrary extra collection children
+// (e.g. a Commands block) and returns the response Collection.
+func doSyncRaw(t *testing.T, s *Server, syncKey string, extra ...*wbxml.Element) *wbxml.Element {
+	t.Helper()
+	coll := []*wbxml.Element{
+		{Page: wbxml.PageAirSync, Name: "SyncKey", Text: syncKey},
+		{Page: wbxml.PageAirSync, Name: "CollectionId", Text: "inbox"},
+	}
+	coll = append(coll, extra...)
+	body, err := wbxml.Marshal(&wbxml.Element{Page: wbxml.PageAirSync, Name: "Sync", Children: []*wbxml.Element{
+		{Page: wbxml.PageAirSync, Name: "Collections", Children: []*wbxml.Element{
+			{Page: wbxml.PageAirSync, Name: "Collection", Children: coll},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/Microsoft-Server-ActiveSync?Cmd=Sync&DeviceId=DEV1", bytes.NewReader(body))
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Sync status = %d, want 200", rec.Code)
+	}
+	resp, err := wbxml.Unmarshal(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	return resp.Sub("Collections").Sub("Collection")
+}
+
+func changeReadCmd(serverID, read string) *wbxml.Element {
+	return &wbxml.Element{Page: wbxml.PageAirSync, Name: "Change", Children: []*wbxml.Element{
+		{Page: wbxml.PageAirSync, Name: "ServerId", Text: serverID},
+		{Page: wbxml.PageAirSync, Name: "ApplicationData", Children: []*wbxml.Element{
+			{Page: wbxml.PageEmail, Name: "Read", Text: read},
+		}},
+	}}
+}
+
+func deleteCmd(serverID string) *wbxml.Element {
+	return &wbxml.Element{Page: wbxml.PageAirSync, Name: "Delete", Children: []*wbxml.Element{
+		{Page: wbxml.PageAirSync, Name: "ServerId", Text: serverID},
+	}}
+}
+
+// TestSyncUpSync verifies the client up-sync path: a Change applies the read flag
+// and a Delete removes the item via the Mutator. Successful commands advance the
+// SyncKey and are not echoed in Responses.
+func TestSyncUpSync(t *testing.T) {
+	mut := &stubMutator{}
+	s := syncServer(&stubMail{list: []SyncMessage{msg("1", "one")}, seq: 3})
+	s.SetMutator(mut)
+	doSync(t, s, "0", 50) // prime -> key 1
+
+	coll := doSyncRaw(t, s, "1", &wbxml.Element{Page: wbxml.PageAirSync, Name: "Commands", Children: []*wbxml.Element{
+		changeReadCmd("inbox:1", "1"),
+		deleteCmd("inbox:2"),
+	}})
+
+	if !mut.reads["inbox:1"] {
+		t.Fatalf("Change did not set the read flag for inbox:1: %v", mut.reads)
+	}
+	if len(mut.deletes) != 1 || mut.deletes[0] != "inbox:2" {
+		t.Fatalf("Delete not applied: %v", mut.deletes)
+	}
+	if coll.Sub("SyncKey").Text != "2" {
+		t.Fatalf("up-sync SyncKey = %q, want 2", coll.Sub("SyncKey").Text)
+	}
+	if coll.Sub("Responses") != nil {
+		t.Fatalf("successful commands must not be echoed in Responses")
+	}
+}
+
+// TestSyncUpSyncFailureReported checks that a command the mutator rejects is
+// surfaced in the Responses block with the protocol-error status, while the
+// SyncKey still advances.
+func TestSyncUpSyncFailureReported(t *testing.T) {
+	mut := &stubMutator{failOn: "inbox:1"}
+	s := syncServer(&stubMail{list: []SyncMessage{msg("1", "one")}, seq: 2})
+	s.SetMutator(mut)
+	doSync(t, s, "0", 50) // prime -> key 1
+
+	coll := doSyncRaw(t, s, "1", &wbxml.Element{Page: wbxml.PageAirSync, Name: "Commands", Children: []*wbxml.Element{
+		deleteCmd("inbox:1"),
+	}})
+
+	resp := coll.Sub("Responses")
+	if resp == nil {
+		t.Fatalf("a failed command must be reported in Responses")
+	}
+	del := resp.Sub("Delete")
+	if del == nil || del.Sub("Status").Text != syncStatusProtocolError {
+		t.Fatalf("failed Delete status = %v, want %s", del, syncStatusProtocolError)
+	}
+	if coll.Sub("SyncKey").Text != "2" {
+		t.Fatalf("SyncKey must still advance on a reported failure")
 	}
 }

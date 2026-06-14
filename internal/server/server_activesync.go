@@ -6,6 +6,7 @@ import (
 
 	"github.com/umailserver/umailserver/internal/activesync"
 	"github.com/umailserver/umailserver/internal/ews"
+	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 )
@@ -203,4 +204,57 @@ func (s easMailSource) ChangesSince(email, collectionID string, since uint64) (a
 		}
 	}
 	return adds, changes, deletes, lastSeq, nil
+}
+
+// easMutator applies a mobile client's EAS Sync up-sync changes to the canonical
+// mailstore, converging them on the one store every surface reads — a read-flag
+// set or a deletion authored on a phone is reflected over IMAP/POP3/JMAP/webmail
+// too. It reuses the same canonical delete the MAPI surface uses and the IMAP
+// flag-store (which raises the IMAP IDLE and webmail SSE notifications). The EAS
+// ServerId is the storage blob key; the target message is present whenever a
+// client mutates it, so the (folder, uid) is resolved by a folder scan, and a
+// stale id (the item already gone) is treated as a no-op rather than an error.
+// It embeds emsmdbMutator to reuse that surface's canonical delete and its
+// uid->sequence-set mapping rather than reimplementing them.
+type easMutator struct{ emsmdbMutator }
+
+func (m easMutator) SetRead(email, collectionID, serverID string, read bool) error {
+	uid, ok := m.uidByServerID(email, collectionID, serverID)
+	if !ok {
+		return nil
+	}
+	seqSet, n := m.uidsToSeqSet(email, collectionID, []uint32{uid})
+	if n == 0 {
+		return nil
+	}
+	op := imap.FlagRemove
+	if read {
+		op = imap.FlagAdd
+	}
+	return m.srv.mailstore.StoreFlags(email, collectionID, seqSet, []string{"\\Seen"}, op)
+}
+
+func (m easMutator) Delete(email, collectionID, serverID string) error {
+	uid, ok := m.uidByServerID(email, collectionID, serverID)
+	if !ok {
+		return nil
+	}
+	_, err := m.DeleteMessages(email, collectionID, []uint32{uid})
+	return err
+}
+
+// uidByServerID resolves an EAS ServerId (the storage blob key) to the message's
+// IMAP uid within the folder by scanning its metadata.
+func (m easMutator) uidByServerID(email, folder, serverID string) (uint32, bool) {
+	uids, err := m.srv.storageDB.GetMessageUIDs(email, folder)
+	if err != nil {
+		return 0, false
+	}
+	for _, uid := range uids {
+		meta, merr := m.srv.storageDB.GetMessageMetadata(email, folder, uid)
+		if merr == nil && meta != nil && meta.MessageID == serverID {
+			return uid, true
+		}
+	}
+	return 0, false
 }
