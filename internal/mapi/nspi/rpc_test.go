@@ -1193,16 +1193,44 @@ func TestNSPISeekEntries(t *testing.T) {
 	}
 }
 
+// anrResHeaderNDR writes a PROPERTY/ANR restriction's fixed header.
+func anrResHeaderNDR(p *ndr.Push) {
+	p.Align(4)
+	p.Uint32(uint32(resProperty))    // res_type
+	p.Uint32(uint32(resProperty))    // union discriminant
+	p.Uint32(uint32(relopEQ))        // relop
+	p.Uint32(uint32(wire.PidTagAnr)) // proptag (ambiguous-name resolution)
+	p.UniquePtr(true)                // value referent (non-NULL)
+}
+
+// anrResContentNDR writes a PROPERTY/ANR restriction's deferred value.
+func anrResContentNDR(p *ndr.Push, search string) {
+	pushPropValueReq(p, wire.PidTagAnr, search)
+}
+
 // anrRestrictionNDR writes a complete NSPI PROPERTY restriction (header then
 // deferred value) matching the ambiguous-name target against the GAL.
 func anrRestrictionNDR(p *ndr.Push, search string) {
+	anrResHeaderNDR(p)
+	anrResContentNDR(p, search)
+}
+
+// andOrRestrictionNDR writes an AND or OR restriction over a set of ANR search
+// terms: the operator header, then — per the transfer syntax — every operand's
+// header in one pass followed by every operand's deferred content in a second.
+func andOrRestrictionNDR(p *ndr.Push, rt uint8, searches []string) {
 	p.Align(4)
-	p.Uint32(uint32(resProperty))      // res_type
-	p.Uint32(uint32(resProperty))      // union discriminant
-	p.Uint32(uint32(relopEQ))          // relop
-	p.Uint32(uint32(wire.PidTagAnr))   // proptag (ambiguous-name resolution)
-	p.UniquePtr(true)                  // value referent (non-NULL)
-	pushPropValueReq(p, wire.PidTagAnr, search)
+	p.Uint32(uint32(rt))             // res_type
+	p.Uint32(uint32(rt))             // union discriminant
+	p.Uint32(uint32(len(searches)))  // cres
+	p.UniquePtr(true)                // operand-array referent (non-NULL)
+	p.ULong(uint32(len(searches)))   // conformant size == cres
+	for range searches {
+		anrResHeaderNDR(p)
+	}
+	for _, s := range searches {
+		anrResContentNDR(p, s)
+	}
 }
 
 // notRestrictionNDR writes an NSPI NOT restriction wrapping the inner restriction
@@ -1295,6 +1323,65 @@ func TestNSPIGetMatches(t *testing.T) {
 	}
 	if len(rows2) != 2 {
 		t.Fatalf("NOT(ANR Ann) matched %d rows, want 2", len(rows2))
+	}
+}
+
+// TestNSPIGetMatchesAndOr exercises the multi-operand AND/OR restriction path —
+// the only restriction shape with the two-pass "all sub-headers then all
+// sub-contents" transfer-syntax layout, and the one Outlook's advanced
+// address-book search sends most. AND must intersect the operands and OR must
+// union them, so a header/content correlation slip would surface as the wrong
+// match set rather than a decode fault.
+func TestNSPIGetMatchesAndOr(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+		{Email: "cara@test.local", DisplayName: "Cara Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+	cols := []wire.PropTag{wire.PidTagDisplayName}
+
+	decodeMids := func(resp []byte) (mids []uint32, result uint32) {
+		r := &rd{b: resp, t: t}
+		readStatNDR(r)
+		if ref := r.u32(); ref != 0 {
+			mids = readProptagArrayNDR(r)
+		}
+		if ref := r.u32(); ref != 0 {
+			readRowSet(r)
+		}
+		return mids, r.u32()
+	}
+
+	// AND("Example", "Bob") is the intersection: every entry carries "Example"
+	// in its display name, but only Bob also matches "Bob".
+	respAnd, ok := s.HandleRPC(opNspiGetMatches, "user@test.local",
+		getMatchesRequest(handle, cols, func(p *ndr.Push) {
+			andOrRestrictionNDR(p, resAnd, []string{"Example", "Bob"})
+		}))
+	if !ok {
+		t.Fatal("NspiGetMatches(AND) reported not-ok")
+	}
+	midsAnd, resultAnd := decodeMids(respAnd)
+	if resultAnd != ecSuccess {
+		t.Fatalf("AND result = %#x, want ecSuccess", resultAnd)
+	}
+	if len(midsAnd) != 1 || midsAnd[0] != entryMid(1) {
+		t.Fatalf("AND(Example,Bob) matched mids = %v, want [%#x] (Bob)", midsAnd, entryMid(1))
+	}
+
+	// OR("Ann", "Cara") is the union: the first and third entries, in table order.
+	respOr, _ := s.HandleRPC(opNspiGetMatches, "user@test.local",
+		getMatchesRequest(handle, cols, func(p *ndr.Push) {
+			andOrRestrictionNDR(p, resOr, []string{"Ann", "Cara"})
+		}))
+	midsOr, resultOr := decodeMids(respOr)
+	if resultOr != ecSuccess {
+		t.Fatalf("OR result = %#x, want ecSuccess", resultOr)
+	}
+	if len(midsOr) != 2 || midsOr[0] != entryMid(0) || midsOr[1] != entryMid(2) {
+		t.Fatalf("OR(Ann,Cara) matched mids = %v, want [%#x %#x] (Ann, Cara)", midsOr, entryMid(0), entryMid(2))
 	}
 }
 
