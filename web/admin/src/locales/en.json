@@ -19,7 +19,8 @@
     "tenants": "Tenants",
     "settings": "Settings",
     "logout": "Logout",
-    "cluster": "Cluster"
+    "cluster": "Cluster",
+    "certificates": "Certificates"
   },
   "auth": {
     "login": "Admin Login",
@@ -585,6 +586,22 @@
     "failoverFailed": "Failover failed",
     "failoverConfirmTitle": "Trigger failover?",
     "failoverConfirmDescription": "This node releases cluster leadership so another healthy instance takes over singleton duties (scheduled jobs, alerts). Client traffic is not interrupted."
+  },
+  "certificates": {
+    "title": "TLS Certificates",
+    "description": "Status and expiry of the certificates served for each domain",
+    "inventory": "Certificate inventory",
+    "inventoryDescription": "Every authoritative domain and the certificate currently held for it",
+    "domain": "Domain",
+    "expiry": "Expiry",
+    "issuer": "Issuer",
+    "valid": "Valid",
+    "invalid": "No certificate",
+    "expiringSoon": "Expiring soon",
+    "expired": "Expired",
+    "expiresInDays": "{{date}} ({{days}} days)",
+    "empty": "No certificates",
+    "emptyDescription": "No domains are configured for certificate issuance yet."
   },
   "diagnostics": {
     "title": "Diagnostics",

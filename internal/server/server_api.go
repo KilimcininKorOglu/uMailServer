@@ -69,6 +69,21 @@ func (s *Server) startAPI() {
 	s.apiServer = api.NewServer(s.database, s.logger, apiCfg)
 	if s.tlsManager != nil {
 		s.apiServer.SetACMEChallengeHandler(s.tlsManager.HTTPChallengeHandler())
+		s.apiServer.SetCertificateStatusFunc(func() []api.TLSCertificateStatus {
+			src := s.tlsManager.GetCertificateStatus()
+			out := make([]api.TLSCertificateStatus, 0, len(src))
+			for _, st := range src {
+				out = append(out, api.TLSCertificateStatus{
+					Domain:    st.Domain,
+					Valid:     st.Valid,
+					ExpiresAt: st.ExpiresAt,
+					Issuer:    st.Issuer,
+					Warning:   st.Warning,
+					Error:     st.Error,
+				})
+			}
+			return out
+		})
 	}
 	s.apiServer.SetSearchService(s.searchSvc)
 	s.apiServer.SetTracingProvider(s.tracingProvider)

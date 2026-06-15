@@ -20,6 +20,7 @@ import { Directory } from "@/pages/Directory";
 import { Jobs } from "@/pages/Jobs";
 import { Tenants } from "@/pages/Tenants";
 import { Cluster } from "@/pages/Cluster";
+import { Certificates } from "@/pages/Certificates";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { getCookie, setCookie, deleteCookie } from "@/utils/cookies";
 import type { User, Activity } from "@/types";
@@ -215,6 +216,7 @@ function App() {
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/tenants" element={<Tenants />} />
             <Route path="/cluster" element={<Cluster />} />
+            <Route path="/certificates" element={<Certificates />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

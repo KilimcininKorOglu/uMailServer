@@ -18,6 +18,7 @@ import {
   ChevronRight,
   LogOut,
   Network,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/hooks/useI18n";
@@ -53,6 +54,7 @@ const menuItems = [
   { path: "/jobs", icon: Briefcase, labelKey: "nav.jobs" },
   { path: "/tenants", icon: Building2, labelKey: "nav.tenants" },
   { path: "/cluster", icon: Network, labelKey: "nav.cluster" },
+  { path: "/certificates", icon: ShieldCheck, labelKey: "nav.certificates" },
   { path: "/settings", icon: Settings, labelKey: "nav.settings" },
 ];
 

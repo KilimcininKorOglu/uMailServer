@@ -19,7 +19,8 @@
     "tenants": "Kiracılar",
     "settings": "Ayarlar",
     "logout": "Çıkış",
-    "cluster": "Küme"
+    "cluster": "Küme",
+    "certificates": "Sertifikalar"
   },
   "auth": {
     "login": "Yönetici Girişi",
@@ -585,6 +586,22 @@
     "failoverFailed": "Yük devretme başarısız oldu",
     "failoverConfirmTitle": "Yük devretme başlatılsın mı?",
     "failoverConfirmDescription": "Bu düğüm, başka bir sağlıklı örneğin tekil görevleri (zamanlanmış işler, uyarılar) devralması için küme liderliğini bırakır. İstemci trafiği kesintiye uğramaz."
+  },
+  "certificates": {
+    "title": "TLS Sertifikaları",
+    "description": "Her alan adı için sunulan sertifikaların durumu ve son kullanma tarihi",
+    "inventory": "Sertifika envanteri",
+    "inventoryDescription": "Yetkili her alan adı ve onun için tutulan geçerli sertifika",
+    "domain": "Alan Adı",
+    "expiry": "Son Kullanma",
+    "issuer": "Veren",
+    "valid": "Geçerli",
+    "invalid": "Sertifika yok",
+    "expiringSoon": "Yakında dolacak",
+    "expired": "Süresi doldu",
+    "expiresInDays": "{{date}} ({{days}} gün)",
+    "empty": "Sertifika yok",
+    "emptyDescription": "Sertifika verilmesi için henüz yapılandırılmış alan adı yok."
   },
   "diagnostics": {
     "title": "Tanılama",

@@ -371,6 +371,15 @@ export interface ClusterStatus {
   instances: ClusterInstance[];
 }
 
+export interface TLSCertificate {
+  domain: string;
+  valid: boolean;
+  expires_at?: string; // RFC3339; omitted when no certificate is present
+  issuer?: string;
+  warning?: string;
+  error?: string;
+}
+
 // ServerConfig mirrors the backend serverConfigDTO (internal/api/config_settings.go):
 // a typed, per-section, secrets-free view of the server configuration. Secrets
 // (JWT/TOTP keys, LDAP bind password, MCP auth tokens, alert SMTP password and

@@ -230,6 +230,10 @@ type Server struct {
 
 	acmeChallengeHandler http.Handler
 
+	// certificateStatusFunc lists the current TLS certificate status per domain
+	// for the admin panel; injected by the orchestrator (nil = report empty set).
+	certificateStatusFunc func() []TLSCertificateStatus
+
 	// HTTP server lifecycle guard (protects httpServer field)
 	serverMu sync.Mutex
 
@@ -972,6 +976,9 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	// each user's own rules). Admin-only, served on the admin listener.
 	api.HandleFunc("/api/v1/admin/global-rules", s.adminMiddleware(http.HandlerFunc(s.handleGlobalRules)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/global-rules/", s.adminMiddleware(http.HandlerFunc(s.handleGlobalRuleDetail)).ServeHTTP)
+
+	// TLS certificate inventory (domain, validity, expiry) for the admin panel.
+	api.HandleFunc("/api/v1/admin/tls/certificates", s.adminMiddleware(http.HandlerFunc(s.handleTLSCertificates)).ServeHTTP)
 
 	// Public-folder tree management: list/create/delete per-domain public folders
 	// and edit their ACL grants. Admin-only, served on the admin listener.

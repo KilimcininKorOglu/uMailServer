@@ -31,6 +31,7 @@ const routeNavKey: Record<string, string> = {
   "/jobs": "jobs",
   "/tenants": "tenants",
   "/cluster": "cluster",
+  "/certificates": "certificates",
   "/settings": "settings",
 };
 

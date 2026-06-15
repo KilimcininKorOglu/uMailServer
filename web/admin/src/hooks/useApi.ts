@@ -23,6 +23,7 @@ import type {
   Tenant,
   TenantBranding,
   ClusterStatus,
+  TLSCertificate,
   BackupManifest,
 } from "@/types";
 
@@ -930,6 +931,30 @@ export function useCluster() {
   }, []);
 
   return { status, loading, error, fetchStatus, triggerFailover };
+}
+
+export function useTLSCertificates() {
+  const [certificates, setCertificates] = useState<TLSCertificate[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchCertificates = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<{ certificates: TLSCertificate[] }>(
+        "/admin/tls/certificates"
+      );
+      setCertificates(result.certificates ?? []);
+      return result.certificates ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { certificates, loading, error, fetchCertificates };
 }
 
 // Server config (Settings) API hook
