@@ -30,6 +30,7 @@ const (
 	opNspiUnbind          uint16 = 1
 	opNspiUpdateStat       uint16 = 2
 	opNspiQueryRows        uint16 = 3
+	opNspiSeekEntries      uint16 = 4
 	opNspiResortRestriction uint16 = 6
 	opNspiDNToMId          uint16 = 7
 	opNspiGetPropList      uint16 = 8
@@ -103,6 +104,8 @@ func (s *RPCServer) HandleRPC(opnum uint16, email string, stub []byte) (resp []b
 		return s.updateStat(stub), true
 	case opNspiQueryRows:
 		return s.queryRows(stub), true
+	case opNspiSeekEntries:
+		return s.seekEntries(stub), true
 	case opNspiGetPropList:
 		return s.getPropList(stub), true
 	case opNspiCompareMIds:
@@ -760,6 +763,125 @@ func (s *RPCServer) resolve(stub []byte, wide bool) []byte {
 	pushRowSet(out, rows)
 	out.Uint32(ecSuccess)
 	return out.Bytes()
+}
+
+// seekEntries answers NspiSeekEntries (MS-OXNSPI 3.1.4.1.9): it positions the
+// table cursor at the first entry whose display name is at or after the requested
+// target and returns that row. The table is display-name sorted, so the seek is a
+// lower bound; the optional explicit minimal-id table narrows the search to those
+// entries. The target must be a display-name string under the display-name sort,
+// matching the canonical MAPI/HTTP behavior.
+func (s *RPCServer) seekEntries(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // reserved
+	stat := pullStatNDR(p)
+	target := pullPropValueNDR(p)
+	var explicit []uint32
+	if p.Uint32() != 0 { // [unique] explicit minimal-id table
+		explicit = pullU32ArrayNDR(p)
+	}
+	var cols []wire.PropTag
+	if p.Uint32() != 0 { // [unique] proptag array
+		cols = pullProptagArrayNDR(p)
+	}
+	if len(cols) == 0 {
+		cols = defaultColumns
+	}
+	out := ndr.NewPush()
+	targetName, isStr := target.Value.(string)
+	if p.Err() != nil || !s.hasSession(handle) || !isStr ||
+		stat.SortType != sortTypeDisplayName || target.Tag.ID() != wire.PidTagDisplayName.ID() {
+		pushStatNDR(out, stat)
+		out.UniquePtr(false) // NULL row set
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	gal := sortedGAL(s.dir)
+	targetLower := strings.ToLower(targetName)
+	seekPos := -1
+	if len(explicit) > 0 {
+		for _, mid := range explicit {
+			if idx := midIndex(mid, len(gal)); idx >= 0 && strings.ToLower(gal[idx].DisplayName) >= targetLower {
+				seekPos = idx
+				break
+			}
+		}
+	} else {
+		for i := range gal {
+			if strings.ToLower(gal[i].DisplayName) >= targetLower {
+				seekPos = i
+				break
+			}
+		}
+	}
+	if seekPos < 0 {
+		pushStatNDR(out, stat)
+		out.UniquePtr(false)
+		out.Uint32(ecNotFound)
+		return out.Bytes()
+	}
+	stat.NumPos = uint32(seekPos)
+	stat.CurrentRec = entryMid(seekPos)
+	stat.TotalRec = uint32(len(gal))
+	pushStatNDR(out, stat)
+	out.UniquePtr(true)
+	pushRowSet(out, [][]wire.TaggedPropertyValue{galRowValues(gal[seekPos], cols)})
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// pullPropValueNDR reads an NSPI property value (MS-OXNSPI 2.3.3): the property
+// tag, a reserved field, the value union's type discriminant (which must echo the
+// tag's type), then the value. It decodes the scalar, string and binary types the
+// address-book requests carry; an unhandled type faults the stream so the request
+// is rejected rather than mis-parsed.
+func pullPropValueNDR(p *ndr.Pull) wire.TaggedPropertyValue {
+	p.Align(4)
+	tag := wire.PropTag(p.Uint32())
+	p.Uint32()        // ulReserved
+	typ := p.Uint32() // value-union type discriminant
+	if uint16(typ) != uint16(tag.Type()) {
+		p.Fault()
+		return wire.TaggedPropertyValue{Tag: tag}
+	}
+	var val any
+	var sref, bref uint32
+	switch wire.PropType(uint16(typ)) {
+	case wire.PtShort:
+		val = uint32(p.Uint16())
+	case wire.PtLong, wire.PtError:
+		val = p.Uint32()
+	case wire.PtBoolean:
+		val = p.Uint8() != 0
+	case wire.PtString8, wire.PtUnicode:
+		sref = p.Uint32() // deferred-string referent
+	case wire.PtBinary:
+		p.Uint32()        // cb
+		bref = p.Uint32() // deferred-binary referent
+	default:
+		p.Fault()
+		return wire.TaggedPropertyValue{Tag: tag}
+	}
+	switch wire.PropType(uint16(typ)) {
+	case wire.PtString8:
+		if sref != 0 {
+			if length, ok := pullStringElementHeaderNDR(p); ok {
+				val = strings.TrimRight(string(p.Bytes(int(length))), "\x00")
+			}
+		}
+	case wire.PtUnicode:
+		if sref != 0 {
+			if length, ok := pullStringElementHeaderNDR(p); ok {
+				val = utf16LEToString(p.Bytes(int(length) * 2))
+			}
+		}
+	case wire.PtBinary:
+		if bref != 0 {
+			val = p.Bytes(int(p.ULong()))
+		}
+	}
+	return wire.TaggedPropertyValue{Tag: tag, Value: val}
 }
 
 // resortRestriction answers NspiResortRestriction (MS-OXNSPI 3.1.4.1.12): it

@@ -1108,6 +1108,91 @@ func TestNSPIResolveNames8Bit(t *testing.T) {
 	}
 }
 
+// pushPropValueReq writes a Unicode-string NSPI property value (tag, reserved,
+// type discriminant, deferred-string referent, then the conformant-varying UTF-16
+// content) — the SeekEntries target shape.
+func pushPropValueReq(p *ndr.Push, tag wire.PropTag, s string) {
+	p.Align(4)
+	p.Uint32(uint32(tag))
+	p.Uint32(0)                  // reserved
+	p.Uint32(uint32(tag.Type())) // value-union type discriminant
+	p.UniquePtr(true)            // deferred-string referent (non-NULL)
+	u := utf16LEWithNUL(s)
+	n := uint32(len(u) / 2)
+	p.ULong(n)
+	p.ULong(0)
+	p.ULong(n)
+	p.Raw(u)
+}
+
+func TestNSPISeekEntries(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+		{Email: "cara@test.local", DisplayName: "Cara Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+	cols := []wire.PropTag{wire.PidTagDisplayName}
+
+	seekReq := func(target string) []byte {
+		p := ndr.NewPush()
+		p.Raw(handle)
+		p.Uint32(0) // reserved
+		for range 9 {
+			p.Uint32(0) // STAT, SortType 0 = display name
+		}
+		pushPropValueReq(p, wire.PidTagDisplayName, target)
+		p.Uint32(0)       // [unique] explicit minimal-id table: NULL
+		p.Uint32(0x20000) // [unique] proptag array: present
+		p.ULong(uint32(len(cols)) + 1)
+		p.Uint32(uint32(len(cols)))
+		p.ULong(0)
+		p.ULong(uint32(len(cols)))
+		for _, c := range cols {
+			p.Uint32(uint32(c))
+		}
+		return p.Bytes()
+	}
+
+	// Seek to "Bob": the lower bound is the Bob entry at table position 1.
+	resp, ok := s.HandleRPC(opNspiSeekEntries, "user@test.local", seekReq("Bob"))
+	if !ok {
+		t.Fatal("NspiSeekEntries reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	stat := readStatNDR(r)
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("row set referent is NULL")
+	}
+	rows := readRowSet(r)
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+	if stat.NumPos != 1 || stat.CurrentRec != entryMid(1) {
+		t.Fatalf("stat after seek = NumPos %d CurrentRec %#x; want 1 / %#x", stat.NumPos, stat.CurrentRec, entryMid(1))
+	}
+	if len(rows) != 1 || rows[0][0].str != "Bob Example" {
+		t.Fatalf("seeked row name = %q, want Bob Example", func() string {
+			if len(rows) == 1 {
+				return rows[0][0].str
+			}
+			return ""
+		}())
+	}
+
+	// Seek past the end of the table → not found.
+	resp2, _ := s.HandleRPC(opNspiSeekEntries, "user@test.local", seekReq("Zzz Nobody"))
+	r2 := &rd{b: resp2, t: t}
+	readStatNDR(r2)
+	if ref := r2.u32(); ref != 0 {
+		t.Fatalf("row set referent = %#x, want 0 (NULL) past the end", ref)
+	}
+	if res := r2.u32(); res != ecNotFound {
+		t.Fatalf("result = %#x, want ecNotFound past the end", res)
+	}
+}
+
 func TestNSPIResortRestriction(t *testing.T) {
 	s := NewRPCServer()
 	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
