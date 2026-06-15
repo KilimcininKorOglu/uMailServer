@@ -10,6 +10,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
@@ -70,6 +71,22 @@ func (s *Server) decorateFolderPermissions(ctx context.Context, fxml *FolderType
 		ps.Permissions = append(ps.Permissions, aclToPermission(e.Grantee, e.Rights))
 	}
 	fxml.PermissionSet = ps
+}
+
+// aclFolderKey returns the storage mailbox name a folder's RFC 4314 ACL is keyed
+// by — the SAME key the webmail ACL API (/api/v1/mailboxes/.../acl) and the
+// storage layer use: the canonical IMAP name for distinguished folders
+// (mailboxNameForFolder → CanonicalFolderNameForRole, e.g. "INBOX") and the full
+// IMAP hierarchy path for user folders. It falls back to the EWS display name only
+// for non-mail collaboration folders (calendar/contacts/tasks), which carry no
+// mail ACL. Keying ACLs on the EWS display name ("Inbox") instead of the canonical
+// storage name ("INBOX") made folder permissions set on one surface invisible to
+// the other — the cross-surface divergence this closes.
+func (s *Server) aclFolderKey(mailboxKey, role string, folderID semcore.FolderId) string {
+	if name := s.mailboxNameForFolder(mailboxKey, folderID); name != "" {
+		return name
+	}
+	return s.folderDisplayName(mailboxKey, role, folderID)
 }
 
 // EWS permission action / read-access values.

@@ -252,9 +252,10 @@ func (s *Server) buildFolderResponse(ctx context.Context, mboxID semcore.Mailbox
 		FolderClass:      folderClassForRole(rec.Role),
 	}
 	// Project the canonical RFC 4314 ACL onto the folder's permission set and the
-	// caller's effective rights. folderName == displayName for distinguished and
-	// top-level folders (the same key IMAP/storage use for the ACL).
-	s.decorateFolderPermissions(ctx, &fxml, checkKey, displayName, wantPerms)
+	// caller's effective rights, keyed by the canonical storage name (aclFolderKey)
+	// — the same key the webmail ACL API and storage use — NOT the EWS display name
+	// ("Inbox" != "INBOX" diverged the two surfaces).
+	s.decorateFolderPermissions(ctx, &fxml, checkKey, s.aclFolderKey(checkKey, rec.Role, folderID), wantPerms)
 	msg.Folders = FolderResponseContainer{Folders: []FolderType{fxml}}
 	return msg
 }
@@ -825,8 +826,9 @@ func (s *Server) handleFindFolder(ctx context.Context, body []byte) []byte {
 			FolderClass:      folderClassForRole(f.Role),
 		}
 		// mailboxKey is the folder owner here (the caller for own folders, the
-		// public owner in the public tree), which is exactly the ACL owner key.
-		s.decorateFolderPermissions(ctx, &fxml, mailboxKey, displayName, wantPerms)
+		// public owner in the public tree), which is exactly the ACL owner key; the
+		// ACL is keyed by the canonical storage name (aclFolderKey), not displayName.
+		s.decorateFolderPermissions(ctx, &fxml, mailboxKey, s.aclFolderKey(mailboxKey, f.Role, f.FolderID), wantPerms)
 		matching = append(matching, fxml)
 	}
 
@@ -1254,8 +1256,8 @@ func (s *Server) handleUpdateFolder(ctx context.Context, body []byte) []byte {
 			FolderClass:      folderClassForRole(rec.Role),
 		}
 		// Echo the resulting permission set and effective rights so the client
-		// sees the applied state.
-		s.decorateFolderPermissions(ctx, &fxml, mboxKey, displayName, true)
+		// sees the applied state (ACL keyed by the canonical storage name).
+		s.decorateFolderPermissions(ctx, &fxml, mboxKey, s.aclFolderKey(mboxKey, rec.Role, folderID), true)
 		msg := FolderResponseMessageType{}
 		msg.ResponseClass = "Success"
 		msg.ResponseCode.Value = ErrNoError
@@ -1285,7 +1287,10 @@ func (s *Server) applyFolderPermissions(ctx context.Context, role, mboxKey strin
 	if owner == "" || owner != caller {
 		return ErrErrorAccessDenied
 	}
-	folderName := s.folderDisplayName(mboxKey, role, folderID)
+	// Key the ACL by the canonical storage name (aclFolderKey), the same key the
+	// webmail ACL API and storage use — NOT the EWS display name, which diverged
+	// the two surfaces (e.g. EWS wrote "Inbox" while webmail read "INBOX").
+	folderName := s.aclFolderKey(mboxKey, role, folderID)
 	if folderName == "" {
 		return ErrErrorInvalidOperation
 	}
