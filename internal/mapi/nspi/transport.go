@@ -11,11 +11,12 @@ var ErrCorrupt = errors.New("nspi: corrupt request")
 
 // NSPI result codes returned in responses.
 const (
-	ecSuccess       uint32 = 0x00000000
-	ecError         uint32 = 0x80004005
-	ecNotFound      uint32 = 0x8004010F // MAPI_E_NOT_FOUND (absent property)
-	ecNotSupported  uint32 = 0x80040102 // MAPI_E_NO_SUPPORT (read-only address book)
-	ecUnbindSuccess uint32 = 0x00000001 // MAPI_E_UNBINDSUCCESS (NSPI Unbind success)
+	ecSuccess        uint32 = 0x00000000
+	ecError          uint32 = 0x80004005
+	ecNotFound       uint32 = 0x8004010F // MAPI_E_NOT_FOUND (absent property)
+	ecNotSupported   uint32 = 0x80040102 // MAPI_E_NO_SUPPORT (read-only address book)
+	ecUnbindSuccess  uint32 = 0x00000001 // MAPI_E_UNBINDSUCCESS (NSPI Unbind success)
+	ecWarnWithErrors uint32 = 0x00040380 // MAPI_W_ERRORS_RETURNED (some properties absent)
 )
 
 // readAuxIn consumes the trailing cb_auxin-counted auxiliary buffer common to

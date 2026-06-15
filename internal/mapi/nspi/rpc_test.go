@@ -189,7 +189,11 @@ func TestNSPIGetSpecialTableReturnsGALContainer(t *testing.T) {
 	hdrs := make([]hdr, len(want))
 	for i := range want {
 		r.align4()
-		h := hdr{tag: r.u32(), typ: r.u32()}
+		h := hdr{tag: r.u32()}
+		if resv := r.u32(); resv != 0 {
+			t.Fatalf("value %d ulReserved = %#x, want 0", i, resv)
+		}
+		h.typ = r.u32()
 		switch wire.PropType(h.typ) {
 		case wire.PtLong, wire.PtError:
 			h.long = r.u32()
@@ -282,6 +286,237 @@ func TestNSPIUnbindDropsSession(t *testing.T) {
 	r2.u32() // version
 	if ref := r2.u32(); ref != 0 {
 		t.Fatal("GetSpecialTable succeeded after Unbind; the session was not dropped")
+	}
+}
+
+// decodedVal is one property value decoded from an NSPI property row.
+type decodedVal struct {
+	tag, typ   uint32
+	long       uint32
+	str        string
+	bin        []byte
+	sref, bref uint32
+}
+
+// readPropRow decodes one NSPI property row — the two NDR passes, every value's
+// header then every value's deferred content — and returns the decoded values. r
+// must sit at the row header, i.e. just past the row's [unique] referent.
+func readPropRow(r *rd) []decodedVal {
+	r.t.Helper()
+	r.align4()
+	if res := r.u32(); res != 0 {
+		r.t.Fatalf("row reserved = %d, want 0", res)
+	}
+	cv := r.u32()
+	if aref := r.u32(); cv > 0 && aref == 0 {
+		r.t.Fatal("row value-array referent is NULL with values present")
+	}
+	if cv == 0 {
+		return nil
+	}
+	if mc := r.u32(); mc != cv {
+		r.t.Fatalf("value-array max_count = %d, want %d", mc, cv)
+	}
+	vals := make([]decodedVal, cv)
+	for i := range vals {
+		r.align4()
+		d := decodedVal{tag: r.u32()}
+		if resv := r.u32(); resv != 0 {
+			r.t.Fatalf("value %d ulReserved = %#x, want 0", i, resv)
+		}
+		// The value union's type discriminant must echo the proptag's type; decode
+		// the arm from the proptag so the decoder never trusts the discriminant
+		// slot to be self-consistent with the encoder.
+		d.typ = r.u32()
+		if pt := d.tag & 0xFFFF; d.typ != pt {
+			r.t.Fatalf("value %d type discriminant = %#x, want %#x (the proptag's type)", i, d.typ, pt)
+		}
+		switch wire.PropType(uint16(d.tag)) {
+		case wire.PtLong, wire.PtError:
+			d.long = r.u32()
+		case wire.PtBoolean:
+			r.u8() // boolean value, inline in the header
+		case wire.PtUnicode:
+			d.sref = r.u32()
+		case wire.PtBinary:
+			r.u32() // cb, restated in the content pass
+			d.bref = r.u32()
+		default:
+			r.t.Fatalf("value %d unexpected type %#x", i, d.typ)
+		}
+		vals[i] = d
+	}
+	for i := range vals {
+		switch wire.PropType(uint16(vals[i].tag)) {
+		case wire.PtUnicode:
+			if vals[i].sref == 0 {
+				continue
+			}
+			count := r.u32()
+			r.u32() // offset
+			r.u32() // actual
+			vals[i].str = decodeUTF16LE(r.raw(int(count) * 2))
+		case wire.PtBinary:
+			if vals[i].bref == 0 {
+				continue
+			}
+			cb := r.u32()
+			vals[i].bin = r.raw(int(cb))
+		}
+	}
+	return vals
+}
+
+// getPropsRequest builds an NspiGetProps request positioned at GAL entry mid rec,
+// requesting an explicit property-tag array (max_count carries the cValues+1
+// sentinel slot the transfer syntax requires).
+func getPropsRequest(handle []byte, rec uint32, tags []wire.PropTag) []byte {
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0)   // dwFlags
+	p.Uint32(0)   // STAT.SortType
+	p.Uint32(0)   // STAT.ContainerID
+	p.Uint32(rec) // STAT.CurrentRec
+	for range 6 {
+		p.Uint32(0) // Delta, NumPos, TotalRec, CodePage, TemplateLocale, SortLocale
+	}
+	p.Uint32(0x20000)              // pPropTags [unique] referent: present
+	p.ULong(uint32(len(tags)) + 1) // max_count = cValues+1
+	p.Uint32(uint32(len(tags)))    // cValues
+	p.ULong(0)                     // offset
+	p.ULong(uint32(len(tags)))     // length
+	for _, t := range tags {
+		p.Uint32(uint32(t))
+	}
+	return p.Bytes()
+}
+
+func TestNSPIGetPropsReturnsEntryProperties(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+
+	tags := []wire.PropTag{wire.PidTagDisplayName, wire.PidTagSmtpAddress, wire.PidTagObjectType, wire.PidTagEntryID}
+	resp, ok := s.HandleRPC(opNspiGetProps, "user@test.local", getPropsRequest(handle, entryMid(0), tags))
+	if !ok {
+		t.Fatal("NspiGetProps reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("property-row referent is NULL; want the entry row")
+	}
+	vals := readPropRow(r)
+	if len(vals) != len(tags) {
+		t.Fatalf("decoded %d values, want %d", len(vals), len(tags))
+	}
+	for i, tg := range tags {
+		if vals[i].tag != uint32(tg) {
+			t.Fatalf("value %d tag = %#x, want %#x", i, vals[i].tag, uint32(tg))
+		}
+	}
+	if vals[0].str != "Ann Example" {
+		t.Fatalf("DisplayName = %q, want %q (GAL sorts Ann before Bob)", vals[0].str, "Ann Example")
+	}
+	if vals[1].str != "ann@test.local" {
+		t.Fatalf("SmtpAddress = %q, want %q", vals[1].str, "ann@test.local")
+	}
+	if vals[2].long != objMailUser {
+		t.Fatalf("ObjectType = %d, want %d (MAPI_MAILUSER)", vals[2].long, objMailUser)
+	}
+	if len(vals[3].bin) == 0 {
+		t.Fatal("EntryID is empty; want the PermanentEntryID bytes")
+	}
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+	if r.off != len(resp) {
+		t.Fatalf("decoded %d of %d bytes; trailing bytes mean a layout mismatch", r.off, len(resp))
+	}
+}
+
+func TestNSPIGetPropsMarksAbsentProperty(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+
+	absent := wire.MakeTag(0x3004, wire.PtUnicode) // PidTagComment, not served for a GAL entry
+	tags := []wire.PropTag{wire.PidTagDisplayName, absent}
+	resp, ok := s.HandleRPC(opNspiGetProps, "user@test.local", getPropsRequest(handle, entryMid(0), tags))
+	if !ok {
+		t.Fatal("NspiGetProps reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("property-row referent is NULL; the warning row must still be returned")
+	}
+	vals := readPropRow(r)
+	if len(vals) != 2 {
+		t.Fatalf("decoded %d values, want 2", len(vals))
+	}
+	if vals[0].str != "Ann Example" {
+		t.Fatalf("DisplayName = %q, want %q", vals[0].str, "Ann Example")
+	}
+	if wire.PropType(vals[1].typ) != wire.PtError {
+		t.Fatalf("absent property type = %#x, want PtError", vals[1].typ)
+	}
+	if vals[1].long != ecNotFound {
+		t.Fatalf("absent property error = %#x, want ecNotFound", vals[1].long)
+	}
+	if vals[1].tag != uint32(wire.MakeTag(absent.ID(), wire.PtError)) {
+		t.Fatalf("absent property tag = %#x, want it re-tagged to PtError", vals[1].tag)
+	}
+	if res := r.u32(); res != ecWarnWithErrors {
+		t.Fatalf("result = %#x, want ecWarnWithErrors (some properties absent)", res)
+	}
+}
+
+func TestNSPIGetPropsRejectsUnboundHandle(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{{Email: "a@x.test", DisplayName: "A", ObjectClass: "User"}}})
+	bogus := make([]byte, 20) // never returned by a bind
+	resp, ok := s.HandleRPC(opNspiGetProps, "user@test.local", getPropsRequest(bogus, entryMid(0), []wire.PropTag{wire.PidTagDisplayName}))
+	if !ok {
+		t.Fatal("NspiGetProps reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref != 0 {
+		t.Fatalf("property-row referent = %#x, want 0 (NULL) for an unbound handle", ref)
+	}
+	if res := r.u32(); res != ecError {
+		t.Fatalf("result = %#x, want ecError for an unbound handle", res)
+	}
+}
+
+func TestNSPIGetPropsInvalidPosition(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{{Email: "a@x.test", DisplayName: "A", ObjectClass: "User"}}})
+	handle := bindRPC(t, s)
+
+	tags := []wire.PropTag{wire.PidTagDisplayName, wire.PidTagSmtpAddress}
+	resp, ok := s.HandleRPC(opNspiGetProps, "user@test.local", getPropsRequest(handle, entryMid(99), tags))
+	if !ok {
+		t.Fatal("NspiGetProps reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("property-row referent is NULL; an out-of-range position must still return the all-error row")
+	}
+	vals := readPropRow(r)
+	if len(vals) != len(tags) {
+		t.Fatalf("decoded %d values, want %d", len(vals), len(tags))
+	}
+	for i := range vals {
+		if wire.PropType(vals[i].typ) != wire.PtError {
+			t.Fatalf("value %d type = %#x, want PtError for an out-of-range position", i, vals[i].typ)
+		}
+	}
+	if res := r.u32(); res != ecWarnWithErrors {
+		t.Fatalf("result = %#x, want ecWarnWithErrors", res)
 	}
 }
 

@@ -26,11 +26,18 @@ type DirectoryEntry struct {
 // order the address book presents (MS-OXNSPI). Every position-based operation
 // reads this one stable order so a minimal id from one operation addresses the
 // same entry in another.
-func (s *Server) gal() []DirectoryEntry {
-	if s.dir == nil {
+func (s *Server) gal() []DirectoryEntry { return sortedGAL(s.dir) }
+
+// sortedGAL resolves the full GAL from dir and returns it in the stable
+// display-name order every position-based address-book operation reads, so a
+// minimal id minted by one operation addresses the same entry in another. It is
+// shared by the MAPI/HTTP and RPC-over-HTTP NSPI surfaces so both enumerate the
+// one canonical directory identically. A nil directory yields no entries.
+func sortedGAL(dir Directory) []DirectoryEntry {
+	if dir == nil {
 		return nil
 	}
-	entries := s.dir.ResolveGAL("")
+	entries := dir.ResolveGAL("")
 	sort.SliceStable(entries, func(i, j int) bool {
 		return strings.ToLower(entries[i].DisplayName) < strings.ToLower(entries[j].DisplayName)
 	})

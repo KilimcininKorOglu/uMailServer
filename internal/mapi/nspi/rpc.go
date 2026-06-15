@@ -26,6 +26,7 @@ var InterfaceUUID = wire.GUID{
 const (
 	opNspiBind            uint16 = 0
 	opNspiUnbind          uint16 = 1
+	opNspiGetProps        uint16 = 9
 	opNspiGetSpecialTable uint16 = 12
 )
 
@@ -84,6 +85,8 @@ func (s *RPCServer) HandleRPC(opnum uint16, email string, stub []byte) (resp []b
 		return s.bind(email, stub), true
 	case opNspiUnbind:
 		return s.unbind(stub), true
+	case opNspiGetProps:
+		return s.getProps(stub), true
 	case opNspiGetSpecialTable:
 		return s.getSpecialTable(stub), true
 	default:
@@ -175,6 +178,112 @@ func (s *RPCServer) getSpecialTable(stub []byte) []byte {
 	return out.Bytes()
 }
 
+// getProps answers NspiGetProps (MS-OXNSPI 3.1.4.1.7): it returns the requested
+// properties of the address-book entry the state block's current record points
+// at, as a single property row. The request carries the context handle, dwFlags,
+// the STAT block, then an optional [unique] property-tag array; an absent array
+// selects the default column set. A requested property the entry lacks comes back
+// as a PtypErrorCode value and the call result becomes ecWarnWithErrors; with the
+// default column set those absent properties are dropped and the result stays
+// ecSuccess. The row is encoded only when the result is a success or a warning,
+// matching the result-gated [unique] pointer the transfer syntax requires.
+func (s *RPCServer) getProps(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // dwFlags
+	stat := pullStatNDR(p)
+	var tags []wire.PropTag
+	explicit := false
+	if p.Uint32() != 0 { // pPropTags [unique] referent
+		tags = pullProptagArrayNDR(p)
+		explicit = true
+	}
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		out.UniquePtr(false) // NULL property row
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	if !explicit {
+		tags = defaultColumns
+	}
+	vals, result := buildGetPropsRow(sortedGAL(s.dir), stat, tags, explicit)
+	if result != ecSuccess && result != ecWarnWithErrors {
+		out.UniquePtr(false) // NULL property row
+		out.Uint32(result)
+		return out.Bytes()
+	}
+	out.UniquePtr(true) // pRow present
+	pushPropRowHeader(out, vals)
+	pushPropRowContent(out, vals)
+	out.Uint32(result)
+	return out.Bytes()
+}
+
+// buildGetPropsRow resolves the GAL entry the state block points at and builds
+// its property values over the requested tags (MS-OXNSPI 3.1.4.1.7). An absent
+// property is marked PtypErrorCode(ecNotFound); the result is ecWarnWithErrors
+// when the position resolves to no entry, or when an explicit column request
+// leaves any such marker in the row. With the default column set the absent-
+// property markers are dropped and the result stays ecSuccess. It reads the same
+// entryProperty mapping the MAPI/HTTP surface uses, so both report identical
+// values for an entry.
+func buildGetPropsRow(gal []DirectoryEntry, stat Stat, tags []wire.PropTag, explicit bool) (vals []wire.TaggedPropertyValue, result uint32) {
+	idx := midIndex(stat.CurrentRec, len(gal))
+	if idx < 0 {
+		// No entry at this position: report every requested property absent.
+		vals = make([]wire.TaggedPropertyValue, len(tags))
+		for i, t := range tags {
+			vals[i] = wire.TaggedPropertyValue{Tag: wire.MakeTag(t.ID(), wire.PtError), Value: ecNotFound}
+		}
+		return vals, ecWarnWithErrors
+	}
+	entry := gal[idx]
+	vals = make([]wire.TaggedPropertyValue, 0, len(tags))
+	missing := false
+	for _, t := range tags {
+		if v, ok := entryProperty(t, entry); ok {
+			vals = append(vals, wire.TaggedPropertyValue{Tag: t, Value: v})
+			continue
+		}
+		missing = true
+		if explicit {
+			vals = append(vals, wire.TaggedPropertyValue{Tag: wire.MakeTag(t.ID(), wire.PtError), Value: ecNotFound})
+		}
+		// Default column set: drop an absent property rather than flag it.
+	}
+	if explicit && missing {
+		return vals, ecWarnWithErrors
+	}
+	return vals, ecSuccess
+}
+
+// pullProptagArrayNDR reads an NDR LPROPTAG_ARRAY (MS-OXNSPI 2.3.2): a conformant
+// 32-bit-counted property-tag array. The conformant max_count carries one
+// sentinel slot beyond the live count (max_count == cValues+1) per the transfer
+// syntax, the offset is zero, and the varying length equals cValues. A layout
+// that violates any of these invariants faults the stream so a malformed request
+// is rejected rather than silently mis-parsed.
+func pullProptagArrayNDR(p *ndr.Pull) []wire.PropTag {
+	size := p.ULong()
+	p.Align(4)
+	cvalues := p.Uint32()
+	offset := p.ULong()
+	length := p.ULong()
+	if cvalues > 100001 || offset != 0 || length > size || size != cvalues+1 || length != cvalues {
+		p.Fault()
+		return nil
+	}
+	tags := make([]wire.PropTag, 0, length)
+	for range length {
+		if p.Err() != nil {
+			break
+		}
+		tags = append(tags, wire.PropTag(p.Uint32()))
+	}
+	return tags
+}
+
 // pullStatNDR reads a STAT block from an NDR stream (MS-OXNSPI 2.3.7): nine
 // 4-byte fields, 4-aligned. The decoded value is currently unused by the served
 // operations but must be consumed to keep the stream aligned.
@@ -244,13 +353,19 @@ func pushPropRowContent(out *ndr.Push, row []wire.TaggedPropertyValue) {
 	}
 }
 
-// pushPropValueHeader writes a property value's NDR header: its tag, type, and
-// either the inline scalar or the unique-pointer referent for deferred data
-// (strings, binaries). Only the property types the served rows use are encoded.
+// pushPropValueHeader writes a property value's NDR header (MS-OXNSPI 2.3.3
+// PropertyValue_r): the property tag, a reserved field, the value union's type
+// discriminant, then either the inline scalar or the unique-pointer referent for
+// deferred data (strings, binaries). The reserved field and the discriminant are
+// distinct uint32s — the discriminant repeats the tag's type and a receiver
+// validates the two agree — so all three precede the value. Only the property
+// types the served rows use are encoded.
 func pushPropValueHeader(out *ndr.Push, pv wire.TaggedPropertyValue) {
+	pv = normalizePropValue(pv)
 	out.Align(4)
-	out.Uint32(uint32(pv.Tag))
-	out.Uint32(uint32(pv.Tag.Type()))
+	out.Uint32(uint32(pv.Tag))         // ulPropTag
+	out.Uint32(0)                      // ulReserved
+	out.Uint32(uint32(pv.Tag.Type()))  // value-union type discriminant
 	switch pv.Tag.Type() {
 	case wire.PtLong, wire.PtError:
 		out.Uint32(valU32(pv.Value))
@@ -273,6 +388,7 @@ func pushPropValueHeader(out *ndr.Push, pv wire.TaggedPropertyValue) {
 // emitted everything in the header and write nothing here; strings and binaries
 // write their conformant-varying payload.
 func pushPropValueContent(out *ndr.Push, pv wire.TaggedPropertyValue) {
+	pv = normalizePropValue(pv)
 	switch pv.Tag.Type() {
 	case wire.PtString8:
 		s := valStr(pv.Value)
@@ -303,6 +419,23 @@ func pushPropValueContent(out *ndr.Push, pv wire.TaggedPropertyValue) {
 		}
 		out.ULong(uint32(len(b)))
 		out.Raw(b)
+	}
+}
+
+// normalizePropValue degrades a property whose type this NDR codec does not
+// encode to a PtypErrorCode(ecNotFound) marker, keeping the value codec total
+// over every property the directory can produce. The address book serves the
+// long, error, boolean, 8-bit-string, Unicode-string and binary value types;
+// emsmdb32 likewise refuses the wider floating-point and 64-bit types over RPC
+// (MS-OXNSPI 2.3.3), so an unexpected type yields an "unavailable" marker rather
+// than desynchronizing the two-pass row stream. Both encoding passes call this
+// with the same value, so the header and content always agree on the type.
+func normalizePropValue(pv wire.TaggedPropertyValue) wire.TaggedPropertyValue {
+	switch pv.Tag.Type() {
+	case wire.PtLong, wire.PtError, wire.PtBoolean, wire.PtString8, wire.PtUnicode, wire.PtBinary:
+		return pv
+	default:
+		return wire.TaggedPropertyValue{Tag: wire.MakeTag(pv.Tag.ID(), wire.PtError), Value: ecNotFound}
 	}
 }
 
