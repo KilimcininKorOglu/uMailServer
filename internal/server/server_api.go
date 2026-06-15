@@ -302,6 +302,10 @@ func (s *Server) startAPI() {
 		s.apiServer.SetEWSHandler(ewsServer)
 		s.logger.Info("EWS SOAP handler initialized")
 
+		// nspiRPC is the NSPI address book bound onto the RPC-over-HTTP tunnel in
+		// the storage block below; it shares the GAL source built here.
+		var nspiRPC *nspi.RPCServer
+
 		// Wire the binary MAPI/HTTP address-book surfaces (VAL-OUTLOOK-004,
 		// VAL-OUTLOOK-005). The NSPI directory and the OAB read one policy-filtered
 		// GAL source (HiddenFromGAL filtering), so every Outlook address-book
@@ -321,6 +325,11 @@ func (s *Server) startAPI() {
 				}
 				nspiServer.ServeHTTP(w, r)
 			}))
+
+			// The RPC-over-HTTP NSPI peer reads the same policy-filtered GAL; it is
+			// bound onto the Outlook Anywhere tunnel in the storage block below.
+			nspiRPC = nspi.NewRPCServer()
+			nspiRPC.SetDirectory(nspiDirectory{mapi: galSource})
 
 			// Binary Offline Address Book under /mapi/oab/, built from the same GAL.
 			s.apiServer.SetOABHandler(oab.NewHandler(oabDirectory{mapi: galSource}))
@@ -379,6 +388,12 @@ func (s *Server) startAPI() {
 			rpchHandler.Register(rfr.InterfaceUUID, rfr.NewServer(func() string {
 				return s.cfg().Server.Hostname
 			}), "6002")
+			// Bind the NSPI address book (MS-OXNSPI) onto the same tunnel when its
+			// GAL-backed peer was set up above. "6004" is the conventional NSPI
+			// endpoint annotation echoed in the BIND_ACK.
+			if nspiRPC != nil {
+				rpchHandler.Register(nspi.InterfaceUUID, nspiRPC, "6004")
+			}
 			s.apiServer.SetRPCHHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {
 					r = r.WithContext(emsmdb.WithEmail(r.Context(), email))
