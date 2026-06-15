@@ -1472,3 +1472,74 @@ func TestSetupAutocertCacheSelection(t *testing.T) {
 		t.Fatalf("default backend gave %T, want autocert.DirCache", defaultMgr.certManager.Cache)
 	}
 }
+
+// makeCertKeyBundle builds a cert+key PEM bundle in autocert's storage layout —
+// the private-key block first, then the certificate — with the requested expiry.
+func makeCertKeyBundle(t *testing.T, domain string, notAfter time.Time) []byte {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		DNSNames:     []string{domain},
+		Subject:      pkix.Name{CommonName: domain},
+		Issuer:       pkix.Name{CommonName: "Test CA"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal key: %v", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	return append(keyPEM, certPEM...) // autocert stores the key ahead of the chain
+}
+
+// TestGetCertificateStatusReadsAutocertCache is the regression test for the bug
+// where the status read a <domain>.crt file that autocert never writes (it keys
+// the bare domain in its cache), so ACME certificates were eternally Valid=false
+// and the expiry alert never fired. The cert is placed ONLY in the autocert
+// cache — never as a file — so this fails on the old file-path code and passes
+// only when the status reads the cache and parses the leaf from the bundle.
+func TestGetCertificateStatusReadsAutocertCache(t *testing.T) {
+	m, err := NewManager(Config{
+		AutoTLS:      true,
+		Domains:      []string{"mail.example.com"},
+		CacheBackend: "store",
+		CacheStore:   &fakeCacheStore{m: map[string][]byte{}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	want := time.Now().Add(42 * 24 * time.Hour).Truncate(time.Second)
+	bundle := makeCertKeyBundle(t, "mail.example.com", want)
+	if err := m.certManager.Cache.Put(context.Background(), "mail.example.com", bundle); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	var got *CertificateStatus
+	statuses := m.GetCertificateStatus()
+	for i := range statuses {
+		if statuses[i].Domain == "mail.example.com" {
+			got = &statuses[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("no status reported for mail.example.com")
+	}
+	if !got.Valid {
+		t.Fatalf("Valid = false (Error=%q); the status must read the ACME cache, not a .crt file", got.Error)
+	}
+	if !got.ExpiresAt.Equal(want) {
+		t.Fatalf("ExpiresAt = %v, want %v (leaf must be parsed from the key-first bundle)", got.ExpiresAt, want)
+	}
+}

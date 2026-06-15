@@ -398,46 +398,61 @@ func (m *Manager) RenewCertificates(ctx context.Context) error {
 	return nil
 }
 
-// GetCertificateStatus returns the status of certificates
+// GetCertificateStatus reports the certificate state for every domain the server
+// is authoritative for (the static set plus the dynamically discovered tenant
+// domains), so the expiry alert and admin panel see ACME-issued certificates —
+// not just manually placed files.
 func (m *Manager) GetCertificateStatus() []CertificateStatus {
 	var statuses []CertificateStatus
-
-	for _, domain := range m.config.Domains {
-		status := CertificateStatus{
-			Domain: domain,
-			Valid:  false,
-		}
-
-		// Try to load and check certificate
-		certPath := filepath.Join(m.certDir, domain+".crt")
-		data, err := os.ReadFile(filepath.Clean(certPath))
-		if err != nil {
-			status.Error = err.Error()
-			statuses = append(statuses, status)
+	seen := make(map[string]bool)
+	for _, domain := range m.allowedDomains() {
+		domain = strings.TrimSuffix(strings.ToLower(domain), ".")
+		if domain == "" || seen[domain] {
 			continue
 		}
+		seen[domain] = true
+		statuses = append(statuses, m.certificateStatus(domain))
+	}
+	return statuses
+}
 
-		// Parse certificate
-		cert, err := parseCertificate(data)
-		if err != nil {
-			status.Error = err.Error()
-			statuses = append(statuses, status)
-			continue
-		}
+// certificateStatus parses the certificate currently held for domain and
+// summarizes its validity and expiry.
+func (m *Manager) certificateStatus(domain string) CertificateStatus {
+	status := CertificateStatus{Domain: domain, Valid: false}
 
-		status.Valid = true
-		status.ExpiresAt = cert.NotAfter
-		status.Issuer = cert.Issuer.CommonName
-
-		// Check if expiring soon
-		if time.Until(cert.NotAfter) < 7*24*time.Hour {
-			status.Warning = "Certificate expires within 7 days"
-		}
-
-		statuses = append(statuses, status)
+	data, err := m.loadCertPEM(domain)
+	if err != nil {
+		status.Error = err.Error()
+		return status
 	}
 
-	return statuses
+	cert, err := parseCertificate(data)
+	if err != nil {
+		status.Error = err.Error()
+		return status
+	}
+
+	status.Valid = true
+	status.ExpiresAt = cert.NotAfter
+	status.Issuer = cert.Issuer.CommonName
+	if time.Until(cert.NotAfter) < 7*24*time.Hour {
+		status.Warning = "Certificate expires within 7 days"
+	}
+	return status
+}
+
+// loadCertPEM returns the certificate PEM held for domain. With autocert active
+// it reads the ACME cache under the bare-domain key (the same key RenewCertificates
+// uses); the bundle has the private key block first, then the chain. It is a pure
+// cache read — never certManager.GetCertificate, which would trigger ACME issuance
+// during a status check. Without autocert it reads the per-domain manual cert file.
+func (m *Manager) loadCertPEM(domain string) ([]byte, error) {
+	if m.certManager != nil {
+		return m.certManager.Cache.Get(context.Background(), domain)
+	}
+	certPath := filepath.Join(m.certDir, domain+".crt")
+	return os.ReadFile(filepath.Clean(certPath))
 }
 
 // CertificateStatus holds certificate status information
@@ -452,17 +467,24 @@ type CertificateStatus struct {
 
 // parseCertificate parses a certificate from PEM data
 func parseCertificate(data []byte) (*x509.Certificate, error) {
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, fmt.Errorf("failed to parse certificate PEM")
+	// Walk the PEM blocks and parse the first CERTIFICATE. The autocert cache
+	// stores the private key block ahead of the certificate chain, so a bundle
+	// must be scanned rather than assuming the leaf is the first block.
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			return nil, fmt.Errorf("no CERTIFICATE block in PEM data")
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse certificate: %w", err)
+		}
+		return cert, nil
 	}
-
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate: %w", err)
-	}
-
-	return cert, nil
 }
 
 // HTTPChallengeHandler returns the handler for ACME HTTP challenges
