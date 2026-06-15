@@ -409,7 +409,7 @@ func TestHandleMailDelete_MissingID(t *testing.T) {
 func TestExtractBody_WithCRLF(t *testing.T) {
 	h := NewMailHandler()
 	raw := "From: sender\r\nSubject: Test\r\n\r\nBody content here"
-	body := h.extractBody(raw)
+	body, _ := h.messageBody([]byte(raw))
 	if body != "Body content here" {
 		t.Errorf("Expected 'Body content here', got %q", body)
 	}
@@ -418,7 +418,7 @@ func TestExtractBody_WithCRLF(t *testing.T) {
 func TestExtractBody_WithLF(t *testing.T) {
 	h := NewMailHandler()
 	raw := "From: sender\nSubject: Test\n\nBody content here"
-	body := h.extractBody(raw)
+	body, _ := h.messageBody([]byte(raw))
 	if body != "Body content here" {
 		t.Errorf("Expected 'Body content here', got %q", body)
 	}
@@ -427,7 +427,7 @@ func TestExtractBody_WithLF(t *testing.T) {
 func TestExtractBody_NoSeparator(t *testing.T) {
 	h := NewMailHandler()
 	raw := "Just one line without separator"
-	body := h.extractBody(raw)
+	body, _ := h.messageBody([]byte(raw))
 	if body != raw {
 		t.Errorf("Expected raw content, got %q", body)
 	}

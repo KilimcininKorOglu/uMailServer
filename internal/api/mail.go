@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umailserver/umailserver/internal/mailbody"
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
@@ -25,9 +26,13 @@ type Mail struct {
 	// ToNames carries the display name for each entry in To (same index, empty
 	// string when unknown), so the client can show names without re-parsing.
 	ToNames        []string `json:"toNames,omitempty"`
-	Subject        string   `json:"subject"`
-	Body           string   `json:"body"`
-	Preview        string   `json:"preview"`
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
+	// textBody is the plain-text reduction of the body (markup stripped), used
+	// for full-text search matching; it is never serialized to the client, which
+	// renders Body. Filled by getEmailsFromStorage alongside Body from one decode.
+	textBody string
+	Preview  string `json:"preview"`
 	Date           string   `json:"date"`
 	Read           bool     `json:"read"`
 	Starred        bool     `json:"starred"`
@@ -535,17 +540,20 @@ func (h *MailHandler) getEmailsFromStorage(userEmail, mailbox string) ([]Mail, e
 			continue
 		}
 
-		// Read message body
-		var body string
+		// Read and decode the message body through the shared canonical extractor
+		// so the list/preview, the message view, and full-text search read the
+		// same content. body renders in the client; searchText (markup stripped)
+		// drives matching and the preview.
+		var body, searchText string
 		if h.msgStore != nil {
 			data, err := h.msgStore.ReadMessage(userEmail, meta.MessageID)
 			if err == nil {
-				body = h.extractBody(string(data))
+				body, searchText = h.messageBody(data)
 			}
 		}
 
-		// Determine preview
-		preview := body
+		// Determine preview from the plain text (clean, never markup).
+		preview := searchText
 		if len(preview) > 100 {
 			preview = preview[:100] + "..."
 		}
@@ -566,6 +574,7 @@ func (h *MailHandler) getEmailsFromStorage(userEmail, mailbox string) ([]Mail, e
 			ToNames:  toNames,
 			Subject:  meta.Subject,
 			Body:     body,
+			textBody: searchText,
 			Preview:  preview,
 			Date:     meta.InternalDate.Format(time.RFC1123Z),
 			Read:     hasFlag(meta.Flags, "\\Seen"),
@@ -580,24 +589,21 @@ func (h *MailHandler) getEmailsFromStorage(userEmail, mailbox string) ([]Mail, e
 	return emails, nil
 }
 
-// extractBody extracts the body from a raw email message
-func (h *MailHandler) extractBody(raw string) string {
-	// A top-level TNEF message keeps its body inside winmail.dat; decode it so
-	// the client shows readable text instead of the raw stream.
-	if body, ok := tnefBody([]byte(raw)); ok {
-		return body
+// messageBody decodes a raw message into the body to display and the plain text
+// to search and index, via the shared canonical extractor (internal/mailbody) so
+// the webmail message view, full-text search, and the EAS Sync projection all
+// read the same content rather than three different extractions of it. A
+// top-level TNEF message (winmail.dat) is decoded first and its recovered text
+// serves both outputs. display is the renderable body (HTML preferred, sanitized
+// by the client before rendering); searchText is the markup-stripped text the
+// caller matches and previews against.
+func (h *MailHandler) messageBody(raw []byte) (display, searchText string) {
+	if body, ok := tnefBody(raw); ok {
+		return body, body
 	}
-	// Find the header/body separator
-	sep := "\r\n\r\n"
-	idx := strings.Index(raw, sep)
-	if idx == -1 {
-		sep = "\n\n"
-		idx = strings.Index(raw, sep)
-	}
-	if idx == -1 {
-		return raw
-	}
-	return strings.TrimSpace(raw[idx+len(sep):])
+	b := mailbody.Parse(raw)
+	display, _ = b.Display()
+	return display, b.SearchText()
 }
 
 // hasFlag checks if a flag is present
@@ -685,13 +691,15 @@ func (h *MailHandler) getEmailFromStorage(userEmail, mailbox, messageID string) 
 		}
 
 		if meta.MessageID == messageID {
-			// Read message body (strip headers so the client shows the body,
-			// not the raw MIME message).
-			var body string
+			// Decode the message body through the shared canonical extractor so the
+			// message view shows the same content search and EAS read. body renders
+			// in the client (HTML preferred, sanitized there); searchText is the
+			// markup-stripped preview.
+			var body, searchText string
 			var attachments []AttachmentInfo
 			data, err := h.msgStore.ReadMessage(userEmail, meta.MessageID)
 			if err == nil {
-				body = h.extractBody(string(data))
+				body, searchText = h.messageBody(data)
 				attachments = listAttachments(data)
 			}
 
@@ -710,7 +718,8 @@ func (h *MailHandler) getEmailFromStorage(userEmail, mailbox, messageID string) 
 				ToNames:        toNames,
 				Subject:        meta.Subject,
 				Body:           body,
-				Preview:        body,
+				textBody:       searchText,
+				Preview:        searchText,
 				Date:           meta.InternalDate.Format(time.RFC1123Z),
 				Read:           hasFlag(meta.Flags, "\\Seen"),
 				Starred:        hasFlag(meta.Flags, "\\Flagged"),

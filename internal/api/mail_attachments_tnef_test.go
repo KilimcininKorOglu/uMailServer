@@ -94,8 +94,8 @@ func TestExtractBodyTopLevelTNEF(t *testing.T) {
 		base64.StdEncoding.EncodeToString(wm) + "\r\n"
 
 	h := &MailHandler{}
-	if got := h.extractBody(raw); got != body {
-		t.Errorf("extractBody = %q, want %q", got, body)
+	if got, _ := h.messageBody([]byte(raw)); got != body {
+		t.Errorf("messageBody display = %q, want %q", got, body)
 	}
 }
 

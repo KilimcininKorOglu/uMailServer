@@ -2,13 +2,11 @@ package activesync
 
 import (
 	"bytes"
-	"encoding/base64"
-	"io"
 	"mime"
-	"mime/multipart"
-	"mime/quotedprintable"
 	"net/mail"
 	"strings"
+
+	"github.com/umailserver/umailserver/internal/mailbody"
 )
 
 // MessageFromRaw projects a raw RFC 822 message into a SyncMessage, the shape the
@@ -75,67 +73,16 @@ func importanceOf(v string) string {
 // BodyForSync returns the body to project and its EAS type: text/plain as "1",
 // else text/html as "2", else an empty plain body. The folder snapshot calls it
 // directly (its headers and read state come from the canonical metadata index),
-// while MessageFromRaw uses it for the journal change-feed path.
+// while MessageFromRaw uses it for the journal change-feed path. The decode is
+// the shared canonical one (internal/mailbody), so the body a phone syncs matches
+// what the webmail message view and full-text search read.
 func BodyForSync(raw []byte) (bodyType, body string) {
-	if text := extractPart(raw, "text/plain"); text != nil {
-		return "1", strings.TrimSpace(string(text))
+	b := mailbody.Parse(raw)
+	if b.Text != "" {
+		return "1", b.Text
 	}
-	if html := extractPart(raw, "text/html"); html != nil {
-		return "2", string(html)
+	if b.HTML != "" {
+		return "2", b.HTML
 	}
 	return "1", ""
-}
-
-// extractPart returns the decoded content of the first MIME part whose media type
-// has the given prefix, descending through multipart containers and decoding the
-// common content-transfer-encodings. It returns nil when no part matches.
-func extractPart(raw []byte, want string) []byte {
-	msg, err := mail.ReadMessage(bytes.NewReader(raw))
-	if err != nil {
-		return nil
-	}
-	return partOfType(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body, want)
-}
-
-// partOfType resolves the content of the wanted media type from a MIME entity
-// given its headers and body reader, recursing into multipart containers.
-func partOfType(contentType, encoding string, body io.Reader, want string) []byte {
-	mediaType, params, err := mime.ParseMediaType(contentType)
-	if err != nil || mediaType == "" {
-		mediaType = "text/plain"
-	}
-	switch {
-	case strings.HasPrefix(mediaType, "multipart/"):
-		mr := multipart.NewReader(body, params["boundary"])
-		for {
-			part, perr := mr.NextPart()
-			if perr != nil {
-				break
-			}
-			if data := partOfType(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, want); data != nil {
-				return data
-			}
-		}
-		return nil
-	case strings.HasPrefix(mediaType, want):
-		data, derr := io.ReadAll(decodeReader(encoding, body))
-		if derr != nil && len(data) == 0 {
-			return nil
-		}
-		return data
-	default:
-		return nil
-	}
-}
-
-// decodeReader wraps body with the decoder for the content-transfer-encoding.
-func decodeReader(encoding string, body io.Reader) io.Reader {
-	switch strings.ToLower(strings.TrimSpace(encoding)) {
-	case "quoted-printable":
-		return quotedprintable.NewReader(body)
-	case "base64":
-		return base64.NewDecoder(base64.StdEncoding, body)
-	default:
-		return body
-	}
 }

@@ -2967,9 +2967,9 @@ func TestExtractBody(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := h.extractBody(tt.raw)
+			got, _ := h.messageBody([]byte(tt.raw))
 			if got != tt.want {
-				t.Errorf("extractBody() = %q, want %q", got, tt.want)
+				t.Errorf("messageBody() display = %q, want %q", got, tt.want)
 			}
 		})
 	}

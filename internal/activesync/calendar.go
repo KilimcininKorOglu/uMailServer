@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/umailserver/umailserver/internal/activesync/wbxml"
+	"github.com/umailserver/umailserver/internal/mailbody"
 )
 
 // CalendarItem is one calendar event projected for an EAS Sync Add/Change of a
@@ -109,7 +110,7 @@ func CalendarItemFromICal(serverID, etag, raw string) CalendarItem {
 // here, then written to (or removed from) the calendar. Returns false when the
 // message carries no calendar part or the event has no UID.
 func InviteEventFromMIME(raw []byte) (CalendarItem, bool) {
-	ical := extractPart(raw, "text/calendar")
+	ical := mailbody.ExtractPart(raw, "text/calendar")
 	if ical == nil {
 		return CalendarItem{}, false
 	}

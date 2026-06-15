@@ -113,7 +113,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, m := range mails {
-			haystack := strings.ToLower(m.From + " " + m.Subject + " " + m.Body + " " + strings.Join(m.To, " "))
+			// Match over the markup-stripped text (m.textBody), not the renderable
+			// body, so a query hits visible words rather than HTML tags — and over
+			// the same decoded text the EAS Mailbox search reads, so both surfaces
+			// return the same hits.
+			haystack := strings.ToLower(m.From + " " + m.Subject + " " + m.textBody + " " + strings.Join(m.To, " "))
 			if !strings.Contains(haystack, q) {
 				continue
 			}
