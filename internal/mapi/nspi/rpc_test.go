@@ -938,6 +938,176 @@ func TestNSPIGetPropList(t *testing.T) {
 	}
 }
 
+// pushStringsArrayReq writes an NDR [unique]-string array of 8-bit strings: the
+// conformant size, the count, a non-NULL referent per slot, then each string as a
+// conformant-varying NUL-terminated run.
+func pushStringsArrayReq(p *ndr.Push, strs []string) {
+	p.ULong(uint32(len(strs)))
+	p.Uint32(uint32(len(strs)))
+	for range strs {
+		p.Uint32(0x80000) // non-NULL referent per slot
+	}
+	for _, s := range strs {
+		b := append([]byte(s), 0) // NUL-terminated
+		p.ULong(uint32(len(b)))
+		p.ULong(0)
+		p.ULong(uint32(len(b)))
+		p.Raw(b)
+	}
+}
+
+// pushWStringsArrayReq writes the UTF-16 form of pushStringsArrayReq.
+func pushWStringsArrayReq(p *ndr.Push, strs []string) {
+	p.ULong(uint32(len(strs)))
+	p.Uint32(uint32(len(strs)))
+	for range strs {
+		p.Uint32(0x80000)
+	}
+	for _, s := range strs {
+		u := utf16LEWithNUL(s) // little-endian UTF-16 with a trailing NUL
+		n := uint32(len(u) / 2)
+		p.ULong(n)
+		p.ULong(0)
+		p.ULong(n)
+		p.Raw(u)
+	}
+}
+
+func TestNSPIDNToMID(t *testing.T) {
+	s := NewRPCServer()
+	entries := []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+	}
+	s.SetDirectory(fakeDir{entries: entries})
+	handle := bindRPC(t, s)
+
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0) // reserved
+	pushStringsArrayReq(p, []string{entries[0].x500DN(), "/o=x/cn=nobody"})
+	resp, ok := s.HandleRPC(opNspiDNToMId, "user@test.local", p.Bytes())
+	if !ok {
+		t.Fatal("NspiDNToMId reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("minimal-id list referent is NULL")
+	}
+	mids := readProptagArrayNDR(r)
+	if len(mids) != 2 {
+		t.Fatalf("returned %d ids, want 2", len(mids))
+	}
+	if mids[0] != entryMid(0) {
+		t.Fatalf("known DN → %#x, want %#x (first GAL entry)", mids[0], entryMid(0))
+	}
+	if mids[1] != 0 {
+		t.Fatalf("unknown DN → %#x, want 0", mids[1])
+	}
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+}
+
+func TestNSPIResolveNamesW(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+	cols := []wire.PropTag{wire.PidTagDisplayName, wire.PidTagSmtpAddress}
+
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0) // reserved
+	for range 9 {
+		p.Uint32(0) // zeroed STAT
+	}
+	p.Uint32(0x20000) // pPropTags referent present
+	p.ULong(uint32(len(cols)) + 1)
+	p.Uint32(uint32(len(cols)))
+	p.ULong(0)
+	p.ULong(uint32(len(cols)))
+	for _, c := range cols {
+		p.Uint32(uint32(c))
+	}
+	// "Ann" resolves uniquely, "zzz" matches nothing, "Example" matches both.
+	pushWStringsArrayReq(p, []string{"Ann", "zzz-nobody", "Example"})
+
+	resp, ok := s.HandleRPC(opNspiResolveNamesW, "user@test.local", p.Bytes())
+	if !ok {
+		t.Fatal("NspiResolveNamesW reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("minimal-id status list referent is NULL")
+	}
+	mids := readProptagArrayNDR(r)
+	want := []uint32{nameResolved, nameUnresolved, nameAmbiguous}
+	if len(mids) != len(want) {
+		t.Fatalf("returned %d statuses, want %d", len(mids), len(want))
+	}
+	for i, wv := range want {
+		if mids[i] != wv {
+			t.Fatalf("status[%d] = %#x, want %#x", i, mids[i], wv)
+		}
+	}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("matched-row set referent is NULL")
+	}
+	rows := readRowSet(r)
+	if len(rows) != 1 {
+		t.Fatalf("returned %d rows, want 1 (only the uniquely resolved name)", len(rows))
+	}
+	if rows[0][0].str != "Ann Example" {
+		t.Fatalf("resolved row display name = %q, want Ann Example", rows[0][0].str)
+	}
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+}
+
+func TestNSPIResolveNames8Bit(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0) // reserved
+	for range 9 {
+		p.Uint32(0) // zeroed STAT
+	}
+	p.Uint32(0) // pPropTags NULL → default columns
+	pushStringsArrayReq(p, []string{"ann@test.local"})
+
+	resp, ok := s.HandleRPC(opNspiResolveNames, "user@test.local", p.Bytes())
+	if !ok {
+		t.Fatal("NspiResolveNames reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("minimal-id status list referent is NULL")
+	}
+	mids := readProptagArrayNDR(r)
+	if len(mids) != 1 || mids[0] != nameResolved {
+		t.Fatalf("statuses = %v, want [%#x] (resolved)", mids, nameResolved)
+	}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("matched-row set referent is NULL")
+	}
+	rows := readRowSet(r)
+	if len(rows) != 1 {
+		t.Fatalf("returned %d rows, want 1", len(rows))
+	}
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+}
+
 func TestNSPIWriteOpsRefused(t *testing.T) {
 	s := NewRPCServer()
 	handle := bindRPC(t, s)

@@ -3,6 +3,7 @@ package nspi
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"strings"
 	"sync"
 	"unicode/utf16"
 
@@ -28,6 +29,7 @@ const (
 	opNspiUnbind          uint16 = 1
 	opNspiUpdateStat      uint16 = 2
 	opNspiQueryRows       uint16 = 3
+	opNspiDNToMId         uint16 = 7
 	opNspiGetPropList     uint16 = 8
 	opNspiGetProps        uint16 = 9
 	opNspiCompareMIds     uint16 = 10
@@ -35,6 +37,8 @@ const (
 	opNspiGetSpecialTable uint16 = 12
 	opNspiModLinkAtt      uint16 = 14
 	opNspiQueryColumns    uint16 = 16
+	opNspiResolveNames    uint16 = 19
+	opNspiResolveNamesW   uint16 = 20
 )
 
 // RPCServer exposes the NSPI address book over the DCERPC transport (Outlook
@@ -102,6 +106,12 @@ func (s *RPCServer) HandleRPC(opnum uint16, email string, stub []byte) (resp []b
 		return s.compareMIds(stub), true
 	case opNspiQueryColumns:
 		return s.queryColumns(stub), true
+	case opNspiDNToMId:
+		return s.dnToMID(stub), true
+	case opNspiResolveNames:
+		return s.resolveNames(stub), true
+	case opNspiResolveNamesW:
+		return s.resolveNamesW(stub), true
 	case opNspiGetProps:
 		return s.getProps(stub), true
 	case opNspiModProps:
@@ -399,19 +409,115 @@ func pullProptagArrayNDR(p *ndr.Pull) []wire.PropTag {
 	return tags
 }
 
-// pushProptagArrayNDR writes an NDR LPROPTAG_ARRAY (MS-OXNSPI 2.3.2): the
-// conformant max_count carries one sentinel slot beyond the live count, the
-// offset is zero, and the varying length equals the count. The same uint32 array
-// layout serves the minimal-id lists the id-resolution operations return.
+// pushProptagArrayNDR writes an NDR LPROPTAG_ARRAY (MS-OXNSPI 2.3.2).
 func pushProptagArrayNDR(out *ndr.Push, tags []wire.PropTag) {
-	out.ULong(uint32(len(tags)) + 1) // max_count = count + 1 (sentinel slot)
-	out.Align(4)
-	out.Uint32(uint32(len(tags))) // cValues
-	out.ULong(0)                  // offset
-	out.ULong(uint32(len(tags)))  // length
-	for _, t := range tags {
-		out.Uint32(uint32(t))
+	vals := make([]uint32, len(tags))
+	for i, t := range tags {
+		vals[i] = uint32(t)
 	}
+	pushU32ArrayNDR(out, vals)
+}
+
+// pushU32ArrayNDR writes the NDR conformant-varying uint32 array shared by the
+// property-tag and minimal-id lists: the conformant max_count carries one
+// sentinel slot beyond the live count, the offset is zero, and the varying length
+// equals the count.
+func pushU32ArrayNDR(out *ndr.Push, vals []uint32) {
+	out.ULong(uint32(len(vals)) + 1) // max_count = count + 1 (sentinel slot)
+	out.Align(4)
+	out.Uint32(uint32(len(vals))) // count
+	out.ULong(0)                  // offset
+	out.ULong(uint32(len(vals)))  // length
+	for _, v := range vals {
+		out.Uint32(v)
+	}
+}
+
+// pullStringsArrayNDR reads an NDR array of [unique] 8-bit string pointers
+// (MS-OXNSPI 2.3.x): a conformant size, a matching count, one referent per slot,
+// then each present slot's conformant-varying string. A NULL slot decodes to an
+// empty string; the trailing NUL each string carries is trimmed.
+func pullStringsArrayNDR(p *ndr.Pull) []string {
+	present, ok := pullStringArrayHeaderNDR(p)
+	if !ok {
+		return nil
+	}
+	out := make([]string, len(present))
+	for i := range out {
+		if !present[i] {
+			continue
+		}
+		length, ok := pullStringElementHeaderNDR(p)
+		if !ok {
+			return nil
+		}
+		out[i] = strings.TrimRight(string(p.Bytes(int(length))), "\x00")
+	}
+	return out
+}
+
+// pullWStringsArrayNDR reads the UTF-16 form of pullStringsArrayNDR: each present
+// slot's conformant-varying string is length code units of little-endian UTF-16.
+func pullWStringsArrayNDR(p *ndr.Pull) []string {
+	present, ok := pullStringArrayHeaderNDR(p)
+	if !ok {
+		return nil
+	}
+	out := make([]string, len(present))
+	for i := range out {
+		if !present[i] {
+			continue
+		}
+		length, ok := pullStringElementHeaderNDR(p)
+		if !ok {
+			return nil
+		}
+		out[i] = utf16LEToString(p.Bytes(int(length) * 2))
+	}
+	return out
+}
+
+// pullStringArrayHeaderNDR reads the common header of a [unique]-string array: the
+// conformant size, the matching count, and the per-slot referents. It reports the
+// presence flags and whether the header was well-formed.
+func pullStringArrayHeaderNDR(p *ndr.Pull) (present []bool, ok bool) {
+	size := p.ULong()
+	p.Align(4)
+	count := p.Uint32()
+	if count != size || count > 100000 {
+		p.Fault()
+		return nil, false
+	}
+	present = make([]bool, count)
+	for i := range present {
+		present[i] = p.Uint32() != 0
+	}
+	return present, true
+}
+
+// pullStringElementHeaderNDR reads a conformant-varying string's max_count, offset
+// and length, returning the length (in characters) and whether it was well-formed.
+func pullStringElementHeaderNDR(p *ndr.Pull) (length uint32, ok bool) {
+	size := p.ULong()
+	offset := p.ULong()
+	length = p.ULong()
+	if offset != 0 || length > size {
+		p.Fault()
+		return 0, false
+	}
+	return length, true
+}
+
+// utf16LEToString decodes little-endian UTF-16 and trims the trailing NUL.
+func utf16LEToString(b []byte) string {
+	units := make([]uint16, 0, len(b)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		units = append(units, binary.LittleEndian.Uint16(b[i:]))
+	}
+	for len(units) > 0 && units[len(units)-1] == 0 {
+		units = units[:len(units)-1]
+	}
+	return string(utf16.Decode(units))
 }
 
 // updateStat answers NspiUpdateStat (MS-OXNSPI 3.1.4.1.9): it advances the table
@@ -535,6 +641,102 @@ func (s *RPCServer) queryColumns(stub []byte) []byte {
 	}
 	out.UniquePtr(true)
 	pushProptagArrayNDR(out, defaultColumns)
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// dnToMID answers NspiDNToMId (MS-OXNSPI 3.1.4.1.13): it maps each requested
+// distinguished name to the minimal id of the GAL entry that carries it, or to
+// zero when no entry matches. Names are 8-bit strings.
+func (s *RPCServer) dnToMID(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // reserved
+	dns := pullStringsArrayNDR(p)
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		out.UniquePtr(false) // NULL minimal-id list
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	gal := sortedGAL(s.dir)
+	mids := make([]uint32, len(dns))
+	for i, dn := range dns {
+		mids[i] = nameUnresolved // zero when the name resolves to no entry
+		if strings.TrimSpace(dn) == "" {
+			continue
+		}
+		for idx, e := range gal {
+			if strings.EqualFold(e.x500DN(), dn) {
+				mids[i] = entryMid(idx)
+				break
+			}
+		}
+	}
+	out.UniquePtr(true)
+	pushU32ArrayNDR(out, mids)
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// resolveNames answers NspiResolveNames (MS-OXNSPI 3.1.4.1.16, 8-bit names) and
+// resolveNamesW answers NspiResolveNamesW (MS-OXNSPI 3.1.4.1.17, Unicode names):
+// each requested name is resolved against the GAL by ambiguous-name resolution.
+func (s *RPCServer) resolveNames(stub []byte) []byte  { return s.resolve(stub, false) }
+func (s *RPCServer) resolveNamesW(stub []byte) []byte { return s.resolve(stub, true) }
+
+// resolve performs the shared ambiguous-name resolution for the 8-bit and Unicode
+// variants: every requested name yields a status code (unresolved, ambiguous, or
+// resolved), and each uniquely-resolved name contributes a row to the matched row
+// set. The response is a result-gated minimal-id status array followed by the row
+// set, mirroring the canonical MAPI/HTTP ResolveNamesW path.
+func (s *RPCServer) resolve(stub []byte, wide bool) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // reserved
+	pullStatNDR(p)
+	var cols []wire.PropTag
+	if p.Uint32() != 0 { // pPropTags [unique] referent
+		cols = pullProptagArrayNDR(p)
+	}
+	var names []string
+	if wide {
+		names = pullWStringsArrayNDR(p)
+	} else {
+		names = pullStringsArrayNDR(p)
+	}
+	if len(cols) == 0 {
+		cols = defaultColumns
+	}
+	out := ndr.NewPush()
+	if p.Err() != nil || s.dir == nil || !s.hasSession(handle) {
+		out.UniquePtr(false) // NULL minimal-id list
+		out.UniquePtr(false) // NULL row set
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	mids := make([]uint32, 0, len(names))
+	var rows [][]wire.TaggedPropertyValue
+	for _, name := range names {
+		key := strings.TrimSpace(stripAddressType(name))
+		if key == "" {
+			mids = append(mids, nameUnresolved)
+			continue
+		}
+		switch matches := s.dir.ResolveGAL(key); len(matches) {
+		case 0:
+			mids = append(mids, nameUnresolved)
+		case 1:
+			mids = append(mids, nameResolved)
+			rows = append(rows, galRowValues(matches[0], cols))
+		default:
+			mids = append(mids, nameAmbiguous)
+		}
+	}
+	out.UniquePtr(true)
+	pushU32ArrayNDR(out, mids)
+	out.UniquePtr(true) // row set present (possibly empty)
+	pushRowSet(out, rows)
 	out.Uint32(ecSuccess)
 	return out.Bytes()
 }
