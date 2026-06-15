@@ -133,6 +133,16 @@ type ACMEConfig struct {
 	Provider    string `yaml:"provider"`               // letsencrypt, letsencrypt-staging
 	Challenge   string `yaml:"challenge"`              // http-01, dns-01
 	DNSProvider string `yaml:"dns_provider,omitempty"` // cloudflare, route53, etc.
+	// CacheBackend selects where issued certificates persist: "store" shares them
+	// across active-active nodes via the canonical database; anything else (default)
+	// uses the local filesystem directory below.
+	CacheBackend string `yaml:"cache_backend,omitempty"`
+	// CacheDir is the filesystem directory for the certificate cache when
+	// CacheBackend is not "store" (default: ./certs).
+	CacheDir string `yaml:"cache_dir,omitempty"`
+	// RenewBeforeDays is how many days before expiry autocert renews a certificate
+	// (zero leaves autocert's own 30-day default).
+	RenewBeforeDays int `yaml:"renew_before_days,omitempty"`
 }
 
 // SMTPConfig holds SMTP server settings

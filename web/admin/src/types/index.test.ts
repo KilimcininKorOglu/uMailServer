@@ -419,7 +419,7 @@ describe('ServerConfig type', () => {
     const cfg: ServerConfig = {
       server: { hostname: 'mail.example.com', data_dir: '/var/lib/umailserver', graceful_timeout_secs: 30, force_close_after_secs: 60 },
       tls: {
-        acme: { enabled: true, email: 'admin@example.com', provider: 'letsencrypt', challenge: 'http-01', dns_provider: '' },
+        acme: { enabled: true, email: 'admin@example.com', provider: 'letsencrypt', challenge: 'http-01', dns_provider: '', cache_backend: '', cache_dir: '', renew_before_days: 0 },
         cert_file: '', key_file: '', min_version: '1.2',
         client_auth: { enabled: false, require_cert: false, ca_file: '', verify_mode: '' },
       },

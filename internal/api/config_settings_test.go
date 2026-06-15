@@ -143,6 +143,38 @@ func TestScheduledSendDTO_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestACMEConfigDTO_RoundTrip verifies the ACME cache/renewal tuning survives a
+// configToDTO -> applyConfigDTO round trip, so an admin save preserves the
+// secrets-free fields rather than zeroing the shared-cache backend on every PUT.
+func TestACMEConfigDTO_RoundTrip(t *testing.T) {
+	cur := &config.Config{}
+	cur.Server.Hostname = "mail.example.com"
+	cur.TLS.ACME = config.ACMEConfig{
+		Enabled:         true,
+		Email:           "admin@example.com",
+		Provider:        "letsencrypt",
+		Challenge:       "http-01",
+		CacheBackend:    "store",
+		CacheDir:        "/data/certs",
+		RenewBeforeDays: 21,
+	}
+
+	cur, err := cloneConfig(cur)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	clone, err := cloneConfig(cur)
+	if err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+	req := configToDTO(cur)
+	applyConfigDTO(clone, &req)
+
+	if clone.TLS.ACME != cur.TLS.ACME {
+		t.Errorf("round trip changed acme: got %+v, want %+v", clone.TLS.ACME, cur.TLS.ACME)
+	}
+}
+
 // TestValidateConfigDTO_ScheduledSendBounds rejects out-of-range scheduled-send
 // values (including the all-zero shape a section-omitting PUT would produce),
 // guarding against silently zeroing the live config.

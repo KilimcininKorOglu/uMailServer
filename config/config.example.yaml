@@ -36,6 +36,9 @@ tls:
     provider: letsencrypt            # letsencrypt or letsencrypt-staging
     challenge: http-01               # http-01 or dns-01
     dns_provider: ""                 # cloudflare, route53, etc. for dns-01
+    cache_backend: ""                # "store" shares certs across HA nodes via the DB; empty = local filesystem
+    cache_dir: ""                    # filesystem cert cache dir when not using "store" (default: ./certs)
+    renew_before_days: 0             # renew this many days before expiry (0 = autocert default of 30)
 
 # ============================================
 # SMTP

@@ -361,7 +361,14 @@ func New(cfg *config.Config) (*Server, error) {
 		ClientAuth:        cfg.TLS.ClientAuth.Enabled,
 		RequireClientCert: cfg.TLS.ClientAuth.RequireCert,
 		ClientCAFile:      cfg.TLS.ClientAuth.CAFile,
+		CacheBackend:      cfg.TLS.ACME.CacheBackend,
+		CacheDir:          cfg.TLS.ACME.CacheDir,
+		RenewBeforeDays:   cfg.TLS.ACME.RenewBeforeDays,
 	}
+	// Share the certificate cache through the canonical store when configured so
+	// active-active nodes do not each issue their own copy. Always provided; the
+	// manager only uses it when CacheBackend is "store".
+	tlsConfig.CacheStore = tlsCacheStore{store: database}
 	// Map verify mode string to tls.ClientAuthType
 	switch cfg.TLS.ClientAuth.VerifyMode {
 	case "verify_if_given":

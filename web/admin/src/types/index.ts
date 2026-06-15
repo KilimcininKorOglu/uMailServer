@@ -391,6 +391,9 @@ export interface AcmeConfig {
   provider: string;
   challenge: string;
   dns_provider: string;
+  cache_backend: string;
+  cache_dir: string;
+  renew_before_days: number;
 }
 
 export interface ClientAuthConfig {

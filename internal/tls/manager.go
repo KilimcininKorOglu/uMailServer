@@ -73,6 +73,10 @@ type Config struct {
 	// the local filesystem DirCache. CacheStore must be non-nil for "store".
 	CacheBackend string
 	CacheStore   CacheStore
+	// CacheDir overrides the filesystem certificate-cache directory (default ./certs).
+	CacheDir string
+	// RenewBeforeDays overrides autocert's renewal lead time in days (0 = default 30).
+	RenewBeforeDays int
 }
 
 // NewManager creates a new TLS certificate manager
@@ -81,11 +85,15 @@ func NewManager(config Config, logger *slog.Logger) (*Manager, error) {
 		logger = slog.Default()
 	}
 
+	certDir := config.CacheDir
+	if certDir == "" {
+		certDir = "./certs"
+	}
 	m := &Manager{
 		config:    config,
 		logger:    logger,
 		certCache: make(map[string]*tls.Certificate),
-		certDir:   "./certs",
+		certDir:   certDir,
 	}
 
 	// Ensure cert directory exists
@@ -142,6 +150,9 @@ func (m *Manager) setupAutocert() error {
 		Prompt:     autocert.AcceptTOS,
 		Email:      m.config.Email,
 		HostPolicy: m.hostPolicy,
+	}
+	if m.config.RenewBeforeDays > 0 {
+		m.certManager.RenewBefore = time.Duration(m.config.RenewBeforeDays) * 24 * time.Hour
 	}
 
 	m.logger.Info("Autocert configured",

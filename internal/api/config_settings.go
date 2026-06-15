@@ -57,11 +57,14 @@ type serverSectionDTO struct {
 }
 
 type acmeSectionDTO struct {
-	Enabled     bool   `json:"enabled"`
-	Email       string `json:"email"`
-	Provider    string `json:"provider"`
-	Challenge   string `json:"challenge"`
-	DNSProvider string `json:"dns_provider"`
+	Enabled         bool   `json:"enabled"`
+	Email           string `json:"email"`
+	Provider        string `json:"provider"`
+	Challenge       string `json:"challenge"`
+	DNSProvider     string `json:"dns_provider"`
+	CacheBackend    string `json:"cache_backend"`
+	CacheDir        string `json:"cache_dir"`
+	RenewBeforeDays int    `json:"renew_before_days"`
 }
 
 type clientAuthSectionDTO struct {
@@ -507,11 +510,14 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 		},
 		TLS: tlsSectionDTO{
 			ACME: acmeSectionDTO{
-				Enabled:     cfg.TLS.ACME.Enabled,
-				Email:       cfg.TLS.ACME.Email,
-				Provider:    cfg.TLS.ACME.Provider,
-				Challenge:   cfg.TLS.ACME.Challenge,
-				DNSProvider: cfg.TLS.ACME.DNSProvider,
+				Enabled:         cfg.TLS.ACME.Enabled,
+				Email:           cfg.TLS.ACME.Email,
+				Provider:        cfg.TLS.ACME.Provider,
+				Challenge:       cfg.TLS.ACME.Challenge,
+				DNSProvider:     cfg.TLS.ACME.DNSProvider,
+				CacheBackend:    cfg.TLS.ACME.CacheBackend,
+				CacheDir:        cfg.TLS.ACME.CacheDir,
+				RenewBeforeDays: cfg.TLS.ACME.RenewBeforeDays,
 			},
 			CertFile:   cfg.TLS.CertFile,
 			KeyFile:    cfg.TLS.KeyFile,
@@ -784,6 +790,9 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.TLS.ACME.Provider = req.TLS.ACME.Provider
 	cfg.TLS.ACME.Challenge = req.TLS.ACME.Challenge
 	cfg.TLS.ACME.DNSProvider = req.TLS.ACME.DNSProvider
+	cfg.TLS.ACME.CacheBackend = req.TLS.ACME.CacheBackend
+	cfg.TLS.ACME.CacheDir = req.TLS.ACME.CacheDir
+	cfg.TLS.ACME.RenewBeforeDays = req.TLS.ACME.RenewBeforeDays
 	cfg.TLS.CertFile = req.TLS.CertFile
 	cfg.TLS.KeyFile = req.TLS.KeyFile
 	cfg.TLS.MinVersion = req.TLS.MinVersion
