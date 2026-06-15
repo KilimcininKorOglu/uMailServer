@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -118,7 +119,11 @@ type Server struct {
 	queueMgr        *queue.Manager
 	httpServer      *http.Server
 	plainHTTPServer *http.Server
-	healthMon       HealthMonitor
+	// tlsConfig, when set, makes the primary listener serve HTTPS via its
+	// GetCertificate callback. The plain HTTP listener (PlainAddr) stays plain so
+	// it can still serve the ACME HTTP-01 challenge.
+	tlsConfig *tls.Config
+	healthMon HealthMonitor
 
 	// Tracing provider for OpenTelemetry
 	tracingProvider *tracing.Provider
@@ -1133,6 +1138,27 @@ func (s *Server) SetACMEChallengeHandler(handler http.Handler) {
 	s.router = nil
 }
 
+// SetTLSConfig makes the primary listener serve HTTPS using cfg (whose
+// GetCertificate callback resolves certificates live). Passing nil keeps the
+// listener on plain HTTP. Must be called before Start.
+func (s *Server) SetTLSConfig(cfg *tls.Config) {
+	s.tlsConfig = cfg
+}
+
+// serveMaybeTLS serves srv over TLS when tlsCfg is non-nil, otherwise over plain
+// HTTP. On the TLS path HTTP/2 is deliberately left disabled (TLSNextProto is an
+// empty, non-nil map): the EWS/MAPI surfaces carry connection-oriented HTTP-layer
+// NTLM whose 401→401→200 handshake assumes one auth exchange per TCP connection,
+// and HTTP/2 stream multiplexing over a single connection would break that.
+func serveMaybeTLS(srv *http.Server, tlsCfg *tls.Config) error {
+	if tlsCfg != nil {
+		srv.TLSConfig = tlsCfg
+		srv.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
+		return srv.ListenAndServeTLS("", "")
+	}
+	return srv.ListenAndServe()
+}
+
 // AuditLogger exposes the underlying audit logger so other subsystems
 // (SMTP/IMAP/POP3) can record protocol-level auth events into the same sink.
 func (s *Server) AuditLogger() *audit.Logger {
@@ -1189,8 +1215,12 @@ func (s *Server) Start(addr string) error {
 		}()
 	}
 
-	s.logger.Info("Admin API server starting", "addr", addr)
-	return primaryHTTPServer.ListenAndServe()
+	if s.tlsConfig != nil {
+		s.logger.Info("API server serving HTTPS", "addr", addr)
+	} else {
+		s.logger.Info("Admin API server starting", "addr", addr)
+	}
+	return serveMaybeTLS(primaryHTTPServer, s.tlsConfig)
 }
 
 // tokenBlacklistCleanup periodically removes expired entries from the token blacklist

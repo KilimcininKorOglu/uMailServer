@@ -69,6 +69,20 @@ func (s *Server) startAPI() {
 	s.apiServer = api.NewServer(s.database, s.logger, apiCfg)
 	if s.tlsManager != nil {
 		s.apiServer.SetACMEChallengeHandler(s.tlsManager.HTTPChallengeHandler())
+		if s.tlsManager.IsEnabled() {
+			// A certificate source exists (ACME or a manual cert/key pair), so the
+			// web/API listener serves HTTPS through the same live GetCertificate
+			// callback the mail listeners use. Without a source it stays plain HTTP
+			// (e.g. when TLS terminates at an upstream reverse proxy).
+			s.apiServer.SetTLSConfig(s.tlsManager.GetTLSConfig())
+			// ACME http-01 obtains the web certificate by answering a challenge over
+			// plain HTTP. With HTTPS on the main port and no plain HTTP listener, the
+			// challenge can never be served and every HTTPS handshake fails. Fail loud.
+			if s.cfg().TLS.ACME.Enabled && s.cfg().TLS.ACME.Challenge == "http-01" && plainHTTPAddr == "" {
+				s.logger.Warn("native HTTPS with ACME http-01 but no plain HTTP listener; " +
+					"set http.http_port so the ACME challenge can be served or certificate issuance will fail")
+			}
+		}
 		s.apiServer.SetCertificateStatusFunc(func() []api.TLSCertificateStatus {
 			src := s.tlsManager.GetCertificateStatus()
 			out := make([]api.TLSCertificateStatus, 0, len(src))
@@ -450,6 +464,11 @@ func (s *Server) startAPI() {
 			},
 		}
 		s.adminServer = api.NewAdminServer(s.apiServer, adminCfg)
+		if s.tlsManager != nil && s.tlsManager.IsEnabled() {
+			// Serve the admin panel over HTTPS through the same live callback as the
+			// web/API listener; plain HTTP otherwise (upstream TLS termination).
+			s.adminServer.SetTLSConfig(s.tlsManager.GetTLSConfig())
+		}
 
 		go func() {
 			if err := s.adminServer.Start(); err != nil {

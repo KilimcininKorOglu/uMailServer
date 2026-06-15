@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -29,6 +30,7 @@ type AdminServer struct {
 	config     AdminConfig
 	mu         sync.Mutex // guards httpServer (Start and Stop run on different goroutines)
 	httpServer *http.Server
+	tlsConfig  *tls.Config // when set, the admin listener serves HTTPS
 }
 
 // NewAdminServer creates a new admin-only HTTP server
@@ -39,6 +41,13 @@ func NewAdminServer(server *Server, cfg AdminConfig) *AdminServer {
 		config: cfg,
 	}
 	return s
+}
+
+// SetTLSConfig makes the admin listener serve HTTPS using cfg (whose
+// GetCertificate callback resolves certificates live). Passing nil keeps the
+// listener on plain HTTP. Must be called before Start.
+func (s *AdminServer) SetTLSConfig(cfg *tls.Config) {
+	s.tlsConfig = cfg
 }
 
 // Start starts the admin HTTP server
@@ -54,8 +63,12 @@ func (s *AdminServer) Start() error {
 	s.httpServer = srv
 	s.mu.Unlock()
 
-	s.logger.Info("Admin API server starting", "addr", s.config.Addr)
-	return srv.ListenAndServe()
+	if s.tlsConfig != nil {
+		s.logger.Info("Admin API server serving HTTPS", "addr", s.config.Addr)
+	} else {
+		s.logger.Info("Admin API server starting", "addr", s.config.Addr)
+	}
+	return serveMaybeTLS(srv, s.tlsConfig)
 }
 
 // Stop gracefully stops the admin server
