@@ -16,31 +16,74 @@ import (
 const (
 	maxPDU            = 0x100000   // 1 MiB cap on a single framed PDU
 	bindAssocGroup    = 0x534D4150 // arbitrary non-zero association group
-	bindSecondaryAddr = "6001"     // MS-OXCRPC endpoint annotation
+	bindSecondaryAddr = "6001"     // MS-OXCRPC EMSMDB endpoint annotation
 	faultOpRngError   = 0x1C010002 // nca_op_rng_error: opnum not implemented
+	faultUnknownIf    = 0x1C010003 // nca_unk_if: request on an unbound context
 	outRespBuffer     = 16
 )
 
 // transferSyntaxNDR32 is the standard NDR transfer syntax the bind negotiation
-// accepts for the EMSMDB interface.
+// accepts for every interface carried over the tunnel.
 var transferSyntaxNDR32 = dcerpc.SyntaxID{
 	UUID:    wire.GUID{TimeLow: 0x8a885d04, TimeMid: 0x1ceb, TimeHiAndVersion: 0x11c9, ClockSeq: [2]byte{0x9f, 0xe8}, Node: [6]byte{0x08, 0x00, 0x2b, 0x10, 0x48, 0x60}},
 	Version: 2,
 }
 
+// emsmdbInterface is the EMSMDB abstract-syntax UUID (MS-OXCRPC 1.5) the Outlook
+// Anywhere mailbox connector binds.
+var emsmdbInterface = wire.GUID{
+	TimeLow:          0xa4f1db00,
+	TimeMid:          0xca47,
+	TimeHiAndVersion: 0x1067,
+	ClockSeq:         [2]byte{0xb3, 0x1f},
+	Node:             [6]byte{0x00, 0xdd, 0x01, 0x06, 0x62, 0xda},
+}
+
+// rpcBackend is one DCERPC interface the tunnel dispatches operations to. The
+// EMSMDB RPC server implements it today; RFR and NSPI-over-RPC register
+// alongside it. HandleRPC runs one operation and returns ok=false for an opnum
+// the interface does not implement, so the tunnel emits a FAULT.
+type rpcBackend interface {
+	HandleRPC(opnum uint16, email string, stub []byte) (resp []byte, ok bool)
+}
+
+// boundInterface pairs a registered backend with the secondary-address
+// annotation its BIND_ACK advertises (MS-OXCRPC endpoint).
+type boundInterface struct {
+	backend rpcBackend
+	secAddr string
+}
+
 // Handler terminates the MS-RPCH tunnel served at /rpc/rpcproxy.dll. It pairs an
 // OUT channel (RPC_OUT_DATA, server-to-client stream) with an IN channel
 // (RPC_IN_DATA, client-to-server stream) into a virtual connection, then
-// tunnels DCERPC PDUs to the EMSMDB RPC dispatcher.
+// tunnels DCERPC PDUs to the interface bound for each presentation context.
 type Handler struct {
-	rpc   *emsmdb.RPCServer
 	mu    sync.Mutex
 	conns map[cookie]*vconn
+	// interfaces maps an abstract-syntax UUID to its backend. It is populated by
+	// NewHandler and Register during setup and only read while serving, so it
+	// needs no lock once the handler starts.
+	interfaces map[wire.GUID]boundInterface
 }
 
-// NewHandler returns an RPC-over-HTTP tunnel backed by the EMSMDB RPC server.
+// NewHandler returns an RPC-over-HTTP tunnel with the EMSMDB RPC server bound to
+// its interface UUID. Register adds further interfaces (RFR, NSPI) before the
+// handler starts serving.
 func NewHandler(rpc *emsmdb.RPCServer) *Handler {
-	return &Handler{rpc: rpc, conns: make(map[cookie]*vconn)}
+	h := &Handler{
+		conns:      make(map[cookie]*vconn),
+		interfaces: make(map[wire.GUID]boundInterface),
+	}
+	h.Register(emsmdbInterface, rpc, bindSecondaryAddr)
+	return h
+}
+
+// Register binds an additional DCERPC interface under its abstract-syntax UUID.
+// It must be called during setup, before the handler serves any request.
+// secAddr is the BIND_ACK secondary-address annotation for the interface.
+func (h *Handler) Register(uuid wire.GUID, backend rpcBackend, secAddr string) {
+	h.interfaces[uuid] = boundInterface{backend: backend, secAddr: secAddr}
 }
 
 // vconn is the rendezvous between the two channels of one virtual connection.
@@ -52,6 +95,10 @@ type vconn struct {
 	inReady   chan struct{}
 	readyOnce sync.Once
 	respOnce  sync.Once
+	// contexts maps a presentation-context id negotiated in a BIND/ALTER to the
+	// interface its REQUESTs route to. It is touched only by the serveIn
+	// goroutine, which processes the connection's PDUs sequentially.
+	contexts map[uint16]rpcBackend
 }
 
 func (v *vconn) signalReady() { v.readyOnce.Do(func() { close(v.inReady) }) }
@@ -65,7 +112,11 @@ func (h *Handler) getOrCreate(c cookie) *vconn {
 	defer h.mu.Unlock()
 	v := h.conns[c]
 	if v == nil {
-		v = &vconn{outResp: make(chan []byte, outRespBuffer), inReady: make(chan struct{})}
+		v = &vconn{
+			outResp:  make(chan []byte, outRespBuffer),
+			inReady:  make(chan struct{}),
+			contexts: make(map[uint16]rpcBackend),
+		}
 		h.conns[c] = v
 	}
 	return v
@@ -173,7 +224,7 @@ loop:
 		if rerr != nil {
 			break
 		}
-		resp := h.dispatch(pdu, email)
+		resp := h.dispatch(pdu, email, v)
 		if resp == nil {
 			continue
 		}
@@ -189,32 +240,63 @@ loop:
 }
 
 // dispatch turns one inbound DCERPC PDU into the response PDU to stream back, or
-// nil for RTS keepalive/flow-control PDUs that need no reply.
-func (h *Handler) dispatch(pdu []byte, email string) []byte {
+// nil for RTS keepalive/flow-control PDUs that need no reply. v carries the
+// per-connection presentation contexts negotiated by BIND/ALTER.
+func (h *Handler) dispatch(pdu []byte, email string, v *vconn) []byte {
 	pkt, err := dcerpc.Pull(pdu)
 	if err != nil {
 		return nil
 	}
 	switch pkt.Type {
 	case dcerpc.PktBind:
-		return h.handleBind(pkt)
+		return h.handleBind(pkt, v)
+	case dcerpc.PktAlter:
+		return h.handleAlter(pkt, v)
 	case dcerpc.PktRequest:
-		return h.handleRequest(pkt, email)
+		return h.handleRequest(pkt, email, v)
 	default:
 		return nil
 	}
 }
 
-func (h *Handler) handleBind(pkt *dcerpc.Packet) []byte {
-	var results []dcerpc.AckResult
-	if len(pkt.Bind.Contexts) > 0 {
-		results = append(results, dcerpc.AckResult{Result: 0, Reason: 0, Syntax: transferSyntaxNDR32})
+// negotiateContexts resolves each presentation context a BIND/ALTER offers
+// against the registered interfaces, recording the accepted ones on the virtual
+// connection so later REQUESTs route by context id. It returns the per-context
+// ack results and the secondary-address annotation of the first accepted
+// interface (empty when none is accepted).
+func (h *Handler) negotiateContexts(contexts []dcerpc.CtxList, v *vconn) (results []dcerpc.AckResult, secAddr string) {
+	results = make([]dcerpc.AckResult, 0, len(contexts))
+	for _, c := range contexts {
+		iface, ok := h.interfaces[c.AbstractSyntax.UUID]
+		if !ok {
+			results = append(results, dcerpc.AckResult{Result: dcerpc.BindResultProviderReject, Reason: dcerpc.BindReasonAbstractSyntaxUnsupp, Syntax: transferSyntaxNDR32})
+			continue
+		}
+		v.contexts[c.ContextID] = iface.backend
+		if secAddr == "" {
+			secAddr = iface.secAddr
+		}
+		results = append(results, dcerpc.AckResult{Result: dcerpc.BindResultAccept, Reason: dcerpc.BindReasonNotSpecified, Syntax: transferSyntaxNDR32})
 	}
-	return dcerpc.EncodeBindAck(pkt.CallID, pkt.Bind.MaxXmitFrag, pkt.Bind.MaxRecvFrag, bindAssocGroup, bindSecondaryAddr, results)
+	return results, secAddr
 }
 
-func (h *Handler) handleRequest(pkt *dcerpc.Packet, email string) []byte {
-	resp, ok := h.rpc.HandleRPC(pkt.Request.Opnum, email, pkt.Request.Stub)
+func (h *Handler) handleBind(pkt *dcerpc.Packet, v *vconn) []byte {
+	results, secAddr := h.negotiateContexts(pkt.Bind.Contexts, v)
+	return dcerpc.EncodeBindAck(pkt.CallID, pkt.Bind.MaxXmitFrag, pkt.Bind.MaxRecvFrag, bindAssocGroup, secAddr, results)
+}
+
+func (h *Handler) handleAlter(pkt *dcerpc.Packet, v *vconn) []byte {
+	results, _ := h.negotiateContexts(pkt.Bind.Contexts, v)
+	return dcerpc.EncodeAlterAck(pkt.CallID, pkt.Bind.MaxXmitFrag, pkt.Bind.MaxRecvFrag, bindAssocGroup, results)
+}
+
+func (h *Handler) handleRequest(pkt *dcerpc.Packet, email string, v *vconn) []byte {
+	backend := v.contexts[pkt.Request.ContextID]
+	if backend == nil {
+		return dcerpc.EncodeFault(pkt.CallID, pkt.Request.ContextID, faultUnknownIf)
+	}
+	resp, ok := backend.HandleRPC(pkt.Request.Opnum, email, pkt.Request.Stub)
 	if !ok {
 		return dcerpc.EncodeFault(pkt.CallID, pkt.Request.ContextID, faultOpRngError)
 	}

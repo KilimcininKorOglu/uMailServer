@@ -47,6 +47,14 @@ const (
 	BindReasonAbstractSyntaxUnsupp uint16 = 1
 )
 
+// BIND_ACK / ALTER_CONTEXT_RESP per-context negotiation results
+// (C706 p_cont_def_result_t). A context whose abstract syntax the server binds
+// is accepted; an unknown interface is rejected by the provider.
+const (
+	BindResultAccept         uint16 = 0
+	BindResultProviderReject uint16 = 2
+)
+
 const (
 	rpcVers      = 5
 	rpcVersMinor = 0
@@ -239,12 +247,25 @@ func pushSyntax(p *ndr.Push, s SyntaxID) {
 	p.Uint32(s.Version)
 }
 
-// EncodeBindAck builds a complete BIND_ACK PDU accepting the negotiated
-// presentation contexts. secAddr is the secondary address annotation (empty for
-// a zero-length field).
+// EncodeBindAck builds a complete BIND_ACK PDU accepting or rejecting the
+// negotiated presentation contexts. secAddr is the secondary address annotation
+// (empty for a zero-length field).
 func EncodeBindAck(callID uint32, maxXmit, maxRecv uint16, assocGroup uint32, secAddr string, results []AckResult) []byte {
+	return encodeAckPDU(PktBindAck, callID, maxXmit, maxRecv, assocGroup, secAddr, results)
+}
+
+// EncodeAlterAck builds a complete ALTER_CONTEXT_RESP PDU. Its body is identical
+// to BIND_ACK (MS-RPCE 2.2.6); only the PDU type differs, and the secondary
+// address is always empty because the association is already established.
+func EncodeAlterAck(callID uint32, maxXmit, maxRecv uint16, assocGroup uint32, results []AckResult) []byte {
+	return encodeAckPDU(PktAlterAck, callID, maxXmit, maxRecv, assocGroup, "", results)
+}
+
+// encodeAckPDU marshals the shared BIND_ACK / ALTER_CONTEXT_RESP body under the
+// given PDU type.
+func encodeAckPDU(pktType uint8, callID uint32, maxXmit, maxRecv uint16, assocGroup uint32, secAddr string, results []AckResult) []byte {
 	p := ndr.NewPush()
-	writeHeader(p, PktBindAck, PFCFirstFrag|PFCLastFrag, 0, callID)
+	writeHeader(p, pktType, PFCFirstFrag|PFCLastFrag, 0, callID)
 	p.Uint16(maxXmit)
 	p.Uint16(maxRecv)
 	p.Uint32(assocGroup)
@@ -293,7 +314,7 @@ func EncodeFault(callID uint32, contextID uint16, status uint32) []byte {
 	writeHeader(p, PktFault, PFCFirstFrag|PFCLastFrag, 0, callID)
 	p.Uint32(0) // alloc_hint
 	p.Uint16(contextID)
-	p.Uint8(0)      // cancel_count
+	p.Uint8(0)       // cancel_count
 	p.Uint32(status) // 4-alignment inserts the reserved byte
 	return patchFragLength(p.Bytes())
 }
