@@ -3,6 +3,7 @@ package nspi
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf16"
@@ -27,18 +28,20 @@ var InterfaceUUID = wire.GUID{
 const (
 	opNspiBind            uint16 = 0
 	opNspiUnbind          uint16 = 1
-	opNspiUpdateStat      uint16 = 2
-	opNspiQueryRows       uint16 = 3
-	opNspiDNToMId         uint16 = 7
-	opNspiGetPropList     uint16 = 8
-	opNspiGetProps        uint16 = 9
-	opNspiCompareMIds     uint16 = 10
-	opNspiModProps        uint16 = 11
-	opNspiGetSpecialTable uint16 = 12
-	opNspiModLinkAtt      uint16 = 14
-	opNspiQueryColumns    uint16 = 16
-	opNspiResolveNames    uint16 = 19
-	opNspiResolveNamesW   uint16 = 20
+	opNspiUpdateStat       uint16 = 2
+	opNspiQueryRows        uint16 = 3
+	opNspiResortRestriction uint16 = 6
+	opNspiDNToMId          uint16 = 7
+	opNspiGetPropList      uint16 = 8
+	opNspiGetProps         uint16 = 9
+	opNspiCompareMIds      uint16 = 10
+	opNspiModProps         uint16 = 11
+	opNspiGetSpecialTable  uint16 = 12
+	opNspiGetTemplateInfo  uint16 = 13
+	opNspiModLinkAtt       uint16 = 14
+	opNspiQueryColumns     uint16 = 16
+	opNspiResolveNames     uint16 = 19
+	opNspiResolveNamesW    uint16 = 20
 )
 
 // RPCServer exposes the NSPI address book over the DCERPC transport (Outlook
@@ -112,6 +115,10 @@ func (s *RPCServer) HandleRPC(opnum uint16, email string, stub []byte) (resp []b
 		return s.resolveNames(stub), true
 	case opNspiResolveNamesW:
 		return s.resolveNamesW(stub), true
+	case opNspiResortRestriction:
+		return s.resortRestriction(stub), true
+	case opNspiGetTemplateInfo:
+		return s.getTemplateInfo(stub), true
 	case opNspiGetProps:
 		return s.getProps(stub), true
 	case opNspiModProps:
@@ -390,6 +397,20 @@ func buildGetPropsRow(gal []DirectoryEntry, stat Stat, tags []wire.PropTag, expl
 // that violates any of these invariants faults the stream so a malformed request
 // is rejected rather than silently mis-parsed.
 func pullProptagArrayNDR(p *ndr.Pull) []wire.PropTag {
+	vals := pullU32ArrayNDR(p)
+	tags := make([]wire.PropTag, len(vals))
+	for i, v := range vals {
+		tags[i] = wire.PropTag(v)
+	}
+	return tags
+}
+
+// pullU32ArrayNDR reads the NDR conformant-varying uint32 array (MS-OXNSPI 2.3.2)
+// shared by the property-tag and minimal-id lists: the conformant max_count
+// carries one sentinel slot beyond the live count (max_count == cValues+1), the
+// offset is zero, and the varying length equals cValues. A layout that violates
+// any invariant faults the stream so a malformed request is rejected.
+func pullU32ArrayNDR(p *ndr.Pull) []uint32 {
 	size := p.ULong()
 	p.Align(4)
 	cvalues := p.Uint32()
@@ -399,14 +420,14 @@ func pullProptagArrayNDR(p *ndr.Pull) []wire.PropTag {
 		p.Fault()
 		return nil
 	}
-	tags := make([]wire.PropTag, 0, length)
+	vals := make([]uint32, 0, length)
 	for range length {
 		if p.Err() != nil {
 			break
 		}
-		tags = append(tags, wire.PropTag(p.Uint32()))
+		vals = append(vals, p.Uint32())
 	}
-	return tags
+	return vals
 }
 
 // pushProptagArrayNDR writes an NDR LPROPTAG_ARRAY (MS-OXNSPI 2.3.2).
@@ -737,6 +758,71 @@ func (s *RPCServer) resolve(stub []byte, wide bool) []byte {
 	pushU32ArrayNDR(out, mids)
 	out.UniquePtr(true) // row set present (possibly empty)
 	pushRowSet(out, rows)
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// resortRestriction answers NspiResortRestriction (MS-OXNSPI 3.1.4.1.12): it
+// re-sorts a client-supplied minimal-id list into the table's display-name order,
+// dropping ids absent from the table, and resets the cursor to the start.
+func (s *RPCServer) resortRestriction(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // reserved
+	stat := pullStatNDR(p)
+	inmids := pullU32ArrayNDR(p)
+	if p.Uint32() != 0 { // [in, out, unique] poutmids: inbound value ignored
+		pullU32ArrayNDR(p)
+	}
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		pushStatNDR(out, stat)
+		out.UniquePtr(false)
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	gal := sortedGAL(s.dir)
+	outmids := make([]uint32, 0, len(inmids))
+	for _, mid := range inmids {
+		if midIndex(mid, len(gal)) >= 0 {
+			outmids = append(outmids, mid)
+		}
+	}
+	sort.SliceStable(outmids, func(i, j int) bool {
+		return midIndex(outmids[i], len(gal)) < midIndex(outmids[j], len(gal))
+	})
+	stat.TotalRec = uint32(len(outmids))
+	stat.NumPos = 0
+	stat.CurrentRec = midBeginningOfTable
+	pushStatNDR(out, stat)
+	out.UniquePtr(true)
+	pushU32ArrayNDR(out, outmids)
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// getTemplateInfo answers NspiGetTemplateInfo (MS-OXNSPI 3.1.4.1.18): no custom
+// display templates are served, so the response carries no template row and the
+// client falls back to its built-in templates.
+func (s *RPCServer) getTemplateInfo(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // dwFlags
+	p.Uint32() // template type
+	if p.Uint32() != 0 { // [unique] pDN referent
+		if length, ok := pullStringElementHeaderNDR(p); ok {
+			p.Bytes(int(length)) // distinguished name, unused
+		}
+	}
+	p.Uint32() // code page
+	p.Uint32() // locale id
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		out.UniquePtr(false)
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	out.UniquePtr(false) // no template row
 	out.Uint32(ecSuccess)
 	return out.Bytes()
 }

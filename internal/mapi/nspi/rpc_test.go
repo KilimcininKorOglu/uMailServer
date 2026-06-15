@@ -1108,6 +1108,79 @@ func TestNSPIResolveNames8Bit(t *testing.T) {
 	}
 }
 
+func TestNSPIResortRestriction(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+		{Email: "cara@test.local", DisplayName: "Cara Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+
+	// An out-of-order list with one absent id; the absent id is dropped and the
+	// rest come back in table (display-name) order.
+	in := []uint32{entryMid(2), entryMid(99), entryMid(0), entryMid(1)}
+	p := statRequest(handle, 0, 0)
+	p.ULong(uint32(len(in)) + 1) // inmids max_count = count+1
+	p.Uint32(uint32(len(in)))
+	p.ULong(0)
+	p.ULong(uint32(len(in)))
+	for _, m := range in {
+		p.Uint32(m)
+	}
+	p.Uint32(0) // [unique] poutmids NULL
+
+	resp, ok := s.HandleRPC(opNspiResortRestriction, "user@test.local", p.Bytes())
+	if !ok {
+		t.Fatal("NspiResortRestriction reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	stat := readStatNDR(r)
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("sorted minimal-id list referent is NULL")
+	}
+	out := readProptagArrayNDR(r)
+	want := []uint32{entryMid(0), entryMid(1), entryMid(2)}
+	if len(out) != len(want) {
+		t.Fatalf("returned %d ids, want %d (the absent id dropped)", len(out), len(want))
+	}
+	for i, wv := range want {
+		if out[i] != wv {
+			t.Fatalf("sorted[%d] = %#x, want %#x", i, out[i], wv)
+		}
+	}
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+	if stat.TotalRec != 3 || stat.NumPos != 0 || stat.CurrentRec != midBeginningOfTable {
+		t.Fatalf("stat = TotalRec %d NumPos %d CurrentRec %#x; want 3 / 0 / %#x", stat.TotalRec, stat.NumPos, stat.CurrentRec, midBeginningOfTable)
+	}
+}
+
+func TestNSPIGetTemplateInfo(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{{Email: "a@x.test", DisplayName: "A", ObjectClass: "User"}}})
+	handle := bindRPC(t, s)
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0) // dwFlags
+	p.Uint32(0) // template type
+	p.Uint32(0) // pDN [unique] referent: NULL
+	p.Uint32(0) // code page
+	p.Uint32(0) // locale id
+	resp, ok := s.HandleRPC(opNspiGetTemplateInfo, "user@test.local", p.Bytes())
+	if !ok {
+		t.Fatal("NspiGetTemplateInfo reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref != 0 {
+		t.Fatalf("template-row referent = %#x, want 0 (no custom template served)", ref)
+	}
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+}
+
 func TestNSPIWriteOpsRefused(t *testing.T) {
 	s := NewRPCServer()
 	handle := bindRPC(t, s)
