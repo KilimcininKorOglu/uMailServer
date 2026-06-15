@@ -629,17 +629,7 @@ func queryRowsExplicitRequest(handle []byte, mids []uint32, cols []wire.PropTag)
 func readQueryRows(t *testing.T, resp []byte) (stat Stat, rows [][]decodedVal, result uint32) {
 	t.Helper()
 	r := &rd{b: resp, t: t}
-	stat = Stat{
-		SortType:       r.u32(),
-		ContainerID:    r.u32(),
-		CurrentRec:     r.u32(),
-		Delta:          int32(r.u32()),
-		NumPos:         r.u32(),
-		TotalRec:       r.u32(),
-		CodePage:       r.u32(),
-		TemplateLocale: r.u32(),
-		SortLocale:     r.u32(),
-	}
+	stat = readStatNDR(r)
 	if ref := r.u32(); ref != 0 {
 		rows = readRowSet(r)
 	}
@@ -740,6 +730,211 @@ func TestNSPIQueryRowsRejectsUnboundHandle(t *testing.T) {
 	}
 	if len(rows) != 0 {
 		t.Fatalf("unbound handle returned %d rows, want 0", len(rows))
+	}
+}
+
+// readStatNDR decodes an NDR STAT block (nine 4-byte fields).
+func readStatNDR(r *rd) Stat {
+	return Stat{
+		SortType:       r.u32(),
+		ContainerID:    r.u32(),
+		CurrentRec:     r.u32(),
+		Delta:          int32(r.u32()),
+		NumPos:         r.u32(),
+		TotalRec:       r.u32(),
+		CodePage:       r.u32(),
+		TemplateLocale: r.u32(),
+		SortLocale:     r.u32(),
+	}
+}
+
+// readProptagArrayNDR decodes an NDR LPROPTAG_ARRAY (or minimal-id array): the
+// conformant max_count (which must carry the cValues+1 sentinel slot), cValues,
+// the zero offset, the varying length, then the values.
+func readProptagArrayNDR(r *rd) []uint32 {
+	r.t.Helper()
+	maxc := r.u32()
+	cvals := r.u32()
+	r.u32() // offset
+	length := r.u32()
+	if maxc != cvals+1 {
+		r.t.Fatalf("proptag array max_count = %d, want cValues+1 = %d", maxc, cvals+1)
+	}
+	if length != cvals {
+		r.t.Fatalf("proptag array length = %d, want cValues = %d", length, cvals)
+	}
+	vals := make([]uint32, length)
+	for i := range vals {
+		vals[i] = r.u32()
+	}
+	return vals
+}
+
+// statRequest writes a context handle, a reserved word, then a STAT block with
+// CurrentRec and Delta set — the common prefix of the positioning operations.
+func statRequest(handle []byte, currentRec uint32, delta int32) *ndr.Push {
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0) // reserved
+	p.Uint32(0) // SortType
+	p.Uint32(0) // ContainerID
+	p.Uint32(currentRec)
+	p.Uint32(uint32(delta))
+	p.Uint32(0) // NumPos
+	p.Uint32(0) // TotalRec
+	p.Uint32(0) // CodePage
+	p.Uint32(0) // TemplateLocale
+	p.Uint32(0) // SortLocale
+	return p
+}
+
+func TestNSPICompareMIds(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+		{Email: "cara@test.local", DisplayName: "Cara Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+	cases := []struct {
+		mid1, mid2 uint32
+		want       int32
+	}{
+		{entryMid(0), entryMid(2), 1},  // second follows first
+		{entryMid(2), entryMid(0), -1}, // second precedes first
+		{entryMid(1), entryMid(1), 0},  // equal
+	}
+	for _, c := range cases {
+		p := statRequest(handle, 0, 0)
+		p.Uint32(c.mid1)
+		p.Uint32(c.mid2)
+		resp, ok := s.HandleRPC(opNspiCompareMIds, "user@test.local", p.Bytes())
+		if !ok {
+			t.Fatal("NspiCompareMIds reported not-ok")
+		}
+		r := &rd{b: resp, t: t}
+		if cmp := int32(r.u32()); cmp != c.want {
+			t.Fatalf("compare(%#x,%#x) = %d, want %d", c.mid1, c.mid2, cmp, c.want)
+		}
+		if res := r.u32(); res != ecSuccess {
+			t.Fatalf("compare(%#x,%#x) result = %#x, want ecSuccess", c.mid1, c.mid2, res)
+		}
+	}
+	// An absent id is an error.
+	p := statRequest(handle, 0, 0)
+	p.Uint32(entryMid(0))
+	p.Uint32(entryMid(99))
+	resp, _ := s.HandleRPC(opNspiCompareMIds, "user@test.local", p.Bytes())
+	r := &rd{b: resp, t: t}
+	r.u32() // comparison
+	if res := r.u32(); res != ecError {
+		t.Fatalf("compare with an absent id result = %#x, want ecError", res)
+	}
+}
+
+func TestNSPIUpdateStat(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+		{Email: "cara@test.local", DisplayName: "Cara Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+
+	// From the table start, move forward two positions and report the movement.
+	p := statRequest(handle, midBeginningOfTable, 2)
+	p.Uint32(0x50000) // pdelta referent present
+	p.Uint32(0)       // inbound delta, unused
+	resp, ok := s.HandleRPC(opNspiUpdateStat, "user@test.local", p.Bytes())
+	if !ok {
+		t.Fatal("NspiUpdateStat reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	stat := readStatNDR(r)
+	deltaRef := r.u32()
+	if deltaRef == 0 {
+		t.Fatal("delta pointer is NULL; the client requested the movement")
+	}
+	delta := int32(r.u32())
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+	if stat.NumPos != 2 || stat.CurrentRec != entryMid(2) || stat.TotalRec != 3 {
+		t.Fatalf("stat after move = NumPos %d CurrentRec %#x TotalRec %d; want 2 / %#x / 3", stat.NumPos, stat.CurrentRec, stat.TotalRec, entryMid(2))
+	}
+	if delta != 2 {
+		t.Fatalf("reported movement = %d, want 2", delta)
+	}
+}
+
+func TestNSPIQueryColumns(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{{Email: "a@x.test", DisplayName: "A", ObjectClass: "User"}}})
+	handle := bindRPC(t, s)
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0) // reserved
+	p.Uint32(0) // dwFlags
+	resp, ok := s.HandleRPC(opNspiQueryColumns, "user@test.local", p.Bytes())
+	if !ok {
+		t.Fatal("NspiQueryColumns reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("column-list referent is NULL")
+	}
+	cols := readProptagArrayNDR(r)
+	if len(cols) != len(defaultColumns) {
+		t.Fatalf("returned %d columns, want %d", len(cols), len(defaultColumns))
+	}
+	for i, c := range defaultColumns {
+		if cols[i] != uint32(c) {
+			t.Fatalf("column %d = %#x, want %#x", i, cols[i], uint32(c))
+		}
+	}
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+}
+
+func TestNSPIGetPropList(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{{Email: "a@x.test", DisplayName: "A", ObjectClass: "User"}}})
+	handle := bindRPC(t, s)
+
+	getPropListReq := func(mid uint32) []byte {
+		p := ndr.NewPush()
+		p.Raw(handle)
+		p.Uint32(0)   // dwFlags
+		p.Uint32(mid) // minimal id
+		p.Uint32(0)   // code page
+		return p.Bytes()
+	}
+
+	resp, ok := s.HandleRPC(opNspiGetPropList, "user@test.local", getPropListReq(entryMid(0)))
+	if !ok {
+		t.Fatal("NspiGetPropList reported not-ok")
+	}
+	r := &rd{b: resp, t: t}
+	if ref := r.u32(); ref == 0 {
+		t.Fatal("property-tag list referent is NULL")
+	}
+	tags := readProptagArrayNDR(r)
+	if len(tags) != len(availableEntryTags) {
+		t.Fatalf("returned %d tags, want %d", len(tags), len(availableEntryTags))
+	}
+	if res := r.u32(); res != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", res)
+	}
+
+	// A minimal id naming no entry is an error with a NULL list.
+	resp2, _ := s.HandleRPC(opNspiGetPropList, "user@test.local", getPropListReq(entryMid(99)))
+	r2 := &rd{b: resp2, t: t}
+	if ref := r2.u32(); ref != 0 {
+		t.Fatalf("list referent = %#x, want 0 (NULL) for an absent id", ref)
+	}
+	if res := r2.u32(); res != ecError {
+		t.Fatalf("result = %#x, want ecError for an absent id", res)
 	}
 }
 

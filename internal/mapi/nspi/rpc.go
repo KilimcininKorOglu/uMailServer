@@ -26,11 +26,15 @@ var InterfaceUUID = wire.GUID{
 const (
 	opNspiBind            uint16 = 0
 	opNspiUnbind          uint16 = 1
+	opNspiUpdateStat      uint16 = 2
 	opNspiQueryRows       uint16 = 3
+	opNspiGetPropList     uint16 = 8
 	opNspiGetProps        uint16 = 9
+	opNspiCompareMIds     uint16 = 10
 	opNspiModProps        uint16 = 11
 	opNspiGetSpecialTable uint16 = 12
 	opNspiModLinkAtt      uint16 = 14
+	opNspiQueryColumns    uint16 = 16
 )
 
 // RPCServer exposes the NSPI address book over the DCERPC transport (Outlook
@@ -88,8 +92,16 @@ func (s *RPCServer) HandleRPC(opnum uint16, email string, stub []byte) (resp []b
 		return s.bind(email, stub), true
 	case opNspiUnbind:
 		return s.unbind(stub), true
+	case opNspiUpdateStat:
+		return s.updateStat(stub), true
 	case opNspiQueryRows:
 		return s.queryRows(stub), true
+	case opNspiGetPropList:
+		return s.getPropList(stub), true
+	case opNspiCompareMIds:
+		return s.compareMIds(stub), true
+	case opNspiQueryColumns:
+		return s.queryColumns(stub), true
 	case opNspiGetProps:
 		return s.getProps(stub), true
 	case opNspiModProps:
@@ -385,6 +397,146 @@ func pullProptagArrayNDR(p *ndr.Pull) []wire.PropTag {
 		tags = append(tags, wire.PropTag(p.Uint32()))
 	}
 	return tags
+}
+
+// pushProptagArrayNDR writes an NDR LPROPTAG_ARRAY (MS-OXNSPI 2.3.2): the
+// conformant max_count carries one sentinel slot beyond the live count, the
+// offset is zero, and the varying length equals the count. The same uint32 array
+// layout serves the minimal-id lists the id-resolution operations return.
+func pushProptagArrayNDR(out *ndr.Push, tags []wire.PropTag) {
+	out.ULong(uint32(len(tags)) + 1) // max_count = count + 1 (sentinel slot)
+	out.Align(4)
+	out.Uint32(uint32(len(tags))) // cValues
+	out.ULong(0)                  // offset
+	out.ULong(uint32(len(tags)))  // length
+	for _, t := range tags {
+		out.Uint32(uint32(t))
+	}
+}
+
+// updateStat answers NspiUpdateStat (MS-OXNSPI 3.1.4.1.9): it advances the table
+// cursor by the state block's signed delta and returns the updated state. When
+// the client supplies the optional delta pointer the response reports the actual
+// number of positions moved.
+func (s *RPCServer) updateStat(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // reserved
+	stat := pullStatNDR(p)
+	deltaRequested := false
+	if p.Uint32() != 0 { // [in, out, unique] pdelta referent
+		p.Uint32() // inbound delta value, unused
+		deltaRequested = true
+	}
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		pushStatNDR(out, stat)
+		out.UniquePtr(false)
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	total := uint32(len(sortedGAL(s.dir)))
+	initRow := positionInList(stat, total)
+	row := initRow
+	if stat.Delta < 0 && uint32(-stat.Delta) >= row {
+		row = 0
+	} else {
+		row = uint32(int32(row) + stat.Delta)
+	}
+	if row >= total {
+		row = total
+		stat.CurrentRec = midEnd
+	} else {
+		stat.CurrentRec = entryMid(int(row))
+	}
+	delta := int32(row) - int32(initRow)
+	stat.Delta = 0
+	stat.NumPos = row
+	stat.TotalRec = total
+	pushStatNDR(out, stat)
+	out.UniquePtr(deltaRequested)
+	if deltaRequested {
+		out.Uint32(uint32(delta))
+	}
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// compareMIds answers NspiCompareMIds (MS-OXNSPI 3.1.4.1.10): it reports the
+// relative table order of two minimal ids — negative when the second precedes the
+// first, positive when it follows, zero when equal. An id absent from the table
+// yields an error.
+func (s *RPCServer) compareMIds(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // reserved
+	pullStatNDR(p)
+	mid1 := p.Uint32()
+	mid2 := p.Uint32()
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		out.Uint32(0) // comparison
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	gal := sortedGAL(s.dir)
+	idx1 := midIndex(mid1, len(gal))
+	idx2 := midIndex(mid2, len(gal))
+	if idx1 < 0 || idx2 < 0 {
+		out.Uint32(0)
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	var cmp int32
+	switch {
+	case idx2 < idx1:
+		cmp = -1
+	case idx2 > idx1:
+		cmp = 1
+	}
+	out.Uint32(uint32(cmp))
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// getPropList answers NspiGetPropList (MS-OXNSPI 3.1.4.1.6): it returns the
+// property tags the entry named by the minimal id carries values for. An id that
+// names no entry yields an error and a NULL list.
+func (s *RPCServer) getPropList(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // dwFlags
+	mid := p.Uint32()
+	p.Uint32() // code page
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) || midIndex(mid, len(sortedGAL(s.dir))) < 0 {
+		out.UniquePtr(false)
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	out.UniquePtr(true)
+	pushProptagArrayNDR(out, availableEntryTags)
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// queryColumns answers NspiQueryColumns (MS-OXNSPI 3.1.4.1.5): it returns the set
+// of property tags the address book can serve as columns.
+func (s *RPCServer) queryColumns(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // reserved
+	p.Uint32() // dwFlags
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		out.UniquePtr(false)
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	out.UniquePtr(true)
+	pushProptagArrayNDR(out, defaultColumns)
+	out.Uint32(ecSuccess)
+	return out.Bytes()
 }
 
 // refuseWrite answers the NSPI write operations NspiModProps (MS-OXNSPI
