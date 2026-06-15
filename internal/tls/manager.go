@@ -65,6 +65,12 @@ type Config struct {
 	RequireClientCert bool   // Require client certificate (mTLS)
 	ClientCAFile      string // CA file for client certificate verification
 	ClientAuthMode    tls.ClientAuthType
+
+	// CacheBackend selects where autocert persists certificates: "store" uses the
+	// injected CacheStore (shared across active-active nodes); anything else uses
+	// the local filesystem DirCache. CacheStore must be non-nil for "store".
+	CacheBackend string
+	CacheStore   CacheStore
 }
 
 // NewManager creates a new TLS certificate manager
@@ -120,9 +126,17 @@ func (m *Manager) setupAutocert() error {
 		acmeEndpoint = m.config.ACMEEndpoint
 	}
 
+	var cache autocert.Cache
+	if m.config.CacheBackend == "store" && m.config.CacheStore != nil {
+		cache = storeCache{store: m.config.CacheStore}
+		m.logger.Info("Autocert using shared db-backed certificate cache")
+	} else {
+		cache = autocert.DirCache(m.certDir)
+	}
+
 	m.certManager = &autocert.Manager{
 		Client:     &acme.Client{DirectoryURL: acmeEndpoint},
-		Cache:      autocert.DirCache(m.certDir),
+		Cache:      cache,
 		Prompt:     autocert.AcceptTOS,
 		Email:      m.config.Email,
 		HostPolicy: m.hostPolicy,

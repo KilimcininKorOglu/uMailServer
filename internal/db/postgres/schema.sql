@@ -822,3 +822,13 @@ CREATE TABLE IF NOT EXISTS semcore_job (
     actor         TEXT     NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_semcore_job_kind_state ON semcore_job (kind, state);
+
+-- TLS certificate-cache blob storage (generic key -> raw bytes) so ACME-issued
+-- certificates and account keys are shared across active-active nodes and
+-- survive restarts. Kept backend-agnostic; the autocert/CertMagic adapter lives
+-- in internal/tls.
+CREATE TABLE IF NOT EXISTS tls_cache (
+    key        TEXT        PRIMARY KEY,
+    data       BYTEA       NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

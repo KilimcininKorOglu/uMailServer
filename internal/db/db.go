@@ -37,6 +37,7 @@ const (
 	BucketScheduled      = "scheduled"
 	BucketRecoverable    = "recoverable_items"
 	BucketEASDevices     = "activesync_devices"
+	BucketTLSCache       = "tls_cache"
 )
 
 // DB wraps bbolt database
@@ -339,6 +340,7 @@ func (d *DB) initBuckets() error {
 		BucketScheduled,
 		BucketRecoverable,
 		BucketEASDevices,
+		BucketTLSCache,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {
@@ -1330,4 +1332,50 @@ func (d *DB) ListEASDevicesByEmail(email string) ([]*EASDevice, error) {
 // DeleteEASDevice removes an EAS device partnership.
 func (d *DB) DeleteEASDevice(email, deviceID string) error {
 	return d.Delete(BucketEASDevices, easDeviceKey(email, deviceID))
+}
+
+// GetTLSCacheEntry returns the raw bytes stored under key, or a wrapped
+// ErrNotFound when the key is absent. The value is stored verbatim (no JSON
+// envelope) so certificate bundles and account keys round-trip byte-for-byte.
+func (d *DB) GetTLSCacheEntry(key string) ([]byte, error) {
+	var out []byte
+	err := d.bolt.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketTLSCache))
+		if b == nil {
+			return fmt.Errorf("bucket not found: %s", BucketTLSCache)
+		}
+		data := b.Get([]byte(key))
+		if data == nil {
+			return fmt.Errorf("tls cache key %q not found: %w", key, ErrNotFound)
+		}
+		out = make([]byte, len(data)) // copy: bbolt's slice is only valid within the txn
+		copy(out, data)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PutTLSCacheEntry stores raw bytes under key, overwriting any existing value.
+func (d *DB) PutTLSCacheEntry(key string, data []byte) error {
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketTLSCache))
+		if b == nil {
+			return fmt.Errorf("bucket not found: %s", BucketTLSCache)
+		}
+		return b.Put([]byte(key), data)
+	})
+}
+
+// DeleteTLSCacheEntry removes key from the TLS cache; absence is not an error.
+func (d *DB) DeleteTLSCacheEntry(key string) error {
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketTLSCache))
+		if b == nil {
+			return fmt.Errorf("bucket not found: %s", BucketTLSCache)
+		}
+		return b.Delete([]byte(key))
+	})
 }

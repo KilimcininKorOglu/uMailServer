@@ -117,6 +117,15 @@ type Store interface {
 	ListEASDevicesByEmail(email string) ([]*EASDevice, error)
 	DeleteEASDevice(email, deviceID string) error
 
+	// TLS certificate-cache blob storage: a generic keyed byte store shared by
+	// active-active nodes so ACME-issued certificates and account keys survive a
+	// restart and are reachable cluster-wide. Kept intentionally generic (string
+	// key -> raw bytes) so any certificate manager's cache can adapt onto it.
+	// GetTLSCacheEntry returns a wrapped ErrNotFound when the key is absent.
+	GetTLSCacheEntry(key string) ([]byte, error)
+	PutTLSCacheEntry(key string, data []byte) error
+	DeleteTLSCacheEntry(key string) error
+
 	// Typed preferences (replacing the generic-KV buckets).
 	GetUIPrefs(user string) (map[string]bool, error)
 	PutUIPrefs(user string, prefs map[string]bool) error

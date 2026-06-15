@@ -1,6 +1,7 @@
 package tls
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/acme/autocert"
 )
 
 func TestNewManager(t *testing.T) {
@@ -1350,9 +1353,9 @@ func TestHostPolicyDynamicDomains(t *testing.T) {
 	})
 
 	allowed := []string{
-		"mail.example.com",   // static config domain
-		"tenant.test",        // dynamic base domain
-		"mail.tenant.test",   // dynamic service hostnames
+		"mail.example.com", // static config domain
+		"tenant.test",      // dynamic base domain
+		"mail.tenant.test", // dynamic service hostnames
 		"autodiscover.tenant.test",
 		"smtp.tenant.test",
 		"imap.tenant.test",
@@ -1367,11 +1370,11 @@ func TestHostPolicyDynamicDomains(t *testing.T) {
 	}
 
 	refused := []string{
-		"evil.test",               // unknown base — must be refused
-		"www.tenant.test",         // a service prefix we do not issue for
-		"tenant.test.evil.test",   // suffix-confusion attempt
-		"notmail.example.com",     // not the exact static host
-		"",                        // empty SNI
+		"evil.test",             // unknown base — must be refused
+		"www.tenant.test",       // a service prefix we do not issue for
+		"tenant.test.evil.test", // suffix-confusion attempt
+		"notmail.example.com",   // not the exact static host
+		"",                      // empty SNI
 	}
 	for _, host := range refused {
 		if err := m.hostPolicy(context.Background(), host); err == nil {
@@ -1397,5 +1400,75 @@ func TestHostPolicySourceFailureKeepsStatic(t *testing.T) {
 	}
 	if err := m.hostPolicy(context.Background(), "tenant.test"); err == nil {
 		t.Error("unknown domain must stay refused when source fails")
+	}
+}
+
+// fakeCacheStore is an in-memory CacheStore. Get reports an absent key as
+// (nil, nil), the contract the autocert adapter relies on.
+type fakeCacheStore struct{ m map[string][]byte }
+
+func (f *fakeCacheStore) Get(key string) ([]byte, error) { return f.m[key], nil }
+func (f *fakeCacheStore) Put(key string, data []byte) error {
+	f.m[key] = data
+	return nil
+}
+func (f *fakeCacheStore) Delete(key string) error {
+	delete(f.m, key)
+	return nil
+}
+
+// TestStoreCacheAdapter verifies the autocert.Cache adapter maps an absent key to
+// autocert.ErrCacheMiss (autocert treats any other error as fatal and aborts
+// issuance) and round-trips bytes verbatim.
+func TestStoreCacheAdapter(t *testing.T) {
+	c := storeCache{store: &fakeCacheStore{m: map[string][]byte{}}}
+	ctx := context.Background()
+
+	if _, err := c.Get(ctx, "example.org"); !errors.Is(err, autocert.ErrCacheMiss) {
+		t.Fatalf("Get of absent key = %v, want autocert.ErrCacheMiss", err)
+	}
+
+	want := []byte("cert+key PEM bundle bytes")
+	if err := c.Put(ctx, "example.org", want); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	got, err := c.Get(ctx, "example.org")
+	if err != nil {
+		t.Fatalf("Get after Put: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("Get = %q, want %q (bytes must round-trip verbatim)", got, want)
+	}
+
+	if err := c.Delete(ctx, "example.org"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := c.Get(ctx, "example.org"); !errors.Is(err, autocert.ErrCacheMiss) {
+		t.Fatalf("Get after Delete = %v, want autocert.ErrCacheMiss", err)
+	}
+}
+
+// TestSetupAutocertCacheSelection verifies CacheBackend "store" routes autocert
+// at the shared CacheStore while the default keeps the local filesystem DirCache.
+func TestSetupAutocertCacheSelection(t *testing.T) {
+	withStore, err := NewManager(Config{
+		AutoTLS:      true,
+		Domains:      []string{"mail.example.com"},
+		CacheBackend: "store",
+		CacheStore:   &fakeCacheStore{m: map[string][]byte{}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewManager (store): %v", err)
+	}
+	if _, ok := withStore.certManager.Cache.(storeCache); !ok {
+		t.Fatalf("CacheBackend=store gave %T, want storeCache", withStore.certManager.Cache)
+	}
+
+	defaultMgr, err := NewManager(Config{AutoTLS: true, Domains: []string{"mail.example.com"}}, nil)
+	if err != nil {
+		t.Fatalf("NewManager (default): %v", err)
+	}
+	if _, ok := defaultMgr.certManager.Cache.(autocert.DirCache); !ok {
+		t.Fatalf("default backend gave %T, want autocert.DirCache", defaultMgr.certManager.Cache)
 	}
 }
