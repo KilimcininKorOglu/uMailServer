@@ -1473,6 +1473,52 @@ func TestSetupAutocertCacheSelection(t *testing.T) {
 	}
 }
 
+// TestReloadFlushesCaches verifies Reload makes an out-of-band change visible to
+// the next handshake without a restart: the cached certificate material is
+// dropped and a domain-source change takes effect immediately instead of waiting
+// out the host-policy cache TTL.
+func TestReloadFlushesCaches(t *testing.T) {
+	m, err := NewManager(Config{Domains: []string{"static.example"}}, nil)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	current := []string{"a.test"}
+	m.SetDomainSource(func() ([]string, error) { return current, nil })
+
+	if !m.hostAllowed("a.test") {
+		t.Fatal("a.test should be allowed after the first lookup")
+	}
+
+	// The source now lists a different domain, but the TTL cache still answers
+	// the old set until it is flushed.
+	current = []string{"b.test"}
+	if m.hostAllowed("b.test") {
+		t.Fatal("b.test must not be allowed yet (host-policy cache is warm)")
+	}
+
+	// Seed the manual-certificate cache to prove Reload clears it.
+	m.certMu.Lock()
+	m.certCache["x.test"] = &tls.Certificate{}
+	m.certMu.Unlock()
+
+	m.Reload()
+
+	m.certMu.RLock()
+	cached := len(m.certCache)
+	m.certMu.RUnlock()
+	if cached != 0 {
+		t.Fatalf("certificate cache holds %d entries after Reload, want 0", cached)
+	}
+
+	if !m.hostAllowed("b.test") {
+		t.Fatal("b.test should be allowed after Reload refreshes the domain source")
+	}
+	if m.hostAllowed("a.test") {
+		t.Fatal("a.test should no longer be allowed after Reload picked up the new source")
+	}
+}
+
 // TestGenerateSelfSignedValidCert verifies the bootstrap path writes a real,
 // parseable self-signed certificate covering each domain and its autodiscover.
 // hostname — not a stub returning paths to files that were never created.

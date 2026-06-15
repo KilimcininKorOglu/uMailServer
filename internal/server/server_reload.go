@@ -33,6 +33,15 @@ func (s *Server) ReloadConfig(newCfg *config.Config) (applied, restartRequired [
 		return nil, nil
 	}
 
+	// Flush the TLS caches on every reload so a replaced certificate file or a
+	// domain change is picked up by the next handshake without a restart (e.g.
+	// an operator who swaps a cert and sends SIGHUP). Certificate material and
+	// the host allowlist are served through live callbacks, so this is enough;
+	// structural TLS settings still appear in restartRequired below.
+	if s.tlsManager != nil {
+		s.tlsManager.Reload()
+	}
+
 	changed := func(a, b any) bool { return !reflect.DeepEqual(a, b) }
 
 	// The inbound SMTP pipeline embeds the spam, AV, and DMARC stages, so a

@@ -165,6 +165,25 @@ func (m *Manager) setupAutocert() error {
 	return nil
 }
 
+// Reload flushes the manager's cached certificate material and forces the next
+// host-policy lookup to re-query the domain source. The next TLS handshake then
+// re-reads a replaced manual certificate from disk and sees domain changes
+// immediately, without restarting any listener — because each listener resolves
+// its certificate and host policy through live callbacks, not a pinned cert.
+// Structural settings (min TLS version, client-auth mode, listener ports) are
+// baked into each listener's tls.Config at startup and still require a restart.
+func (m *Manager) Reload() {
+	m.certMu.Lock()
+	m.certCache = make(map[string]*tls.Certificate)
+	m.certMu.Unlock()
+
+	m.domainMu.Lock()
+	m.domainCacheAt = time.Time{} // force a domain-source refresh on the next lookup
+	m.domainMu.Unlock()
+
+	m.logger.Info("TLS manager reloaded: certificate and domain caches flushed")
+}
+
 // SetDomainSource injects a callback listing the base domains the server is
 // authoritative for. The ACME host policy then accepts those domains and their
 // mail./autodiscover./smtp./imap. service hostnames in addition to the statically
