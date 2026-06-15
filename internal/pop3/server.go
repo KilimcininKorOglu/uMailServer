@@ -23,9 +23,15 @@ import (
 
 // Server represents a POP3 server
 type Server struct {
-	addr      string
-	tlsConfig *TLSConfig
-	logger    *slog.Logger
+	addr string
+	// tlsConfig holds file-based cert/key paths loaded on demand. tlsConfigDirect
+	// holds a pre-built *tls.Config (e.g. one whose GetCertificate resolves
+	// certificates live, including ACME-issued and hot-reloaded material) and,
+	// when set, takes precedence so POP3 serves the same certificate as the
+	// IMAP/SMTP/ManageSieve listeners instead of loading a static key pair.
+	tlsConfig       *TLSConfig
+	tlsConfigDirect *tls.Config
+	logger          *slog.Logger
 
 	listener   net.Listener
 	sessions   map[string]*Session
@@ -240,13 +246,32 @@ func (s *Server) SetMaxConnections(n int) {
 	s.maxConnections = n
 }
 
-// SetTLSConfig sets the TLS configuration
+// SetTLSConfig sets the file-based TLS configuration.
 func (s *Server) SetTLSConfig(config *TLSConfig) {
 	s.tlsConfig = config
 }
 
-// getTLSConfig builds a *tls.Config from the configured cert/key files.
+// SetTLSConfigDirect installs a pre-built *tls.Config. When set it takes
+// precedence over the file-based TLSConfig so STLS and implicit TLS serve the
+// certificate resolved by the config's GetCertificate callback (ACME-issued,
+// server-specific, manual, and hot-reloaded material) rather than a static key
+// pair loaded from disk.
+func (s *Server) SetTLSConfigDirect(config *tls.Config) {
+	s.tlsConfigDirect = config
+}
+
+// tlsAvailable reports whether TLS can be negotiated, via either a pre-built
+// config or a file-based key pair.
+func (s *Server) tlsAvailable() bool {
+	return s.tlsConfigDirect != nil || s.tlsConfig != nil
+}
+
+// getTLSConfig returns the pre-built *tls.Config when one is installed,
+// otherwise it builds one from the configured cert/key files.
 func (s *Server) getTLSConfig() (*tls.Config, error) {
+	if s.tlsConfigDirect != nil {
+		return s.tlsConfigDirect, nil
+	}
 	if s.tlsConfig == nil {
 		return nil, fmt.Errorf("TLS config not provided")
 	}
@@ -664,7 +689,7 @@ func (s *Session) handleAuthorizationCommand(command string, args []string) erro
 		return fmt.Errorf("quit")
 
 	case "STLS":
-		if s.server.tlsConfig == nil {
+		if !s.server.tlsAvailable() {
 			s.WriteResponse("-ERR Command not available")
 			return nil
 		}
@@ -707,7 +732,7 @@ func (s *Session) handleAuthorizationCommand(command string, args []string) erro
 		s.WriteDataLine("QUIT")
 		s.WriteDataLine("UIDL")
 		s.WriteDataLine("TOP")
-		if s.server.tlsConfig != nil && !s.isTLS {
+		if s.server.tlsAvailable() && !s.isTLS {
 			s.WriteDataLine("STLS")
 		}
 		s.WriteDataEnd()

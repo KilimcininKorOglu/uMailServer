@@ -34,10 +34,11 @@ func (s *Server) startPOP3(mailstore *imap.BboltMailstore) error {
 	// when TLS is disabled).
 	if s.tlsManager.IsEnabled() {
 		pop3Server.SetRequireTLS(true)
-		pop3Server.SetTLSConfig(&pop3.TLSConfig{
-			CertFile: s.cfg().TLS.CertFile,
-			KeyFile:  s.cfg().TLS.KeyFile,
-		})
+		// Resolve certificates through the TLS manager's live callback, exactly
+		// like the SMTP/IMAP/ManageSieve listeners, so POP3 also serves
+		// ACME-issued and hot-reloaded certificates instead of a static key pair
+		// loaded from fixed file paths (which is empty under ACME-only config).
+		pop3Server.SetTLSConfigDirect(s.tlsManager.GetTLSConfig())
 	}
 
 	if err := pop3Server.Start(); err != nil {
