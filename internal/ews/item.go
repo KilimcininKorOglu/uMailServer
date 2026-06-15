@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/umailserver/umailserver/internal/mailappend"
+	"github.com/umailserver/umailserver/internal/mailbody"
 	"github.com/umailserver/umailserver/internal/semcore"
 )
 
@@ -2175,22 +2176,28 @@ func parseMimeWithAttachments(data []byte) (subject, from, date, bodyType, body 
 	}
 	h := msg.Header
 
-	contentType := h.Get("Content-Type")
-	if strings.HasPrefix(strings.ToLower(contentType), "text/html") {
-		bodyType = "HTML"
-	} else {
+	// Body text and type come from the shared decoder (internal/mailbody) so EWS
+	// reads the same decoded content as webmail, search, EAS and JMAP -- including a
+	// non-multipart base64 or quoted-printable body, which the old inline walk
+	// returned raw. Plain text is preferred over HTML, preserving the prior
+	// selection; attachments are still gathered from the MIME walk below.
+	mb := mailbody.Parse(data)
+	switch {
+	case mb.Text != "":
+		body, bodyType = mb.Text, "Text"
+	case mb.HTML != "":
+		body, bodyType = mb.HTML, "HTML"
+	default:
 		bodyType = "Text"
 	}
 
+	contentType := h.Get("Content-Type")
 	mediaType, params, _ := mime.ParseMediaType(contentType) //nolint:errcheck // malformed Content-Type yields empty mediaType, handled below.
 	boundary := params["boundary"]
 
-	var bodyBytes []byte
-	bodyBytes, _ = io.ReadAll(msg.Body) //nolint:errcheck
-
 	if boundary != "" && strings.HasPrefix(mediaType, "multipart/") {
-		// Multi-part: walk parts to extract body and attachments using
-		// Go's standard mime/multipart package.
+		// Multi-part: walk parts to extract attachments using Go's standard
+		// mime/multipart package (the body text already came from the decoder).
 		mpr := multipart.NewReader(strings.NewReader(string(data)), boundary)
 		for {
 			part, err := mpr.NextPart()
@@ -2223,9 +2230,6 @@ func parseMimeWithAttachments(data []byte) (subject, from, date, bodyType, body 
 				}
 			}
 			ctLower := strings.ToLower(partMediaType)
-			if strings.HasPrefix(ctLower, "text/") && body == "" && !isInline {
-				body = string(partBody)
-			}
 			if isInline || partName != "" || partCID != "" || strings.Contains(ctLower, "attachment") {
 				content := base64.StdEncoding.EncodeToString(partBody)
 				att := FileAttachmentType{
@@ -2240,11 +2244,6 @@ func parseMimeWithAttachments(data []byte) (subject, from, date, bodyType, body 
 				attachments = append(attachments, att)
 			}
 		}
-		if body == "" {
-			body = string(bodyBytes)
-		}
-	} else {
-		body = string(bodyBytes)
 	}
 
 	toHeader := h.Get("To")
