@@ -56,12 +56,11 @@ type MailHit struct {
 
 // MailSearch runs a free-text query over a mailbox's messages for the Search
 // command's Mailbox store, returning every match's canonical identity. It applies
-// the same match the webmail search runs over the same canonical mailstore, so a
-// phone's mailbox search converges with the browser on one source. The full match
-// set is returned unwindowed; the handler applies the requested Range so Total
-// reports the exact match count.
+// the same case-insensitive substring match the webmail search runs over the same
+// canonical mailstore. The full match set is returned unwindowed; the handler
+// applies the requested Range so Total reports the exact match count.
 type MailSearch interface {
-	SearchMail(email, query, folder string) ([]MailHit, error)
+	SearchMail(email, query string) ([]MailHit, error)
 }
 
 // SetMailSearch wires the canonical mailbox search source the Search command's
@@ -160,7 +159,7 @@ func (s *Server) searchMailbox(email string, store *wbxml.Element) ([]byte, erro
 	freetext := mailboxFreeText(store)
 	start, end := searchRange(store)
 
-	hits, err := s.mailSearch.SearchMail(email, freetext, "")
+	hits, err := s.mailSearch.SearchMail(email, freetext)
 	if err != nil {
 		return nil, err
 	}

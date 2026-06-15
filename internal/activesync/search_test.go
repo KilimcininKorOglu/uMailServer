@@ -251,15 +251,15 @@ func TestSearchUnsupportedStore(t *testing.T) {
 	}
 }
 
-// stubMailSearch is a deterministic MailSearch: it records the query and folder
-// it was asked and returns a fixed, unwindowed hit set (the handler windows).
+// stubMailSearch is a deterministic MailSearch: it records the query it was asked
+// and returns a fixed, unwindowed hit set (the handler windows).
 type stubMailSearch struct {
-	hits                  []MailHit
-	lastQuery, lastFolder string
+	hits      []MailHit
+	lastQuery string
 }
 
-func (s *stubMailSearch) SearchMail(_, query, folder string) ([]MailHit, error) {
-	s.lastQuery, s.lastFolder = query, folder
+func (s *stubMailSearch) SearchMail(_, query string) ([]MailHit, error) {
+	s.lastQuery = query
 	return s.hits, nil
 }
 

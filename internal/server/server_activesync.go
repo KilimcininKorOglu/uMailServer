@@ -710,12 +710,11 @@ type easMailSearch struct {
 }
 
 // SearchMail returns every message whose sender, recipients, subject or decoded
-// body contains the query (case-insensitive), across all of the user's folders
-// (or one folder when folder is non-empty). The full match set is returned
-// unwindowed; the Search handler applies the requested Range. The decoded body
-// comes from the same projection the EAS Sync/Fetch path shows, so a match is
-// always over content the client can actually open.
-func (s easMailSearch) SearchMail(email, query, folder string) ([]activesync.MailHit, error) {
+// body contains the query (case-insensitive), across all of the user's folders.
+// The full match set is returned unwindowed; the Search handler applies the
+// requested Range. The decoded body comes from the same projection the EAS
+// Sync/Fetch path shows, so a match is always over content the client can open.
+func (s easMailSearch) SearchMail(email, query string) ([]activesync.MailHit, error) {
 	folders, err := s.db.ListMailboxes(email)
 	if err != nil {
 		return nil, err
@@ -723,9 +722,6 @@ func (s easMailSearch) SearchMail(email, query, folder string) ([]activesync.Mai
 	q := strings.ToLower(query)
 	var hits []activesync.MailHit
 	for _, mb := range folders {
-		if folder != "" && mb != folder {
-			continue
-		}
 		uids, uerr := s.db.GetMessageUIDs(email, mb)
 		if uerr != nil {
 			continue
