@@ -355,6 +355,8 @@ func New(cfg *config.Config) (*Server, error) {
 		UseStaging:        cfg.TLS.ACME.Provider == "letsencrypt-staging",
 		Challenge:         cfg.TLS.ACME.Challenge,
 		DNSProvider:       cfg.TLS.ACME.DNSProvider,
+		ACMEEndpoint:      cfg.TLS.ACME.DirectoryURL,
+		ACMECACertFile:    cfg.TLS.ACME.CACertFile,
 		CertFile:          cfg.TLS.CertFile,
 		KeyFile:           cfg.TLS.KeyFile,
 		MinVersion:        parseTLSMinVersion(cfg.TLS.MinVersion),

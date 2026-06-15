@@ -77,6 +77,11 @@ type Config struct {
 	CacheDir string
 	// RenewBeforeDays overrides autocert's renewal lead time in days (0 = default 30).
 	RenewBeforeDays int
+	// ACMECACertFile is a PEM file of CA certificate(s) the ACME client trusts when
+	// connecting to ACMEEndpoint. Set this for a private or test ACME CA (e.g. a
+	// local Pebble server) whose directory endpoint is not signed by a public CA.
+	// Empty uses the system trust store.
+	ACMECACertFile string
 }
 
 // NewManager creates a new TLS certificate manager
@@ -144,8 +149,30 @@ func (m *Manager) setupAutocert() error {
 		cache = autocert.DirCache(m.certDir)
 	}
 
+	acmeClient := &acme.Client{DirectoryURL: acmeEndpoint}
+	// Trust a private/test ACME CA (e.g. local Pebble) for the directory endpoint
+	// without weakening verification: load the configured CA into the ACME client's
+	// own HTTP transport, leaving the system trust store untouched everywhere else.
+	if m.config.ACMECACertFile != "" {
+		caData, err := os.ReadFile(m.config.ACMECACertFile)
+		if err != nil {
+			return fmt.Errorf("read acme ca cert %q: %w", m.config.ACMECACertFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caData) {
+			return fmt.Errorf("acme ca cert %q contains no usable certificate", m.config.ACMECACertFile)
+		}
+		// #nosec G402 -- MinVersion pinned to TLS 1.2; RootCAs restricts trust to the configured CA.
+		acmeClient.HTTPClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+			},
+		}
+		m.logger.Info("ACME client trusting custom CA for directory endpoint", "ca_file", m.config.ACMECACertFile)
+	}
+
 	m.certManager = &autocert.Manager{
-		Client:     &acme.Client{DirectoryURL: acmeEndpoint},
+		Client:     acmeClient,
 		Cache:      cache,
 		Prompt:     autocert.AcceptTOS,
 		Email:      m.config.Email,

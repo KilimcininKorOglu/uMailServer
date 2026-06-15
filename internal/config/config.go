@@ -143,6 +143,14 @@ type ACMEConfig struct {
 	// RenewBeforeDays is how many days before expiry autocert renews a certificate
 	// (zero leaves autocert's own 30-day default).
 	RenewBeforeDays int `yaml:"renew_before_days,omitempty"`
+	// DirectoryURL overrides the ACME directory endpoint. Empty uses Let's Encrypt
+	// production (or staging when provider is "letsencrypt-staging"). Set this to a
+	// private or local ACME server such as Pebble (e.g. https://pebble:14000/dir).
+	DirectoryURL string `yaml:"directory_url,omitempty"`
+	// CACertFile is a PEM file of CA certificate(s) the ACME client trusts when
+	// connecting to DirectoryURL. Required when the directory endpoint is served by
+	// a private/test CA (e.g. Pebble's pebble.minica.pem). Empty uses system roots.
+	CACertFile string `yaml:"ca_cert_file,omitempty"`
 }
 
 // SMTPConfig holds SMTP server settings
