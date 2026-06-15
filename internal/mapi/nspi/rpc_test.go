@@ -1193,6 +1193,111 @@ func TestNSPISeekEntries(t *testing.T) {
 	}
 }
 
+// anrRestrictionNDR writes a complete NSPI PROPERTY restriction (header then
+// deferred value) matching the ambiguous-name target against the GAL.
+func anrRestrictionNDR(p *ndr.Push, search string) {
+	p.Align(4)
+	p.Uint32(uint32(resProperty))      // res_type
+	p.Uint32(uint32(resProperty))      // union discriminant
+	p.Uint32(uint32(relopEQ))          // relop
+	p.Uint32(uint32(wire.PidTagAnr))   // proptag (ambiguous-name resolution)
+	p.UniquePtr(true)                  // value referent (non-NULL)
+	pushPropValueReq(p, wire.PidTagAnr, search)
+}
+
+// notRestrictionNDR writes an NSPI NOT restriction wrapping the inner restriction
+// the builder writes.
+func notRestrictionNDR(p *ndr.Push, inner func(*ndr.Push)) {
+	p.Align(4)
+	p.Uint32(uint32(resNot)) // res_type
+	p.Uint32(uint32(resNot)) // union discriminant
+	p.UniquePtr(true)        // operand referent (non-NULL)
+	inner(p)
+}
+
+// getMatchesRequest builds an NspiGetMatches request whose filter the builder
+// writes, requesting an explicit column set with no row-count cap.
+func getMatchesRequest(handle []byte, cols []wire.PropTag, buildFilter func(*ndr.Push)) []byte {
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0) // reserved1
+	for range 9 {
+		p.Uint32(0) // STAT (NumPos 0)
+	}
+	p.Uint32(0)       // [unique] explicit minimal-id table: NULL
+	p.Uint32(0)       // reserved2
+	p.Uint32(0x20000) // [unique] filter referent: present
+	buildFilter(p)
+	p.Uint32(0)       // [unique] property name: NULL
+	p.Uint32(0)       // requested count (0 = unlimited)
+	p.Uint32(0x30000) // [unique] proptag array: present
+	p.ULong(uint32(len(cols)) + 1)
+	p.Uint32(uint32(len(cols)))
+	p.ULong(0)
+	p.ULong(uint32(len(cols)))
+	for _, c := range cols {
+		p.Uint32(uint32(c))
+	}
+	return p.Bytes()
+}
+
+func TestNSPIGetMatches(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+		{Email: "cara@test.local", DisplayName: "Cara Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+	cols := []wire.PropTag{wire.PidTagDisplayName, wire.PidTagSmtpAddress}
+
+	decode := func(resp []byte) (mids []uint32, rows [][]decodedVal, result uint32) {
+		r := &rd{b: resp, t: t}
+		readStatNDR(r)
+		if ref := r.u32(); ref != 0 {
+			mids = readProptagArrayNDR(r)
+		}
+		if ref := r.u32(); ref != 0 {
+			rows = readRowSet(r)
+		}
+		return mids, rows, r.u32()
+	}
+
+	// A PROPERTY/ANR filter for "Bob" matches only the Bob entry.
+	resp, ok := s.HandleRPC(opNspiGetMatches, "user@test.local",
+		getMatchesRequest(handle, cols, func(p *ndr.Push) { anrRestrictionNDR(p, "Bob") }))
+	if !ok {
+		t.Fatal("NspiGetMatches reported not-ok")
+	}
+	mids, rows, result := decode(resp)
+	if result != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", result)
+	}
+	if len(mids) != 1 || mids[0] != entryMid(1) {
+		t.Fatalf("ANR(Bob) matched mids = %v, want [%#x]", mids, entryMid(1))
+	}
+	if len(rows) != 1 || rows[0][0].str != "Bob Example" {
+		t.Fatalf("ANR(Bob) matched %d rows, want 1 (Bob)", len(rows))
+	}
+
+	// NOT(ANR "Ann") exercises the recursive restriction decode: every entry that
+	// is not Ann, i.e. Bob and Cara.
+	resp2, _ := s.HandleRPC(opNspiGetMatches, "user@test.local",
+		getMatchesRequest(handle, cols, func(p *ndr.Push) {
+			notRestrictionNDR(p, func(p *ndr.Push) { anrRestrictionNDR(p, "Ann") })
+		}))
+	mids2, rows2, result2 := decode(resp2)
+	if result2 != ecSuccess {
+		t.Fatalf("NOT result = %#x, want ecSuccess", result2)
+	}
+	if len(mids2) != 2 || mids2[0] != entryMid(1) || mids2[1] != entryMid(2) {
+		t.Fatalf("NOT(ANR Ann) matched mids = %v, want [%#x %#x] (Bob, Cara)", mids2, entryMid(1), entryMid(2))
+	}
+	if len(rows2) != 2 {
+		t.Fatalf("NOT(ANR Ann) matched %d rows, want 2", len(rows2))
+	}
+}
+
 func TestNSPIResortRestriction(t *testing.T) {
 	s := NewRPCServer()
 	s.SetDirectory(fakeDir{entries: []DirectoryEntry{

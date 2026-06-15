@@ -31,6 +31,7 @@ const (
 	opNspiUpdateStat       uint16 = 2
 	opNspiQueryRows        uint16 = 3
 	opNspiSeekEntries      uint16 = 4
+	opNspiGetMatches       uint16 = 5
 	opNspiResortRestriction uint16 = 6
 	opNspiDNToMId          uint16 = 7
 	opNspiGetPropList      uint16 = 8
@@ -106,6 +107,8 @@ func (s *RPCServer) HandleRPC(opnum uint16, email string, stub []byte) (resp []b
 		return s.queryRows(stub), true
 	case opNspiSeekEntries:
 		return s.seekEntries(stub), true
+	case opNspiGetMatches:
+		return s.getMatches(stub), true
 	case opNspiGetPropList:
 		return s.getPropList(stub), true
 	case opNspiCompareMIds:
@@ -763,6 +766,185 @@ func (s *RPCServer) resolve(stub []byte, wide bool) []byte {
 	pushRowSet(out, rows)
 	out.Uint32(ecSuccess)
 	return out.Bytes()
+}
+
+// getMatches answers NspiGetMatches (MS-OXNSPI 3.1.4.1.10): it evaluates a
+// restriction over the GAL, reading forward from the table cursor, and returns
+// the matching entries' minimal ids and rows capped at the requested count. The
+// restriction is decoded into the same form the MAPI/HTTP surface evaluates, so
+// both transports apply the identical match.
+func (s *RPCServer) getMatches(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // reserved1
+	stat := pullStatNDR(p)
+	if p.Uint32() != 0 { // [unique] explicit minimal-id table (reserved by the spec)
+		pullU32ArrayNDR(p)
+	}
+	p.Uint32() // reserved2
+	var filter restriction
+	hasFilter := false
+	if p.Uint32() != 0 { // [unique] filter referent
+		filter = pullRestrictionNDR(p)
+		hasFilter = true
+	}
+	if p.Uint32() != 0 { // [unique] property-name referent
+		pullPropertyNameNDR(p)
+	}
+	requested := int(p.Uint32())
+	var cols []wire.PropTag
+	if p.Uint32() != 0 { // [unique] proptag array
+		cols = pullProptagArrayNDR(p)
+	}
+	if len(cols) == 0 {
+		cols = defaultColumns
+	}
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		pushStatNDR(out, stat)
+		out.UniquePtr(false) // NULL minimal-id list
+		out.UniquePtr(false) // NULL row set
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	gal := sortedGAL(s.dir)
+	stat.TotalRec = uint32(len(gal))
+	var mids []uint32
+	var rows [][]wire.TaggedPropertyValue
+	if hasFilter {
+		start := int(stat.NumPos)
+		if start < 0 || start > len(gal) {
+			start = 0
+		}
+		for i := start; i < len(gal); i++ {
+			if requested > 0 && len(mids) >= requested {
+				break
+			}
+			if matchEntry(filter, gal[i]) {
+				mids = append(mids, entryMid(i))
+				rows = append(rows, galRowValues(gal[i], cols))
+			}
+		}
+	}
+	pushStatNDR(out, stat)
+	out.UniquePtr(true)
+	pushU32ArrayNDR(out, mids)
+	out.UniquePtr(true) // row set present (possibly empty)
+	pushRowSet(out, rows)
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// ndrResHdr carries the transient referents and counts a restriction header
+// records, needed to decode the deferred content in the second NDR pass.
+type ndrResHdr struct {
+	cres    uint32 // AND/OR sub-restriction count
+	hasSub  bool   // AND/OR/NOT/SUB operand pointer present
+	hasProp bool   // CONTENT/PROPERTY value pointer present
+}
+
+// pullRestrictionNDR decodes an NSPI restriction (MS-OXNSPI 2.3.5) — the two NDR
+// passes for a single restriction — into the form the shared matchEntry evaluator
+// reads. An unhandled restriction type faults the stream.
+func pullRestrictionNDR(p *ndr.Pull) restriction {
+	var r restriction
+	h := pullResHeaderNDR(p, &r)
+	pullResContentNDR(p, &r, h)
+	return r
+}
+
+// pullResHeaderNDR decodes a restriction's fixed header: the doubly-stated type
+// (the NSPRES res_type and the value union's discriminant, which must agree),
+// then the per-type scalar fields and the referents for any deferred operand or
+// value.
+func pullResHeaderNDR(p *ndr.Pull, r *restriction) ndrResHdr {
+	var h ndrResHdr
+	p.Align(4)
+	resType := p.Uint32()
+	rt := p.Uint32() // union discriminant; must equal res_type
+	if rt != resType {
+		p.Fault()
+		return h
+	}
+	r.rt = uint8(resType)
+	switch r.rt {
+	case resAnd, resOr:
+		h.cres = p.Uint32()
+		h.hasSub = p.Uint32() != 0
+	case resNot:
+		h.hasSub = p.Uint32() != 0
+	case resContent:
+		p.Uint32() // fuzzy level
+		r.tag = wire.PropTag(p.Uint32())
+		h.hasProp = p.Uint32() != 0
+	case resProperty:
+		r.relop = uint8(p.Uint32())
+		r.tag = wire.PropTag(p.Uint32())
+		h.hasProp = p.Uint32() != 0
+	case resPropCmp, resBitmask, resSize:
+		p.Uint32() // relop or reserved
+		p.Uint32() // proptag / proptag1
+		p.Uint32() // mask / size / proptag2
+	case resExist:
+		p.Uint32() // reserved1
+		r.tag = wire.PropTag(p.Uint32())
+		p.Uint32() // reserved2
+	case resSub:
+		p.Uint32() // subobject
+		h.hasSub = p.Uint32() != 0
+	default:
+		p.Fault()
+	}
+	return h
+}
+
+// pullResContentNDR decodes a restriction's deferred content: the operand
+// restrictions of AND/OR/NOT/SUB and the tagged value of CONTENT/PROPERTY.
+func pullResContentNDR(p *ndr.Pull, r *restriction, h ndrResHdr) {
+	switch r.rt {
+	case resAnd, resOr:
+		if !h.hasSub {
+			return
+		}
+		if size := p.ULong(); size != h.cres {
+			p.Fault()
+			return
+		}
+		r.subs = make([]restriction, h.cres)
+		hdrs := make([]ndrResHdr, h.cres)
+		for i := range r.subs {
+			hdrs[i] = pullResHeaderNDR(p, &r.subs[i])
+		}
+		for i := range r.subs {
+			pullResContentNDR(p, &r.subs[i], hdrs[i])
+		}
+	case resNot, resSub:
+		if !h.hasSub {
+			return
+		}
+		r.subs = make([]restriction, 1)
+		sub := pullResHeaderNDR(p, &r.subs[0])
+		pullResContentNDR(p, &r.subs[0], sub)
+	case resContent, resProperty:
+		if !h.hasProp {
+			return
+		}
+		r.val = pullPropValueNDR(p).Value
+	}
+}
+
+// pullPropertyNameNDR consumes an NSPI property name (MS-OXNSPI 2.3.6): a [unique]
+// GUID referent, a reserved word and the id, then the GUID itself when present.
+// The value is unused by the GAL search but must be read to keep the stream
+// aligned.
+func pullPropertyNameNDR(p *ndr.Pull) {
+	p.Align(4)
+	hasGUID := p.Uint32() != 0 // [unique] pGuid referent
+	p.Uint32()                 // reserved
+	p.Uint32()                 // id
+	if hasGUID {
+		p.Bytes(16) // FLATUID
+	}
 }
 
 // seekEntries answers NspiSeekEntries (MS-OXNSPI 3.1.4.1.9): it positions the
