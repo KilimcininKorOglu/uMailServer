@@ -7,9 +7,11 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -355,30 +357,92 @@ func (m *Manager) VerifyClientCert(cert *x509.Certificate) (string, error) {
 	return "", fmt.Errorf("no identity found in certificate")
 }
 
-// GenerateSelfSigned generates a self-signed certificate for testing
-func (m *Manager) GenerateSelfSigned(_ []string) (string, string, error) {
+// GenerateSelfSigned writes a self-signed ECDSA P-256 certificate covering the
+// given domains (plus their autodiscover. hostnames) and its key to the cert
+// directory, returning the cert and key paths. It is the bootstrap fallback for
+// when ACME is off and no manual certificate is configured, so STARTTLS/HTTPS can
+// still come up; clients must explicitly trust it. With no domains it covers the
+// full authoritative set.
+func (m *Manager) GenerateSelfSigned(domains []string) (string, string, error) {
+	if len(domains) == 0 {
+		domains = m.allowedDomains()
+	}
+	sans := selfSignedSANs(domains)
+	if len(sans) == 0 {
+		// A freshly installed server may have no domains yet; cover localhost so
+		// the bootstrap certificate is still usable for local administration.
+		sans = []string{"localhost"}
+	}
+
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate private key: %w", err)
 	}
 
-	// Generate certificate
-	// Note: In production, use proper certificate generation
-	template := &tls.Certificate{
-		Certificate: [][]byte{},
-		PrivateKey:  priv,
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate serial number: %w", err)
 	}
 
-	// For now, just create key file
-	keyPath := filepath.Join(m.certDir, "selfsigned.key")
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: sans[0], Organization: []string{"uMailServer self-signed"}},
+		DNSNames:              sans,
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(825 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create certificate: %w", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal private key: %w", err)
+	}
+
 	certPath := filepath.Join(m.certDir, "selfsigned.crt")
+	keyPath := filepath.Join(m.certDir, "selfsigned.key")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
+		return "", "", fmt.Errorf("failed to write certificate: %w", err)
+	}
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		return "", "", fmt.Errorf("failed to write key: %w", err)
+	}
 
-	// In a real implementation, we'd generate a proper cert here
-	// For now, return the paths and let the user generate them
-	_ = template
-
-	m.logger.Warn("Self-signed certificate generation not fully implemented")
+	m.logger.Info("Generated self-signed certificate", "domains", sans, "cert", certPath)
 	return certPath, keyPath, nil
+}
+
+// selfSignedSANs expands the base domains into the SAN set: each domain plus its
+// autodiscover. hostname (so Outlook/Exchange clients reach a covered name),
+// lowercased and deduplicated, preserving first-seen order.
+func selfSignedSANs(domains []string) []string {
+	seen := make(map[string]bool)
+	var sans []string
+	add := func(name string) {
+		name = strings.TrimSuffix(strings.ToLower(name), ".")
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		sans = append(sans, name)
+	}
+	for _, d := range domains {
+		d = strings.TrimSuffix(strings.ToLower(d), ".")
+		if d == "" {
+			continue
+		}
+		add(d)
+		add("autodiscover." + d)
+	}
+	return sans
 }
 
 // RenewCertificates manually triggers certificate renewal

@@ -1473,6 +1473,55 @@ func TestSetupAutocertCacheSelection(t *testing.T) {
 	}
 }
 
+// TestGenerateSelfSignedValidCert verifies the bootstrap path writes a real,
+// parseable self-signed certificate covering each domain and its autodiscover.
+// hostname — not a stub returning paths to files that were never created.
+func TestGenerateSelfSignedValidCert(t *testing.T) {
+	m, err := NewManager(Config{}, nil)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.certDir = t.TempDir() // isolate from the package-relative ./certs
+
+	certPath, keyPath, err := m.GenerateSelfSigned([]string{"example.com"})
+	if err != nil {
+		t.Fatalf("GenerateSelfSigned: %v", err)
+	}
+
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("read cert: %v", err)
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Fatalf("key not written: %v", err)
+	}
+
+	cert, err := parseCertificate(certPEM)
+	if err != nil {
+		t.Fatalf("parse generated cert: %v", err)
+	}
+
+	names := map[string]bool{}
+	for _, n := range cert.DNSNames {
+		names[n] = true
+	}
+	if !names["example.com"] || !names["autodiscover.example.com"] {
+		t.Fatalf("DNSNames = %v, want example.com and autodiscover.example.com", cert.DNSNames)
+	}
+	if cert.Issuer.CommonName != cert.Subject.CommonName {
+		t.Fatalf("issuer %q != subject %q; certificate is not self-signed", cert.Issuer.CommonName, cert.Subject.CommonName)
+	}
+	if !cert.NotAfter.After(time.Now()) {
+		t.Fatalf("NotAfter %v is not in the future", cert.NotAfter)
+	}
+	// The certificate must carry a valid self-signature (verified directly with
+	// its own key; CheckSignatureFrom would demand a CA parent we intentionally
+	// are not, since this is a leaf server certificate).
+	if err := cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature); err != nil {
+		t.Fatalf("self-signature does not verify: %v", err)
+	}
+}
+
 // makeCertKeyBundle builds a cert+key PEM bundle in autocert's storage layout —
 // the private-key block first, then the certificate — with the requested expiry.
 func makeCertKeyBundle(t *testing.T, domain string, notAfter time.Time) []byte {
