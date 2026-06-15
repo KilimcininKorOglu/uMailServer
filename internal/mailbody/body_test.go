@@ -100,6 +100,30 @@ func TestExtractPartCalendar(t *testing.T) {
 	}
 }
 
+// TestParseSkipsInlineAttachment proves an inline text part presented as an
+// attachment (a cid-referenced part with a filename) is NOT mistaken for the body.
+// A message whose body is HTML plus an inline text/plain attachment must yield the
+// HTML as the body and no Text, so every surface shows the real body rather than
+// the attachment's bytes -- the regression that surfaced when EWS adopted this
+// decoder and returned a cid-referenced inline part instead of the HTML body.
+func TestParseSkipsInlineAttachment(t *testing.T) {
+	raw := []byte("Content-Type: multipart/related; boundary=RR\r\n\r\n" +
+		"--RR\r\nContent-Type: text/html\r\n\r\n<p>real body cid:img</p>\r\n" +
+		"--RR\r\nContent-Type: text/plain\r\nContent-Disposition: inline; filename=\"note.txt\"\r\n" +
+		"Content-ID: <img>\r\n\r\ninline-attachment-bytes\r\n" +
+		"--RR--\r\n")
+	b := Parse(raw)
+	if b.Text != "" {
+		t.Errorf("Text = %q, want empty (the text/plain part is an inline attachment, not the body)", b.Text)
+	}
+	if b.HTML != "<p>real body cid:img</p>" {
+		t.Errorf("HTML = %q, want the real HTML body", b.HTML)
+	}
+	if got, isHTML := b.Display(); !isHTML || got != "<p>real body cid:img</p>" {
+		t.Errorf("Display() = (%q, %v), want the HTML body", got, isHTML)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

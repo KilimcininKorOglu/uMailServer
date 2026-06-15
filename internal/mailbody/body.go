@@ -112,6 +112,13 @@ func partOfType(contentType, encoding string, body io.Reader, want string) []byt
 			if perr != nil {
 				break
 			}
+			// An attachment -- inline or not -- is never the message body even when
+			// its media type is text/*. Skip parts that carry a filename, a
+			// Content-ID, or an explicit attachment disposition, so a cid-referenced
+			// inline text part is not mistaken for the body text.
+			if isAttachmentPart(part) {
+				continue
+			}
 			if data := partOfType(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, want); data != nil {
 				return data
 			}
@@ -126,6 +133,20 @@ func partOfType(contentType, encoding string, body io.Reader, want string) []byt
 	default:
 		return nil
 	}
+}
+
+// isAttachmentPart reports whether a MIME part is presented as an attachment
+// (inline or not) rather than body content: it carries a filename, a Content-ID,
+// or an explicit attachment disposition.
+func isAttachmentPart(part *multipart.Part) bool {
+	if part.FileName() != "" {
+		return true
+	}
+	if part.Header.Get("Content-ID") != "" {
+		return true
+	}
+	disp, _, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+	return err == nil && strings.EqualFold(disp, "attachment")
 }
 
 // decodeReader wraps body with the decoder for the content-transfer-encoding.
