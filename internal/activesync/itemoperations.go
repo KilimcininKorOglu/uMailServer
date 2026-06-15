@@ -34,6 +34,12 @@ func (s *Server) handleItemOperations(ctx *Context) ([]byte, error) {
 		if f.Name != "Fetch" {
 			continue
 		}
+		// A mailbox search hit is named by its opaque LongId (Store=Mailbox); a
+		// Sync item by CollectionId+ServerId. Both resolve to the same blob read.
+		if longID := textOf(f.Sub("LongId")); longID != "" {
+			block.Children = append(block.Children, s.fetchByLongID(ctx.Email, longID))
+			continue
+		}
 		block.Children = append(block.Children, s.fetchItem(ctx.Email, textOf(f.Sub("CollectionId")), textOf(f.Sub("ServerId"))))
 	}
 	resp.Children = append(resp.Children, block)
@@ -58,6 +64,38 @@ func (s *Server) fetchItem(email, collectionID, serverID string) *wbxml.Element 
 		{Page: wbxml.PageItemOperations, Name: "Status", Text: itemOpStatusSuccess},
 		{Page: wbxml.PageAirSync, Name: "ServerId", Text: serverID},
 		{Page: wbxml.PageAirSync, Name: "CollectionId", Text: collectionID},
+		{Page: wbxml.PageAirSync, Name: "Class", Text: "Email"},
+		{Page: wbxml.PageItemOperations, Name: "Properties", Children: applicationData(*msg)},
+	}
+	return fetch
+}
+
+// fetchByLongID answers an ItemOperations Fetch that names a mailbox search hit
+// by its opaque LongId (Store=Mailbox). It decodes the LongId back to the mail
+// identity the Search command packed into it and reuses the same blob read as a
+// ServerId fetch; the response echoes the LongId so the client matches it to its
+// request. A LongId this server never issued, or a message gone since the search,
+// degrades to the per-item error status.
+func (s *Server) fetchByLongID(email, longID string) *wbxml.Element {
+	fetch := &wbxml.Element{Page: wbxml.PageItemOperations, Name: "Fetch"}
+	collectionID, serverID, ok := decodeLongID(longID)
+	var msg *SyncMessage
+	if ok {
+		var err error
+		if msg, err = s.mail.Fetch(email, collectionID, serverID); err != nil {
+			msg = nil
+		}
+	}
+	if msg == nil {
+		fetch.Children = []*wbxml.Element{
+			{Page: wbxml.PageItemOperations, Name: "Status", Text: itemOpStatusError},
+			{Page: wbxml.PageSearch, Name: "LongId", Text: longID},
+		}
+		return fetch
+	}
+	fetch.Children = []*wbxml.Element{
+		{Page: wbxml.PageItemOperations, Name: "Status", Text: itemOpStatusSuccess},
+		{Page: wbxml.PageSearch, Name: "LongId", Text: longID},
 		{Page: wbxml.PageAirSync, Name: "Class", Text: "Email"},
 		{Page: wbxml.PageItemOperations, Name: "Properties", Children: applicationData(*msg)},
 	}

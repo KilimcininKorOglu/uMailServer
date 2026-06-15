@@ -230,15 +230,15 @@ func TestSearchGALNoMatches(t *testing.T) {
 	}
 }
 
-// TestSearchUnsupportedStore proves a non-GAL store (here Mailbox) reports the
-// overall error Status with no Response block, the signal for the client to fall
-// back rather than parse an empty success or hang. This guards the deliberate
-// GAL-only scope: advertising Search must not imply mailbox search works.
+// TestSearchUnsupportedStore proves an unknown store (here DocumentLibrary)
+// reports the overall error Status with no Response block, the signal for the
+// client to fall back rather than parse an empty success or hang. Only GAL and
+// Mailbox are implemented; anything else must report the error.
 func TestSearchUnsupportedStore(t *testing.T) {
 	s := searchServer(t, &stubGALSource{})
 
 	body := searchEl("Search", searchEl("Store",
-		searchText("Name", "Mailbox"),
+		searchText("Name", "DocumentLibrary"),
 		searchText("Query", "anything"),
 	))
 	resp := doSearch(t, s, body)
@@ -248,5 +248,188 @@ func TestSearchUnsupportedStore(t *testing.T) {
 	}
 	if resp.Sub("Response") != nil {
 		t.Error("error response should carry only Status, no Response block")
+	}
+}
+
+// stubMailSearch is a deterministic MailSearch: it records the query and folder
+// it was asked and returns a fixed, unwindowed hit set (the handler windows).
+type stubMailSearch struct {
+	hits                  []MailHit
+	lastQuery, lastFolder string
+}
+
+func (s *stubMailSearch) SearchMail(_, query, folder string) ([]MailHit, error) {
+	s.lastQuery, s.lastFolder = query, folder
+	return s.hits, nil
+}
+
+// stubMailSource serves messages by server id for the Fetch path; the other
+// MailSource methods are unused by the Search/ItemOperations tests.
+type stubMailSource struct{ msgs map[string]SyncMessage }
+
+func (s stubMailSource) ListMessages(string, string) ([]SyncMessage, error) { return nil, nil }
+func (s stubMailSource) ChangesSince(string, string, uint64) ([]SyncMessage, []SyncMessage, []string, uint64, error) {
+	return nil, nil, nil, 0, nil
+}
+func (s stubMailSource) CurrentSeq(string) (uint64, error) { return 0, nil }
+func (s stubMailSource) Fetch(_, _, serverID string) (*SyncMessage, error) {
+	if m, ok := s.msgs[serverID]; ok {
+		return &m, nil
+	}
+	return nil, nil
+}
+
+// mailboxSearchServer builds an EAS server with a seeded, provisioned device and
+// both the mailbox search source and the mail source wired.
+func mailboxSearchServer(t *testing.T, ms MailSearch, mail MailSource) *Server {
+	t.Helper()
+	s, database := provisionServer(t)
+	if err := database.PutEASDevice(&db.EASDevice{
+		Email: "bob@x.test", DeviceID: "DEV1", PolicyKey: "12345",
+	}); err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+	s.SetMailSearch(ms)
+	s.SetMailSource(mail)
+	return s
+}
+
+// mailboxReq builds a Mailbox Search request: Search>Store>{Name=Mailbox,
+// Query>And>FreeText, Options>Range}.
+func mailboxReq(freetext, rng string) *wbxml.Element {
+	store := searchEl("Store",
+		searchText("Name", "Mailbox"),
+		searchEl("Query", searchEl("And", searchText("FreeText", freetext))),
+	)
+	if rng != "" {
+		store.Children = append(store.Children, searchEl("Options", searchText("Range", rng)))
+	}
+	return searchEl("Search", store)
+}
+
+// doItemOps POSTs an ItemOperations request through the full transport and returns
+// the decoded response.
+func doItemOps(t *testing.T, s *Server, body *wbxml.Element) *wbxml.Element {
+	t.Helper()
+	b, err := wbxml.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost,
+		"/Microsoft-Server-ActiveSync?Cmd=ItemOperations&DeviceId=DEV1", bytes.NewReader(b))
+	req.Header.Set("X-MS-PolicyKey", "12345")
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ItemOperations status = %d, want 200", rec.Code)
+	}
+	resp, err := wbxml.Unmarshal(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	return resp
+}
+
+// TestSearchMailboxReturnsHits proves a Mailbox Search passes the free-text term
+// to the canonical search, applies the requested Range window over the full match
+// set, and encodes each hit as a Result with its AirSync Class/CollectionId, an
+// opaque LongId that decodes back to the (folder, server-id) identity, and the
+// message under Properties. Range describes the emitted rows and Total the exact
+// match count.
+func TestSearchMailboxReturnsHits(t *testing.T) {
+	ms := &stubMailSearch{hits: []MailHit{
+		{CollectionID: "INBOX", ServerID: "blob-1", Class: "Email"},
+		{CollectionID: "INBOX", ServerID: "blob-2", Class: "Email"},
+	}}
+	mail := stubMailSource{msgs: map[string]SyncMessage{
+		"blob-1": {Subject: "Quarterly report", From: "alice@x.test", Body: "numbers inside"},
+		"blob-2": {Subject: "Lunch?", From: "carol@x.test", Body: "tomorrow"},
+	}}
+	s := mailboxSearchServer(t, ms, mail)
+
+	resp := doSearch(t, s, mailboxReq("report", "0-9"))
+
+	if got := subText(resp, "Status"); got != searchStatusSuccess {
+		t.Fatalf("top Status = %q, want %q", got, searchStatusSuccess)
+	}
+	if ms.lastQuery != "report" {
+		t.Errorf("free-text passed to search = %q, want %q", ms.lastQuery, "report")
+	}
+	store, results := resultsOf(t, resp)
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+	r0 := results[0]
+	if got := subText(r0, "Class"); got != "Email" {
+		t.Errorf("Result Class = %q, want Email", got)
+	}
+	if got := subText(r0, "CollectionId"); got != "INBOX" {
+		t.Errorf("Result CollectionId = %q, want INBOX", got)
+	}
+	cid, sid, ok := decodeLongID(subText(r0, "LongId"))
+	if !ok || cid != "INBOX" || sid != "blob-1" {
+		t.Errorf("LongId decoded to (%q,%q,%v), want (INBOX,blob-1,true)", cid, sid, ok)
+	}
+	if got := subText(r0.Sub("Properties"), "Subject"); got != "Quarterly report" {
+		t.Errorf("Result Properties Subject = %q, want %q", got, "Quarterly report")
+	}
+	if got := subText(store, "Range"); got != "0-1" {
+		t.Errorf("Range = %q, want 0-1", got)
+	}
+	if got := subText(store, "Total"); got != "2" {
+		t.Errorf("Total = %q, want 2", got)
+	}
+}
+
+// TestSearchMailboxFetchByLongID is the load-bearing round-trip: a Mailbox Search
+// returns a LongId, and feeding that LongId back through ItemOperations Fetch
+// (Store=Mailbox) returns the full, untruncated message body. A result the client
+// cannot open is worthless; this proves the open path, not just that search
+// returned rows.
+func TestSearchMailboxFetchByLongID(t *testing.T) {
+	ms := &stubMailSearch{hits: []MailHit{{CollectionID: "INBOX", ServerID: "blob-7", Class: "Email"}}}
+	mail := stubMailSource{msgs: map[string]SyncMessage{
+		"blob-7": {Subject: "Invoice 42", From: "billing@x.test", Body: "amount due: 100", BodyType: "1"},
+	}}
+	s := mailboxSearchServer(t, ms, mail)
+
+	resp := doSearch(t, s, mailboxReq("invoice", "0-9"))
+	_, results := resultsOf(t, resp)
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	longID := subText(results[0], "LongId")
+	if longID == "" {
+		t.Fatal("Result missing LongId")
+	}
+
+	fetchReq := &wbxml.Element{Page: wbxml.PageItemOperations, Name: "ItemOperations", Children: []*wbxml.Element{
+		{Page: wbxml.PageItemOperations, Name: "Fetch", Children: []*wbxml.Element{
+			{Page: wbxml.PageItemOperations, Name: "Store", Text: "Mailbox"},
+			{Page: wbxml.PageSearch, Name: "LongId", Text: longID},
+		}},
+	}}
+	fr := doItemOps(t, s, fetchReq)
+
+	if got := subText(fr, "Status"); got != itemOpStatusSuccess {
+		t.Fatalf("ItemOperations Status = %q, want %q", got, itemOpStatusSuccess)
+	}
+	fetch := fr.Sub("Response").Sub("Fetch")
+	if fetch == nil {
+		t.Fatal("ItemOperations response missing Fetch")
+	}
+	if got := subText(fetch, "Status"); got != itemOpStatusSuccess {
+		t.Errorf("Fetch Status = %q, want %q", got, itemOpStatusSuccess)
+	}
+	if got := subText(fetch, "LongId"); got != longID {
+		t.Errorf("Fetch echoed LongId = %q, want %q", got, longID)
+	}
+	props := fetch.Sub("Properties")
+	if got := subText(props, "Subject"); got != "Invoice 42" {
+		t.Errorf("fetched Subject = %q, want %q", got, "Invoice 42")
+	}
+	body := props.Sub("Body")
+	if body == nil || body.Sub("Data") == nil || body.Sub("Data").Text != "amount due: 100" {
+		t.Errorf("fetched body = %v, want the full message body %q", body, "amount due: 100")
 	}
 }

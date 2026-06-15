@@ -84,6 +84,7 @@ type Server struct {
 	aliases      AliasSource
 	oof          OOFStore
 	gal          GALSource
+	mailSearch   MailSearch
 	pings        *pingCache
 }
 

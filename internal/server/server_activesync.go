@@ -695,6 +695,64 @@ func galAlias(email string) string {
 	return email
 }
 
+// easMailSearch runs the EAS Search command's Mailbox store over the canonical
+// per-user mailstore — the SAME store the webmail search endpoint scans — applying
+// the same case-insensitive substring match over sender, recipients, subject and
+// the decoded body, so a phone's mailbox search returns the same hits as the
+// browser. The matcher is mirrored from internal/api/server_search.go rather than
+// shared, because that copy is entangled with the api package's email-DTO
+// assembly; unifying the two into one matcher is an api-package refactor, deferred.
+// Each hit resolves directly to its folder (the EAS CollectionId) and storage blob
+// key (the EAS ServerId), both already in hand from the metadata scan.
+type easMailSearch struct {
+	db  storageBackend
+	msg *storage.MessageStore
+}
+
+// SearchMail returns every message whose sender, recipients, subject or decoded
+// body contains the query (case-insensitive), across all of the user's folders
+// (or one folder when folder is non-empty). The full match set is returned
+// unwindowed; the Search handler applies the requested Range. The decoded body
+// comes from the same projection the EAS Sync/Fetch path shows, so a match is
+// always over content the client can actually open.
+func (s easMailSearch) SearchMail(email, query, folder string) ([]activesync.MailHit, error) {
+	folders, err := s.db.ListMailboxes(email)
+	if err != nil {
+		return nil, err
+	}
+	q := strings.ToLower(query)
+	var hits []activesync.MailHit
+	for _, mb := range folders {
+		if folder != "" && mb != folder {
+			continue
+		}
+		uids, uerr := s.db.GetMessageUIDs(email, mb)
+		if uerr != nil {
+			continue
+		}
+		for _, uid := range uids {
+			meta, merr := s.db.GetMessageMetadata(email, mb, uid)
+			if merr != nil || meta == nil || meta.MessageID == "" {
+				continue
+			}
+			body := ""
+			if raw, rerr := s.msg.ReadMessage(email, meta.MessageID); rerr == nil {
+				_, body = activesync.BodyForSync(raw)
+			}
+			haystack := strings.ToLower(meta.From + " " + meta.Subject + " " + body + " " + meta.To)
+			if q != "" && !strings.Contains(haystack, q) {
+				continue
+			}
+			hits = append(hits, activesync.MailHit{
+				CollectionID: mb,
+				ServerID:     meta.MessageID,
+				Class:        "Email",
+			})
+		}
+	}
+	return hits, nil
+}
+
 // easMailNotifier bridges the shared IMAP notification hub to the EAS Ping
 // command, satisfying activesync.MailboxNotifier. A held Ping subscribes through
 // it and receives the name of any mail folder that changed — the same string a

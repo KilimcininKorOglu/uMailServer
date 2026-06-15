@@ -146,6 +146,7 @@ func (s *Server) startAPI() {
 		eas.SetAliasSource(easAliasSource{db: s.database})
 		eas.SetOOFStore(s.apiServer)
 		eas.SetGALSource(easGALSource{gal: mapi.NewServer(s.database, s.semcoreStore.Policy())})
+		eas.SetMailSearch(easMailSearch{db: s.storageDB, msg: s.msgStore})
 		s.apiServer.SetActiveSyncHandler(eas)
 		s.logger.Info("Exchange ActiveSync handler initialized")
 	}
