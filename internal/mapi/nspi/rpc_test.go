@@ -743,6 +743,25 @@ func TestNSPIQueryRowsRejectsUnboundHandle(t *testing.T) {
 	}
 }
 
+func TestNSPIWriteOpsRefused(t *testing.T) {
+	s := NewRPCServer()
+	handle := bindRPC(t, s)
+	for _, op := range []uint16{opNspiModProps, opNspiModLinkAtt} {
+		resp, ok := s.HandleRPC(op, "user@test.local", handle)
+		if !ok {
+			t.Fatalf("opnum %d reported not-ok", op)
+		}
+		if res := (&rd{b: resp, t: t}).u32(); res != ecNotSupported {
+			t.Fatalf("opnum %d result = %#x, want ecNotSupported (read-only address book)", op, res)
+		}
+	}
+	bogus := make([]byte, 20) // never returned by a bind
+	resp, _ := s.HandleRPC(opNspiModProps, "user@test.local", bogus)
+	if res := (&rd{b: resp, t: t}).u32(); res != ecError {
+		t.Fatalf("unbound write result = %#x, want ecError", res)
+	}
+}
+
 // decodeUTF16LE decodes little-endian UTF-16 and trims the trailing NUL.
 func decodeUTF16LE(b []byte) string {
 	units := make([]uint16, 0, len(b)/2)

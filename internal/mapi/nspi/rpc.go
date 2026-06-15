@@ -28,7 +28,9 @@ const (
 	opNspiUnbind          uint16 = 1
 	opNspiQueryRows       uint16 = 3
 	opNspiGetProps        uint16 = 9
+	opNspiModProps        uint16 = 11
 	opNspiGetSpecialTable uint16 = 12
+	opNspiModLinkAtt      uint16 = 14
 )
 
 // RPCServer exposes the NSPI address book over the DCERPC transport (Outlook
@@ -90,8 +92,12 @@ func (s *RPCServer) HandleRPC(opnum uint16, email string, stub []byte) (resp []b
 		return s.queryRows(stub), true
 	case opNspiGetProps:
 		return s.getProps(stub), true
+	case opNspiModProps:
+		return s.refuseWrite(stub), true
 	case opNspiGetSpecialTable:
 		return s.getSpecialTable(stub), true
+	case opNspiModLinkAtt:
+		return s.refuseWrite(stub), true
 	default:
 		return nil, false
 	}
@@ -379,6 +385,24 @@ func pullProptagArrayNDR(p *ndr.Pull) []wire.PropTag {
 		tags = append(tags, wire.PropTag(p.Uint32()))
 	}
 	return tags
+}
+
+// refuseWrite answers the NSPI write operations NspiModProps (MS-OXNSPI
+// 3.1.4.1.11) and NspiModLinkAtt (MS-OXNSPI 3.1.4.1.14): the address book is a
+// read-only projection of the canonical directory, so a bound session is told the
+// write is unsupported (MAPI_E_NO_SUPPORT) and an unbound one gets an error. Both
+// responses carry only the result code. The handle is the first field of either
+// request, so reading it is enough to validate the session.
+func (s *RPCServer) refuseWrite(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	out.Uint32(ecNotSupported)
+	return out.Bytes()
 }
 
 // pullStatNDR reads a STAT block from an NDR stream (MS-OXNSPI 2.3.7): nine
