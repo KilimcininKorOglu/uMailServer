@@ -390,6 +390,24 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 	s.tlsManager = tlsManager
 
+	// Feed the live tenant domain set to the ACME host policy so certificates can
+	// be issued for every hosted domain (and its mail./autodiscover./smtp./imap.
+	// service names), not just the server's own hostname. The TLS package never
+	// imports db; it consults this callback behind a short-lived cache.
+	tlsManager.SetDomainSource(func() ([]string, error) {
+		domains, lerr := database.ListDomains()
+		if lerr != nil {
+			return nil, lerr
+		}
+		names := make([]string, 0, len(domains))
+		for _, d := range domains {
+			if d != nil && d.Name != "" {
+				names = append(names, d.Name)
+			}
+		}
+		return names, nil
+	})
+
 	// Initialize webhook manager
 	webhookMgr := webhook.NewManager(database, cfg.Security.JWTSecret)
 	webhookMgr.SetTracingProvider(s.tracingProvider)

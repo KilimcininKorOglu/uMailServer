@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"log/slog"
 	"math/big"
 	"os"
@@ -1332,4 +1333,69 @@ func generateTestCertAndKey(t *testing.T, domain string) (certPEM []byte, keyPEM
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privBytes})
 
 	return certPEM, keyPEM
+}
+
+// TestHostPolicyDynamicDomains verifies the ACME host policy accepts the static
+// hostname, every dynamically discovered tenant domain, and their well-known
+// service hostnames — while refusing anything else. The refusal matters: an
+// open policy would let a probe for an arbitrary SNI trigger a doomed ACME order
+// and burn the CA rate limit, so an unknown host MUST be rejected.
+func TestHostPolicyDynamicDomains(t *testing.T) {
+	m, err := NewManager(Config{Domains: []string{"mail.example.com"}}, nil)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.SetDomainSource(func() ([]string, error) {
+		return []string{"tenant.test", "other.test"}, nil
+	})
+
+	allowed := []string{
+		"mail.example.com",   // static config domain
+		"tenant.test",        // dynamic base domain
+		"mail.tenant.test",   // dynamic service hostnames
+		"autodiscover.tenant.test",
+		"smtp.tenant.test",
+		"imap.tenant.test",
+		"other.test",
+		"TENANT.test",  // case-insensitive
+		"tenant.test.", // trailing dot (FQDN form)
+	}
+	for _, host := range allowed {
+		if err := m.hostPolicy(context.Background(), host); err != nil {
+			t.Errorf("host %q should be allowed, got: %v", host, err)
+		}
+	}
+
+	refused := []string{
+		"evil.test",               // unknown base — must be refused
+		"www.tenant.test",         // a service prefix we do not issue for
+		"tenant.test.evil.test",   // suffix-confusion attempt
+		"notmail.example.com",     // not the exact static host
+		"",                        // empty SNI
+	}
+	for _, host := range refused {
+		if err := m.hostPolicy(context.Background(), host); err == nil {
+			t.Errorf("host %q should be refused (rate-limit guard), but was allowed", host)
+		}
+	}
+}
+
+// TestHostPolicySourceFailureKeepsStatic verifies that when the domain source
+// errors, the static Domains stay allowed (the policy must not collapse to
+// refusing everything just because the store is briefly unavailable).
+func TestHostPolicySourceFailureKeepsStatic(t *testing.T) {
+	m, err := NewManager(Config{Domains: []string{"mail.example.com"}}, nil)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.SetDomainSource(func() ([]string, error) {
+		return nil, errors.New("store unavailable")
+	})
+
+	if err := m.hostPolicy(context.Background(), "mail.example.com"); err != nil {
+		t.Errorf("static domain must remain allowed when source fails, got: %v", err)
+	}
+	if err := m.hostPolicy(context.Background(), "tenant.test"); err == nil {
+		t.Error("unknown domain must stay refused when source fails")
+	}
 }

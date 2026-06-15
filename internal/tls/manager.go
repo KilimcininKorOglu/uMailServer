@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,7 +29,24 @@ type Manager struct {
 	certCache   map[string]*tls.Certificate
 	certMu      sync.RWMutex
 	certDir     string
+
+	// domainSource, when set, lists the base domains the server is authoritative
+	// for so the ACME host policy can accept tenant domains discovered at runtime.
+	// It is consulted through a short-lived cache to keep the TLS handshake fast.
+	domainSource  func() ([]string, error)
+	domainCache   []string
+	domainCacheAt time.Time
+	domainMu      sync.Mutex
 }
+
+// domainCacheTTL bounds how stale the dynamic ACME host-policy domain set may be.
+// The handshake path reads it, so it trades a few minutes of propagation delay
+// for not hitting the store on every ClientHello.
+const domainCacheTTL = 5 * time.Minute
+
+// acmeServicePrefixes are the well-known service hostnames accepted for each
+// authoritative base domain (e.g. mail.example.com for example.com).
+var acmeServicePrefixes = []string{"mail.", "autodiscover.", "smtp.", "imap."}
 
 // Config holds TLS manager configuration
 type Config struct {
@@ -107,7 +125,7 @@ func (m *Manager) setupAutocert() error {
 		Cache:      autocert.DirCache(m.certDir),
 		Prompt:     autocert.AcceptTOS,
 		Email:      m.config.Email,
-		HostPolicy: autocert.HostWhitelist(m.config.Domains...),
+		HostPolicy: m.hostPolicy,
 	}
 
 	m.logger.Info("Autocert configured",
@@ -118,6 +136,72 @@ func (m *Manager) setupAutocert() error {
 	)
 
 	return nil
+}
+
+// SetDomainSource injects a callback listing the base domains the server is
+// authoritative for. The ACME host policy then accepts those domains and their
+// mail./autodiscover./smtp./imap. service hostnames in addition to the statically
+// configured Domains. Without a source, only the static Domains are allowed. Safe
+// to call after NewManager: the policy reads the source live, behind a short cache.
+func (m *Manager) SetDomainSource(lister func() ([]string, error)) {
+	m.domainMu.Lock()
+	m.domainSource = lister
+	m.domainCacheAt = time.Time{} // force a refresh on the next lookup
+	m.domainMu.Unlock()
+}
+
+// hostPolicy is the autocert HostPolicy. It permits ACME issuance only for the
+// configured Domains, the dynamically discovered tenant domains, and their
+// well-known service hostnames. An unrecognized SNI is refused so a probe for an
+// arbitrary name cannot trigger a doomed ACME order and burn the CA rate limit.
+func (m *Manager) hostPolicy(_ context.Context, host string) error {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if m.hostAllowed(host) {
+		return nil
+	}
+	return fmt.Errorf("acme/autocert: host %q not configured for issuance", host)
+}
+
+// hostAllowed reports whether host is an authoritative base domain or one of its
+// accepted service hostnames.
+func (m *Manager) hostAllowed(host string) bool {
+	for _, base := range m.allowedDomains() {
+		base = strings.TrimSuffix(strings.ToLower(base), ".")
+		if base == "" {
+			continue
+		}
+		if host == base {
+			return true
+		}
+		for _, prefix := range acmeServicePrefixes {
+			if host == prefix+base {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// allowedDomains unions the static Domains with the cached dynamic domain set,
+// refreshing the latter from the injected source once its TTL has elapsed. A
+// failing source keeps the previous cache (logged) rather than dropping domains.
+func (m *Manager) allowedDomains() []string {
+	domains := append([]string(nil), m.config.Domains...)
+
+	m.domainMu.Lock()
+	defer m.domainMu.Unlock()
+	if m.domainSource != nil {
+		if time.Since(m.domainCacheAt) > domainCacheTTL {
+			if dynamic, err := m.domainSource(); err != nil {
+				m.logger.Warn("TLS host policy: domain source failed, using cached set", "error", err)
+			} else {
+				m.domainCache = dynamic
+				m.domainCacheAt = time.Now()
+			}
+		}
+		domains = append(domains, m.domainCache...)
+	}
+	return domains
 }
 
 // GetCertificate returns a TLS certificate for the given hello info
