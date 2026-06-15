@@ -20,6 +20,7 @@ import (
 	"github.com/umailserver/umailserver/internal/mapi/emsmdb"
 	"github.com/umailserver/umailserver/internal/mapi/nspi"
 	"github.com/umailserver/umailserver/internal/mapi/oab"
+	"github.com/umailserver/umailserver/internal/mapi/rfr"
 	"github.com/umailserver/umailserver/internal/mapi/rpch"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/sieve"
@@ -371,6 +372,13 @@ func (s *Server) startAPI() {
 			// canonical store as one carried over MAPI/HTTP.
 			rpcServer := emsmdb.NewRPCServer(emsmdbProcessor)
 			rpchHandler := rpch.NewHandler(rpcServer)
+			// Bind the MS-OXABREF address-book referral interface (RFR) onto the
+			// same tunnel. It refers the client to this server's own FQDN as the
+			// NSPI host, read live so a hot-reloaded hostname takes effect. "6002"
+			// is the conventional RFR endpoint annotation echoed in the BIND_ACK.
+			rpchHandler.Register(rfr.InterfaceUUID, rfr.NewServer(func() string {
+				return s.cfg().Server.Hostname
+			}), "6002")
 			s.apiServer.SetRPCHHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if email, ok := r.Context().Value(api.ContextKeyEmail).(string); ok && email != "" {
 					r = r.WithContext(emsmdb.WithEmail(r.Context(), email))
