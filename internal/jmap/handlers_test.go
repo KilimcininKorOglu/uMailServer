@@ -1,8 +1,11 @@
 package jmap
 
 import (
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"testing"
 
@@ -940,6 +943,106 @@ func TestStorageToJMAPEmail_AllFlags(t *testing.T) {
 
 	if email.Keywords == nil {
 		t.Error("Keywords should not be nil")
+	}
+}
+
+// TestPopulateBodyDecodesMIME verifies a JMAP Email exposes the DECODED body, not
+// raw transfer-encoded bytes. It matters because a JMAP client must read the same
+// content webmail, search, and EAS read: a base64 HTML part has to come back as
+// readable HTML, and the preview as clean text with no markup or base64.
+func TestPopulateBodyDecodesMIME(t *testing.T) {
+	htmlB64 := base64.StdEncoding.EncodeToString([]byte("<h1>Rich body</h1>"))
+	raw := "Content-Type: multipart/alternative; boundary=BND\r\n\r\n" +
+		"--BND\r\nContent-Type: text/plain\r\n\r\nPlain body line\r\n" +
+		"--BND\r\nContent-Type: text/html\r\nContent-Transfer-Encoding: base64\r\n\r\n" +
+		htmlB64 + "\r\n--BND--\r\n"
+
+	var email Email
+	populateBody(&email, []byte(raw))
+
+	if len(email.TextBody) != 1 || email.TextBody[0].Type != "text/plain" {
+		t.Fatalf("textBody = %+v, want one text/plain part", email.TextBody)
+	}
+	if len(email.HTMLBody) != 1 || email.HTMLBody[0].Type != "text/html" {
+		t.Fatalf("htmlBody = %+v, want one text/html part", email.HTMLBody)
+	}
+	if email.htmlContent != "<h1>Rich body</h1>" {
+		t.Errorf("htmlContent = %q, want decoded HTML (not base64)", email.htmlContent)
+	}
+	if email.Preview != "Plain body line" {
+		t.Errorf("preview = %q, want the clean plain-text part", email.Preview)
+	}
+}
+
+// TestFillBodyValuesRespectsFetchFlags pins RFC 8621 §4.1.4: bodyValues is omitted
+// unless the client asks, returned only for the requested representation, and
+// truncated to maxBodyValueBytes with isTruncated set. A regression here would
+// either leak large bodies on every Email/get or hide them from clients that ask.
+func TestFillBodyValuesRespectsFetchFlags(t *testing.T) {
+	base := func() *Email {
+		return &Email{textContent: "plain text", htmlContent: "<p>html</p>"}
+	}
+
+	noFlag := base()
+	fillBodyValues(noFlag, bodyValueFetch{})
+	if noFlag.BodyValues != nil {
+		t.Errorf("bodyValues = %v, want nil when no fetch flag is set", noFlag.BodyValues)
+	}
+
+	textOnly := base()
+	fillBodyValues(textOnly, bodyValueFetch{text: true})
+	if _, ok := textOnly.BodyValues["html"]; ok {
+		t.Error("fetchTextBodyValues returned an html bodyValue, want text only")
+	}
+	if textOnly.BodyValues["text"].Value != "plain text" {
+		t.Errorf("text bodyValue = %q, want %q", textOnly.BodyValues["text"].Value, "plain text")
+	}
+
+	all := base()
+	fillBodyValues(all, bodyValueFetch{all: true})
+	if len(all.BodyValues) != 2 {
+		t.Errorf("fetchAllBodyValues = %v, want both text and html", all.BodyValues)
+	}
+
+	capped := base()
+	fillBodyValues(capped, bodyValueFetch{text: true, maxBytes: 5})
+	if bv := capped.BodyValues["text"]; bv.Value != "plain" || !bv.IsTruncated {
+		t.Errorf("capped text = %q isTruncated=%v, want %q true", bv.Value, bv.IsTruncated, "plain")
+	}
+}
+
+// TestTruncateUTF8NeverSplitsRune verifies the maxBodyValueBytes octet cap stops on
+// a UTF-8 boundary so a multibyte character is never cut in half (which would emit
+// invalid UTF-8 to the client).
+func TestTruncateUTF8NeverSplitsRune(t *testing.T) {
+	const s = "çay" // 'ç' is two bytes: 0xC3 0xA7
+	if got := truncateUTF8(s, 1); got != "" {
+		t.Errorf("truncateUTF8(%q, 1) = %q, want empty (cannot keep half of ç)", s, got)
+	}
+	if got := truncateUTF8(s, 2); got != "ç" {
+		t.Errorf("truncateUTF8(%q, 2) = %q, want %q", s, got, "ç")
+	}
+	if got := truncateUTF8(s, 2); !utf8.ValidString(got) {
+		t.Errorf("truncateUTF8 produced invalid UTF-8: %q", got)
+	}
+}
+
+// TestGenerateSearchSnippetDecodesBody verifies SearchSnippet/get returns decoded
+// text for a base64 body rather than the raw encoded bytes, so the snippet matches
+// the other search surfaces instead of showing gibberish.
+func TestGenerateSearchSnippetDecodesBody(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte("Decoded snippet body"))
+	raw := "Subject: Hi\r\nContent-Transfer-Encoding: base64\r\n\r\n" + b64 + "\r\n"
+
+	snip := (&Server{}).generateSearchSnippet(raw, "snippet")
+	if snip.Subject != "Hi" {
+		t.Errorf("subject = %q, want Hi", snip.Subject)
+	}
+	if strings.Contains(snip.Preview, b64) {
+		t.Errorf("preview = %q, still contains raw base64", snip.Preview)
+	}
+	if !strings.Contains(snip.Preview, "Decoded snippet body") {
+		t.Errorf("preview = %q, want decoded text", snip.Preview)
 	}
 }
 

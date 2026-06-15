@@ -6,7 +6,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/umailserver/umailserver/internal/mailbody"
 	"github.com/umailserver/umailserver/internal/storage"
 )
 
@@ -309,6 +311,7 @@ func (s *Server) handleEmailGet(user string, call MethodCall) Response {
 	args := call.Args
 	accountID, _ := args["accountId"].(string)
 	ids, _ := args["ids"].([]interface{})
+	fetch := parseBodyFetch(args)
 
 	// Validate accountId matches authenticated user
 	if valid, resp := validateAccountId(accountID, user, "Email/get", call.ID); !valid {
@@ -334,6 +337,7 @@ func (s *Server) handleEmailGet(user string, call MethodCall) Response {
 					}
 					if meta.MessageID == idStr {
 						email := s.storageToJMAPEmail(user, meta, nil, mbox)
+						fillBodyValues(&email, fetch)
 						emails = append(emails, email)
 						found = true
 						break
@@ -1094,36 +1098,31 @@ func (s *Server) handleSearchSnippetGet(user string, call MethodCall) Response {
 	}
 }
 
-// generateSearchSnippet generates a search snippet from email content
+// generateSearchSnippet generates a search snippet from email content. The body
+// preview comes from the shared mailbody decoder, so a multipart or base64
+// message yields readable text matching webmail, full-text search, and EAS rather
+// than raw encoded bytes. Truncation is rune-aware to avoid splitting a UTF-8
+// character in the decoded text.
 func (s *Server) generateSearchSnippet(emailData, searchText string) SearchSnippet {
-	lines := strings.Split(emailData, "\n")
-	var subject, body string
-	inBody := false
-
-	for _, line := range lines {
-		// Stop at empty line after headers (body starts)
-		if !inBody && line == "" {
-			inBody = true
-			continue
+	var subject string
+	for _, line := range strings.Split(emailData, "\n") {
+		if strings.TrimRight(line, "\r") == "" {
+			break // end of headers
 		}
-
-		if !inBody {
-			// Parse headers
-			if strings.HasPrefix(strings.ToLower(line), "subject:") {
-				subject = strings.TrimPrefix(line, "subject:")
-				subject = strings.TrimSpace(subject)
-			}
-		} else {
-			// Collect body
-			if len(body) < 200 {
-				body += line + " "
-			}
+		if strings.HasPrefix(strings.ToLower(line), "subject:") {
+			subject = strings.TrimSpace(line[len("subject:"):])
 		}
 	}
 
-	body = strings.TrimSpace(body)
-	if len(body) > 150 {
-		body = body[:150] + "..."
+	// A snippet is the slice of the body around the search match; with no query
+	// text there is nothing to match, so only the subject is returned.
+	if strings.TrimSpace(searchText) == "" {
+		return SearchSnippet{Subject: subject}
+	}
+
+	body := strings.TrimSpace(mailbody.Parse([]byte(emailData)).SearchText())
+	if r := []rune(body); len(r) > 150 {
+		body = string(r[:150]) + "..."
 	}
 
 	return SearchSnippet{
@@ -1694,6 +1693,109 @@ func (s *Server) handleIdentityQueryChanges(user string, call MethodCall) Respon
 	}
 }
 
+// jmapPreviewMax bounds the plain-text preview returned on an Email. RFC 8621
+// §4.1.4 leaves the length to the server; 256 octets is the common convention.
+const jmapPreviewMax = 256
+
+// populateBody fills the JMAP body representations from the shared mailbody
+// decoder so a JMAP client reads the same decoded text as webmail, search, and
+// EAS rather than raw encoded bytes. textBody, htmlBody, and preview are
+// default-returned properties; the decoded values are stashed unexported and
+// turned into bodyValues by Email/get only when the client requests them.
+func populateBody(email *Email, raw []byte) {
+	b := mailbody.Parse(raw)
+	if b.Text != "" {
+		email.textContent = b.Text
+		email.TextBody = []EmailBodyPart{{PartID: "text", Type: "text/plain", Charset: "utf-8", Size: int64(len(b.Text))}}
+	}
+	if b.HTML != "" {
+		email.htmlContent = b.HTML
+		email.HTMLBody = []EmailBodyPart{{PartID: "html", Type: "text/html", Charset: "utf-8", Size: int64(len(b.HTML))}}
+	}
+	email.Preview = jmapPreview(b.SearchText())
+}
+
+// jmapPreview reduces decoded body text to a short, single-line preview as
+// RFC 8621 §4.1.4 expects: whitespace runs (including line breaks) collapse to a
+// single space and the result is capped at jmapPreviewMax runes.
+func jmapPreview(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > jmapPreviewMax {
+		return string(r[:jmapPreviewMax])
+	}
+	return s
+}
+
+// bodyValueFetch carries the Email/get body-value request flags (RFC 8621 §4.1.4):
+// which representations the client wants inline and the per-value octet cap.
+type bodyValueFetch struct {
+	text, html, all bool
+	maxBytes        int
+}
+
+// parseBodyFetch reads the body-value fetch flags from an Email/get argument map.
+func parseBodyFetch(args map[string]interface{}) bodyValueFetch {
+	var f bodyValueFetch
+	if b, ok := args["fetchTextBodyValues"].(bool); ok {
+		f.text = b
+	}
+	if b, ok := args["fetchHTMLBodyValues"].(bool); ok {
+		f.html = b
+	}
+	if b, ok := args["fetchAllBodyValues"].(bool); ok {
+		f.all = b
+	}
+	if m, ok := args["maxBodyValueBytes"].(float64); ok && m > 0 {
+		f.maxBytes = int(m)
+	}
+	return f
+}
+
+// fillBodyValues turns the decoded bodies stashed by populateBody into the
+// Email's bodyValues, honoring the fetch flags and maxBodyValueBytes. Per
+// RFC 8621 §4.1.4 nothing is returned unless the client asked for a body value,
+// so Email/set and Email/import responses (which never set these flags) carry no
+// bodyValues.
+func fillBodyValues(email *Email, f bodyValueFetch) {
+	if !f.text && !f.html && !f.all {
+		return
+	}
+	values := map[string]EmailBodyValue{}
+	if (f.all || f.text) && email.textContent != "" {
+		values["text"] = bodyValue(email.textContent, f.maxBytes)
+	}
+	if (f.all || f.html) && email.htmlContent != "" {
+		values["html"] = bodyValue(email.htmlContent, f.maxBytes)
+	}
+	if len(values) > 0 {
+		email.BodyValues = values
+	}
+}
+
+// bodyValue wraps decoded content as a JMAP EmailBodyValue, truncating to
+// maxBytes octets on a UTF-8 boundary and flagging the truncation. maxBytes <= 0
+// means no limit.
+func bodyValue(content string, maxBytes int) EmailBodyValue {
+	if maxBytes > 0 && len(content) > maxBytes {
+		return EmailBodyValue{Value: truncateUTF8(content, maxBytes), IsTruncated: true}
+	}
+	return EmailBodyValue{Value: content}
+}
+
+// truncateUTF8 truncates s to at most n bytes without splitting a UTF-8 rune.
+func truncateUTF8(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 // storageToJMAPEmail converts storage metadata to a JMAP Email. The base fields
 // come from metadata; the full recipient set (cc/bcc/sender/replyTo with display
 // names), messageId/inReplyTo/references, sentAt and hasAttachment are parsed
@@ -1728,11 +1830,12 @@ func (s *Server) storageToJMAPEmail(user string, meta *storage.MessageMetadata, 
 		}
 	}
 
-	// Enrich from the raw MIME (authoritative for headers). Resilient: if the
-	// blob cannot be read or parsed, the metadata-based base is returned as-is.
+	// Enrich from the raw MIME (authoritative for headers and body). Resilient: if
+	// the blob cannot be read or parsed, the metadata-based base is returned as-is.
 	if s.msgStore != nil {
 		if data, err := s.msgStore.ReadMessage(user, meta.MessageID); err == nil {
 			enrichEmailFromMIME(&email, data)
+			populateBody(&email, data)
 		}
 	}
 

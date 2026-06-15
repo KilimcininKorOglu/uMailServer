@@ -145,6 +145,12 @@ type Email struct {
 	// Preview
 	Preview       string `json:"preview,omitempty"`
 	HasAttachment bool   `json:"hasAttachment,omitempty"`
+
+	// Decoded bodies from the shared mailbody decoder, stashed for Email/get to
+	// turn into bodyValues only when the client asks (RFC 8621 §4.1.4). Unexported:
+	// never marshaled to the wire.
+	textContent string
+	htmlContent string
 }
 
 // EmailAddress represents an email address
