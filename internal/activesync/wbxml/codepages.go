@@ -82,6 +82,8 @@ const (
 	PageItemOperations  byte = 20 // ItemOperations: Fetch/EmptyFolderContents/Move
 	PageComposeMail     byte = 21 // SendMail/SmartForward/SmartReply
 	PagePing            byte = 13 // Ping command (long-poll change notification)
+	PageSearch          byte = 15 // Search command (GAL + mailbox full-text)
+	PageGAL             byte = 16 // Global Address List entry properties (Search results)
 )
 
 var _ = register(PageAirSync, "AirSync", map[byte]string{
@@ -608,4 +610,58 @@ var _ = register(PagePing, "Ping", map[byte]string{
 	0x0B: "Id",
 	0x0C: "Class",
 	0x0D: "MaxFolders",
+})
+
+// Code Page 15: Search (MS-ASWBXML 2.1.2.16). Drives the Search command for both
+// the GAL store (recipient resolution) and the mailbox store (full-text search);
+// mailbox hits are identified by LongId.
+var _ = register(PageSearch, "Search", map[byte]string{
+	0x05: "Search",
+	0x07: "Store",
+	0x08: "Name",
+	0x09: "Query",
+	0x0A: "Options",
+	0x0B: "Range",
+	0x0C: "Status",
+	0x0D: "Response",
+	0x0E: "Result",
+	0x0F: "Properties",
+	0x10: "Total",
+	0x11: "EqualTo",
+	0x12: "Value",
+	0x13: "And",
+	0x14: "Or",
+	0x15: "FreeText",
+	0x17: "DeepTraversal",
+	0x18: "LongId",
+	0x19: "RebuildResults",
+	0x1A: "LessThan",
+	0x1B: "GreaterThan",
+	0x1C: "Schema",
+	0x1D: "Supported",
+	0x1E: "UserName",       // Since 12.1
+	0x1F: "Password",       // Since 12.1
+	0x20: "ConversationId", // Since 14.0
+	0x21: "Picture",        // Since 14.1
+	0x22: "MaxSize",        // Since 14.1
+	0x23: "MaxPictures",    // Since 14.1
+})
+
+// Code Page 16: GAL (MS-ASWBXML 2.1.2.17). The property set returned for each GAL
+// match under a Search Result's Properties element.
+var _ = register(PageGAL, "GAL", map[byte]string{
+	0x05: "DisplayName",
+	0x06: "Phone",
+	0x07: "Office",
+	0x08: "Title",
+	0x09: "Company",
+	0x0A: "Alias",
+	0x0B: "FirstName",
+	0x0C: "LastName",
+	0x0D: "HomePhone",
+	0x0E: "MobilePhone",
+	0x0F: "EmailAddress",
+	0x10: "Picture", // Since 14.1
+	0x11: "Status",  // Since 14.1
+	0x12: "Data",    // Since 14.1
 })

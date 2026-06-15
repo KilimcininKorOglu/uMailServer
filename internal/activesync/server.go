@@ -83,6 +83,7 @@ type Server struct {
 	notifier     MailboxNotifier
 	aliases      AliasSource
 	oof          OOFStore
+	gal          GALSource
 	pings        *pingCache
 }
 
@@ -105,6 +106,7 @@ func NewServer(authenticate func(*http.Request) (string, bool)) *Server {
 	s.Handle("MeetingResponse", s.handleMeetingResponse)
 	s.Handle("Ping", s.handlePing)
 	s.Handle("Settings", s.handleSettings)
+	s.Handle("Search", s.handleSearch)
 	return s
 }
 

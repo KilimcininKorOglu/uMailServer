@@ -17,6 +17,7 @@ import (
 	"github.com/umailserver/umailserver/internal/ews"
 	"github.com/umailserver/umailserver/internal/imap"
 	"github.com/umailserver/umailserver/internal/mailappend"
+	"github.com/umailserver/umailserver/internal/mapi"
 	"github.com/umailserver/umailserver/internal/semcore"
 	"github.com/umailserver/umailserver/internal/storage"
 )
@@ -664,6 +665,34 @@ func (a easAliasSource) AliasesFor(email string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// easGALSource resolves Global Address List entries for the EAS Search command's
+// GAL store from the same policy-filtered directory the binary NSPI and OAB
+// address-book surfaces query, so every GAL surface agrees on one source. The
+// Alias is the address local-part, which the canonical GAL entry does not carry
+// separately.
+type easGALSource struct{ gal *mapi.Server }
+
+func (g easGALSource) ResolveGAL(query string) []activesync.GALResult {
+	entries := g.gal.ResolveGAL(query)
+	out := make([]activesync.GALResult, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, activesync.GALResult{
+			DisplayName: e.DisplayName,
+			Email:       e.Email,
+			Alias:       galAlias(e.Email),
+		})
+	}
+	return out
+}
+
+// galAlias derives a GAL alias from an email address's local-part.
+func galAlias(email string) string {
+	if i := strings.IndexByte(email, '@'); i > 0 {
+		return email[:i]
+	}
+	return email
 }
 
 // easMailNotifier bridges the shared IMAP notification hub to the EAS Ping
