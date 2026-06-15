@@ -26,6 +26,7 @@ var InterfaceUUID = wire.GUID{
 const (
 	opNspiBind            uint16 = 0
 	opNspiUnbind          uint16 = 1
+	opNspiQueryRows       uint16 = 3
 	opNspiGetProps        uint16 = 9
 	opNspiGetSpecialTable uint16 = 12
 )
@@ -85,6 +86,8 @@ func (s *RPCServer) HandleRPC(opnum uint16, email string, stub []byte) (resp []b
 		return s.bind(email, stub), true
 	case opNspiUnbind:
 		return s.unbind(stub), true
+	case opNspiQueryRows:
+		return s.queryRows(stub), true
 	case opNspiGetProps:
 		return s.getProps(stub), true
 	case opNspiGetSpecialTable:
@@ -176,6 +179,100 @@ func (s *RPCServer) getSpecialTable(stub []byte) []byte {
 	pushRowSet(out, rows)
 	out.Uint32(ecSuccess)
 	return out.Bytes()
+}
+
+// queryRows answers NspiQueryRows (MS-OXNSPI 3.1.4.1.8): it returns a block of
+// address-book rows, either for an explicit minimal-id list or by reading forward
+// from the table cursor the STAT block carries. The request is the context
+// handle, dwFlags, the STAT block, an explicit minimal-id count and its optional
+// [unique] table, the maximum row count, then an optional [unique] property-tag
+// array (an absent array selects the default column set). The response echoes the
+// advanced STAT, then a result-gated [unique] row set. Cursor enumeration reads
+// the same stable GAL order every position-based operation shares, advancing
+// NumPos and CurrentRec so the next call resumes where this one stopped.
+func (s *RPCServer) queryRows(stub []byte) []byte {
+	p := ndr.NewPull(stub)
+	handle := readNSPIHandle(p)
+	p.Uint32() // dwFlags
+	stat := pullStatNDR(p)
+	tableCount := p.Uint32()
+	var explicit []uint32
+	if p.Uint32() != 0 { // explicit minimal-id table [unique] referent
+		size := p.ULong()
+		if size != tableCount {
+			p.Fault()
+		}
+		explicit = make([]uint32, 0, tableCount)
+		for range tableCount {
+			if p.Err() != nil {
+				break
+			}
+			explicit = append(explicit, p.Uint32())
+		}
+	}
+	count := int(p.Uint32())
+	var cols []wire.PropTag
+	if p.Uint32() != 0 { // pPropTags [unique] referent
+		cols = pullProptagArrayNDR(p)
+	}
+	if len(cols) == 0 {
+		cols = defaultColumns
+	}
+	out := ndr.NewPush()
+	if p.Err() != nil || !s.hasSession(handle) {
+		pushStatNDR(out, stat)
+		out.UniquePtr(false) // NULL row set
+		out.Uint32(ecError)
+		return out.Bytes()
+	}
+	gal := sortedGAL(s.dir)
+	stat.TotalRec = uint32(len(gal))
+	var entries []DirectoryEntry
+	if len(explicit) > 0 {
+		for _, mid := range explicit {
+			if idx := midIndex(mid, len(gal)); idx >= 0 {
+				entries = append(entries, gal[idx])
+			}
+		}
+	} else {
+		start := int(stat.NumPos)
+		if start < 0 || start > len(gal) {
+			start = len(gal)
+		}
+		end := min(start+count, len(gal))
+		entries = gal[start:end]
+		stat.NumPos = uint32(end)
+		if end >= len(gal) {
+			stat.CurrentRec = midEnd
+		} else {
+			stat.CurrentRec = entryMid(end)
+		}
+	}
+	rows := make([][]wire.TaggedPropertyValue, len(entries))
+	for i, e := range entries {
+		rows[i] = galRowValues(e, cols)
+	}
+	pushStatNDR(out, stat)
+	out.UniquePtr(true) // row set present (possibly empty) on success
+	pushRowSet(out, rows)
+	out.Uint32(ecSuccess)
+	return out.Bytes()
+}
+
+// galRowValues builds the property values for one GAL entry over the requested
+// columns, marking an absent column PtypErrorCode(ecNotFound). It reads the same
+// entryProperty mapping the MAPI/HTTP surface uses, so a row reports identical
+// values on either transport.
+func galRowValues(entry DirectoryEntry, cols []wire.PropTag) []wire.TaggedPropertyValue {
+	vals := make([]wire.TaggedPropertyValue, len(cols))
+	for i, c := range cols {
+		if v, ok := entryProperty(c, entry); ok {
+			vals[i] = wire.TaggedPropertyValue{Tag: c, Value: v}
+			continue
+		}
+		vals[i] = wire.TaggedPropertyValue{Tag: wire.MakeTag(c.ID(), wire.PtError), Value: ecNotFound}
+	}
+	return vals
 }
 
 // getProps answers NspiGetProps (MS-OXNSPI 3.1.4.1.7): it returns the requested
@@ -300,6 +397,22 @@ func pullStatNDR(p *ndr.Pull) Stat {
 		TemplateLocale: p.Uint32(),
 		SortLocale:     p.Uint32(),
 	}
+}
+
+// pushStatNDR writes a STAT block to an NDR stream (MS-OXNSPI 2.3.7), the mirror
+// of pullStatNDR: nine 4-byte fields, 4-aligned. Operations that advance the
+// table cursor echo the updated block so the client resumes from it.
+func pushStatNDR(out *ndr.Push, s Stat) {
+	out.Align(4)
+	out.Uint32(s.SortType)
+	out.Uint32(s.ContainerID)
+	out.Uint32(s.CurrentRec)
+	out.Uint32(uint32(s.Delta))
+	out.Uint32(s.NumPos)
+	out.Uint32(s.TotalRec)
+	out.Uint32(s.CodePage)
+	out.Uint32(s.TemplateLocale)
+	out.Uint32(s.SortLocale)
 }
 
 // writeNSPIHandle marshals an NSPI context handle: a 4-byte handle type (always

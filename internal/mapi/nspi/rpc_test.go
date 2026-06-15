@@ -317,16 +317,25 @@ func readPropRow(r *rd) []decodedVal {
 	if mc := r.u32(); mc != cv {
 		r.t.Fatalf("value-array max_count = %d, want %d", mc, cv)
 	}
-	vals := make([]decodedVal, cv)
+	vals := readValueHeaders(r, cv)
+	readValueContents(r, vals)
+	return vals
+}
+
+// readValueHeaders decodes n NSPI property-value headers — proptag, the reserved
+// field, the type discriminant (which must echo the proptag's type), then the
+// inline scalar or the deferred-data referent. The arm is decoded from the
+// proptag, never the discriminant slot, so the decoder cannot mask an encoder
+// that writes the wrong discriminant.
+func readValueHeaders(r *rd, n uint32) []decodedVal {
+	r.t.Helper()
+	vals := make([]decodedVal, n)
 	for i := range vals {
 		r.align4()
 		d := decodedVal{tag: r.u32()}
 		if resv := r.u32(); resv != 0 {
 			r.t.Fatalf("value %d ulReserved = %#x, want 0", i, resv)
 		}
-		// The value union's type discriminant must echo the proptag's type; decode
-		// the arm from the proptag so the decoder never trusts the discriminant
-		// slot to be self-consistent with the encoder.
 		d.typ = r.u32()
 		if pt := d.tag & 0xFFFF; d.typ != pt {
 			r.t.Fatalf("value %d type discriminant = %#x, want %#x (the proptag's type)", i, d.typ, pt)
@@ -346,6 +355,13 @@ func readPropRow(r *rd) []decodedVal {
 		}
 		vals[i] = d
 	}
+	return vals
+}
+
+// readValueContents decodes the deferred content (strings, binaries) for the
+// values whose headers carried a non-NULL referent; scalars carried their value
+// inline and contribute nothing here.
+func readValueContents(r *rd, vals []decodedVal) {
 	for i := range vals {
 		switch wire.PropType(uint16(vals[i].tag)) {
 		case wire.PtUnicode:
@@ -364,7 +380,38 @@ func readPropRow(r *rd) []decodedVal {
 			vals[i].bin = r.raw(int(cb))
 		}
 	}
-	return vals
+}
+
+// readRowSet decodes an NSP_ROWSET: the conformant row count, every row's fixed
+// header (reserved, value count, value-array referent), then every row's deferred
+// content (the value headers followed by the value contents). It mirrors the two
+// NDR passes pushRowSet writes.
+func readRowSet(r *rd) [][]decodedVal {
+	r.t.Helper()
+	r.u32() // conformant max_count
+	crows := r.u32()
+	cvs := make([]uint32, crows)
+	for i := range cvs {
+		r.align4()
+		if resv := r.u32(); resv != 0 {
+			r.t.Fatalf("row %d reserved = %#x, want 0", i, resv)
+		}
+		cvs[i] = r.u32()
+		r.u32() // value-array referent
+	}
+	rows := make([][]decodedVal, crows)
+	for i := range rows {
+		if cvs[i] == 0 {
+			continue
+		}
+		if mc := r.u32(); mc != cvs[i] {
+			r.t.Fatalf("row %d value-array max_count = %d, want %d", i, mc, cvs[i])
+		}
+		vals := readValueHeaders(r, cvs[i])
+		readValueContents(r, vals)
+		rows[i] = vals
+	}
+	return rows
 }
 
 // getPropsRequest builds an NspiGetProps request positioned at GAL entry mid rec,
@@ -517,6 +564,182 @@ func TestNSPIGetPropsInvalidPosition(t *testing.T) {
 	}
 	if res := r.u32(); res != ecWarnWithErrors {
 		t.Fatalf("result = %#x, want ecWarnWithErrors", res)
+	}
+}
+
+// queryRowsRequest builds an NspiQueryRows cursor request: no explicit minimal-id
+// table, reading up to count rows forward from numPos with an explicit column set.
+func queryRowsRequest(handle []byte, numPos, count uint32, cols []wire.PropTag) []byte {
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0)      // dwFlags
+	p.Uint32(0)      // STAT.SortType
+	p.Uint32(0)      // STAT.ContainerID
+	p.Uint32(0)      // STAT.CurrentRec
+	p.Uint32(0)      // STAT.Delta
+	p.Uint32(numPos) // STAT.NumPos
+	p.Uint32(0)      // STAT.TotalRec
+	p.Uint32(0)      // STAT.CodePage
+	p.Uint32(0)      // STAT.TemplateLocale
+	p.Uint32(0)      // STAT.SortLocale
+	p.Uint32(0)      // explicit minimal-id count
+	p.Uint32(0)      // explicit minimal-id table [unique] referent: NULL
+	p.Uint32(count)
+	p.Uint32(0x20000) // pPropTags referent: present
+	p.ULong(uint32(len(cols)) + 1)
+	p.Uint32(uint32(len(cols)))
+	p.ULong(0)
+	p.ULong(uint32(len(cols)))
+	for _, c := range cols {
+		p.Uint32(uint32(c))
+	}
+	return p.Bytes()
+}
+
+// queryRowsExplicitRequest builds an NspiQueryRows request carrying an explicit
+// minimal-id table, returning exactly those entries.
+func queryRowsExplicitRequest(handle []byte, mids []uint32, cols []wire.PropTag) []byte {
+	p := ndr.NewPush()
+	p.Raw(handle)
+	p.Uint32(0) // dwFlags
+	for range 9 {
+		p.Uint32(0) // zeroed STAT
+	}
+	p.Uint32(uint32(len(mids))) // explicit minimal-id count
+	p.Uint32(0x40000)           // table [unique] referent: present
+	p.ULong(uint32(len(mids)))  // conformant size == count
+	for _, m := range mids {
+		p.Uint32(m)
+	}
+	p.Uint32(uint32(len(mids))) // row count
+	p.Uint32(0x20000)           // pPropTags referent
+	p.ULong(uint32(len(cols)) + 1)
+	p.Uint32(uint32(len(cols)))
+	p.ULong(0)
+	p.ULong(uint32(len(cols)))
+	for _, c := range cols {
+		p.Uint32(uint32(c))
+	}
+	return p.Bytes()
+}
+
+// readQueryRows decodes an NspiQueryRows response: the advanced STAT, the row-set
+// referent, the row set, then the result code, asserting the whole body is
+// consumed so a layout mismatch surfaces.
+func readQueryRows(t *testing.T, resp []byte) (stat Stat, rows [][]decodedVal, result uint32) {
+	t.Helper()
+	r := &rd{b: resp, t: t}
+	stat = Stat{
+		SortType:       r.u32(),
+		ContainerID:    r.u32(),
+		CurrentRec:     r.u32(),
+		Delta:          int32(r.u32()),
+		NumPos:         r.u32(),
+		TotalRec:       r.u32(),
+		CodePage:       r.u32(),
+		TemplateLocale: r.u32(),
+		SortLocale:     r.u32(),
+	}
+	if ref := r.u32(); ref != 0 {
+		rows = readRowSet(r)
+	}
+	result = r.u32()
+	if r.off != len(resp) {
+		t.Fatalf("decoded %d of %d bytes; trailing bytes mean a layout mismatch", r.off, len(resp))
+	}
+	return stat, rows, result
+}
+
+func TestNSPIQueryRowsEnumeratesGAL(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+		{Email: "cara@test.local", DisplayName: "Cara Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+	cols := []wire.PropTag{wire.PidTagDisplayName, wire.PidTagSmtpAddress}
+
+	// First page: two rows from the start; the cursor advances to the third entry.
+	resp, ok := s.HandleRPC(opNspiQueryRows, "user@test.local", queryRowsRequest(handle, 0, 2, cols))
+	if !ok {
+		t.Fatal("NspiQueryRows reported not-ok")
+	}
+	stat, rows, result := readQueryRows(t, resp)
+	if result != ecSuccess {
+		t.Fatalf("result = %#x, want ecSuccess", result)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("page 1 returned %d rows, want 2", len(rows))
+	}
+	if rows[0][0].str != "Ann Example" || rows[1][0].str != "Bob Example" {
+		t.Fatalf("page 1 display names = %q,%q; want Ann,Bob (sorted GAL order)", rows[0][0].str, rows[1][0].str)
+	}
+	if rows[0][1].str != "ann@test.local" {
+		t.Fatalf("page 1 row 0 smtp = %q, want ann@test.local", rows[0][1].str)
+	}
+	if stat.TotalRec != 3 {
+		t.Fatalf("TotalRec = %d, want 3", stat.TotalRec)
+	}
+	if stat.NumPos != 2 {
+		t.Fatalf("NumPos = %d, want 2 (cursor advanced past two rows)", stat.NumPos)
+	}
+	if stat.CurrentRec != entryMid(2) {
+		t.Fatalf("CurrentRec = %#x, want %#x (the third entry)", stat.CurrentRec, entryMid(2))
+	}
+
+	// Second page from the advanced cursor: the last row, cursor parks at MID_END.
+	resp2, _ := s.HandleRPC(opNspiQueryRows, "user@test.local", queryRowsRequest(handle, stat.NumPos, 2, cols))
+	stat2, rows2, result2 := readQueryRows(t, resp2)
+	if result2 != ecSuccess || len(rows2) != 1 {
+		t.Fatalf("page 2 result=%#x rows=%d, want ecSuccess and 1 row", result2, len(rows2))
+	}
+	if rows2[0][0].str != "Cara Example" {
+		t.Fatalf("page 2 display name = %q, want Cara Example", rows2[0][0].str)
+	}
+	if stat2.CurrentRec != midEnd {
+		t.Fatalf("CurrentRec = %#x, want MID_END %#x", stat2.CurrentRec, midEnd)
+	}
+}
+
+func TestNSPIQueryRowsExplicitMinimalIDs(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{
+		{Email: "ann@test.local", DisplayName: "Ann Example", ObjectClass: "User"},
+		{Email: "bob@test.local", DisplayName: "Bob Example", ObjectClass: "User"},
+		{Email: "cara@test.local", DisplayName: "Cara Example", ObjectClass: "User"},
+	}})
+	handle := bindRPC(t, s)
+
+	resp, ok := s.HandleRPC(opNspiQueryRows, "user@test.local",
+		queryRowsExplicitRequest(handle, []uint32{entryMid(1)}, []wire.PropTag{wire.PidTagDisplayName}))
+	if !ok {
+		t.Fatal("NspiQueryRows reported not-ok")
+	}
+	_, rows, result := readQueryRows(t, resp)
+	if result != ecSuccess || len(rows) != 1 {
+		t.Fatalf("result=%#x rows=%d, want ecSuccess and 1 row", result, len(rows))
+	}
+	if rows[0][0].str != "Bob Example" {
+		t.Fatalf("explicit-MID row = %q, want Bob Example (entry at minimal id %#x)", rows[0][0].str, entryMid(1))
+	}
+}
+
+func TestNSPIQueryRowsRejectsUnboundHandle(t *testing.T) {
+	s := NewRPCServer()
+	s.SetDirectory(fakeDir{entries: []DirectoryEntry{{Email: "a@x.test", DisplayName: "A", ObjectClass: "User"}}})
+	bogus := make([]byte, 20) // never returned by a bind
+	resp, ok := s.HandleRPC(opNspiQueryRows, "user@test.local",
+		queryRowsRequest(bogus, 0, 10, []wire.PropTag{wire.PidTagDisplayName}))
+	if !ok {
+		t.Fatal("NspiQueryRows reported not-ok")
+	}
+	_, rows, result := readQueryRows(t, resp)
+	if result != ecError {
+		t.Fatalf("result = %#x, want ecError for an unbound handle", result)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("unbound handle returned %d rows, want 0", len(rows))
 	}
 }
 
