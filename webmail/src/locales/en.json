@@ -219,6 +219,8 @@
     "writeMessage": "Write your message...",
     "requestReadReceipt": "Request a read receipt",
     "readReceipt": "Read receipt",
+    "signMessage": "Sign",
+    "encryptMessage": "Encrypt",
     "toSend": "to send"
   },
   "settings": {

@@ -64,6 +64,8 @@ export interface SendMailRequest {
   from?: string // Sender identity for send-as or send-on-behalf
   attachments?: MailAttachment[]
   requestReadReceipt?: boolean // ask the recipient's client for a read receipt
+  signMessage?: boolean // S/MIME sign the message
+  encryptMessage?: boolean // S/MIME encrypt the message
   // sendAt, when a future absolute RFC3339 instant, defers delivery: the server
   // releases the message at that time instead of sending now.
   sendAt?: string

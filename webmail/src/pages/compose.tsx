@@ -20,6 +20,8 @@ import {
   AlertTriangle,
   Mail,
   ChevronDown,
+  Shield,
+  Key,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -145,6 +147,8 @@ export function ComposePage() {
   }, [])
 
   const [requestReadReceipt, setRequestReadReceipt] = useState(false)
+  const [signMessage, setSignMessage] = useState(false)
+  const [encryptMessage, setEncryptMessage] = useState(false)
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -562,6 +566,8 @@ export function ComposePage() {
         from: senderEmail, // Pass sender identity to API
         attachments: encoded.length > 0 ? encoded : undefined,
         requestReadReceipt: requestReadReceipt || undefined,
+        signMessage: signMessage || undefined,
+        encryptMessage: encryptMessage || undefined,
         sendAt: sendAtISO,
       })
 
@@ -1185,6 +1191,28 @@ export function ComposePage() {
           >
             <Check className={requestReadReceipt ? "mr-1.5 h-4 w-4" : "mr-1.5 h-4 w-4 opacity-40"} />
             {t("compose.readReceipt")}
+          </Button>
+          <Button
+            type="button"
+            variant={signMessage ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => setSignMessage((v) => !v)}
+            title={t("compose.signMessage")}
+            aria-pressed={signMessage}
+          >
+            <Shield className={signMessage ? "mr-1.5 h-4 w-4" : "mr-1.5 h-4 w-4 opacity-40"} />
+            {t("compose.signMessage")}
+          </Button>
+          <Button
+            type="button"
+            variant={encryptMessage ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => setEncryptMessage((v) => !v)}
+            title={t("compose.encryptMessage")}
+            aria-pressed={encryptMessage}
+          >
+            <Key className={encryptMessage ? "mr-1.5 h-4 w-4" : "mr-1.5 h-4 w-4 opacity-40"} />
+            {t("compose.encryptMessage")}
           </Button>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

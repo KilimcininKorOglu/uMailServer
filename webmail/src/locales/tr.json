@@ -219,6 +219,8 @@
     "writeMessage": "İletinizi yazın...",
     "requestReadReceipt": "Okundu bilgisi iste",
     "readReceipt": "Okundu bilgisi",
+    "signMessage": "İmzala",
+    "encryptMessage": "Şifrele",
     "toSend": "ile gönder"
   },
   "settings": {
