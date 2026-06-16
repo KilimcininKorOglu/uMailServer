@@ -125,6 +125,14 @@ type Store interface {
 	GetTLSCacheEntry(key string) ([]byte, error)
 	PutTLSCacheEntry(key string, data []byte) error
 	DeleteTLSCacheEntry(key string) error
+	// ListTLSCacheKeys returns every key with the given prefix (empty prefix =
+	// all keys), in ascending key order. Backs certmagic.Storage.List.
+	ListTLSCacheKeys(prefix string) ([]string, error)
+	// StatTLSCacheEntry returns the byte size and last-modified time of the
+	// value under key, or a wrapped ErrNotFound when absent. Backs
+	// certmagic.Storage.Stat; bbolt keeps no per-key timestamp and reports a
+	// zero modified time (certmagic treats Modified as optional).
+	StatTLSCacheEntry(key string) (size int64, modified time.Time, err error)
 
 	// Typed preferences (replacing the generic-KV buckets).
 	GetUIPrefs(user string) (map[string]bool, error)

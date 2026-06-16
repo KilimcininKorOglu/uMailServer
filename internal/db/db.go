@@ -1379,3 +1379,40 @@ func (d *DB) DeleteTLSCacheEntry(key string) error {
 		return b.Delete([]byte(key))
 	})
 }
+
+// ListTLSCacheKeys returns every TLS-cache key with the given prefix (empty
+// prefix = all keys) in ascending key order. The bbolt cursor iterates in
+// byte-sorted order, so the result is sorted without an extra step.
+func (d *DB) ListTLSCacheKeys(prefix string) ([]string, error) {
+	var keys []string
+	if err := d.ForEachPrefix(BucketTLSCache, prefix, func(key string, _ []byte) error {
+		keys = append(keys, key)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+// StatTLSCacheEntry returns the byte size of the value under key (and a zero
+// modified time, since bbolt keeps no per-key timestamp), or a wrapped
+// ErrNotFound when the key is absent.
+func (d *DB) StatTLSCacheEntry(key string) (int64, time.Time, error) {
+	var size int64
+	err := d.bolt.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketTLSCache))
+		if b == nil {
+			return fmt.Errorf("bucket not found: %s", BucketTLSCache)
+		}
+		data := b.Get([]byte(key))
+		if data == nil {
+			return fmt.Errorf("tls cache key %q not found: %w", key, ErrNotFound)
+		}
+		size = int64(len(data))
+		return nil
+	})
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	return size, time.Time{}, nil
+}

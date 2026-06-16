@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/umailserver/umailserver/internal/db"
@@ -48,4 +49,44 @@ func (d *DB) DeleteTLSCacheEntry(key string) error {
 		return fmt.Errorf("postgres: delete tls cache key %q: %w", key, err)
 	}
 	return nil
+}
+
+// ListTLSCacheKeys returns every TLS-cache key with the given prefix (empty
+// prefix = all keys) in ascending key order. starts_with avoids LIKE wildcard
+// escaping for keys that may contain % or _.
+func (d *DB) ListTLSCacheKeys(prefix string) ([]string, error) {
+	ctx := context.Background()
+	rows, err := d.pool.Query(ctx, `SELECT key FROM tls_cache WHERE starts_with(key, $1) ORDER BY key`, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list tls cache keys %q: %w", prefix, err)
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, fmt.Errorf("postgres: scan tls cache key: %w", err)
+		}
+		keys = append(keys, k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: list tls cache keys %q: %w", prefix, err)
+	}
+	return keys, nil
+}
+
+// StatTLSCacheEntry returns the byte size and last-modified time of the value
+// under key, or a wrapped ErrNotFound when the key is absent.
+func (d *DB) StatTLSCacheEntry(key string) (int64, time.Time, error) {
+	ctx := context.Background()
+	var size int64
+	var modified time.Time
+	err := d.pool.QueryRow(ctx, `SELECT length(data), updated_at FROM tls_cache WHERE key=$1`, key).Scan(&size, &modified)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, time.Time{}, fmt.Errorf("postgres: tls cache key %q not found: %w", key, db.ErrNotFound)
+		}
+		return 0, time.Time{}, fmt.Errorf("postgres: stat tls cache key %q: %w", key, err)
+	}
+	return size, modified, nil
 }
