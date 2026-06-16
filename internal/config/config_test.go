@@ -388,6 +388,60 @@ smtp:
 	}
 }
 
+// TestLoadRequireTLSForAuthDefault guards the migration that removed the
+// per-protocol TLS knobs (imap.starttls_port, submission.require_tls) in favor
+// of the central security.require_tls_for_auth. An existing deployment config
+// that predates the switch omits the field entirely; it MUST inherit the secure
+// default (true) rather than the Go zero value (false), or the upgrade would
+// silently start accepting plaintext auth. Load layers yaml.Unmarshal over
+// DefaultConfig(), so an absent field keeps the default — this locks that in.
+func TestLoadRequireTLSForAuthDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// A config that omits security.require_tls_for_auth (mirrors a pre-migration
+	// deployment file). Only an unrelated field is set so the security section is
+	// touched at all yet leaves the new knob absent.
+	configContent := strings.Replace(`
+server:
+  data_dir: TMPDIR_PLACEHOLDER
+security:
+  max_login_attempts: 7
+`, "TMPDIR_PLACEHOLDER", tmpDir, 1)
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !cfg.Security.RequireTLSForAuth {
+		t.Error("require_tls_for_auth must inherit the secure default (true) when omitted; got false (plaintext auth would be silently allowed on upgrade)")
+	}
+	if cfg.Security.MaxLoginAttempts != 7 {
+		t.Errorf("expected the explicitly set max_login_attempts 7, got %d", cfg.Security.MaxLoginAttempts)
+	}
+
+	// An operator who deliberately opts out must still be honored.
+	optOut := strings.Replace(`
+server:
+  data_dir: TMPDIR_PLACEHOLDER
+security:
+  require_tls_for_auth: false
+`, "TMPDIR_PLACEHOLDER", tmpDir, 1)
+	if err := os.WriteFile(configPath, []byte(optOut), 0o644); err != nil {
+		t.Fatalf("failed to write opt-out config file: %v", err)
+	}
+	cfg, err = Load(configPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Security.RequireTLSForAuth {
+		t.Error("require_tls_for_auth: false must be honored, but it stayed true")
+	}
+}
+
 func TestLoadNonExistentConfig(t *testing.T) {
 	// Set temp data dir before loading config to avoid /var/lib/umailserver issues in CI
 	tmpDir := t.TempDir()

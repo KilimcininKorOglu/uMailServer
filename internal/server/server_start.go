@@ -69,6 +69,14 @@ func (s *Server) Start() error {
 	// Recoverable Items before unlinking it (self-guards on recoverable_items.enabled).
 	s.mailstore.SetRecoverableCapture(s.captureForRecovery)
 
+	// Warn loudly when TLS-before-auth is required but no certificate is
+	// available: startIMAP/startPOP3/startSMTP fall back to allowing plaintext
+	// auth in that case (anti-stranding), so an admin who set
+	// require_tls_for_auth would otherwise be silently NOT enforcing it.
+	if s.cfg().Security.RequireTLSForAuth && !s.tlsManager.IsEnabled() {
+		s.logger.Warn("security.require_tls_for_auth is enabled but no TLS certificate is configured; plaintext authentication will be ALLOWED on IMAP/POP3/SMTP submission as an anti-stranding fallback. Configure ACME or tls.cert_file/key_file to enforce TLS-before-auth.")
+	}
+
 	s.startSMTP()
 
 	// Start search indexing worker pool
