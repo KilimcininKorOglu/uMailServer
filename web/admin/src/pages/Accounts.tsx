@@ -13,6 +13,8 @@ import {
   Key,
   HardDrive,
   Smartphone,
+  UserCog,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,11 +48,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAccounts } from "@/hooks/useApi";
+import { useAccounts, useAccountRoles, useRoles } from "@/hooks/useApi";
 import { useI18n } from "@/hooks/useI18n";
 import { EASDevicesDialog } from "@/components/EASDevicesDialog";
 import { cn } from "@/lib/utils";
-import type { Account, MailScopePolicy } from "@/types";
+import type { Account, MailScopePolicy, Role } from "@/types";
 
 // useApi rejects with a plain { message, status } object rather than an Error,
 // so unwrap that shape (and a genuine Error) to recover the server's reason.
@@ -128,14 +130,18 @@ export function Accounts() {
     updateAccount,
     deleteAccount,
   } = useAccounts();
+  const { roles: allRoles } = useRoles();
+  const { roles: accountRoles, fetchAccountRoles, assignRole, removeRole } = useAccountRoles();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDevicesDialogOpen, setIsDevicesDialogOpen] = useState(false);
+  const [isRolesDialogOpen, setIsRolesDialogOpen] = useState(false);
   const [devicesAccount, setDevicesAccount] = useState<Account | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [rolesAccount, setRolesAccount] = useState<Account | null>(null);
   const [newAccountEmail, setNewAccountEmail] = useState("");
   const [newAccountPassword, setNewAccountPassword] = useState("");
   const [newAccountIsAdmin, setNewAccountIsAdmin] = useState(false);
@@ -149,6 +155,8 @@ export function Accounts() {
   const [currentAdminPassword, setCurrentAdminPassword] = useState("");
   const [formError, setFormError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [assigningRole, setAssigningRole] = useState(false);
 
   useEffect(() => {
     fetchAccounts();
@@ -268,6 +276,42 @@ export function Accounts() {
       setCurrentAdminPassword("");
     } catch (err) {
       setFormError(errorMessage(err, t("accounts.updateFailed")));
+    }
+  };
+
+  const handleManageRoles = async (account: Account) => {
+    setRolesAccount(account);
+    setRolesLoading(true);
+    setFormError("");
+    try {
+      await fetchAccountRoles(account.email);
+    } finally {
+      setRolesLoading(false);
+    }
+    setIsRolesDialogOpen(true);
+  };
+
+  const handleAssignRole = async (roleId: string) => {
+    if (!rolesAccount) return;
+    setAssigningRole(true);
+    try {
+      await assignRole(rolesAccount.email, roleId);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAssigningRole(false);
+    }
+  };
+
+  const handleRemoveRole = async (roleId: string) => {
+    if (!rolesAccount) return;
+    setAssigningRole(true);
+    try {
+      await removeRole(rolesAccount.email, roleId);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAssigningRole(false);
     }
   };
 
@@ -514,6 +558,7 @@ export function Accounts() {
                 setDevicesAccount(account);
                 setIsDevicesDialogOpen(true);
               }}
+              onManageRoles={() => handleManageRoles(account)}
               formatBytes={formatBytes}
             />
           ))}
@@ -745,6 +790,84 @@ export function Accounts() {
           if (!open) setDevicesAccount(null);
         }}
       />
+
+      {/* Role assignment dialog */}
+      <Dialog open={isRolesDialogOpen} onOpenChange={(open) => {
+        setIsRolesDialogOpen(open);
+        if (!open) setRolesAccount(null);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("roles.assignRole")}</DialogTitle>
+            <DialogDescription>
+              {t("roles.assignRoleDescription", { email: rolesAccount?.email ?? "" })}
+            </DialogDescription>
+          </DialogHeader>
+          {formError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-4 py-4">
+            {rolesLoading ? (
+              <Skeleton className="h-20 w-full" />
+            ) : (
+              <>
+                {/* Current roles */}
+                <div className="space-y-2">
+                  <Label>{t("roles.accountRoles")}</Label>
+                  {accountRoles && accountRoles.length > 0 ? (
+                    <div className="space-y-2">
+                      {accountRoles.map((role: Role) => (
+                        <div key={role.id} className="flex items-center justify-between p-2 rounded-lg border">
+                          <div className="flex items-center gap-2">
+                            <Shield className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">{role.name}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveRole(role.id)}
+                            disabled={assigningRole}
+                          >
+                            <X className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">{t("roles.noAccountRoles")}</p>
+                  )}
+                </div>
+                {/* Available roles to assign */}
+                <div className="space-y-2">
+                  <Label>{t("roles.selectRole")}</Label>
+                  <div className="space-y-2">
+                    {allRoles?.filter((r: Role) => !accountRoles?.some((ar: Role) => ar.id === r.id)).map((role: Role) => (
+                      <Button
+                        key={role.id}
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={() => handleAssignRole(role.id)}
+                        disabled={assigningRole}
+                      >
+                        <Shield className="mr-2 h-4 w-4" />
+                        {role.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRolesDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -754,10 +877,11 @@ interface AccountCardProps {
   onEdit: () => void;
   onDelete: () => void;
   onManageDevices: () => void;
+  onManageRoles: () => void;
   formatBytes: (bytes: number) => string;
 }
 
-function AccountCard({ account, onEdit, onDelete, onManageDevices, formatBytes }: AccountCardProps) {
+function AccountCard({ account, onEdit, onDelete, onManageDevices, onManageRoles, formatBytes }: AccountCardProps) {
   const { t } = useI18n();
   // A quota_limit of 0 means unlimited storage; a percentage and progress bar
   // are meaningless in that case, so show the usage without them.
@@ -813,6 +937,10 @@ function AccountCard({ account, onEdit, onDelete, onManageDevices, formatBytes }
               >
                 <Smartphone className="mr-2 h-4 w-4" />
                 {t("accounts.devices.manage")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onManageRoles}>
+                <UserCog className="mr-2 h-4 w-4" />
+                {t("roles.assignRole")}
               </DropdownMenuItem>
               {account.totp_enabled && (
                 <DropdownMenuItem disabled>

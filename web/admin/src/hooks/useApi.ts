@@ -29,6 +29,9 @@ import type {
   DNSCheckResult,
   SyncActivitySummary,
   AuditEventPage,
+  Role,
+  RolePermission,
+  RoleWithPermissions,
 } from "@/types";
 
 interface ApiError {
@@ -1203,6 +1206,121 @@ export interface AuditFilterQuery {
   success?: boolean;
   from?: string;
   to?: string;
+}
+
+// Roles API hooks
+
+export function useRoles() {
+  const [data, setData] = useState<Role[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchRoles = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await apiRequest<Role[]>("/admin/roles");
+      setData(result);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const createRole = useCallback(async (name: string, description?: string) => {
+    const result = await apiRequest<Role>("/admin/roles", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    });
+    await fetchRoles();
+    return result;
+  }, [fetchRoles]);
+
+  const updateRole = useCallback(async (id: string, name: string, description?: string) => {
+    const result = await apiRequest<Role>(`/admin/roles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name, description }),
+    });
+    await fetchRoles();
+    return result;
+  }, [fetchRoles]);
+
+  const deleteRole = useCallback(async (id: string) => {
+    await apiRequest(`/admin/roles/${id}`, { method: "DELETE" });
+    await fetchRoles();
+  }, [fetchRoles]);
+
+  const getRolePermissions = useCallback(async (id: string) => {
+    return apiRequest<RoleWithPermissions>(`/admin/roles/${id}`);
+  }, []);
+
+  const setRolePermissions = useCallback(async (id: string, permissions: RolePermission[]) => {
+    await apiRequest(`/admin/roles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ permissions }),
+    });
+  }, []);
+
+  return {
+    roles: data,
+    loading,
+    error,
+    fetchRoles,
+    createRole,
+    updateRole,
+    deleteRole,
+    getRolePermissions,
+    setRolePermissions,
+  };
+}
+
+// Account roles hook
+// useAccountRoles manages role assignments for a given account email.
+// The email is passed to each method call rather than the constructor, so one
+// hook instance can be reused for different accounts.
+export function useAccountRoles() {
+  const [data, setData] = useState<Role[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchAccountRoles = useCallback(async (email: string) => {
+    if (!email) {
+      setData([]);
+      return [];
+    }
+    setLoading(true);
+    try {
+      const result = await apiRequest<Role[]>(`/admin/accounts/${encodeURIComponent(email)}/roles`);
+      setData(result);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const assignRole = useCallback(async (email: string, roleId: string) => {
+    if (!email) throw { message: "no account selected", status: 400 };
+    await apiRequest(`/admin/accounts/${encodeURIComponent(email)}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ role_id: roleId }),
+    });
+    await fetchAccountRoles(email);
+  }, [fetchAccountRoles]);
+
+  const removeRole = useCallback(async (email: string, roleId: string) => {
+    if (!email) throw { message: "no account selected", status: 400 };
+    await apiRequest(`/admin/accounts/${encodeURIComponent(email)}/roles/${roleId}`, {
+      method: "DELETE",
+    });
+    await fetchAccountRoles(email);
+  }, [fetchAccountRoles]);
+
+  return { roles: data, loading, error, fetchAccountRoles, assignRole, removeRole };
 }
 
 // buildAuditQueryString renders an AuditFilterQuery as a "k=v&..."

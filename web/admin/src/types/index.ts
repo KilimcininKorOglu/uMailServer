@@ -825,3 +825,26 @@ export interface AuditEventPage {
   has_more: boolean;
   filters: AuditFilter;
 }
+
+// Role mirrors internal/db.Role.
+export interface Role {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// RolePermission mirrors internal/db.RolePermission.
+export interface RolePermission {
+  id: string;
+  role_id: string;
+  permission: string;
+  params?: Record<string, unknown>;
+}
+
+// RoleWithPermissions is the shape returned by GET /api/v1/admin/roles/{id}.
+export interface RoleWithPermissions {
+  role: Role;
+  permissions: RolePermission[];
+}
