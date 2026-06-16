@@ -8,6 +8,8 @@ import {
   CheckCircle,
   Bell,
   XCircle,
+  Smartphone,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,12 +20,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import { useDiagnostics } from "@/hooks/useApi";
+import { useDiagnostics, useSyncActivity } from "@/hooks/useApi";
 import { useI18n } from "@/hooks/useI18n";
 
 export function Diagnostics() {
   const { t } = useI18n();
   const { mailboxes, subscriptions, failures, loading, fetchDiagnostics } = useDiagnostics();
+  const { summary: syncActivity, loading: syncLoading, error: syncError, fetchSyncActivity } = useSyncActivity();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedMailbox, setSelectedMailbox] = useState<string>("");
@@ -32,7 +35,10 @@ export function Diagnostics() {
     fetchDiagnostics().catch(() => {
       /* error surfaced via hook state */
     });
-  }, [fetchDiagnostics]);
+    fetchSyncActivity().catch(() => {
+      /* error surfaced via hook state */
+    });
+  }, [fetchDiagnostics, fetchSyncActivity]);
 
   const fetchMailboxDetails = (email: string) => {
     setSelectedMailbox((prev) => (prev === email ? "" : email));
@@ -134,6 +140,10 @@ export function Diagnostics() {
           <TabsTrigger value="failures">
             <AlertCircle className="h-4 w-4 mr-2" />
             {t("diagnostics.protocolFailures")}
+          </TabsTrigger>
+          <TabsTrigger value="syncActivity">
+            <Smartphone className="h-4 w-4 mr-2" />
+            {t("diagnostics.syncActivity.title")}
           </TabsTrigger>
         </TabsList>
 
@@ -390,6 +400,121 @@ export function Diagnostics() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="syncActivity" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("diagnostics.syncActivity.title")}</CardTitle>
+              <CardDescription>
+                {t("diagnostics.syncActivity.description")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {syncError ? (
+                <div className="text-center py-8">
+                  <XCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+                  <h3 className="text-lg font-medium">{t("diagnostics.syncActivity.errorTitle")}</h3>
+                  <p className="text-muted-foreground mt-1">{syncError.message || t("common.error")}</p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => fetchSyncActivity().catch(() => {})}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {t("common.retry")}
+                  </Button>
+                </div>
+              ) : syncLoading && !syncActivity ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-20 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : syncActivity ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="p-3 rounded-lg bg-muted" data-testid="sync-activity-total">
+                      <Label className="text-xs text-muted-foreground">{t("diagnostics.syncActivity.totalLabel")}</Label>
+                      <div className="text-xl font-bold">{syncActivity.total}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted" data-testid="sync-activity-active-1d">
+                      <Label className="text-xs text-muted-foreground">{t("diagnostics.syncActivity.active1dLabel")}</Label>
+                      <div className="text-xl font-bold text-emerald-500">{syncActivity.active_1d}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted" data-testid="sync-activity-active-7d">
+                      <Label className="text-xs text-muted-foreground">{t("diagnostics.syncActivity.active7dLabel")}</Label>
+                      <div className="text-xl font-bold text-emerald-500">{syncActivity.active_7d}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted" data-testid="sync-activity-stale">
+                      <Label className="text-xs text-muted-foreground">{t("diagnostics.syncActivity.staleLabel")}</Label>
+                      <div className={cn("text-xl font-bold", syncActivity.stale > 0 ? "text-amber-500" : "text-muted-foreground")}>{syncActivity.stale}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {t("diagnostics.syncActivity.generated", { time: new Date(syncActivity.generated).toLocaleString() })}
+                    </span>
+                    <span>{t("diagnostics.syncActivity.staleAfter", { time: new Date(syncActivity.stale_after).toLocaleString() })}</span>
+                  </div>
+
+                  {syncActivity.devices.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Smartphone className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium">{t("diagnostics.syncActivity.emptyTitle")}</h3>
+                      <p className="text-muted-foreground mt-1">{t("diagnostics.syncActivity.emptyHint")}</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border overflow-hidden">
+                      <table className="w-full text-sm" data-testid="sync-activity-table">
+                        <thead className="bg-muted">
+                          <tr>
+                            <th className="text-left p-3 font-medium">{t("diagnostics.syncActivity.columnAccount")}</th>
+                            <th className="text-left p-3 font-medium">{t("diagnostics.syncActivity.columnDevice")}</th>
+                            <th className="text-left p-3 font-medium">{t("diagnostics.syncActivity.columnProtocol")}</th>
+                            <th className="text-left p-3 font-medium">{t("diagnostics.syncActivity.columnLastSync")}</th>
+                            <th className="text-left p-3 font-medium">{t("diagnostics.syncActivity.columnFreshness")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {syncActivity.devices.map((device) => (
+                            <tr
+                              key={`${device.email}/${device.device_id}`}
+                              className="border-t hover:bg-muted/50"
+                              data-testid={`sync-activity-row-${device.device_id}`}
+                            >
+                              <td className="p-3 font-medium">{device.email}</td>
+                              <td className="p-3">
+                                <div>{device.friendly_name || device.device_id}</div>
+                                <div className="text-xs text-muted-foreground">{device.device_type} · {device.device_id}</div>
+                              </td>
+                              <td className="p-3 text-muted-foreground">{device.protocol}</td>
+                              <td className="p-3 text-muted-foreground">
+                                {device.last_sync ? new Date(device.last_sync).toLocaleString() : t("diagnostics.syncActivity.neverSynced")}
+                              </td>
+                              <td className="p-3">
+                                {device.stale ? (
+                                  <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/30 text-xs">
+                                    {t("diagnostics.syncActivity.staleBadge", { days: String(device.freshness_days) })}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-xs">
+                                    {t("diagnostics.syncActivity.freshnessDays", { days: String(device.freshness_days) })}
+                                  </Badge>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>

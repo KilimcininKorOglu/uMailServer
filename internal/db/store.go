@@ -116,6 +116,7 @@ type Store interface {
 	PutEASDevice(dev *EASDevice) error
 	GetEASDevice(email, deviceID string) (*EASDevice, error)
 	ListEASDevicesByEmail(email string) ([]*EASDevice, error)
+	ListAllEASDevices() ([]*EASDevice, error)
 	DeleteEASDevice(email, deviceID string) error
 
 	// TLS certificate-cache blob storage: a generic keyed byte store shared by

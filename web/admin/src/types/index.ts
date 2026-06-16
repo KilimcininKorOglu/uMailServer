@@ -414,6 +414,42 @@ export interface EASDevice {
   last_sync: string;
 }
 
+// SyncActivityDevice mirrors one row of the JSON returned by
+// internal/api/sync_activity.go's syncActivityRowDTO. last_sync is the
+// RFC3339 string of the device's last successful sync (empty when the
+// device has never reported in), and last_sync_unix is the same instant
+// as a Unix timestamp for cheap client-side sort/age math. stale is true
+// when the row's last_sync is older than the server's syncStaleAfter
+// cutoff (7 days at the time of writing) — exactly what the widget
+// surfaces with a "stale" badge.
+export interface SyncActivityDevice {
+  email: string;
+  device_id: string;
+  device_type: string;
+  friendly_name: string;
+  protocol: string;
+  last_sync: string;
+  last_sync_unix: number;
+  freshness_days: number;
+  stale: boolean;
+}
+
+// SyncActivitySummary mirrors the top-level JSON returned by
+// GET /api/v1/admin/sync/activity. active_1d/active_7d count devices
+// whose last_sync is within the trailing 1d/7d windows; stale counts
+// devices that have not synced in more than stale_after. generated and
+// stale_after are the RFC3339 stamps the operator sees in the widget
+// header so the freshness window is auditable.
+export interface SyncActivitySummary {
+  total: number;
+  active_1d: number;
+  active_7d: number;
+  stale: number;
+  stale_after: string;
+  generated: string;
+  devices: SyncActivityDevice[];
+}
+
 // ServerConfig mirrors the backend serverConfigDTO (internal/api/config_settings.go):
 // a typed, per-section, secrets-free view of the server configuration. Secrets
 // (JWT/TOTP keys, LDAP bind password, MCP auth tokens, alert SMTP password and

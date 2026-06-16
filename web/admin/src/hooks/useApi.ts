@@ -27,6 +27,7 @@ import type {
   BackupManifest,
   EASDevice,
   DNSCheckResult,
+  SyncActivitySummary,
 } from "@/types";
 
 interface ApiError {
@@ -1161,4 +1162,31 @@ export function useDNSHealth() {
   }, []);
 
   return { results: data, loading, error, checkDNS, reset };
+}
+
+// useSyncActivity fetches the deployment-wide EAS last-sync snapshot
+// from GET /api/v1/admin/sync/activity. Like useDNSHealth, the snapshot
+// is read once per explicit fetch; the operator can refresh to pull
+// fresh data without re-mounting the page.
+export function useSyncActivity() {
+  const [data, setData] = useState<SyncActivitySummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchSyncActivity = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await apiRequest<SyncActivitySummary>("/admin/sync/activity");
+      setData(result);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { summary: data, loading, error, fetchSyncActivity };
 }

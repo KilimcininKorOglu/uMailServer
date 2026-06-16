@@ -93,6 +93,30 @@ func (d *DB) ListEASDevicesByEmail(email string) ([]*db.EASDevice, error) {
 	return out, nil
 }
 
+// ListAllEASDevices returns every device partnership across all accounts.
+// It is the unfiltered counterpart of ListEASDevicesByEmail and is used by
+// admin views that aggregate last-sync activity across the deployment.
+func (d *DB) ListAllEASDevices() ([]*db.EASDevice, error) {
+	ctx := context.Background()
+	rows, err := d.pool.Query(ctx, easDeviceSelect+` ORDER BY last_sync DESC NULLS LAST`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list all EAS devices: %w", err)
+	}
+	defer rows.Close()
+	var out []*db.EASDevice
+	for rows.Next() {
+		e, err := scanEASDevice(rows)
+		if err != nil {
+			return nil, fmt.Errorf("postgres: scan EAS device: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: list all EAS devices: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteEASDevice removes an EAS device partnership.
 func (d *DB) DeleteEASDevice(email, deviceID string) error {
 	ctx := context.Background()

@@ -1032,6 +1032,7 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/admin/diagnostics", s.adminMiddleware(http.HandlerFunc(s.handleAdminDiagnostics)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/diagnostics/", s.adminMiddleware(http.HandlerFunc(s.handleAdminDiagnosticsDetail)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/domains/", s.adminMiddleware(http.HandlerFunc(s.handleAdminDNSHealth)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/sync/activity", s.adminMiddleware(http.HandlerFunc(s.handleAdminSyncActivity)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/jobs", s.adminMiddleware(http.HandlerFunc(s.handleAdminJobs)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/config", s.adminMiddleware(http.HandlerFunc(s.handleConfig)).ServeHTTP)
 }

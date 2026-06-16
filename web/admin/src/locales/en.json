@@ -669,6 +669,27 @@
     "subscriptionStatuses": {
       "expiring": "Expiring",
       "expired": "Expired"
+    },
+    "syncActivity": {
+      "title": "Sync Activity",
+      "description": "Last-sync snapshot for every ActiveSync device in the deployment",
+      "totalLabel": "Total devices",
+      "active1dLabel": "Active (24h)",
+      "active7dLabel": "Active (7d)",
+      "staleLabel": "Stale",
+      "generated": "Generated {{time}}",
+      "staleAfter": "Stale cutoff {{time}}",
+      "emptyTitle": "No ActiveSync devices",
+      "emptyHint": "Devices will appear here after a mobile client syncs for the first time",
+      "errorTitle": "Could not load sync activity",
+      "neverSynced": "Never synced",
+      "columnAccount": "Account",
+      "columnDevice": "Device",
+      "columnProtocol": "Protocol",
+      "columnLastSync": "Last Sync",
+      "columnFreshness": "Freshness",
+      "staleBadge": "Stale · {{days}}d",
+      "freshnessDays": "{{days}}d"
     }
   },
   "groups": {

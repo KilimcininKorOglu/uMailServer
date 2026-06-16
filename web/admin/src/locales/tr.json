@@ -669,6 +669,27 @@
     "subscriptionStatuses": {
       "expiring": "Süresi Doluyor",
       "expired": "Süresi Doldu"
+    },
+    "syncActivity": {
+      "title": "Senkron Aktivitesi",
+      "description": "Dağıtımdaki tüm ActiveSync cihazlarının son senkron anlık görüntüsü",
+      "totalLabel": "Toplam cihaz",
+      "active1dLabel": "Aktif (24 sa)",
+      "active7dLabel": "Aktif (7 gün)",
+      "staleLabel": "Bayat",
+      "generated": "Oluşturuldu {{time}}",
+      "staleAfter": "Bayat eşiği {{time}}",
+      "emptyTitle": "ActiveSync cihazı yok",
+      "emptyHint": "Mobil istemci ilk kez senkronize olduktan sonra cihazlar burada görünür",
+      "errorTitle": "Senkron aktivitesi yüklenemedi",
+      "neverSynced": "Hiç senkronize olmadı",
+      "columnAccount": "Hesap",
+      "columnDevice": "Cihaz",
+      "columnProtocol": "Protokol",
+      "columnLastSync": "Son Senkron",
+      "columnFreshness": "Tazelik",
+      "staleBadge": "Bayat · {{days}}g",
+      "freshnessDays": "{{days}}g"
     }
   },
   "groups": {

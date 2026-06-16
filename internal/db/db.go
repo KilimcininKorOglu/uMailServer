@@ -1345,6 +1345,22 @@ func (d *DB) ListEASDevicesByEmail(email string) ([]*EASDevice, error) {
 	return devices, err
 }
 
+// ListAllEASDevices returns every device partnership across all accounts.
+// It is the unfiltered counterpart of ListEASDevicesByEmail and is used by
+// admin views that aggregate last-sync activity across the deployment.
+func (d *DB) ListAllEASDevices() ([]*EASDevice, error) {
+	var devices []*EASDevice
+	err := d.ForEach(BucketEASDevices, func(_ string, value []byte) error {
+		var dev EASDevice
+		if err := json.Unmarshal(value, &dev); err != nil {
+			return err
+		}
+		devices = append(devices, &dev)
+		return nil
+	})
+	return devices, err
+}
+
 // DeleteEASDevice removes an EAS device partnership.
 func (d *DB) DeleteEASDevice(email, deviceID string) error {
 	return d.Delete(BucketEASDevices, easDeviceKey(email, deviceID))
