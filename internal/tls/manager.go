@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -228,6 +229,13 @@ func (m *Manager) SetDomainSource(lister func() ([]string, error)) {
 // well-known service hostnames. An unrecognized SNI is refused so a probe for an
 // arbitrary name cannot trigger a doomed ACME order and burn the CA rate limit.
 func (m *Manager) hostPolicy(_ context.Context, host string) error {
+	// autocert's HTTP-01 handler passes r.Host, which carries a port when the
+	// challenge is validated on a non-default port (for example a local Pebble
+	// validating on 5002). Strip it so the policy compares hostnames, not
+	// host:port; the SNI path already arrives without a port.
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if m.hostAllowed(host) {
 		return nil
