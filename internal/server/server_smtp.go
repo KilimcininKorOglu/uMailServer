@@ -97,7 +97,9 @@ func (s *Server) buildInboundSMTPPipeline() *smtp.Pipeline {
 		pipeline.AddStage(sieveStage)
 	}
 
-	pipeline.AddStage(smtp.NewSMIMEStage(s.smimeKeystore))
+	smimeStage := smtp.NewSMIMEStage(s.smimeKeystore)
+	smimeStage.SetDB(s.database)
+	pipeline.AddStage(smimeStage)
 	pipeline.AddStage(smtp.NewOpenPGPStage(s.openpgpKeystore))
 
 	if s.cfg().AV.Enabled {

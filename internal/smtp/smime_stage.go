@@ -6,14 +6,16 @@ import (
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/auth"
+	"github.com/umailserver/umailserver/internal/db"
 )
 
-// SMIMEStage implements S/MIME verification and signing in the SMTP pipeline
+// SMIMEStage implements S/MIME verification and signing in the SMTP pipeline.
 type SMIMEStage struct {
 	keystore *SMIMEKeystore
+	db       db.Store
 }
 
-// SMIMEKeystore manages S/MIME keys per user
+// SMIMEKeystore manages S/MIME keys per user (in-memory, populated via API).
 type SMIMEKeystore struct {
 	users map[string]*SMIMEUserKeys
 }
@@ -25,19 +27,24 @@ type SMIMEUserKeys struct {
 	EncryptionCert []byte
 }
 
-// NewSMIMEStage creates a new S/MIME pipeline stage
+// NewSMIMEStage creates a new S/MIME pipeline stage.
 func NewSMIMEStage(keystore *SMIMEKeystore) *SMIMEStage {
 	return &SMIMEStage{keystore: keystore}
 }
 
-// NewSMIMEKeystore creates a new S/MIME keystore
+// SetDB wires a db.Store so the pipeline stage can look up keys at runtime.
+func (s *SMIMEStage) SetDB(store db.Store) {
+	s.db = store
+}
+
+// NewSMIMEKeystore creates a new S/MIME keystore.
 func NewSMIMEKeystore() *SMIMEKeystore {
 	return &SMIMEKeystore{
 		users: make(map[string]*SMIMEUserKeys),
 	}
 }
 
-// GetKeys returns the S/MIME keys for a user
+// GetKeys returns the S/MIME keys for a user from the in-memory store.
 func (ks *SMIMEKeystore) GetKeys(user string) *SMIMEUserKeys {
 	if ks == nil {
 		return nil
@@ -45,7 +52,7 @@ func (ks *SMIMEKeystore) GetKeys(user string) *SMIMEUserKeys {
 	return ks.users[user]
 }
 
-// SetKeys sets the S/MIME keys for a user
+// SetKeys sets the S/MIME keys for a user in the in-memory store.
 func (ks *SMIMEKeystore) SetKeys(user string, keys *SMIMEUserKeys) {
 	if ks == nil {
 		return
@@ -86,10 +93,16 @@ func (s *SMIMEStage) verifySMIME(ctx *MessageContext) PipelineResult {
 		return ResultAccept
 	}
 
-	// Get user's keys if available
+	// Get user's keys: in-memory keystore first, then db.Store fallback
 	var keys *SMIMEUserKeys
 	if s.keystore != nil {
 		keys = s.keystore.GetKeys(user)
+	}
+	if keys == nil && s.db != nil {
+		certPEM, _, err := s.db.GetSMIMEKeys(user)
+		if err == nil && certPEM != "" {
+			keys = &SMIMEUserKeys{SigningCert: []byte(certPEM)}
+		}
 	}
 
 	if keys == nil {
@@ -135,10 +148,16 @@ func (s *SMIMEStage) decryptSMIME(ctx *MessageContext) PipelineResult {
 		return ResultAccept
 	}
 
-	// Get user's keys if available
+	// Get user's keys: in-memory keystore first, then db.Store fallback
 	var keys *SMIMEUserKeys
 	if s.keystore != nil {
 		keys = s.keystore.GetKeys(user)
+	}
+	if keys == nil && s.db != nil {
+		certPEM, keyPEM, err := s.db.GetSMIMEKeys(user)
+		if err == nil {
+			keys = &SMIMEUserKeys{SigningCert: []byte(certPEM), SigningKey: []byte(keyPEM)}
+		}
 	}
 
 	if keys == nil || len(keys.SigningKey) == 0 {
