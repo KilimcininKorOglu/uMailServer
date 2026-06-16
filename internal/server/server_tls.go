@@ -39,9 +39,18 @@ func (c tlsCacheStore) List(prefix string) ([]string, error) {
 	return c.store.ListTLSCacheKeys(prefix)
 }
 
-// Stat returns the byte size and last-modified time of the value under key.
+// Stat returns the byte size and last-modified time of the value under key,
+// mapping a db.ErrNotFound absence to tls.ErrNotFound so the certmagic adapter
+// can translate it to fs.ErrNotExist.
 func (c tlsCacheStore) Stat(key string) (int64, time.Time, error) {
-	return c.store.StatTLSCacheEntry(key)
+	size, mod, err := c.store.StatTLSCacheEntry(key)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return 0, time.Time{}, umailTLS.ErrNotFound
+		}
+		return 0, time.Time{}, err
+	}
+	return size, mod, nil
 }
 
 // tlsLockTTL bounds how long a node may hold a TLS issuance/renewal lock. It is

@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -1415,6 +1416,23 @@ func (f *fakeCacheStore) Put(key string, data []byte) error {
 func (f *fakeCacheStore) Delete(key string) error {
 	delete(f.m, key)
 	return nil
+}
+func (f *fakeCacheStore) List(prefix string) ([]string, error) {
+	var keys []string
+	for k := range f.m {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+func (f *fakeCacheStore) Stat(key string) (int64, time.Time, error) {
+	data, ok := f.m[key]
+	if !ok {
+		return 0, time.Time{}, ErrNotFound
+	}
+	return int64(len(data)), time.Time{}, nil
 }
 
 // TestStoreCacheAdapter verifies the autocert.Cache adapter maps an absent key to

@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +52,23 @@ func (s *memCacheStore) Put(key string, data []byte) error {
 func (s *memCacheStore) Delete(key string) error {
 	delete(s.m, key)
 	return nil
+}
+func (s *memCacheStore) List(prefix string) ([]string, error) {
+	var keys []string
+	for k := range s.m {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+func (s *memCacheStore) Stat(key string) (int64, time.Time, error) {
+	data, ok := s.m[key]
+	if !ok {
+		return 0, time.Time{}, tlspkg.ErrNotFound
+	}
+	return int64(len(data)), time.Time{}, nil
 }
 
 // expiringCertBundle builds a cert+key PEM bundle (key block first, as autocert
