@@ -69,6 +69,12 @@ type SendMailRequest struct {
 	// the message is recorded for scheduled send (and shown in the Scheduled
 	// folder) instead of being delivered now. A past/empty value sends now.
 	SendAt string `json:"sendAt,omitempty"`
+	// SignMessage, when true, signs the message with the user's S/MIME certificate
+	// before sending. Requires the user to have S/MIME keys configured.
+	SignMessage bool `json:"signMessage,omitempty"`
+	// EncryptMessage, when true, encrypts the message with the recipients' S/MIME
+	// certificates before sending. Each recipient must have a certificate stored.
+	EncryptMessage bool `json:"encryptMessage,omitempty"`
 }
 
 // ScheduledMailItem is one pending/failed scheduled message in the Scheduled

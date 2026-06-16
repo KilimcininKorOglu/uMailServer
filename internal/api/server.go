@@ -836,6 +836,11 @@ func (s *Server) initRouter() {
 	// folders). Exact routes above take precedence in the mux.
 	api.HandleFunc("/api/v1/mail/", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
 
+	// S/MIME certificate management and message operations.
+	api.HandleFunc("/api/v1/smime/certificate", s.handleSMIMECertificate)
+	api.HandleFunc("/api/v1/smime/verify", s.handleSMIMEVerify)
+	api.HandleFunc("/api/v1/smime/decrypt", s.handleSMIMEDecrypt)
+
 	// Notes (Outlook sticky notes): backed by the Notes folder as IPM.StickyNote
 	// messages, shared with EWS/IMAP/JMAP. Requires the semcore store to be wired
 	// (so a webmail-created note is visible to EWS too).
