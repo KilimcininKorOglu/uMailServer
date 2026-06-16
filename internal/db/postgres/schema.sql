@@ -894,3 +894,11 @@ CREATE TABLE IF NOT EXISTS spam_history (
 CREATE INDEX IF NOT EXISTS idx_spam_history_timestamp ON spam_history (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_spam_history_rcpt_to ON spam_history (rcpt_to);
 CREATE INDEX IF NOT EXISTS idx_spam_history_verdict ON spam_history (verdict);
+
+-- S/MIME signing certificate and private key per user.
+CREATE TABLE IF NOT EXISTS user_smime_keys (
+    user_id    TEXT PRIMARY KEY,
+    cert_pem   TEXT NOT NULL,
+    key_pem    TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

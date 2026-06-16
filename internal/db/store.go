@@ -183,6 +183,19 @@ type Store interface {
 	LogSpamEvent(entry *SpamHistoryEntry) error
 	ListSpamHistory(opts SpamHistoryListOptions) ([]*SpamHistoryEntry, int, error)
 
+	// S/MIME: per-user signing certificate and private key storage.
+	// SetSMIMEKeys stores the user's S/MIME certificate (PEM) and private key
+	// (PEM). If the user has no keys yet it creates a new entry; otherwise it
+	// overwrites the existing ones.
+	SetSMIMEKeys(userID, certPEM, keyPEM string) error
+	// GetSMIMEKeys returns the user's S/MIME certificate and private key.
+	// Returns a wrapped ErrNotFound when the user has no keys.
+	GetSMIMEKeys(userID string) (certPEM, keyPEM string, err error)
+	// DeleteSMIMEKeys removes the user's S/MIME keys.
+	DeleteSMIMEKeys(userID string) error
+	// HasSMIMEKeys reports whether the user has S/MIME keys stored.
+	HasSMIMEKeys(userID string) (bool, error)
+
 	// Lifecycle.
 	Close() error
 }

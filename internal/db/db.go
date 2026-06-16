@@ -44,6 +44,7 @@ const (
 	BucketRolePermissions  = "role_permissions"
 	BucketUserRoles       = "user_roles"
 	BucketSpamHistory     = "spam_history"
+	BucketUserSMIME       = "user_smime_keys"
 )
 
 // DB wraps bbolt database
@@ -389,6 +390,7 @@ func (d *DB) initBuckets() error {
 		BucketEASDevices,
 		BucketTLSCache,
 		BucketSpamHistory,
+		BucketUserSMIME,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {
@@ -1889,4 +1891,47 @@ func (d *DB) ListSpamHistory(opts SpamHistoryListOptions) ([]*SpamHistoryEntry, 
 		all = all[:opts.Limit]
 	}
 	return all, total, nil
+}
+
+// ---------------------------------------------------------------------------
+// S/MIME keystore
+// ---------------------------------------------------------------------------
+
+// smimeKeyEntry is the JSON value stored under a user ID in the smime bucket.
+type smimeKeyEntry struct {
+	Cert string `json:"cert"`
+	Key  string `json:"key"`
+}
+
+// SetSMIMEKeys stores or overwrites a user's S/MIME certificate and private key.
+func (d *DB) SetSMIMEKeys(userID, certPEM, keyPEM string) error {
+	entry := smimeKeyEntry{Cert: certPEM, Key: keyPEM}
+	return d.Put(BucketUserSMIME, userID, &entry)
+}
+
+// GetSMIMEKeys returns the stored certificate and key for a user.
+// Returns a wrapped ErrNotFound when the user has no keys.
+func (d *DB) GetSMIMEKeys(userID string) (certPEM, keyPEM string, err error) {
+	var entry smimeKeyEntry
+	if err := d.Get(BucketUserSMIME, userID, &entry); err != nil {
+		return "", "", err
+	}
+	return entry.Cert, entry.Key, nil
+}
+
+// DeleteSMIMEKeys removes the stored keys for a user.
+func (d *DB) DeleteSMIMEKeys(userID string) error {
+	return d.Delete(BucketUserSMIME, userID)
+}
+
+// HasSMIMEKeys reports whether a user has S/MIME keys stored.
+func (d *DB) HasSMIMEKeys(userID string) (bool, error) {
+	var entry smimeKeyEntry
+	if err := d.Get(BucketUserSMIME, userID, &entry); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
