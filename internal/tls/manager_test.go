@@ -583,7 +583,8 @@ func TestNewManager_DNSChallengeErrors(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "missing provider", wantErr: "dns-01 challenge requires tls.acme.dns_provider"},
-		{name: "unsupported provider", dnsProvider: "cloudflare", wantErr: "dns-01 challenge with provider \"cloudflare\" is not implemented"},
+		{name: "unsupported provider", dnsProvider: "route53", wantErr: "unsupported dns-01 provider"},
+		{name: "cloudflare missing token", dnsProvider: "cloudflare", wantErr: "CLOUDFLARE_API_TOKEN"},
 	}
 
 	for _, tt := range tests {
@@ -603,12 +604,48 @@ func TestNewManager_DNSChallengeErrors(t *testing.T) {
 				if manager != nil {
 					defer manager.Close()
 				}
-				t.Fatalf("expected error for dns-01 challenge")
+				t.Fatalf("expected error for dns-01 challenge %q", tt.name)
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+// TestNewManager_DNSChallengeCloudflareWires exercises the dns-01 happy path:
+// with CLOUDFLARE_API_TOKEN set in the process env (the real osEnv getter is
+// what newDNSProvider uses), NewManager must build a manager whose ACME
+// issuer carries a non-nil DNS01Solver pointing at a libdns cloudflare
+// provider. This is the live wiring — if the manager ever drops the solver
+// or the registry returns nil, the test catches it before any real ACME
+// handshake tries to solve a DNS-01 challenge.
+func TestNewManager_DNSChallengeCloudflareWires(t *testing.T) {
+	t.Setenv("CLOUDFLARE_API_TOKEN", "fake-token-for-test")
+
+	manager, err := NewManager(Config{
+		Enabled:     true,
+		AutoTLS:     true,
+		Email:       "admin@example.com",
+		Domains:     []string{"example.com"},
+		Challenge:   "dns-01",
+		DNSProvider: "cloudflare",
+	}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	if manager.acmeIssuer == nil {
+		t.Fatal("acmeIssuer is nil after dns-01 wiring")
+	}
+	// ACMEIssuer.DNS01Solver is the acmez.Solver interface, so type-assert to
+	// the concrete *certmagic.DNS01Solver to reach the embedded DNSManager.
+	solver, ok := manager.acmeIssuer.DNS01Solver.(*certmagic.DNS01Solver)
+	if !ok {
+		t.Fatalf("acmeIssuer.DNS01Solver is %T, want *certmagic.DNS01Solver", manager.acmeIssuer.DNS01Solver)
+	}
+	if solver.DNSProvider == nil {
+		t.Fatal("DNS01Solver.DNSProvider is nil; the libdns cloudflare provider was not built")
 	}
 }
 

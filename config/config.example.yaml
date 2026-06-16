@@ -35,10 +35,18 @@ tls:
     email: admin@example.com
     provider: letsencrypt            # letsencrypt or letsencrypt-staging
     challenge: http-01               # http-01 or dns-01
-    dns_provider: ""                 # cloudflare, route53, etc. for dns-01
+    # dns_provider selects the DNS-01 driver when challenge=dns-01 (e.g. for
+    # wildcard certs). Credentials are read from the process environment, never
+    # the config file:
+    #   cloudflare -> CLOUDFLARE_API_TOKEN (Zone.DNS:Write)
+    #   rfc2136    -> RFC2136_SERVER (host:port), RFC2136_TSIG_KEYNAME,
+    #                 RFC2136_TSIG_ALGORITHM, RFC2136_TSIG_SECRET
+    # Unknown values fail loud at startup. Per-tenant providers are not yet
+    # supported — one DNS provider is configured server-wide.
+    dns_provider: ""                 # cloudflare or rfc2136 for dns-01
     cache_backend: ""                # "store" shares certs across HA nodes via the DB; empty = local filesystem
     cache_dir: ""                    # filesystem cert cache dir when not using "store" (default: ./certs)
-    renew_before_days: 0             # renew this many days before expiry (0 = autocert default of 30)
+    renew_before_days: 0             # renew this many days before expiry (0 = certmagic default of 30)
 
 # ============================================
 # SMTP

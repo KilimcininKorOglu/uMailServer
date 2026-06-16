@@ -125,19 +125,37 @@ func NewManager(config Config, logger *slog.Logger) (*Manager, error) {
 // issuance across active-active nodes through a shared Storage + lock rather than
 // a leader: any node may on-demand a certificate at handshake, and a contended
 // issuance serializes on the lock. HTTP-01 is the default challenge; DNS-01
-// (wildcard) is wired in a follow-up.
+// (wildcard) is wired through the dns_providers registry and selects the
+// provider with tls.acme.dns_provider.
 func (m *Manager) setupCertmagic() error {
 	challenge := m.config.Challenge
 	if challenge == "" {
 		challenge = "http-01"
 	}
-	if challenge == "dns-01" {
+	var dns01Solver *certmagic.DNS01Solver
+	switch challenge {
+	case "http-01":
+		// Nothing extra to wire; certmagic's distributed HTTP-01 solver lets any
+		// active-active node solve a challenge begun by another as long as they
+		// share Storage + the Locker.
+	case "dns-01":
 		if m.config.DNSProvider == "" {
 			return fmt.Errorf("dns-01 challenge requires tls.acme.dns_provider")
 		}
-		return fmt.Errorf("dns-01 challenge with provider %q is not implemented", m.config.DNSProvider)
-	}
-	if challenge != "http-01" {
+		provider, err := newDNSProvider(m.config.DNSProvider, osEnv)
+		if err != nil {
+			return err
+		}
+		dns01Solver = &certmagic.DNS01Solver{
+			DNSManager: certmagic.DNSManager{
+				DNSProvider:        provider,
+				TTL:                60 * time.Second,
+				PropagationDelay:   0,
+				PropagationTimeout: 2 * time.Minute,
+			},
+		}
+		m.logger.Info("ACME issuer using DNS-01 challenge", "provider", m.config.DNSProvider)
+	default:
 		return fmt.Errorf("unsupported ACME challenge %q", challenge)
 	}
 
@@ -163,10 +181,18 @@ func (m *Manager) setupCertmagic() error {
 		ca = m.config.ACMEEndpoint
 	}
 
+	// DNS01Solver is only set when dns-01 is the active challenge. A typed-nil
+	// *certmagic.DNS01Solver wrapped in the acmez.Solver interface would still
+	// satisfy a non-nil check, causing certmagic to attempt a DNS challenge the
+	// operator never configured — so the field is left at its zero value for
+	// http-01.
 	issuerCfg := certmagic.ACMEIssuer{
 		CA:     ca,
 		Email:  m.config.Email,
 		Agreed: true,
+	}
+	if dns01Solver != nil {
+		issuerCfg.DNS01Solver = dns01Solver
 	}
 	// Trust a private/test ACME CA (e.g. local Pebble) for the directory endpoint
 	// without weakening verification: restrict the ACME client's trust to the
