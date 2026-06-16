@@ -1534,6 +1534,43 @@ func (s *Server) tenantAdminMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// permissionMiddleware returns a middleware that requires the caller to have a specific
+// permission through an RBAC role. It must run after authMiddleware so that the
+// caller's user ID is in context.
+//
+//nolint:unused
+func (s *Server) permissionMiddleware(permission string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, ok := r.Context().Value("user").(string)
+			if !ok || user == "" {
+				s.sendError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			roles, err := s.db.GetUserRoles(user)
+			if err != nil {
+				s.sendError(w, http.StatusInternalServerError, "failed to load roles")
+				return
+			}
+			for _, role := range roles {
+				perms, err := s.db.GetRolePermissions(role.ID)
+				if err != nil {
+					continue
+				}
+				for _, p := range perms {
+					if p.Permission == permission {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+			}
+			s.sendJSON(w, http.StatusForbidden, map[string]string{
+				"error": "insufficient permissions",
+			})
+		})
+	}
+}
+
 // Handlers
 
 func (s *Server) handleWebmail(w http.ResponseWriter, r *http.Request) {
