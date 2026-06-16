@@ -149,6 +149,16 @@ export interface DelegationInput {
   canSendOnBehalf?: boolean
 }
 
+export interface SMIMECertInfo {
+  subject: string
+  issuer: string
+  notBefore: string
+  notAfter: string
+  serialNumber: string
+  fingerprint: string
+  hasPrivateKey: boolean
+}
+
 export interface DirectoryEntry {
   email: string
   name: string
@@ -976,6 +986,19 @@ class API {
 
   async deleteNote(id: string): Promise<void> {
     await this.delete(`/notes/${encodeURIComponent(id)}`)
+  }
+
+  // S/MIME certificate management (backed by /api/v1/smime/certificate)
+  async getSMIMECertificate(): Promise<{ hasKeys: false } | SMIMECertInfo> {
+    return this.get<{ hasKeys: false } | SMIMECertInfo>('/smime/certificate')
+  }
+
+  async uploadSMIMECertificate(cert: string, key: string): Promise<SMIMECertInfo> {
+    return this.post<SMIMECertInfo>('/smime/certificate', { cert, key })
+  }
+
+  async deleteSMIMECertificate(): Promise<{ status: string }> {
+    return this.delete<{ status: string }>('/smime/certificate')
   }
 
   // Generic methods

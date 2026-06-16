@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera, HardDrive } from "lucide-react"
+import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera, HardDrive, FileKey } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { useAuth } from "@/contexts/AuthContext"
 import { useI18n } from "@/hooks/useI18n"
@@ -228,6 +228,68 @@ export function SettingsPage() {
       toast.error(t("settings.push.disableFailed"))
     } finally {
       setPushBusy(false)
+    }
+  }
+
+  // S/MIME certificate state (backed by /api/v1/smime/certificate)
+  const [smimeCert, setSmimeCert] = useState<{
+    subject: string; issuer: string; notBefore: string; notAfter: string;
+    serialNumber: string; fingerprint: string; hasPrivateKey: boolean
+  } | null>(null)
+  const [smimeLoading, setSmimeLoading] = useState(true)
+  const [smimeUploadOpen, setSmimeUploadOpen] = useState(false)
+  const [smimeCertInput, setSmimeCertInput] = useState("")
+  const [smimeKeyInput, setSmimeKeyInput] = useState("")
+  const [smimeSaving, setSmimeSaving] = useState(false)
+  const [smimeDeleteOpen, setSmimeDeleteOpen] = useState(false)
+  const [smimeDeleting, setSmimeDeleting] = useState(false)
+
+  const loadSmimeCert = useCallback(async () => {
+    setSmimeLoading(true)
+    try {
+      const res = await api.getSMIMECertificate()
+      if ("hasKeys" in res) {
+        setSmimeCert(null)
+      } else {
+        setSmimeCert(res)
+      }
+    } catch {
+      setSmimeCert(null)
+    } finally {
+      setSmimeLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadSmimeCert() }, [loadSmimeCert])
+
+  const handleSmimeUpload = async () => {
+    if (!smimeCertInput.trim() || !smimeKeyInput.trim()) return
+    setSmimeSaving(true)
+    try {
+      const saved = await api.uploadSMIMECertificate(smimeCertInput, smimeKeyInput)
+      setSmimeCert(saved)
+      setSmimeUploadOpen(false)
+      setSmimeCertInput("")
+      setSmimeKeyInput("")
+      toast.success(t("settings.smimeCertSaved"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("settings.smimeCertSaveFailed"))
+    } finally {
+      setSmimeSaving(false)
+    }
+  }
+
+  const handleSmimeDelete = async () => {
+    setSmimeDeleting(true)
+    try {
+      await api.deleteSMIMECertificate()
+      setSmimeCert(null)
+      setSmimeDeleteOpen(false)
+      toast.success(t("settings.smimeCertDeleted"))
+    } catch {
+      toast.error(t("settings.smimeCertDeleteFailed"))
+    } finally {
+      setSmimeDeleting(false)
     }
   }
 
@@ -1087,6 +1149,41 @@ export function SettingsPage() {
             checked={settings.allowReadReceipts}
             onChange={() => handleToggle("allowReadReceipts")}
           />
+          <Separator />
+          <div className="flex items-center justify-between py-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <FileKey className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-sm font-medium">{t("settings.privacy.smimeCert")}</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">{t("settings.privacy.smimeCertDescription")}</p>
+              {smimeLoading ? (
+                <p className="text-xs text-muted-foreground mt-1">{t("common.loading")}</p>
+              ) : smimeCert ? (
+                <p className="text-xs text-muted-foreground mt-1 truncate">{smimeCert.subject}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">{t("settings.smimeCertNone")}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 ml-4">
+              {smimeCert && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSmimeDeleteOpen(true)}
+                >
+                  {t("settings.privacy.smimeCertDelete")}
+                </Button>
+              )}
+              <Button
+                variant={smimeCert ? "outline" : "default"}
+                size="sm"
+                onClick={() => setSmimeUploadOpen(true)}
+              >
+                {smimeCert ? t("settings.privacy.smimeCertView") : t("settings.privacy.smimeCertAdd")}
+              </Button>
+            </div>
+          </div>
         </div>
       </SettingSection>
 
@@ -1224,6 +1321,99 @@ export function SettingsPage() {
             </Button>
             <Button onClick={handleChangePassword} disabled={pwSaving}>
               {pwSaving ? t("common.saving") : t("settings.password.update")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* S/MIME Upload / View Dialog */}
+      <Dialog open={smimeUploadOpen} onOpenChange={setSmimeUploadOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {smimeCert ? t("settings.privacy.smimeCertView") : t("settings.privacy.smimeCertUpload")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("settings.privacy.smimeCertUploadDesc")}
+            </DialogDescription>
+          </DialogHeader>
+
+          {smimeCert && (
+            <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
+              <div className="grid grid-cols-[120px_1fr] gap-1 text-sm">
+                <span className="text-muted-foreground font-medium">{t("settings.privacy.smimeCertSubject")}:</span>
+                <span className="break-all">{smimeCert.subject}</span>
+                <span className="text-muted-foreground font-medium">{t("settings.privacy.smimeCertIssuer")}:</span>
+                <span className="break-all">{smimeCert.issuer}</span>
+                <span className="text-muted-foreground font-medium">{t("settings.privacy.smimeCertValidFrom")}:</span>
+                <span>{smimeCert.notBefore ? new Date(smimeCert.notBefore).toLocaleDateString() : "—"}</span>
+                <span className="text-muted-foreground font-medium">{t("settings.privacy.smimeCertValidUntil")}:</span>
+                <span>{smimeCert.notAfter ? new Date(smimeCert.notAfter).toLocaleDateString() : "—"}</span>
+                <span className="text-muted-foreground font-medium">{t("settings.privacy.smimeCertSerial")}:</span>
+                <span className="font-mono text-xs break-all">{smimeCert.serialNumber}</span>
+                <span className="text-muted-foreground font-medium">{t("settings.privacy.smimeCertFingerprint")}:</span>
+                <span className="font-mono text-xs break-all">{smimeCert.fingerprint}</span>
+                <span className="text-muted-foreground font-medium">{t("settings.privacy.smimeCertHasKey")}:</span>
+                <span>{smimeCert.hasPrivateKey ? t("settings.privacy.smimeCertYes") : t("settings.privacy.smimeCertNo")}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="smime-cert">{t("settings.privacy.smimeCertPlaceholder").split("...")[0]}</Label>
+              <Textarea
+                id="smime-cert"
+                value={smimeCertInput}
+                onChange={(e) => setSmimeCertInput(e.target.value)}
+                placeholder={t("settings.privacy.smimeCertPlaceholder")}
+                rows={5}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="smime-key">{t("settings.privacy.smimeCertKeyPlaceholder").split("...")[0]}</Label>
+              <Textarea
+                id="smime-key"
+                value={smimeKeyInput}
+                onChange={(e) => setSmimeKeyInput(e.target.value)}
+                placeholder={t("settings.privacy.smimeCertKeyPlaceholder")}
+                rows={5}
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setSmimeUploadOpen(false)
+              setSmimeCertInput("")
+              setSmimeKeyInput("")
+            }} disabled={smimeSaving}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={handleSmimeUpload} disabled={smimeSaving || !smimeCertInput.trim() || !smimeKeyInput.trim()}>
+              {smimeSaving ? t("common.saving") : t("settings.privacy.smimeCertAdd")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* S/MIME Delete Confirmation */}
+      <Dialog open={smimeDeleteOpen} onOpenChange={setSmimeDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("settings.privacy.smimeCertDelete")}</DialogTitle>
+            <DialogDescription>
+              {t("settings.privacy.smimeCertDeleteConfirm")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSmimeDeleteOpen(false)} disabled={smimeDeleting}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={handleSmimeDelete} disabled={smimeDeleting}>
+              {smimeDeleting ? t("common.deleting") : t("settings.privacy.smimeCertDelete")}
             </Button>
           </DialogFooter>
         </DialogContent>
