@@ -168,6 +168,34 @@ tls:
   key_file: /etc/umailserver/certs/server.key
 ```
 
+### TLS-Before-Auth Enforcement
+
+`security.require_tls_for_auth` is the single switch that forbids plaintext
+authentication on the mail submission/access listeners. It defaults to `true`.
+
+```yaml
+security:
+  require_tls_for_auth: true   # default
+```
+
+When enabled, IMAP, POP3, and SMTP submission reject `LOGIN` / `AUTHENTICATE` /
+`AUTH` on a connection that has not completed STARTTLS (or implicit TLS),
+returning a "TLS required" error before any credential is checked. Inbound SMTP
+on port 25 stays opportunistic (STARTTLS is offered, never required) so
+server-to-server delivery is never blocked.
+
+Enforcement is bound to an available certificate. The effective rule is:
+
+    enforce = require_tls_for_auth AND a TLS certificate is configured
+
+If `require_tls_for_auth` is `true` but no certificate is available (no ACME and
+no `tls.cert_file` / `tls.key_file`), the server logs a startup WARNING and
+falls back to ALLOWING plaintext authentication. This anti-stranding fallback is
+deliberate: it stops a misconfiguration from locking every user out of a server
+that cannot offer TLS. It is not a silent bypass — the warning names the
+condition and the fix. Configure ACME or a certificate so enforcement takes
+effect.
+
 ## API Security
 
 ### Rate Limiting
