@@ -124,7 +124,7 @@ func (s *Server) startJMAP() {
 	s.jmapHTTPServer = srv
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.serveListener(srv); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("JMAP server error", "error", err)
 		}
 	}()

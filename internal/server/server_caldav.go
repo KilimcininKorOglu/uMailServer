@@ -48,7 +48,7 @@ func (s *Server) startCalDAV() {
 	s.caldavHTTPServer = srv
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.serveListener(srv); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("CalDAV server error", "error", err)
 		}
 	}()
