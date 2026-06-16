@@ -576,6 +576,29 @@ export interface SpamConfig {
   rbl_servers: string[];
 }
 
+export interface SpamHistoryEntry {
+  id: string;
+  mail_from: string;
+  rcpt_to: string;
+  from_header: string;
+  subject: string;
+  score: number;
+  verdict: string;
+  reasons: string[];
+  client_ip: string;
+  helo: string;
+  message_id: string;
+  size: number;
+  timestamp: string;
+}
+
+export interface SpamHistoryResponse {
+  entries: SpamHistoryEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface AVConfig {
   enabled: boolean;
   addr: string;

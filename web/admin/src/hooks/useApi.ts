@@ -32,6 +32,8 @@ import type {
   Role,
   RolePermission,
   RoleWithPermissions,
+  SpamHistoryEntry,
+  SpamHistoryResponse,
 } from "@/types";
 
 interface ApiError {
@@ -1407,4 +1409,43 @@ export function useLogsTail() {
   }, []);
 
   return { page, loading, error, fetchTail, reset };
+}
+
+// useAntispam fetches spam history from GET /api/v1/admin/antispam/.
+export function useAntispam() {
+  const [entries, setEntries] = useState<SpamHistoryEntry[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchHistory = useCallback(async (params?: {
+    verdict?: string;
+    domain?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const searchParams = new URLSearchParams();
+      if (params?.verdict) searchParams.set("verdict", params.verdict);
+      if (params?.domain) searchParams.set("domain", params.domain);
+      if (params?.limit) searchParams.set("limit", String(params.limit));
+      if (params?.offset) searchParams.set("offset", String(params.offset));
+      const qs = searchParams.toString();
+      const result = await apiRequest<SpamHistoryResponse>(
+        `/admin/antispam/${qs ? "?" + qs : ""}`
+      );
+      setEntries(result.entries);
+      setTotal(result.total);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { entries, total, loading, error, fetchHistory };
 }

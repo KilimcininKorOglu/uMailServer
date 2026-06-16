@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   ScrollText,
   UserCog,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/hooks/useI18n";
@@ -59,6 +60,7 @@ const menuItems = [
   { path: "/cluster", icon: Network, labelKey: "nav.cluster" },
   { path: "/certificates", icon: ShieldCheck, labelKey: "nav.certificates" },
   { path: "/roles", icon: UserCog, labelKey: "nav.roles" },
+  { path: "/spam", icon: ShieldAlert, labelKey: "nav.spam" },
   { path: "/settings", icon: Settings, labelKey: "nav.settings" },
 ];
 

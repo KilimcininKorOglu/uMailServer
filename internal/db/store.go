@@ -179,6 +179,10 @@ type Store interface {
 	GetUserRoles(userID string) ([]*Role, error)
 	GetUsersByRole(roleID string) ([]string, error)
 
+	// Spam history: records spam check events for admin visibility.
+	LogSpamEvent(entry *SpamHistoryEntry) error
+	ListSpamHistory(opts SpamHistoryListOptions) ([]*SpamHistoryEntry, int, error)
+
 	// Lifecycle.
 	Close() error
 }

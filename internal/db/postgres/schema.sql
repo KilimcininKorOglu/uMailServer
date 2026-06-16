@@ -874,3 +874,23 @@ CREATE TABLE IF NOT EXISTS admin_user_role_relation (
 );
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON admin_user_role_relation (user_id);
 CREATE INDEX IF NOT EXISTS idx_user_roles_role ON admin_user_role_relation (role_id);
+
+-- Spam check history for admin visibility.
+CREATE TABLE IF NOT EXISTS spam_history (
+    id          TEXT PRIMARY KEY,
+    mail_from   TEXT NOT NULL,
+    rcpt_to     TEXT NOT NULL,
+    from_header TEXT NOT NULL DEFAULT '',
+    subject     TEXT NOT NULL DEFAULT '',
+    score       DOUBLE PRECISION NOT NULL DEFAULT 0,
+    verdict     TEXT NOT NULL DEFAULT '',
+    reasons     JSONB NOT NULL DEFAULT '[]',
+    client_ip   TEXT NOT NULL DEFAULT '',
+    helo        TEXT NOT NULL DEFAULT '',
+    message_id  TEXT NOT NULL DEFAULT '',
+    size        BIGINT NOT NULL DEFAULT 0,
+    timestamp   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_spam_history_timestamp ON spam_history (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_spam_history_rcpt_to ON spam_history (rcpt_to);
+CREATE INDEX IF NOT EXISTS idx_spam_history_verdict ON spam_history (verdict);

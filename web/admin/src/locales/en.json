@@ -22,7 +22,8 @@
     "logout": "Logout",
     "cluster": "Cluster",
     "certificates": "Certificates",
-    "roles": "Roles"
+    "roles": "Roles",
+    "spam": "Antispam"
   },
   "auth": {
     "login": "Admin Login",
@@ -1118,5 +1119,35 @@
     "addRole": "Add Role",
     "removeRole": "Remove Role",
     "confirmRemoveRole": "Remove the role \"{{role}}\" from {{email}}?"
+  },
+  "spam": {
+    "title": "Antispam",
+    "description": "Spam detection history and statistics",
+    "filter": "Filter",
+    "allVerdicts": "All verdicts",
+    "reject": "Rejected",
+    "quarantine": "Quarantined",
+    "junk": "Junk folder",
+    "inbox": "Inbox",
+    "domainPlaceholder": "Filter by domain",
+    "total": "Total events",
+    "totalDesc": "All spam events recorded",
+    "rejected": "Rejected",
+    "rejectedDesc": "Messages rejected at SMTP level",
+    "quarantined": "Quarantined",
+    "quarantinedDesc": "Messages held for review",
+    "junkDesc": "Messages delivered to junk folder",
+    "history": "Detection history",
+    "historyDescription": "Recent spam detection events across all domains",
+    "noEvents": "No spam events",
+    "noEventsDesc": "No spam detection events recorded yet",
+    "colTime": "Time",
+    "colFrom": "From",
+    "colTo": "To",
+    "colSubject": "Subject",
+    "colScore": "Score",
+    "colVerdict": "Verdict",
+    "colReasons": "Reasons",
+    "showing": "Showing {from} to {to} of {total}"
   }
 }

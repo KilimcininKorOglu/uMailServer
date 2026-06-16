@@ -39,10 +39,11 @@ const (
 	BucketScheduled      = "scheduled"
 	BucketRecoverable    = "recoverable_items"
 	BucketEASDevices     = "activesync_devices"
-	BucketTLSCache       = "tls_cache"
-	BucketRoles          = "roles"
-	BucketRolePermissions = "role_permissions"
-	BucketUserRoles      = "user_roles"
+	BucketTLSCache        = "tls_cache"
+	BucketRoles           = "roles"
+	BucketRolePermissions  = "role_permissions"
+	BucketUserRoles       = "user_roles"
+	BucketSpamHistory     = "spam_history"
 )
 
 // DB wraps bbolt database
@@ -110,6 +111,33 @@ type AccountData struct {
 	Locale             string    `json:"locale,omitempty"`       // preferred UI language (e.g. "tr", "en")
 	Theme              string    `json:"theme,omitempty"`        // preferred UI theme ("light", "dark", "system")
 	Onboarded          bool      `json:"onboarded"`              // true once the user finished first-run onboarding
+}
+
+// SpamHistoryEntry records a spam check event for admin visibility.
+type SpamHistoryEntry struct {
+	ID            string    `json:"id"`
+	MailFrom      string    `json:"mail_from"`    // envelope sender
+	RcptTo        string    `json:"rcpt_to"`     // envelope recipient
+	FromHeader    string    `json:"from_header"`  // From: header
+	Subject       string    `json:"subject"`
+	Score         float64   `json:"score"`       // final spam score
+	Verdict       string    `json:"verdict"`       // inbox, junk, quarantine, reject
+	Reasons       []string  `json:"reasons"`      // scoring breakdown
+	ClientIP      string    `json:"client_ip"`
+	Helo          string    `json:"helo"`
+	MessageID     string    `json:"message_id"`   // SMTP Message-ID header
+	Size          int64     `json:"size"`         // message size in bytes
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+// SpamHistoryListOptions filters the spam history query.
+type SpamHistoryListOptions struct {
+	Domain   string    // filter by recipient domain
+	Verdict  string    // filter by verdict (junk, quarantine, reject)
+	Start    time.Time // time range start (zero = no limit)
+	End      time.Time // time range end (zero = no limit)
+	Limit    int       // max results (0 = default 100)
+	Offset   int       // pagination offset
 }
 
 // ClientSession holds HTTP/API client session information for the account portal.
@@ -360,6 +388,7 @@ func (d *DB) initBuckets() error {
 		BucketRecoverable,
 		BucketEASDevices,
 		BucketTLSCache,
+		BucketSpamHistory,
 	}
 
 	return d.bolt.Update(func(tx *bbolt.Tx) error {
@@ -1786,4 +1815,78 @@ func (d *DB) GetUsersByRole(roleID string) ([]string, error) {
 		})
 	})
 	return users, err
+}
+
+// LogSpamEvent records a spam check event. The entry ID is set by this method.
+func (d *DB) LogSpamEvent(entry *SpamHistoryEntry) error {
+	if entry.ID == "" {
+		entry.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	entry.Timestamp = time.Now()
+	key := []byte(entry.ID)
+	val, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("failed to marshal spam event: %w", err)
+	}
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketSpamHistory))
+		return b.Put(key, val)
+	})
+}
+
+// ListSpamHistory returns spam events matching the given filters, and the total
+// count before pagination.
+func (d *DB) ListSpamHistory(opts SpamHistoryListOptions) ([]*SpamHistoryEntry, int, error) {
+	if opts.Limit <= 0 {
+		opts.Limit = 100
+	}
+	var all []*SpamHistoryEntry
+	var total int
+	err := d.bolt.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketSpamHistory))
+		if b == nil {
+			return nil
+		}
+		var cursor *bbolt.Cursor
+		cursor = b.Cursor()
+		for k, v := cursor.Last(); k != nil; k, v = cursor.Prev() {
+			var entry SpamHistoryEntry
+			if err := json.Unmarshal(v, &entry); err != nil {
+				continue
+			}
+			total++
+			// Apply filters
+			if opts.Domain != "" {
+				_, domain, _ := strings.Cut(entry.RcptTo, "@")
+				if domain != opts.Domain {
+					continue
+				}
+			}
+			if opts.Verdict != "" && entry.Verdict != opts.Verdict {
+				continue
+			}
+			if !opts.Start.IsZero() && entry.Timestamp.Before(opts.Start) {
+				continue
+			}
+			if !opts.End.IsZero() && entry.Timestamp.After(opts.End) {
+				continue
+			}
+			all = append(all, &entry)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	// Apply offset
+	if opts.Offset > 0 && opts.Offset < len(all) {
+		all = all[opts.Offset:]
+	} else if opts.Offset >= len(all) {
+		all = nil
+	}
+	// Apply limit
+	if len(all) > opts.Limit {
+		all = all[:opts.Limit]
+	}
+	return all, total, nil
 }

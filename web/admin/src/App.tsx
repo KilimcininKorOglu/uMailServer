@@ -22,6 +22,7 @@ import { Tenants } from "@/pages/Tenants";
 import { Cluster } from "@/pages/Cluster";
 import { Certificates } from "@/pages/Certificates";
 import { Roles } from "@/pages/Roles";
+import { Spam } from "@/pages/Spam";
 import Logs from "@/pages/Logs";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { getCookie, setCookie, deleteCookie } from "@/utils/cookies";
@@ -222,6 +223,7 @@ function App() {
             <Route path="/certificates" element={<Certificates />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/roles" element={<Roles />} />
+            <Route path="/spam" element={<Spam />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

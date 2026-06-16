@@ -22,7 +22,8 @@
     "logout": "Çıkış",
     "cluster": "Küme",
     "certificates": "Sertifikalar",
-    "roles": "Roller"
+    "roles": "Roller",
+    "spam": "Antispam"
   },
   "auth": {
     "login": "Yönetici Girişi",
@@ -1118,5 +1119,35 @@
     "addRole": "Rol Ekle",
     "removeRole": "Rol Kaldır",
     "confirmRemoveRole": "\"{{role}}\" rolünü {{email}} hesabından kaldırmak istediğinizden emin misiniz?"
+  },
+  "spam": {
+    "title": "Antispam",
+    "description": "Spam tespit geçmişi ve istatistikleri",
+    "filter": "Filtrele",
+    "allVerdicts": "Tüm kararlar",
+    "reject": "Reddedildi",
+    "quarantine": "Karantinaya alındı",
+    "junk": "Gereksiz klasör",
+    "inbox": "Gelen kutusu",
+    "domainPlaceholder": "Etki alanına göre filtrele",
+    "total": "Toplam olay",
+    "totalDesc": "Kaydedilen tüm spam olayları",
+    "rejected": "Reddedildi",
+    "rejectedDesc": "SMTP seviyesinde reddedilen iletiler",
+    "quarantined": "Karantinaya alındı",
+    "quarantinedDesc": "İnceleme için tutulan iletiler",
+    "junkDesc": "Gereksiz klasöre teslim edilen iletiler",
+    "history": "Tespit geçmişi",
+    "historyDescription": "Tüm etki alanlarındaki son spam tespit olayları",
+    "noEvents": "Spam olayı yok",
+    "noEventsDesc": "Henüz kaydedilmiş spam tespit olayı yok",
+    "colTime": "Zaman",
+    "colFrom": "Gönderen",
+    "colTo": "Alıcı",
+    "colSubject": "Konu",
+    "colScore": "Puan",
+    "colVerdict": "Karar",
+    "colReasons": "Nedenler",
+    "showing": "{total} kayıttan {from} - {to} gösteriliyor"
   }
 }
