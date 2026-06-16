@@ -832,3 +832,14 @@ CREATE TABLE IF NOT EXISTS tls_cache (
     data       BYTEA       NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Distributed coordination locks for TLS certificate issuance/renewal across
+-- active-active nodes (the CertMagic "instances sharing the same storage are
+-- the same cluster" model). A row is a TTL'd lease: owner holds name until
+-- expires_at, and a node may steal a row once its lease has expired, so a
+-- crashed node cannot wedge certificate management for the cluster.
+CREATE TABLE IF NOT EXISTS tls_locks (
+    name       TEXT        PRIMARY KEY,
+    owner      TEXT        NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL
+);

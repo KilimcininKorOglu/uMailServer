@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -43,6 +45,20 @@ const (
 // DB wraps bbolt database
 type DB struct {
 	bolt *bbolt.DB
+
+	// In-process TLS issuance/renewal coordination locks. bbolt is a
+	// single-process store, so these only serialize goroutines within this
+	// process; the multi-node equivalent lives in the postgres backend. The
+	// lease map mirrors that contract (owner + expiry) so the certmagic lock
+	// adapter is identical across backends.
+	tlsLockMu  sync.Mutex
+	tlsLocks   map[string]tlsLockEntry
+}
+
+// tlsLockEntry is an in-process lease on a TLS lock name.
+type tlsLockEntry struct {
+	owner     string
+	expiresAt time.Time
 }
 
 // AccountData holds account information
@@ -1415,4 +1431,40 @@ func (d *DB) StatTLSCacheEntry(key string) (int64, time.Time, error) {
 		return 0, time.Time{}, err
 	}
 	return size, time.Time{}, nil
+}
+
+// LockTLSCache holds an in-process lease for name. A single-process bbolt store
+// only coordinates goroutines within this process, so a map-backed lease with
+// owner + expiry mirrors the postgres multi-node contract: the owner may
+// re-acquire its own live lease, and any caller may steal a lease past its
+// expiry so a crashed holder cannot wedge issuance for the process.
+func (d *DB) LockTLSCache(ctx context.Context, name, owner string, ttl time.Duration) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	now := time.Now()
+	d.tlsLockMu.Lock()
+	defer d.tlsLockMu.Unlock()
+	if d.tlsLocks == nil {
+		d.tlsLocks = make(map[string]tlsLockEntry)
+	}
+	if cur, held := d.tlsLocks[name]; held && cur.expiresAt.After(now) && cur.owner != owner {
+		return false, nil // live lease held by another owner
+	}
+	d.tlsLocks[name] = tlsLockEntry{owner: owner, expiresAt: now.Add(ttl)}
+	return true, nil
+}
+
+// UnlockTLSCache releases name when held by owner; a lock held by another owner
+// (or nobody) is left untouched and is not an error.
+func (d *DB) UnlockTLSCache(ctx context.Context, name, owner string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	d.tlsLockMu.Lock()
+	defer d.tlsLockMu.Unlock()
+	if cur, held := d.tlsLocks[name]; held && cur.owner == owner {
+		delete(d.tlsLocks, name)
+	}
+	return nil
 }

@@ -2,9 +2,11 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // TestTLSCacheStore covers the generic keyed-blob contract the ACME certificate
@@ -134,5 +136,67 @@ func TestTLSCacheListStat(t *testing.T) {
 	// adapter cannot distinguish "no such cert" from "empty cert".
 	if _, _, err := database.StatTLSCacheEntry("certificates/acme/missing.crt"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("StatTLSCacheEntry(absent) = %v, want ErrNotFound", err)
+	}
+}
+
+// TestTLSCacheLock covers the lease contract certmagic coordination builds on:
+// a fresh acquire succeeds, a second owner is blocked while the lease is live,
+// the owner may re-acquire (refresh), unlock by a non-owner is a no-op, and a
+// stale (expired) lease can be stolen. If re-acquire or steal misbehaved, two
+// nodes would both believe they hold the issuance lock and double-issue.
+func TestTLSCacheLock(t *testing.T) {
+	database, err := Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer func() {
+		if cerr := database.Close(); cerr != nil {
+			t.Errorf("Close: %v", cerr)
+		}
+	}()
+	ctx := context.Background()
+
+	// Fresh acquire succeeds.
+	if got, err := database.LockTLSCache(ctx, "issue_cert_a", "node1", time.Minute); err != nil || !got {
+		t.Fatalf("LockTLSCache(fresh) = %v,%v, want true,nil", got, err)
+	}
+	// A second owner is blocked while the lease is live.
+	if got, err := database.LockTLSCache(ctx, "issue_cert_a", "node2", time.Minute); err != nil || got {
+		t.Fatalf("LockTLSCache(contended) = %v,%v, want false,nil", got, err)
+	}
+	// The owner may re-acquire its own lease (refresh/renewal path).
+	if got, err := database.LockTLSCache(ctx, "issue_cert_a", "node1", time.Minute); err != nil || !got {
+		t.Fatalf("LockTLSCache(re-acquire own) = %v,%v, want true,nil", got, err)
+	}
+	// Unlock by a non-owner must NOT release the lease.
+	if err := database.UnlockTLSCache(ctx, "issue_cert_a", "node2"); err != nil {
+		t.Fatalf("UnlockTLSCache(non-owner) err = %v", err)
+	}
+	got, err := database.LockTLSCache(ctx, "issue_cert_a", "node2", time.Minute)
+	if err != nil {
+		t.Fatalf("LockTLSCache(re-check) err = %v", err)
+	}
+	if got {
+		t.Fatalf("non-owner unlock must not release; node2 wrongly acquired")
+	}
+	// Unlock by the owner releases; another owner can then acquire.
+	if err := database.UnlockTLSCache(ctx, "issue_cert_a", "node1"); err != nil {
+		t.Fatalf("UnlockTLSCache(owner) err = %v", err)
+	}
+	if got, err := database.LockTLSCache(ctx, "issue_cert_a", "node2", time.Minute); err != nil || !got {
+		t.Fatalf("LockTLSCache(after unlock) = %v,%v, want true,nil", got, err)
+	}
+	if err := database.UnlockTLSCache(ctx, "issue_cert_a", "node2"); err != nil {
+		t.Fatalf("UnlockTLSCache(node2) err = %v", err)
+	}
+
+	// Steal-on-stale: a zero-ttl lease is immediately expired, so another owner
+	// takes it without waiting — deterministic, no sleep. This mirrors the
+	// postgres row-steal on expires_at < now().
+	if got, err := database.LockTLSCache(ctx, "issue_cert_b", "node1", 0); err != nil || !got {
+		t.Fatalf("LockTLSCache(zero-ttl acquire) = %v,%v, want true,nil", got, err)
+	}
+	if got, err := database.LockTLSCache(ctx, "issue_cert_b", "node2", time.Minute); err != nil || !got {
+		t.Fatalf("LockTLSCache(steal-on-stale) = %v,%v, want true,nil (node1 lease already expired)", got, err)
 	}
 }

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -133,6 +134,17 @@ type Store interface {
 	// certmagic.Storage.Stat; bbolt keeps no per-key timestamp and reports a
 	// zero modified time (certmagic treats Modified as optional).
 	StatTLSCacheEntry(key string) (size int64, modified time.Time, err error)
+	// LockTLSCache attempts a single, non-blocking acquisition of a named
+	// distributed lock held for ttl by owner. Returns true when owner now holds
+	// the lock (a fresh acquire, or a re-acquire of its own live lease), false
+	// when another live lease blocks it. The certmagic.Storage adapter drives
+	// the blocking retry/ctx loop on top of this try primitive. bbolt is a
+	// single-process store, so its lock is an in-process lease with the same
+	// contract.
+	LockTLSCache(ctx context.Context, name, owner string, ttl time.Duration) (bool, error)
+	// UnlockTLSCache releases name when held by owner; a lock held by another
+	// owner (or nobody) is left untouched and is not an error.
+	UnlockTLSCache(ctx context.Context, name, owner string) error
 
 	// Typed preferences (replacing the generic-KV buckets).
 	GetUIPrefs(user string) (map[string]bool, error)

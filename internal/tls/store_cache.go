@@ -17,6 +17,16 @@ type CacheStore interface {
 	Delete(key string) error
 }
 
+// Locker is the distributed-lock contract certmagic.Storage.Lock/Unlock adapt
+// onto. Lock blocks until name is acquired or ctx is canceled; Unlock releases
+// it. The implementation lives outside the tls package (in internal/server) so
+// the tls package stays free of db/cluster imports — a Locker is injected the
+// same way a CacheStore is.
+type Locker interface {
+	Lock(ctx context.Context, name string) error
+	Unlock(ctx context.Context, name string) error
+}
+
 // storeCache adapts a CacheStore to autocert.Cache so issued certificates and the
 // ACME account key persist in the shared store instead of the local filesystem.
 type storeCache struct {
