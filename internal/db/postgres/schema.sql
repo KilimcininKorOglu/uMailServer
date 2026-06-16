@@ -843,3 +843,34 @@ CREATE TABLE IF NOT EXISTS tls_locks (
     owner      TEXT        NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL
 );
+
+-- Admin RBAC -------------------------------------------------------------------------
+
+-- Named bundles of permissions that can be assigned to user accounts.
+CREATE TABLE IF NOT EXISTS admin_roles (
+    id          TEXT        PRIMARY KEY,
+    name        TEXT        NOT NULL UNIQUE,
+    description TEXT        NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Permissions granted to a role. The params column carries permission-specific
+-- configuration (currently unused for all built-in permissions).
+CREATE TABLE IF NOT EXISTS admin_role_permission_relation (
+    id          TEXT        PRIMARY KEY,
+    role_id     TEXT        NOT NULL REFERENCES admin_roles(id) ON DELETE CASCADE,
+    permission  TEXT        NOT NULL,
+    params      JSONB       NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_role_perms_role ON admin_role_permission_relation (role_id);
+
+-- Many-to-many user-role assignments. A user may hold multiple roles.
+CREATE TABLE IF NOT EXISTS admin_user_role_relation (
+    id       TEXT PRIMARY KEY,
+    user_id  TEXT NOT NULL,  -- account email (the account's canonical ID)
+    role_id  TEXT NOT NULL REFERENCES admin_roles(id) ON DELETE CASCADE,
+    UNIQUE (user_id, role_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_roles_user ON admin_user_role_relation (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_roles_role ON admin_user_role_relation (role_id);

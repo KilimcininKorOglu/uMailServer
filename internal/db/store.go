@@ -161,6 +161,24 @@ type Store interface {
 	PutUserConfig(owner, name string, b *UserConfigBlob) error
 	DeleteUserConfig(owner, name string) error
 
+	// Admin RBAC: roles, permissions, and user-role assignments.
+	// Role management.
+	CreateRole(role *Role) error
+	GetRole(id string) (*Role, error)
+	ListRoles() ([]*Role, error)
+	UpdateRole(role *Role) error
+	DeleteRole(id string) error
+
+	// Permission management.
+	GetRolePermissions(roleID string) ([]*RolePermission, error)
+	SetRolePermissions(roleID string, perms []*RolePermission) error
+
+	// User-role assignment.
+	AssignRoleToUser(userID, roleID string) error
+	RemoveRoleFromUser(userID, roleID string) error
+	GetUserRoles(userID string) ([]*Role, error)
+	GetUsersByRole(roleID string) ([]string, error)
+
 	// Lifecycle.
 	Close() error
 }

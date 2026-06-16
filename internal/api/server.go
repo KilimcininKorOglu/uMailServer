@@ -1037,6 +1037,10 @@ func (s *Server) registerAdminAPIRoutes(api *http.ServeMux) {
 	api.HandleFunc("/api/v1/admin/logs/tail", s.adminMiddleware(http.HandlerFunc(s.handleAdminLogsTail)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/jobs", s.adminMiddleware(http.HandlerFunc(s.handleAdminJobs)).ServeHTTP)
 	api.HandleFunc("/api/v1/admin/config", s.adminMiddleware(http.HandlerFunc(s.handleConfig)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/roles", s.adminMiddleware(http.HandlerFunc(s.handleAdminRoles)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/roles/permissions", s.adminMiddleware(http.HandlerFunc(s.handleAdminRolePermissions)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/roles/", s.adminMiddleware(http.HandlerFunc(s.handleAdminRoleByID)).ServeHTTP)
+	api.HandleFunc("/api/v1/admin/accounts/", s.adminMiddleware(http.HandlerFunc(s.handleAdminAccountRoles)).ServeHTTP)
 }
 
 // limitBodyMiddleware restricts request body size to prevent DoS.

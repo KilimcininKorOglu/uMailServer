@@ -40,6 +40,9 @@ const (
 	BucketRecoverable    = "recoverable_items"
 	BucketEASDevices     = "activesync_devices"
 	BucketTLSCache       = "tls_cache"
+	BucketRoles          = "roles"
+	BucketRolePermissions = "role_permissions"
+	BucketUserRoles      = "user_roles"
 )
 
 // DB wraps bbolt database
@@ -1483,4 +1486,304 @@ func (d *DB) UnlockTLSCache(ctx context.Context, name, owner string) error {
 		delete(d.tlsLocks, name)
 	}
 	return nil
+}
+
+// RBAC: Role management ---------------------------------------------------------
+
+func (d *DB) CreateRole(role *Role) error {
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(BucketRoles))
+		if err != nil {
+			return err
+		}
+		role.CreatedAt = time.Now()
+		role.UpdatedAt = role.CreatedAt
+		data, err := json.Marshal(role)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(role.ID), data)
+	})
+}
+
+func (d *DB) GetRole(id string) (*Role, error) {
+	var role *Role
+	err := d.bolt.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketRoles))
+		if b == nil {
+			return ErrNotFound
+		}
+		data := b.Get([]byte(id))
+		if data == nil {
+			return ErrNotFound
+		}
+		return json.Unmarshal(data, &role)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return role, nil
+}
+
+func (d *DB) ListRoles() ([]*Role, error) {
+	var roles []*Role
+	err := d.bolt.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketRoles))
+		if b == nil {
+			return nil // empty bucket = no roles
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var role Role
+			if err := json.Unmarshal(v, &role); err != nil {
+				return err
+			}
+			roles = append(roles, &role)
+			return nil
+		})
+	})
+	return roles, err
+}
+
+func (d *DB) UpdateRole(role *Role) error {
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketRoles))
+		if b == nil {
+			return ErrNotFound
+		}
+		existing := b.Get([]byte(role.ID))
+		if existing == nil {
+			return ErrNotFound
+		}
+		role.UpdatedAt = time.Now()
+		data, err := json.Marshal(role)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(role.ID), data)
+	})
+}
+
+func (d *DB) DeleteRole(id string) error {
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketRoles))
+		if b == nil {
+			return ErrNotFound
+		}
+		if b.Get([]byte(id)) == nil {
+			return ErrNotFound
+		}
+		// Delete role
+		if err := b.Delete([]byte(id)); err != nil {
+			return err
+		}
+		// Delete all permissions for this role
+		permBucket := tx.Bucket([]byte(BucketRolePermissions))
+		if permBucket != nil {
+			prefix := []byte(id + ":")
+			toDelete := [][]byte{}
+			permBucket.ForEach(func(k, v []byte) error { //nolint:errcheck
+				if bytes.HasPrefix(k, prefix) {
+					toDelete = append(toDelete, k)
+				}
+				return nil
+			})
+			for _, k := range toDelete {
+				if err := permBucket.Delete(k); err != nil {
+					return err
+				}
+			}
+		}
+		// Delete all user-role assignments for this role
+		urBucket := tx.Bucket([]byte(BucketUserRoles))
+		if urBucket != nil {
+			prefix := []byte(":" + id)
+			toDelete := [][]byte{}
+			_ = urBucket.ForEach(func(k, v []byte) error { //nolint:errcheck
+				if bytes.HasSuffix(k, prefix) {
+					toDelete = append(toDelete, k)
+				}
+				return nil
+			})
+			for _, k := range toDelete {
+				if err := urBucket.Delete(k); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+// RBAC: Permission management --------------------------------------------------
+
+func (d *DB) GetRolePermissions(roleID string) ([]*RolePermission, error) {
+	var perms []*RolePermission
+	err := d.bolt.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(BucketRolePermissions))
+		if b == nil {
+			return nil
+		}
+		prefix := []byte(roleID + ":")
+		return b.ForEach(func(k, v []byte) error {
+			if !bytes.HasPrefix(k, prefix) {
+				return nil
+			}
+			var perm RolePermission
+			if err := json.Unmarshal(v, &perm); err != nil {
+				return err
+			}
+			perms = append(perms, &perm)
+			return nil
+		})
+	})
+	return perms, err
+}
+
+func (d *DB) SetRolePermissions(roleID string, perms []*RolePermission) error {
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		// Verify role exists
+		roleBucket := tx.Bucket([]byte(BucketRoles))
+		if roleBucket == nil || roleBucket.Get([]byte(roleID)) == nil {
+			return ErrNotFound
+		}
+		// Delete existing permissions for this role
+		var permBucket *bbolt.Bucket
+		var err error
+		permBucket = tx.Bucket([]byte(BucketRolePermissions))
+		if permBucket != nil {
+			prefix := []byte(roleID + ":")
+			toDelete := [][]byte{}
+			permBucket.ForEach(func(k, v []byte) error { //nolint:errcheck
+				if bytes.HasPrefix(k, prefix) {
+					toDelete = append(toDelete, copyBytes(k))
+				}
+				return nil
+			})
+			for _, k := range toDelete {
+				if permBucket.Delete(k) != nil {
+					return err
+				}
+			}
+		} else {
+			permBucket, err = tx.CreateBucketIfNotExists([]byte(BucketRolePermissions))
+			if err != nil {
+				return err
+			}
+		}
+		// Insert new permissions
+		for _, p := range perms {
+			p.RoleID = roleID
+			data, err := json.Marshal(p)
+			if err != nil {
+				return err
+			}
+			key := []byte(roleID + ":" + p.Permission)
+			if err := permBucket.Put(key, data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// copyBytes returns an independent copy of b.
+func copyBytes(b []byte) []byte {
+	out := make([]byte, len(b))
+	copy(out, b)
+	return out
+}
+
+// RBAC: User-role assignment ---------------------------------------------------
+
+func (d *DB) AssignRoleToUser(userID, roleID string) error {
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		// Verify role exists
+		roleBucket := tx.Bucket([]byte(BucketRoles))
+		if roleBucket == nil || roleBucket.Get([]byte(roleID)) == nil {
+			return ErrNotFound
+		}
+		urBucket, err := tx.CreateBucketIfNotExists([]byte(BucketUserRoles))
+		if err != nil {
+			return err
+		}
+		rel := AdminRoleRelation{UserID: userID, RoleID: roleID}
+		data, err := json.Marshal(rel)
+		if err != nil {
+			return err
+		}
+		key := []byte(userID + ":" + roleID)
+		return urBucket.Put(key, data)
+	})
+}
+
+func (d *DB) RemoveRoleFromUser(userID, roleID string) error {
+	return d.bolt.Update(func(tx *bbolt.Tx) error {
+		urBucket := tx.Bucket([]byte(BucketUserRoles))
+		if urBucket == nil {
+			return ErrNotFound
+		}
+		key := []byte(userID + ":" + roleID)
+		if urBucket.Get(key) == nil {
+			return ErrNotFound
+		}
+		return urBucket.Delete(key)
+	})
+}
+
+func (d *DB) GetUserRoles(userID string) ([]*Role, error) {
+	var roles []*Role
+	err := d.bolt.View(func(tx *bbolt.Tx) error {
+		urBucket := tx.Bucket([]byte(BucketUserRoles))
+		if urBucket == nil {
+			return nil
+		}
+		roleBucket := tx.Bucket([]byte(BucketRoles))
+		if roleBucket == nil {
+			return nil
+		}
+		prefix := []byte(userID + ":")
+		return urBucket.ForEach(func(k, v []byte) error {
+			if !bytes.HasPrefix(k, prefix) {
+				return nil
+			}
+			var rel AdminRoleRelation
+			if err := json.Unmarshal(v, &rel); err != nil {
+				return err
+			}
+			roleData := roleBucket.Get([]byte(rel.RoleID))
+			if roleData == nil {
+				return nil // role was deleted after assignment
+			}
+			var role Role
+			if err := json.Unmarshal(roleData, &role); err != nil {
+				return err
+			}
+			roles = append(roles, &role)
+			return nil
+		})
+	})
+	return roles, err
+}
+
+func (d *DB) GetUsersByRole(roleID string) ([]string, error) {
+	var users []string
+	err := d.bolt.View(func(tx *bbolt.Tx) error {
+		urBucket := tx.Bucket([]byte(BucketUserRoles))
+		if urBucket == nil {
+			return nil
+		}
+		suffix := []byte(":" + roleID)
+		return urBucket.ForEach(func(k, v []byte) error {
+			if !bytes.HasSuffix(k, suffix) {
+				return nil
+			}
+			var rel AdminRoleRelation
+			if err := json.Unmarshal(v, &rel); err != nil {
+				return err
+			}
+			users = append(users, rel.UserID)
+			return nil
+		})
+	})
+	return users, err
 }
