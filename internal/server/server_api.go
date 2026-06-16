@@ -182,6 +182,10 @@ func (s *Server) startAPI() {
 	}
 	// Set contacts handler data directory for CardDAV-backed contacts API
 	s.apiServer.SetContactsDataDir(s.cfg().Server.DataDir)
+	// Wire LDAP client for directory provisioning when LDAP is enabled.
+	if s.ldapClient != nil {
+		s.apiServer.SetLDAPClient(s.ldapClient)
+	}
 	// Set calendar handler data directory for CalDAV-backed calendar API
 	s.apiServer.SetCalendarDataDir(s.cfg().Server.DataDir)
 	// Let the calendar email meeting invitations through the shared delivery path.

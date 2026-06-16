@@ -535,6 +535,191 @@ func (c *LDAPClient) IsEnabled() bool {
 	return c != nil && c.config.Enabled
 }
 
+// SearchUsers searches the LDAP directory for users matching the given query.
+// It returns users whose email, display name, or username contains the query.
+// If limit <= 0, a default of 50 is used.
+func (c *LDAPClient) SearchUsers(query string, limit int) ([]*LDAPUser, error) {
+	if !c.config.Enabled {
+		return nil, fmt.Errorf("ldap is disabled")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	pc, err := c.pool.acquire()
+	if err != nil {
+		return nil, err
+	}
+	conn, ok := pc.(*ldap.Conn)
+	if !ok {
+		c.pool.discard(pc)
+		return nil, fmt.Errorf("ldap pool returned unexpected connection type")
+	}
+	defer c.pool.release(conn)
+
+	if c.config.BindDN != "" {
+		if err := conn.Bind(c.config.BindDN, c.config.BindPassword); err != nil {
+			return nil, fmt.Errorf("ldap bind failed: %w", err)
+		}
+	}
+
+	// Build a search filter that matches email, name, or username
+	escQuery := ldap.EscapeFilter(query)
+	filter := fmt.Sprintf("(&%s(|(%s=%s)(%s=%s)(%s=%s)))",
+		c.config.UserFilter,
+		c.config.EmailAttribute, escQuery,
+		c.config.NameAttribute, escQuery,
+		"uid", escQuery,
+	)
+
+	searchRequest := ldap.NewSearchRequest(
+		c.config.BaseDN,
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		limit,
+		0,
+		false,
+		filter,
+		[]string{
+			"dn",
+			c.config.EmailAttribute,
+			c.config.NameAttribute,
+			c.config.GroupAttribute,
+			"uid",
+		},
+		nil,
+	)
+
+	sr, err := conn.Search(searchRequest)
+	if err != nil {
+		return nil, fmt.Errorf("ldap search failed: %w", err)
+	}
+
+	users := make([]*LDAPUser, 0, len(sr.Entries))
+	for _, entry := range sr.Entries {
+		user := &LDAPUser{
+			DN:          entry.DN,
+			Email:       entry.GetAttributeValue(c.config.EmailAttribute),
+			DisplayName: entry.GetAttributeValue(c.config.NameAttribute),
+			Groups:      entry.GetAttributeValues(c.config.GroupAttribute),
+		}
+		// Try to get username from uid attribute, fall back to email local part
+		if uid := entry.GetAttributeValue("uid"); uid != "" {
+			user.Username = uid
+		} else if user.Email != "" {
+			if at := strings.Index(user.Email, "@"); at > 0 {
+				user.Username = user.Email[:at]
+			} else {
+				user.Username = user.Email
+			}
+		}
+
+		for _, group := range user.Groups {
+			for _, ag := range c.config.AdminGroups {
+				if strings.EqualFold(group, ag) {
+					user.IsAdmin = true
+					break
+				}
+			}
+			if user.IsAdmin {
+				break
+			}
+		}
+		users = append(users, user)
+	}
+
+	return users, nil
+}
+
+// GetUserByDN retrieves an LDAP user by their distinguished name.
+func (c *LDAPClient) GetUserByDN(dn string) (*LDAPUser, error) {
+	if !c.config.Enabled {
+		return nil, fmt.Errorf("ldap is disabled")
+	}
+
+	pc, err := c.pool.acquire()
+	if err != nil {
+		return nil, err
+	}
+	conn, ok := pc.(*ldap.Conn)
+	if !ok {
+		c.pool.discard(pc)
+		return nil, fmt.Errorf("ldap pool returned unexpected connection type")
+	}
+	defer c.pool.release(conn)
+
+	if c.config.BindDN != "" {
+		if err := conn.Bind(c.config.BindDN, c.config.BindPassword); err != nil {
+			return nil, fmt.Errorf("ldap bind failed: %w", err)
+		}
+	}
+
+	searchRequest := ldap.NewSearchRequest(
+		dn,
+		ldap.ScopeBaseObject,
+		ldap.NeverDerefAliases,
+		1,
+		0,
+		false,
+		"(objectClass=*)",
+		[]string{
+			"dn",
+			c.config.EmailAttribute,
+			c.config.NameAttribute,
+			c.config.GroupAttribute,
+			"uid",
+		},
+		nil,
+	)
+
+	sr, err := conn.Search(searchRequest)
+	if err != nil {
+		return nil, fmt.Errorf("ldap search failed: %w", err)
+	}
+	if len(sr.Entries) == 0 {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	entry := sr.Entries[0]
+	user := &LDAPUser{
+		DN:          entry.DN,
+		Email:       entry.GetAttributeValue(c.config.EmailAttribute),
+		DisplayName: entry.GetAttributeValue(c.config.NameAttribute),
+		Groups:      entry.GetAttributeValues(c.config.GroupAttribute),
+	}
+	if uid := entry.GetAttributeValue("uid"); uid != "" {
+		user.Username = uid
+	} else if user.Email != "" {
+		if at := strings.Index(user.Email, "@"); at > 0 {
+			user.Username = user.Email[:at]
+		} else {
+			user.Username = user.Email
+		}
+	}
+
+	for _, group := range user.Groups {
+		for _, ag := range c.config.AdminGroups {
+			if strings.EqualFold(group, ag) {
+				user.IsAdmin = true
+				break
+			}
+		}
+		if user.IsAdmin {
+			break
+		}
+	}
+
+	return user, nil
+}
+
+// ValidateConnection tests the LDAP connection and returns an error if it fails.
+func (c *LDAPClient) ValidateConnection() error {
+	if !c.config.Enabled {
+		return fmt.Errorf("ldap is disabled")
+	}
+	return c.TestConnection()
+}
+
 // validateUserFilter checks that the LDAP user filter is safe.
 // It must contain exactly one %%s placeholder and have balanced parentheses.
 func validateUserFilter(filter string) error {
