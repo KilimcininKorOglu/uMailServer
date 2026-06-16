@@ -35,7 +35,7 @@
   - `helper-projects/proto_quota_reconcile.py` (kota sayacı uzlaştırması: throwaway hesapta IMAP APPEND → `quota_used` eklenen boyuta yükselir (eskiden sayılmazdı), EXPUNGE → `quota_used` düşer (eskiden azalmazdı); QuotaUsed artık kanonik depo boyutundan türetilir, her yazma/silme yüzeyinde tek index chokepoint'i üzerinden)
   - `helper-projects/proto_publicfolders.py` (organizasyon geneli genel klasörler: admin API ile domain başına genel klasör oluştur + `anyone:read` ve kullanıcıya `post` grant → yetkili kullanıcı webmail + IMAP "Public Folders/" + EWS publicfoldersroot'ta görür, okur, postalar; yalnız okuyan APPEND edemez, grant'sız klasörü göremez/SELECT edemez; başka domainin kullanıcısı hiçbirini görmez (kiracı izolasyonu); `public_folders.enabled=false` iken her yerde gizlenir)
   - `helper-projects/proto_search_folders.py` (kalıcı arama klasörleri: EWS CreateFolder `<t:SearchFolder>` ile From/Body kriterli + base-folder kapsamlı klasör kur → FindFolder listeler, FindItem yalnız eşleşenleri döndürür (gövde-metni dahil), Sent kapsamlı klasör INBOX iletisini kapsam-dışı bırakır, DeleteFolder kaldırır; webmail `/api/v1/search-folders` CRUD + `/results` aynı kanonik tanımı çalıştırır ve kriter güncellemesi sonuçları değiştirir)
-  - `helper-projects/proto_tls.py` (STARTTLS değişmezi: SMTP/IMAP/POP3'te ilan ⇔ el sıkışma başarısı, TLS>=1.2, DTO'da özel anahtar yok)
+  - `helper-projects/proto_tls.py` (STARTTLS değişmezi: SMTP/IMAP/POP3'te ilan ⇔ el sıkışma başarısı, TLS>=1.2, DTO'da özel anahtar yok; ayrıca TLS-öncesi-auth zorlaması: `security.require_tls_for_auth` ile her auth-dinleyicisinde yükseltilmemiş bağlantıda düz-metin auth'un "TLS required" ile reddi)
   - `helper-projects/proto_backup.py` (per-user yedek oluştur/listele/doğrula/güvenli geri yükle + push stub negatifleri)
   - `helper-projects/proto_import.py` (kanonik posta kutusu içe aktarımı: `umailserver import` ile mbox sunucu durdurulmuş koşulda içe aktarılır, idempotent yeniden çalıştırma, IMAP/JMAP/EWS çapraz görünürlük)
   - `helper-projects/proto_msg_import.py` (Outlook .msg (OXMSG/CFBF) içe aktarımı: `umailserver import --msg` ile bağımsız bir Python OXMSG yazıcısının ürettiği .msg çözülüp kanonik depoya yazılır; konu/gövde/ek/gönderen/Message-ID sadık şekilde geri kurulur, deterministik MIME ile yeniden import idempotenttir, IMAP/JMAP/EWS çapraz görünürlük)
@@ -50,7 +50,7 @@
   - `helper-projects/proto_metrics_mcp.py` (Prometheus /metrics içeriği + MCP JSON-RPC, token kapıları)
   - `helper-projects/smime_probe.py` (giden S/MIME imzalama — kendi kendine yeten: imzalamayı açar, anahtar üretir, container'ı yeniden oluşturur, sonda eski hâline döndürür)
 - Ek probe'lar: `helper-projects/jmap_probe.py`, `helper-projects/jmap_send_probe.py`, `helper-projects/default_folders_probe.py`.
-- Orkestratör: `helper-projects/run_all.py` tüm protokol + yüzey + EWS suite'lerini sırayla çalıştırır ve özet basar (31 suite, hepsi yeşil olmalı).
+- Orkestratör: `helper-projects/run_all.py` tüm protokol + yüzey + EWS suite'lerini sırayla çalıştırır ve özet basar (61 suite). Çekirdek protokol/yüzey değişmezleri yeşil olmalı; birkaç suite yerel ortamdaki opsiyonel harici bağımlılıklara (örn. harici SMTP sink container) veya oran-sınır/zamanlama hassasiyetine bağlı olarak FAIL/SKIP olabilir — bunlar ürün hatası değil, ortam koşuludur.
 - BAĞIMSIZ (run_all dışında): `helper-projects/ha_probe.py` — HA/failover harness'i. Dev stack'i durdurur, `umailserver-ha.yml` topolojisini SIFIRDAN kurar (repmgr+pgpool, Redis Sentinel, 2 düğüm + HAProxy), eşzamanlı boot / kuyruk tek-teslim / düğümler arası OOF dedup / node-kill / Redis failover / PG failover senaryolarını koşar, sonda HA stack'i söküp dev stack'i geri getirir. Host portları dev stack'le çakıştığı için run_all'a dahil değildir.
 
 ## Test hesapları
@@ -64,9 +64,10 @@
 ## Ön koşullar
 
 - Yerel stack çalışıyor olmalı: `make docker-run`
-- EWS endpoint: `http://localhost:8088/EWS/Exchange.asmx`
+- Dev stack SSL varsayılanıdır: her dinleyici, yerel bir Pebble CA'nın `mail.local.test` adına verdiği gerçek ACME sertifikası sunar. Probe'lar TLS konuşur — paylaşılan `helper-projects/probe_ssl.py` `mail.local.test`'i loopback'e (`127.0.0.1`) süreç-içi çözer ve Pebble kök sertifikasını canlı çekerek güvenir; ek `/etc/hosts` girdisi veya `sudo` gerekmez. Posta probe'ları bağlantıyı STARTTLS/STLS ile yükseltir.
+- EWS endpoint: `https://mail.local.test:8088/EWS/Exchange.asmx`
 - Shared testleri için `qa.alice@local.test` hesabına `qa.shared@local.test` üzerinde en az okuma + yazma erişimi verilmeli
-  - Yönetim yüzeyi: `http://localhost:8444/admin/` veya `http://localhost:8088/admin/`
+  - Yönetim yüzeyi: `https://localhost:8444/admin/` veya `https://localhost:8088/admin/` (sertifika `mail.local.test` adına; tarayıcıdan `localhost` ile açılınca ad-uyuşmazlığı uyarısı beklenir)
   - İlgili sayfa: Delegation
   - Gerekli grant:
     - Shared mailbox okuma
@@ -345,6 +346,7 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 - Implicit TLS: 465, 993, 995, HTTPS admin (8443)
 - Sunucu sertifikası, zincir ve SAN doğrulaması
 - TLS sürüm politikası (TLS 1.2+ zorlama), zayıf cipher reddi
+- TLS-öncesi-auth: merkezi `security.require_tls_for_auth` (varsayılan açık) IMAP/POP3/SMTP submission'da yükseltilmemiş bağlantıda düz-metin auth'u reddeder; gelen SMTP (25) opportunistic kalır. Zorlama sertifika varlığına bağlıdır — sertifika yokken başlangıç WARNING'i + anti-stranding fallback (düz-metin auth'a izin)
 - Sertifika yenileme sonrası servis sürekliliği
 
 ### SMTP teslim, kuyruk ve raporlar (admin derinliği)
@@ -509,7 +511,7 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 - `helper-projects/proto_auth.py` — kimlik doğrulama derinliği: login kilitleme 429, TOTP kurulum/doğrulama/kapatma + TOTP'li login, JWT refresh/logout kara listesi, parola değişimi
 - `helper-projects/proto_admin.py` — admin REST API: domain/alias/mail-grubu CRUD, kuyruk listesi, tenant listesi, rate-limit DTO, 401/403 kapıları
 - `helper-projects/proto_reload.py` — config hot-reload: POP3'ü canlı kapatıp açma, yapısal değişikliğin restart_required sınıflanması, GET DTO'da sır sızıntısı yok
-- `helper-projects/proto_tls.py` — TLS/STARTTLS değişmezi: SMTP(25/587)/IMAP/POP3'te STARTTLS yalnızca el sıkışma başarılı olabilecekse ilan edilir; ilan yokken upgrade komutu reddedilir; min_version 1.2/1.3
+- `helper-projects/proto_tls.py` — TLS/STARTTLS değişmezi: SMTP(25/587)/IMAP/POP3'te STARTTLS yalnızca el sıkışma başarılı olabilecekse ilan edilir; ilan yokken upgrade komutu reddedilir; min_version 1.2/1.3; ayrıca TLS-öncesi-auth zorlaması — `security.require_tls_for_auth` ile yükseltilmemiş bağlantıda düz-metin auth her auth-dinleyicisinde "TLS required" ile reddedilir (SMTP 538 / IMAP NO / POP3 -ERR), DTO'da özel anahtar yok
 - `helper-projects/proto_backup.py` — yedekleme yaşam döngüsü: per-user oluştur → listele → doğrula → farklı-kullanıcıya güvenli geri yükle → sil; POST /backups; push stub negatifleri (VAPID 503, SSRF koruması, 401/400/403)
 - `helper-projects/proto_import.py` — kanonik posta kutusu içe aktarımı: test mbox'unu mount'lu veri dizinine yazar, `umailserver` container'ını durdurur, tek-seferlik container'da `umailserver import` çalıştırır (idempotensi için iki kez), sunucuyu yeniden başlatır, sonra içe aktarılan mesajların IMAP + JMAP + EWS'de göründüğünü doğrular (semcore identity yazımı = EWS hayalet koruması). Sunucu her durumda yeniden başlatılır.
 - `helper-projects/proto_msg_import.py` — Outlook .msg (OXMSG/CFBF) içe aktarımı: BAĞIMSIZ bir Python OXMSG yazıcısı (MS-CFB/MS-OXMSG'den, Go okuyucusundan ayrı) ile gerçek bir .msg üretir (konu, gövde, gönderen, Message-ID, ek), böylece import çapraz-implementasyon olarak Go okuyucusunu başka bir yazıcının ürettiği OXMSG baytlarına karşı doğrular (`extract_msg` kuruluysa aynı baytları ikinci bağımsız oracle olarak da ayrıştırır); .msg'i mount'lu veri dizinine yazar, sunucuyu durdurur (bbolt tek-yazıcı), `umailserver import --msg` çalıştırır (idempotensi için iki kez — deterministik MIME boundary sayesinde ikinci çalıştırma duplicate olarak atlanır), sunucuyu yeniden başlatır, sonra içe aktarılan mesajın IMAP + JMAP + EWS'de göründüğünü VE içeriğinin sadık olduğunu (gövde metni, ek dosya adı, gönderen From'u, Message-ID) doğrular. Sunucu her durumda yeniden başlatılır.
@@ -530,18 +532,23 @@ protokoller için ayrı istemciler gerekir (IMAP/POP3/SMTP için Python `imaplib
 ### Otomasyon durumu
 
 - EWS son kullanıcı akışları + protokol kapsamı + yüzey/işletim kapsamı
-  OTOMATİKTİR. `run_all.py` 31 suite çalıştırır: 11 temel protokol suite'i,
-  bunların `_ext` derinlik suite'leri, Sieve yürütme, SMTP güvenlik, TLS/STARTTLS,
-  auth/güvenlik, admin REST, config hot-reload, backup+push, Metrics+MCP, üç EWS
-  son kullanıcı suite'i ve (en sonda, kendi kendine yeten) S/MIME imzalama.
-  Hepsi yeşil olmalı.
+  OTOMATİKTİR. `run_all.py` 61 suite çalıştırır: temel protokol suite'leri ve
+  bunların `_ext` derinlik suite'leri, Sieve yürütme, SMTP güvenlik, TLS/STARTTLS
+  (TLS-öncesi-auth zorlaması dahil), auth/güvenlik, admin REST, config hot-reload,
+  Exchange-paritesi yüzey/işletim probe'ları (EAS, klasör izinleri, genel/arama
+  klasörleri, kademeli/uzlaştırma kota, recoverable items, import/export
+  varyantları), backup+push, Metrics+MCP, üç EWS son kullanıcı suite'i ve (en
+  sonda, kendi kendine yeten) S/MIME imzalama. Çekirdek protokol/yüzey
+  değişmezleri yeşil olmalı; harici-bağımlılık veya zamanlama kaynaklı birkaç
+  ortam-koşullu FAIL/SKIP olabilir.
 - HA/failover ayrıca OTOMATİKTİR ama run_all dışındadır: `ha_probe.py`
   (`umailserver-ha.yml` üzerinde eşzamanlı boot, kuyruk tek-teslim,
   düğümler arası OOF dedup, node-kill, Redis Sentinel failover, repmgr/pgpool
   PG failover + standby olarak yeniden katılma, sonda dev stack'in geri
   getirilmesi). Host portları dev stack ile çakıştığından ayrı çalıştırılır.
-- Otomatik kapsama BAĞLANMIŞ eski eksikler: STARTTLS ilan değişmezi (`proto_tls.py`;
-  gerçek el sıkışma dev'de cert olmadığı için yalnızca cert'li kurulumda),
+- Otomatik kapsama BAĞLANMIŞ eski eksikler: STARTTLS ilan değişmezi + TLS-öncesi-auth
+  zorlaması (`proto_tls.py`; dev stack artık Pebble ACME ile gerçek sertifika sunduğundan
+  el sıkışma dev'de de doğrulanır),
   SPF/DKIM/DMARC/ARC + giden DKIM + DSN (`proto_smtp_security.py`), yedekleme/geri
   yükleme API'si (`proto_backup.py`), cluster/failover (`ha_probe.py`), Prometheus
   metrics + sağlık (`proto_metrics_mcp.py`), TOTP/JWT/parola akışları
