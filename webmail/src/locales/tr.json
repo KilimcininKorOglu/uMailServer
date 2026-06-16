@@ -110,7 +110,8 @@
     "inboxEmpty": "Gelen kutunuz boş.",
     "messageCount": "{{count}} mesaj",
     "messagesCount": "{{count}} mesaj",
-    "pageOf": "Sayfa {{current}} / {{total}}"
+    "pageOf": "Sayfa {{current}} / {{total}}",
+    "conversations": "Konuşmalar"
   },
   "emailDetail": {
     "notFound": "E-posta bulunamadı",

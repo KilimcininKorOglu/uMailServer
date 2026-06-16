@@ -110,7 +110,8 @@
     "inboxEmpty": "Your inbox is empty.",
     "messageCount": "{{count}} message",
     "messagesCount": "{{count}} messages",
-    "pageOf": "Page {{current}} of {{total}}"
+    "pageOf": "Page {{current}} of {{total}}",
+    "conversations": "Conversations"
   },
   "emailDetail": {
     "notFound": "Email not found",

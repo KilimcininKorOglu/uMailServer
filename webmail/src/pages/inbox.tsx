@@ -10,11 +10,14 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronRight as ChevronRightIcon,
   Filter,
   MoreHorizontal,
   List,
   LayoutGrid,
   ArrowUpDown,
+  MessagesSquare,
 } from "lucide-react"
 import { WelcomeBanner } from "@/components/welcome-banner"
 import { useI18n } from "@/hooks/useI18n"
@@ -52,7 +55,22 @@ interface Email {
   importance?: string
 }
 
+interface ThreadGroup {
+  key: string
+  subject: string
+  messages: Email[]
+  participants: string[]
+  lastDate: string
+  unread: number
+}
+
+// normalizeSubject strips repeated Re:/Fwd: prefixes so replies group together.
+function normalizeSubject(subject: string): string {
+  return subject.replace(/^(\s*(re|fwd|fw)\s*:\s*)+/i, "").trim()
+}
+
 type ViewMode = "list" | "compact"
+type ViewType = "list" | "conversations"
 type SortOption = "date" | "from" | "subject"
 type SortDir = "asc" | "desc"
 
@@ -70,6 +88,8 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
   const [activeFilter, setActiveFilter] = useState("all")
   const loading = inboxLoading
   const [viewMode, setViewMode] = useState<ViewMode>("list")
+  const [viewType, setViewType] = useState<ViewType>("list")
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set())
   const [sortBy, setSortBy] = useState<SortOption>("date")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [page, setPage] = useState(0)
@@ -106,6 +126,38 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
     })
     return folder === "starred" ? mapped.filter((e) => e.starred) : mapped
   }, [inboxEmails, folder])
+
+  // Thread groups derived from the flat email list — grouped by normalized subject.
+  const threadGroups: ThreadGroup[] = useMemo(() => {
+    if (viewType !== "conversations") return []
+    const map = new Map<string, Email[]>()
+    for (const m of emails) {
+      const key = (normalizeSubject(m.subject) || "(no subject)").toLowerCase()
+      const arr = map.get(key) ?? []
+      arr.push(m)
+      map.set(key, arr)
+    }
+    const groups: ThreadGroup[] = Array.from(map.values()).map((msgs) => ({
+      key: (normalizeSubject(msgs[0].subject) || "(no subject)").toLowerCase(),
+      subject: normalizeSubject(msgs[0].subject),
+      messages: msgs,
+      participants: Array.from(new Set(msgs.map((m) => m.from))),
+      lastDate: msgs[msgs.length - 1]?.date ?? "",
+      unread: msgs.filter((m) => !m.read).length,
+    }))
+    // Multi-message conversations first.
+    groups.sort((a, b) => b.messages.length - a.messages.length)
+    return groups
+  }, [emails, viewType])
+
+  const toggleThread = (key: string) => {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const toggleSelectAll = () => {
     if (selectedEmails.size === emails.length) {
@@ -430,6 +482,16 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
               <LayoutGrid className="h-4 w-4" />
             </Button>
           </div>
+
+          <Button
+            variant={viewType === "conversations" ? "secondary" : "ghost"}
+            size="icon"
+            className="h-8 w-8"
+            title={t("inbox.conversations")}
+            onClick={() => setViewType((v) => (v === "list" ? "conversations" : "list"))}
+          >
+            <MessagesSquare className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
@@ -463,6 +525,64 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
                 ? t("inbox.noUnreadMessages")
                 : t("inbox.inboxEmpty")}
             </p>
+          </div>
+        ) : viewType === "conversations" ? (
+          <div className="divide-y">
+            {threadGroups.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <MessagesSquare className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="mt-4 text-lg font-semibold">{t("threads.noConversations")}</h3>
+              </div>
+            ) : (
+              threadGroups.map((thread) => (
+                <div key={thread.key}>
+                  {/* Thread header — click to expand */}
+                  <div
+                    className="flex cursor-pointer items-center gap-3 p-4 hover:bg-accent/50 transition-all"
+                    onClick={() => toggleThread(thread.key)}
+                  >
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                      {expandedThreads.has(thread.key) ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRightIcon className="h-4 w-4" />
+                      )}
+                    </Button>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={cn("text-sm font-semibold truncate", thread.unread > 0 && "text-foreground")}>
+                          {thread.subject || t("common.noSubject")}
+                        </span>
+                        {thread.unread > 0 && (
+                          <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground truncate">
+                        <span>{thread.participants.join(", ")}</span>
+                        <span>·</span>
+                        <span>{thread.messages.length} {thread.messages.length === 1 ? t("threads.messageCount", { count: String(thread.messages.length) }) : t("threads.messagesCount", { count: String(thread.messages.length) })}</span>
+                      </div>
+                    </div>
+
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {formatAbsolute(thread.lastDate)}
+                    </span>
+                  </div>
+
+                  {/* Expanded: individual email rows */}
+                  {expandedThreads.has(thread.key) && (
+                    <div className="bg-accent/5">
+                      {thread.messages.map((email) => (
+                        <EmailRow key={email.id} email={email} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         ) : (
           <div className={cn(viewMode === "list" ? "divide-y" : "")}>
