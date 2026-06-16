@@ -46,7 +46,7 @@ func TestAuthenticateClientCert_WithEmail(t *testing.T) {
 
 	// Create domain and account first
 	helperCreateDomain(t, srv, "example.com", true)
-	helperCreateAccount(t, srv, "user", "example.com", true, 1000000, 0)
+	helperCreateAccount(t, srv, "user", "example.com", true, false, 1000000, 0)
 
 	cert := &x509.Certificate{
 		Subject: pkix.Name{
@@ -70,7 +70,7 @@ func TestAuthenticateClientCert_CommonNameAsEmail(t *testing.T) {
 	srv := helperServer(t)
 
 	helperCreateDomain(t, srv, "example.com", true)
-	helperCreateAccount(t, srv, "cnuser", "example.com", true, 1000000, 0)
+	helperCreateAccount(t, srv, "cnuser", "example.com", true, false, 1000000, 0)
 
 	cert := &x509.Certificate{
 		Subject: pkix.Name{
@@ -116,7 +116,7 @@ func TestAuthenticateClientCert_InactiveAccount(t *testing.T) {
 	srv := helperServer(t)
 
 	helperCreateDomain(t, srv, "example.com", true)
-	helperCreateAccount(t, srv, "inactive", "example.com", false, 1000000, 0)
+	helperCreateAccount(t, srv, "inactive", "example.com", false, false, 1000000, 0)
 
 	cert := &x509.Certificate{
 		Subject: pkix.Name{
@@ -139,7 +139,7 @@ func TestAuthenticateClientCert_MustChangePassword(t *testing.T) {
 	srv := helperServer(t)
 
 	helperCreateDomain(t, srv, "example.com", true)
-	helperCreateAccount(t, srv, "mustchange", "example.com", true, 1000000, 0)
+	helperCreateAccount(t, srv, "mustchange", "example.com", true, false, 1000000, 0)
 
 	account, err := srv.database.GetAccount("example.com", "mustchange")
 	if err != nil {
@@ -172,7 +172,7 @@ func TestAuthenticateClientCert_MultipleEmailAddresses(t *testing.T) {
 	srv := helperServer(t)
 
 	helperCreateDomain(t, srv, "example.com", true)
-	helperCreateAccount(t, srv, "first", "example.com", true, 1000000, 0)
+	helperCreateAccount(t, srv, "first", "example.com", true, false, 1000000, 0)
 
 	cert := &x509.Certificate{
 		Subject: pkix.Name{

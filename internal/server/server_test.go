@@ -1939,7 +1939,7 @@ func helperServer(t *testing.T) *Server {
 }
 
 // helperCreateAccount creates an account in the server database.
-func helperCreateAccount(t *testing.T, srv *Server, localPart, domain string, isActive bool, quotaLimit, quotaUsed int64) {
+func helperCreateAccount(t *testing.T, srv *Server, localPart, domain string, isActive, isAdmin bool, quotaLimit, quotaUsed int64) {
 	t.Helper()
 	account := &db.AccountData{
 		Email:        localPart + "@" + domain,
@@ -1947,6 +1947,7 @@ func helperCreateAccount(t *testing.T, srv *Server, localPart, domain string, is
 		Domain:       domain,
 		PasswordHash: "$2a$10$BXVavbSB/53WBHDuJlzIHeCsgSTgzrOqtbdPmrkPa68dA3jYmKux2",
 		IsActive:     isActive,
+		IsAdmin:      isAdmin,
 		QuotaLimit:   quotaLimit,
 		QuotaUsed:    quotaUsed,
 		CreatedAt:    time.Now(),
@@ -1973,7 +1974,7 @@ func helperCreateDomain(t *testing.T, srv *Server, name string, isActive bool) {
 
 func TestDeliverLocal_Success(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 0)
 
 	msgData := []byte("Subject: Hello\r\nFrom: bob@external.com\r\n\r\nTest body content")
 	err := srv.deliverLocal("alice", "test.example.com", "bob@external.com", msgData, false, nil)
@@ -1984,7 +1985,7 @@ func TestDeliverLocal_Success(t *testing.T) {
 
 func TestDeliverLocal_SuccessWithQuotaHeadroom(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 10000, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 10000, 0)
 
 	msgData := []byte("Subject: Hi\r\n\r\nSmall message")
 	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData, false, nil)
@@ -2025,7 +2026,7 @@ func TestDeliverLocal_SuccessWithQuotaHeadroom(t *testing.T) {
 
 func TestDeliverLocal_QuotaExceededEqual(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "fulluser", "test.example.com", true, 500, 500)
+	helperCreateAccount(t, srv, "fulluser", "test.example.com", true, false, 500, 500)
 
 	msgData := []byte("Subject: Hi\r\n\r\nBody")
 	err := srv.deliverLocal("fulluser", "test.example.com", "sender@external.com", msgData, false, nil)
@@ -2039,7 +2040,7 @@ func TestDeliverLocal_QuotaExceededEqual(t *testing.T) {
 
 func TestDeliverLocal_QuotaExceededOver(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "fulluser", "test.example.com", true, 100, 200)
+	helperCreateAccount(t, srv, "fulluser", "test.example.com", true, false, 100, 200)
 
 	msgData := []byte("Subject: Hi\r\n\r\nBody")
 	err := srv.deliverLocal("fulluser", "test.example.com", "sender@external.com", msgData, false, nil)
@@ -2066,7 +2067,7 @@ func TestDeliverLocal_UserNotFound(t *testing.T) {
 
 func TestDeliverLocal_InactiveUser(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "disabled", "test.example.com", false, 0, 0)
+	helperCreateAccount(t, srv, "disabled", "test.example.com", false, false, 0, 0)
 
 	msgData := []byte("Subject: Hi\r\n\r\nBody")
 	err := srv.deliverLocal("disabled", "test.example.com", "sender@external.com", msgData, false, nil)
@@ -2080,7 +2081,7 @@ func TestDeliverLocal_InactiveUser(t *testing.T) {
 
 func TestDeliverLocal_WithWebhookTrigger(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 0)
 
 	if srv.webhookMgr == nil {
 		t.Fatal("webhookMgr should be initialized by New()")
@@ -2095,7 +2096,7 @@ func TestDeliverLocal_WithWebhookTrigger(t *testing.T) {
 
 func TestDeliverLocal_NoQuotaLimit(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 999999)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 999999)
 
 	msgData := []byte("Subject: No quota\r\n\r\nBody")
 	err := srv.deliverLocal("alice", "test.example.com", "sender@external.com", msgData, false, nil)
@@ -2158,7 +2159,7 @@ func TestRelayMessage_QueueEnqueueMultiple(t *testing.T) {
 func TestDeliverMessage_LocalDomain_ActiveUser(t *testing.T) {
 	srv := helperServer(t)
 	helperCreateDomain(t, srv, "test.example.com", true)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 0)
 
 	msgData := []byte("Subject: Local delivery\r\n\r\nBody")
 	err := srv.deliverMessage("bob@external.com", []string{"alice@test.example.com"}, msgData)
@@ -2170,7 +2171,7 @@ func TestDeliverMessage_LocalDomain_ActiveUser(t *testing.T) {
 func TestDeliverMessage_LocalDomain_InactiveUser(t *testing.T) {
 	srv := helperServer(t)
 	helperCreateDomain(t, srv, "test.example.com", true)
-	helperCreateAccount(t, srv, "disabled", "test.example.com", false, 0, 0)
+	helperCreateAccount(t, srv, "disabled", "test.example.com", false, false, 0, 0)
 
 	msgData := []byte("Subject: Test\r\n\r\nBody")
 	err := srv.deliverMessage("sender@external.com", []string{"disabled@test.example.com"}, msgData)
@@ -2205,8 +2206,8 @@ func TestDeliverMessage_InactiveDomain_Relays(t *testing.T) {
 func TestDeliverMessage_MultipleRecipients(t *testing.T) {
 	srv := helperServer(t)
 	helperCreateDomain(t, srv, "test.example.com", true)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
-	helperCreateAccount(t, srv, "bob", "test.example.com", true, 0, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 0)
+	helperCreateAccount(t, srv, "bob", "test.example.com", true, false, 0, 0)
 
 	msgData := []byte("Subject: Multi-recipient\r\n\r\nBody")
 	err := srv.deliverMessage("sender@external.com", []string{"alice@test.example.com", "bob@test.example.com"}, msgData)
@@ -2218,7 +2219,7 @@ func TestDeliverMessage_MultipleRecipients(t *testing.T) {
 func TestDeliverMessage_MixedLocalAndRemote(t *testing.T) {
 	srv := helperServer(t)
 	helperCreateDomain(t, srv, "test.example.com", true)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 0)
 
 	queueDir := filepath.Join(srv.cfg().Server.DataDir, "queue")
 	srv.queue = queue.NewManager(srv.database, nil, queueDir, nil)
@@ -2237,7 +2238,7 @@ func TestDeliverMessage_MixedLocalAndRemote(t *testing.T) {
 func TestDeliverMessage_LocalFailure(t *testing.T) {
 	srv := helperServer(t)
 	helperCreateDomain(t, srv, "test.example.com", true)
-	helperCreateAccount(t, srv, "disabled", "test.example.com", false, 0, 0)
+	helperCreateAccount(t, srv, "disabled", "test.example.com", false, false, 0, 0)
 
 	msgData := []byte("Subject: Fail\r\n\r\nBody")
 	err := srv.deliverMessage("sender@external.com", []string{"disabled@test.example.com"}, msgData)
@@ -2276,7 +2277,7 @@ func TestDeliverMessage_RemoteDomainWithQueue(t *testing.T) {
 func TestDeliverMessage_LocalDeliveryQuotaExceeded(t *testing.T) {
 	srv := helperServer(t)
 	helperCreateDomain(t, srv, "test.example.com", true)
-	helperCreateAccount(t, srv, "fulluser", "test.example.com", true, 100, 100)
+	helperCreateAccount(t, srv, "fulluser", "test.example.com", true, false, 100, 100)
 
 	msgData := []byte("Subject: Over quota\r\n\r\nBody")
 	err := srv.deliverMessage("sender@external.com", []string{"fulluser@test.example.com"}, msgData)
@@ -2353,6 +2354,7 @@ func TestDeliverLocal_TableDriven(t *testing.T) {
 		localPart  string
 		domain     string
 		isActive   bool
+		isAdmin    bool
 		quotaLimit int64
 		quotaUsed  int64
 		wantErr    bool
@@ -2411,7 +2413,7 @@ func TestDeliverLocal_TableDriven(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := helperServer(t)
-			helperCreateAccount(t, srv, tt.localPart, tt.domain, tt.isActive, tt.quotaLimit, tt.quotaUsed)
+			helperCreateAccount(t, srv, tt.localPart, tt.domain, tt.isActive, false, tt.quotaLimit, tt.quotaUsed)
 
 			msgData := []byte("Subject: Test\r\n\r\nBody content")
 			err := srv.deliverLocal(tt.localPart, tt.domain, "sender@external.com", msgData, false, nil)
@@ -2509,7 +2511,7 @@ func TestDeliverMessage_TableDriven(t *testing.T) {
 				helperCreateDomain(t, srv, tt.domainName, tt.domainActive)
 			}
 			if tt.setupUser {
-				helperCreateAccount(t, srv, tt.userName, tt.domainName, tt.userActive, tt.quotaLimit, tt.quotaUsed)
+				helperCreateAccount(t, srv, tt.userName, tt.domainName, tt.userActive, false, tt.quotaLimit, tt.quotaUsed)
 			}
 
 			srv.queue = nil
@@ -2612,7 +2614,7 @@ func TestDeliverMessage_ClosedDB_DomainLookupError(t *testing.T) {
 // because the message store directory has been removed.
 func TestDeliverLocal_StoreMessageError(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 0)
 
 	// Remove the message store directory to cause StoreMessage to fail
 	msgStorePath := srv.cfg().Server.DataDir + "/mail/messages"
@@ -2634,7 +2636,7 @@ func TestDeliverLocal_StoreMessageError(t *testing.T) {
 // which makes GetAccount fail.
 func TestDeliverLocal_ClosedDB(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 0)
 
 	// Close the database
 	srv.database.Close()
@@ -2653,7 +2655,7 @@ func TestDeliverLocal_ClosedDB(t *testing.T) {
 // which makes GetAccount fail.
 func TestAuthenticate_ClosedDB(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "alice", "test.example.com", true, 0, 0)
+	helperCreateAccount(t, srv, "alice", "test.example.com", true, false, 0, 0)
 
 	// Close the database so GetAccount fails
 	srv.database.Close()
@@ -3057,7 +3059,7 @@ func TestAuthenticate_WithUsernameOnly(t *testing.T) {
 // and delivery succeeds even with high QuotaUsed.
 func TestDeliverLocal_QuotaZeroUnlimited(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "biguser", "test.example.com", true, 0, 999999999)
+	helperCreateAccount(t, srv, "biguser", "test.example.com", true, false, 0, 999999999)
 
 	msgData := make([]byte, 5000) // 5KB message
 	err := srv.deliverLocal("biguser", "test.example.com", "sender@external.com", msgData, false, nil)
@@ -3128,7 +3130,7 @@ func TestDeliverMessage_DomainNil(t *testing.T) {
 // and verifies the quota update and message store interaction.
 func TestDeliverLocal_SuccessfulDelivery(t *testing.T) {
 	srv := helperServer(t)
-	helperCreateAccount(t, srv, "mailbox", "test.example.com", true, 1000000, 0)
+	helperCreateAccount(t, srv, "mailbox", "test.example.com", true, false, 1000000, 0)
 
 	msgData := []byte("Subject: Full Delivery\r\nFrom: sender@external.com\r\n\r\nFull delivery test body")
 	err := srv.deliverLocal("mailbox", "test.example.com", "sender@external.com", msgData, false, nil)
