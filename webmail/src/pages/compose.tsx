@@ -22,6 +22,7 @@ import {
   ChevronDown,
   Shield,
   Key,
+  Gauge,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -149,6 +150,7 @@ export function ComposePage() {
   const [requestReadReceipt, setRequestReadReceipt] = useState(false)
   const [signMessage, setSignMessage] = useState(false)
   const [encryptMessage, setEncryptMessage] = useState(false)
+  const [importance, setImportance] = useState<"low" | "normal" | "high">("normal")
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -568,6 +570,7 @@ export function ComposePage() {
         requestReadReceipt: requestReadReceipt || undefined,
         signMessage: signMessage || undefined,
         encryptMessage: encryptMessage || undefined,
+        importance: importance !== "normal" ? importance : undefined,
         sendAt: sendAtISO,
       })
 
@@ -1214,6 +1217,31 @@ export function ComposePage() {
             <Key className={encryptMessage ? "mr-1.5 h-4 w-4" : "mr-1.5 h-4 w-4 opacity-40"} />
             {t("compose.encryptMessage")}
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant={importance !== "normal" ? "secondary" : "outline"}
+                size="sm"
+                title={t("compose.messageImportance")}
+              >
+                <Gauge className={importance === "normal" ? "mr-1.5 h-4 w-4 opacity-40" : "mr-1.5 h-4 w-4"} />
+                {importance === "high" ? t("compose.importanceHigh") : importance === "low" ? t("compose.importanceLow") : t("compose.importanceNormal")}
+                <ChevronDown className="ml-1 h-3 w-3 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setImportance("low")}>
+                <span className="mr-2 text-muted-foreground">{t("compose.importanceLow")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setImportance("normal")}>
+                <span className="mr-2 text-muted-foreground">{t("compose.importanceNormal")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setImportance("high")}>
+                <span className="mr-2 font-medium">{t("compose.importanceHigh")}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <kbd className="rounded border px-1.5 py-0.5 text-xs bg-muted">⌘</kbd>

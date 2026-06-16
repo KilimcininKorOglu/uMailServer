@@ -28,6 +28,7 @@ export interface Mail {
   size: number
   labels?: string[]
   attachments?: AttachmentInfo[]
+  importance?: string // "low" | "normal" | "high"
 }
 
 export interface MailAttachment {
@@ -66,6 +67,7 @@ export interface SendMailRequest {
   requestReadReceipt?: boolean // ask the recipient's client for a read receipt
   signMessage?: boolean // S/MIME sign the message
   encryptMessage?: boolean // S/MIME encrypt the message
+  importance?: string // "low" | "normal" | "high"
   // sendAt, when a future absolute RFC3339 instant, defers delivery: the server
   // releases the message at that time instead of sending now.
   sendAt?: string

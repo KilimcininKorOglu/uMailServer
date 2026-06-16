@@ -221,6 +221,10 @@
     "readReceipt": "Okundu bilgisi",
     "signMessage": "İmzala",
     "encryptMessage": "Şifrele",
+    "messageImportance": "Öncelik",
+    "importanceLow": "Düşük",
+    "importanceNormal": "Normal",
+    "importanceHigh": "Yüksek",
     "toSend": "ile gönder"
   },
   "settings": {

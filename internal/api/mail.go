@@ -75,6 +75,9 @@ type SendMailRequest struct {
 	// EncryptMessage, when true, encrypts the message with the recipients' S/MIME
 	// certificates before sending. Each recipient must have a certificate stored.
 	EncryptMessage bool `json:"encryptMessage,omitempty"`
+	// Importance sets the message importance: "low", "normal", or "high".
+	// Sent as Importance header and X-Priority header.
+	Importance string `json:"importance,omitempty"`
 }
 
 // ScheduledMailItem is one pending/failed scheduled message in the Scheduled
@@ -879,6 +882,16 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	if req.RequestReadReceipt {
 		// Ask the recipient's client to return a read receipt to the sender.
 		fmt.Fprintf(&sb, "Disposition-Notification-To: %s\r\n", sanitizeHeaderValue(senderEmail))
+	}
+
+	// Set importance header when specified (low/normal/high).
+	switch req.Importance {
+	case "low":
+		sb.WriteString("Importance: Low\r\n")
+		sb.WriteString("X-Priority: 5\r\n")
+	case "high":
+		sb.WriteString("Importance: High\r\n")
+		sb.WriteString("X-Priority: 1\r\n")
 	}
 
 	if len(req.Attachments) > 0 {

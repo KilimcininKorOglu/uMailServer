@@ -49,6 +49,7 @@ interface Email {
   hasAttachments: boolean
   folder: string
   labels: string[]
+  importance?: string
 }
 
 type ViewMode = "list" | "compact"
@@ -100,6 +101,7 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
         hasAttachments: mail.hasAttachments,
         folder: mail.folder.toLowerCase(),
         labels: mail.labels ?? [],
+        importance: mail.importance,
       }
     })
     return folder === "starred" ? mapped.filter((e) => e.starred) : mapped
@@ -273,6 +275,12 @@ export function InboxPage({ folder = "inbox" }: InboxPageProps) {
       <div className={cn("flex items-center gap-2 shrink-0", viewMode === "compact" && "flex-row-reverse")}>
         {email.hasAttachments && (
           <Paperclip className="h-4 w-4 text-muted-foreground" />
+        )}
+        {email.importance === "high" && (
+          <span className="text-red-500 font-bold text-xs" title={t("compose.importanceHigh")}>!</span>
+        )}
+        {email.importance === "low" && (
+          <span className="text-muted-foreground text-xs" title={t("compose.importanceLow")}>↓</span>
         )}
         {!email.read && viewMode === "list" && (
           <span className="h-2 w-2 rounded-full bg-primary" />

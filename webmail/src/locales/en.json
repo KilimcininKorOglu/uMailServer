@@ -221,6 +221,10 @@
     "readReceipt": "Read receipt",
     "signMessage": "Sign",
     "encryptMessage": "Encrypt",
+    "messageImportance": "Importance",
+    "importanceLow": "Low",
+    "importanceNormal": "Normal",
+    "importanceHigh": "High",
     "toSend": "to send"
   },
   "settings": {
