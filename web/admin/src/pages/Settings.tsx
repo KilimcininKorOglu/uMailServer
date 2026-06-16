@@ -431,11 +431,6 @@ export function SettingsPage({
                   <NumberRow label={t("settings.submissionPort")} value={config.smtp.submission.port} onChange={(v) => updSMTP("submission", { port: v })} />
                   <TextRow label={t("settings.submissionBind")} value={config.smtp.submission.bind} onChange={(v) => updSMTP("submission", { bind: v })} />
                 </div>
-                <SwitchRow
-                  label={t("settings.requireTlsSubmission")}
-                  checked={config.smtp.submission.require_tls}
-                  onChange={(v) => updSMTP("submission", { require_tls: v })}
-                />
                 <Separator />
                 <SwitchRow
                   label={t("settings.submissionTls465")}
@@ -464,7 +459,6 @@ export function SettingsPage({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <NumberRow label={t("settings.port")} value={config.imap.port} onChange={(v) => upd("imap", { port: v })} />
                   <TextRow label={t("settings.bind")} value={config.imap.bind} onChange={(v) => upd("imap", { bind: v })} />
-                  <NumberRow label={t("settings.starttlsPort")} value={config.imap.starttls_port} onChange={(v) => upd("imap", { starttls_port: v })} />
                   <NumberRow label={t("settings.maxConnections")} value={config.imap.max_connections} onChange={(v) => upd("imap", { max_connections: v })} />
                 </div>
               </SectionCard>
@@ -652,6 +646,13 @@ export function SettingsPage({
               </SectionCard>
 
               <SectionCard title={t("settings.authLimits")} icon={<Shield className="h-5 w-5" />}>
+                <SwitchRow
+                  label={t("settings.requireTlsForAuth")}
+                  help={t("settings.requireTlsForAuthHelp")}
+                  checked={config.security.require_tls_for_auth}
+                  onChange={(v) => upd("security", { require_tls_for_auth: v })}
+                />
+                <Separator />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <NumberRow label={t("settings.maxLoginAttempts")} value={config.security.max_login_attempts} onChange={(v) => upd("security", { max_login_attempts: v })} />
                   <NumberRow label={t("settings.lockoutDuration")} value={config.security.lockout_secs} onChange={(v) => upd("security", { lockout_secs: v })} />

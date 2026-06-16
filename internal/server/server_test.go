@@ -3396,25 +3396,27 @@ func TestNew_TLSManagerErrorWithAutoTLS(t *testing.T) {
 func TestBuildSubmissionSMTPConfigRequireTLS(t *testing.T) {
 	srv := helperServer(t)
 
-	tests := []struct {
+	// helperServer configures no certificate, so the TLS manager is disabled. In
+	// that state the central security.require_tls_for_auth switch must NOT force
+	// TLS on submission -- requiring an unadvertised STARTTLS would strand every
+	// client. The positive path (TLS available -> plaintext auth rejected) is
+	// covered end to end by the Docker probe suite against a real certificate.
+	for _, tt := range []struct {
 		name              string
-		requireTLS        bool
-		wantAllowInsecure bool
+		requireTLSForAuth bool
 	}{
-		{name: "tls_required", requireTLS: true, wantAllowInsecure: false},
-		{name: "plaintext_allowed", requireTLS: false, wantAllowInsecure: true},
-	}
-
-	for _, tt := range tests {
+		{name: "switch_on_without_cert", requireTLSForAuth: true},
+		{name: "switch_off_without_cert", requireTLSForAuth: false},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			srv.cfg().SMTP.Submission.RequireTLS = tt.requireTLS
+			srv.cfg().Security.RequireTLSForAuth = tt.requireTLSForAuth
 
 			cfg := srv.buildSubmissionSMTPConfig()
-			if cfg.RequireTLS != tt.requireTLS {
-				t.Fatalf("expected RequireTLS=%v, got %v", tt.requireTLS, cfg.RequireTLS)
+			if cfg.RequireTLS {
+				t.Fatal("RequireTLS must stay false with no usable certificate")
 			}
-			if cfg.AllowInsecure != tt.wantAllowInsecure {
-				t.Fatalf("expected AllowInsecure=%v, got %v", tt.wantAllowInsecure, cfg.AllowInsecure)
+			if !cfg.AllowInsecure {
+				t.Fatal("AllowInsecure must stay true with no usable certificate")
 			}
 			if !cfg.IsSubmission {
 				t.Fatal("expected submission config to mark IsSubmission")

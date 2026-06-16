@@ -38,9 +38,11 @@ func (s *Server) startIMAP(mailstore *imap.BboltMailstore) error {
 	imapServer.SetLoginResultHandler(s.protoLoginHandler("imap"))
 	// Public folders are read live (hot-reloaded), not captured at startup.
 	imapServer.SetPublicFoldersEnabledFunc(func() bool { return s.cfg().PublicFolders.Enabled })
-	if s.cfg().IMAP.STARTTLSPort <= 0 {
-		imapServer.SetAllowPlainAuth(true)
-	}
+	// Require TLS before auth only when the central security.require_tls_for_auth
+	// switch demands it AND a certificate is available; with no cert STARTTLS is
+	// not advertised, so requiring it would strand clients (matches POP3/SMTP).
+	requireTLS := s.cfg().Security.RequireTLSForAuth && s.tlsManager.IsEnabled()
+	imapServer.SetAllowPlainAuth(!requireTLS)
 	imapServer.SetOnExpunge(func(user, mailbox string, uid uint32) {
 		// Expunging a message from the Scheduled folder cancels its send.
 		s.cancelScheduledOnExpunge(user, mailbox, uid)

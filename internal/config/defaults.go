@@ -34,7 +34,6 @@ func DefaultConfig() *Config {
 				Port:           587,
 				Bind:           "0.0.0.0",
 				RequireAuth:    true,
-				RequireTLS:     true,
 				MaxConnections: 10000,
 			},
 			SubmissionTLS: SubmissionTLSConfig{
@@ -49,7 +48,6 @@ func DefaultConfig() *Config {
 			Enabled:        true,
 			Port:           993,
 			Bind:           "0.0.0.0",
-			STARTTLSPort:   143,
 			IdleTimeout:    Duration(30 * time.Minute),
 			MaxConnections: 10000,
 		},
@@ -96,9 +94,10 @@ func DefaultConfig() *Config {
 			Action:  "reject",
 		},
 		Security: SecurityConfig{
-			MaxLoginAttempts: 5,
-			LockoutDuration:  Duration(15 * time.Minute),
-			JWTSecret:        "", // Generate secure random at runtime if empty
+			RequireTLSForAuth: true, // reject plaintext auth on IMAP/POP3/SMTP submission
+			MaxLoginAttempts:  5,
+			LockoutDuration:   Duration(15 * time.Minute),
+			JWTSecret:         "", // Generate secure random at runtime if empty
 			AuditLog: AuditLogConfig{
 				Path:       "./data/logs/audit.log",
 				MaxSizeMB:  10,

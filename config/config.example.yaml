@@ -61,7 +61,6 @@ smtp:
     bind: "0.0.0.0"
     port: 587
     require_auth: true
-    require_tls: true
     max_connections: 10000    # 0 = unlimited
 
   # Authenticated submission with implicit TLS.
@@ -90,7 +89,6 @@ imap:
   enabled: true
   bind: "0.0.0.0"
   port: 993                   # IMAPS
-  starttls_port: 143          # STARTTLS IMAP
   idle_timeout: 30m
   max_connections: 10000      # 0 = unlimited
 
@@ -155,6 +153,10 @@ av:
 # SECURITY
 # ============================================
 security:
+  # Reject plaintext auth on IMAP, POP3, and SMTP submission (587), forcing
+  # STARTTLS first. One central switch for all three; inbound SMTP (25) stays
+  # opportunistic. Only takes effect when a certificate is available.
+  require_tls_for_auth: true
   max_login_attempts: 5
   lockout_duration: 15m
   jwt_secret: ""              # Set a unique 32+ character secret for stable sessions; empty = generated at startup

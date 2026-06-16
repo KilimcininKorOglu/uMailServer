@@ -130,7 +130,10 @@ func (s *Server) buildSubmissionSMTPPipeline() *smtp.Pipeline {
 }
 
 func (s *Server) buildSubmissionSMTPConfig() *smtp.Config {
-	allowInsecure := !s.cfg().SMTP.Submission.RequireTLS
+	// Require TLS before auth only when the central security.require_tls_for_auth
+	// switch demands it AND a certificate is available; with no cert STARTTLS is
+	// not advertised, so requiring it would strand clients (matches IMAP/POP3).
+	requireTLS := s.cfg().Security.RequireTLSForAuth && s.tlsManager.IsEnabled()
 
 	cfg := &smtp.Config{
 		Hostname:       s.cfg().Server.Hostname,
@@ -139,9 +142,9 @@ func (s *Server) buildSubmissionSMTPConfig() *smtp.Config {
 		MaxConnections: s.cfg().SMTP.Submission.MaxConnections,
 		ReadTimeout:    s.cfg().SMTP.Inbound.ReadTimeout.ToDuration(),
 		WriteTimeout:   s.cfg().SMTP.Inbound.WriteTimeout.ToDuration(),
-		AllowInsecure:  allowInsecure,
+		AllowInsecure:  !requireTLS,
 		RequireAuth:    s.cfg().SMTP.Submission.RequireAuth,
-		RequireTLS:     s.cfg().SMTP.Submission.RequireTLS,
+		RequireTLS:     requireTLS,
 		IsSubmission:   true,
 
 		FutureReleaseEnabled:    s.cfg().ScheduledSend.Enabled,

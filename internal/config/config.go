@@ -194,7 +194,6 @@ type SubmissionSMTPConfig struct {
 	Port           int    `yaml:"port"`
 	Bind           string `yaml:"bind"`
 	RequireAuth    bool   `yaml:"require_auth"`
-	RequireTLS     bool   `yaml:"require_tls"`
 	MaxConnections int    `yaml:"max_connections"`
 }
 
@@ -212,7 +211,6 @@ type IMAPConfig struct {
 	Enabled        bool     `yaml:"enabled"`
 	Port           int      `yaml:"port"`
 	Bind           string   `yaml:"bind"`
-	STARTTLSPort   int      `yaml:"starttls_port"`
 	IdleTimeout    Duration `yaml:"idle_timeout"`
 	MaxConnections int      `yaml:"max_connections"`
 }
@@ -275,14 +273,22 @@ type AVConfig struct {
 
 // SecurityConfig holds security settings
 type SecurityConfig struct {
-	MaxLoginAttempts int             `yaml:"max_login_attempts"`
-	LockoutDuration  Duration        `yaml:"lockout_duration"`
-	RateLimit        RateLimitConfig `yaml:"rate_limit"`
-	JWTSecret        string          `yaml:"jwt_secret"`
-	DisableLegacyJWT bool            `yaml:"disable_legacy_jwt"` // When true, disables fallback to legacy JWTSecret after kid rotation
-	TOTPKey          string          `yaml:"totp_key"`           // Separate encryption key for TOTP secrets (default: JWTSecret if empty)
-	AuditLog         AuditLogConfig  `yaml:"audit_log"`
-	SPFCacheTTL      Duration        `yaml:"spf_cache_ttl"` // TTL for cached SPF lookups (default 5m)
+	// RequireTLSForAuth rejects plaintext authentication on the client-facing
+	// mail surfaces -- IMAP, POP3, and SMTP submission (587) -- forcing STARTTLS
+	// first. One central switch governs all three, replacing the former
+	// per-protocol mechanisms. Inbound SMTP (25) is unaffected: server-to-server
+	// delivery stays opportunistic. It only has effect when TLS material is
+	// configured; with no certificate STARTTLS is never advertised, so this does
+	// not strand clients.
+	RequireTLSForAuth bool            `yaml:"require_tls_for_auth"`
+	MaxLoginAttempts  int             `yaml:"max_login_attempts"`
+	LockoutDuration   Duration        `yaml:"lockout_duration"`
+	RateLimit         RateLimitConfig `yaml:"rate_limit"`
+	JWTSecret         string          `yaml:"jwt_secret"`
+	DisableLegacyJWT  bool            `yaml:"disable_legacy_jwt"` // When true, disables fallback to legacy JWTSecret after kid rotation
+	TOTPKey           string          `yaml:"totp_key"`           // Separate encryption key for TOTP secrets (default: JWTSecret if empty)
+	AuditLog          AuditLogConfig  `yaml:"audit_log"`
+	SPFCacheTTL       Duration        `yaml:"spf_cache_ttl"` // TTL for cached SPF lookups (default 5m)
 }
 
 // AuditLogConfig holds audit logging settings
@@ -1106,9 +1112,6 @@ func (c *Config) checkPortConflicts() error {
 		return err
 	}
 	if err := checkPort(c.IMAP.Port, "imap"); err != nil {
-		return err
-	}
-	if err := checkPort(c.IMAP.STARTTLSPort, "imap.starttls"); err != nil {
 		return err
 	}
 	if err := checkPort(c.POP3.Port, "pop3"); err != nil {

@@ -31,9 +31,10 @@ func (s *Server) startPOP3(mailstore *imap.BboltMailstore) error {
 	// Only enforce TLS-before-auth when TLS is actually available. STLS is
 	// gated on the TLS config, so requiring TLS without it would leave POP3
 	// permanently unauthenticatable (matches IMAP, which allows plaintext auth
-	// when TLS is disabled).
+	// when TLS is disabled). Within that, the central security.require_tls_for_auth
+	// switch decides whether plaintext auth is rejected.
 	if s.tlsManager.IsEnabled() {
-		pop3Server.SetRequireTLS(true)
+		pop3Server.SetRequireTLS(s.cfg().Security.RequireTLSForAuth)
 		// Resolve certificates through the TLS manager's live callback, exactly
 		// like the SMTP/IMAP/ManageSieve listeners, so POP3 also serves
 		// ACME-issued and hot-reloaded certificates instead of a static key pair

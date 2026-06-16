@@ -427,7 +427,6 @@ export interface SubmissionSMTPConfig {
   port: number;
   bind: string;
   require_auth: boolean;
-  require_tls: boolean;
   max_connections: number;
 }
 
@@ -461,7 +460,6 @@ export interface IMAPConfig {
   enabled: boolean;
   port: number;
   bind: string;
-  starttls_port: number;
   idle_timeout_secs: number;
   max_connections: number;
 }
@@ -543,6 +541,7 @@ export interface AuditLogConfig {
 }
 
 export interface SecurityConfig {
+  require_tls_for_auth: boolean;
   max_login_attempts: number;
   lockout_secs: number;
   disable_legacy_jwt: boolean;

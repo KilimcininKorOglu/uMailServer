@@ -98,7 +98,6 @@ type submissionSMTPSectionDTO struct {
 	Port           int    `json:"port"`
 	Bind           string `json:"bind"`
 	RequireAuth    bool   `json:"require_auth"`
-	RequireTLS     bool   `json:"require_tls"`
 	MaxConnections int    `json:"max_connections"`
 }
 
@@ -132,7 +131,6 @@ type imapSectionDTO struct {
 	Enabled         bool   `json:"enabled"`
 	Port            int    `json:"port"`
 	Bind            string `json:"bind"`
-	STARTTLSPort    int    `json:"starttls_port"`
 	IdleTimeoutSecs int    `json:"idle_timeout_secs"`
 	MaxConnections  int    `json:"max_connections"`
 }
@@ -214,12 +212,13 @@ type auditLogSectionDTO struct {
 }
 
 type securitySectionDTO struct {
-	MaxLoginAttempts int                 `json:"max_login_attempts"`
-	LockoutSecs      int                 `json:"lockout_secs"`
-	DisableLegacyJWT bool                `json:"disable_legacy_jwt"`
-	SPFCacheTTLSecs  int                 `json:"spf_cache_ttl_secs"`
-	RateLimit        rateLimitSectionDTO `json:"rate_limit"`
-	AuditLog         auditLogSectionDTO  `json:"audit_log"`
+	RequireTLSForAuth bool                `json:"require_tls_for_auth"`
+	MaxLoginAttempts  int                 `json:"max_login_attempts"`
+	LockoutSecs       int                 `json:"lockout_secs"`
+	DisableLegacyJWT  bool                `json:"disable_legacy_jwt"`
+	SPFCacheTTLSecs   int                 `json:"spf_cache_ttl_secs"`
+	RateLimit         rateLimitSectionDTO `json:"rate_limit"`
+	AuditLog          auditLogSectionDTO  `json:"audit_log"`
 }
 
 type ldapSectionDTO struct {
@@ -545,7 +544,6 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 				Port:           cfg.SMTP.Submission.Port,
 				Bind:           cfg.SMTP.Submission.Bind,
 				RequireAuth:    cfg.SMTP.Submission.RequireAuth,
-				RequireTLS:     cfg.SMTP.Submission.RequireTLS,
 				MaxConnections: cfg.SMTP.Submission.MaxConnections,
 			},
 			SubmissionTLS: submissionTLSSectionDTO{
@@ -570,7 +568,6 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 			Enabled:         cfg.IMAP.Enabled,
 			Port:            cfg.IMAP.Port,
 			Bind:            cfg.IMAP.Bind,
-			STARTTLSPort:    cfg.IMAP.STARTTLSPort,
 			IdleTimeoutSecs: durSecs(cfg.IMAP.IdleTimeout),
 			MaxConnections:  cfg.IMAP.MaxConnections,
 		},
@@ -611,11 +608,12 @@ func configToDTO(cfg *config.Config) serverConfigDTO {
 			Action:      cfg.AV.Action,
 		},
 		Security: securitySectionDTO{
-			MaxLoginAttempts: cfg.Security.MaxLoginAttempts,
-			LockoutSecs:      durSecs(cfg.Security.LockoutDuration),
-			DisableLegacyJWT: cfg.Security.DisableLegacyJWT,
-			SPFCacheTTLSecs:  durSecs(cfg.Security.SPFCacheTTL),
-			RateLimit:        rateLimitToDTO(cfg.Security.RateLimit),
+			RequireTLSForAuth: cfg.Security.RequireTLSForAuth,
+			MaxLoginAttempts:  cfg.Security.MaxLoginAttempts,
+			LockoutSecs:       durSecs(cfg.Security.LockoutDuration),
+			DisableLegacyJWT:  cfg.Security.DisableLegacyJWT,
+			SPFCacheTTLSecs:   durSecs(cfg.Security.SPFCacheTTL),
+			RateLimit:         rateLimitToDTO(cfg.Security.RateLimit),
 			AuditLog: auditLogSectionDTO{
 				Path:       cfg.Security.AuditLog.Path,
 				MaxSizeMB:  cfg.Security.AuditLog.MaxSizeMB,
@@ -813,7 +811,6 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.SMTP.Submission.Port = req.SMTP.Submission.Port
 	cfg.SMTP.Submission.Bind = req.SMTP.Submission.Bind
 	cfg.SMTP.Submission.RequireAuth = req.SMTP.Submission.RequireAuth
-	cfg.SMTP.Submission.RequireTLS = req.SMTP.Submission.RequireTLS
 	cfg.SMTP.Submission.MaxConnections = req.SMTP.Submission.MaxConnections
 	cfg.SMTP.SubmissionTLS.Enabled = req.SMTP.SubmissionTLS.Enabled
 	cfg.SMTP.SubmissionTLS.Port = req.SMTP.SubmissionTLS.Port
@@ -832,7 +829,6 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.IMAP.Enabled = req.IMAP.Enabled
 	cfg.IMAP.Port = req.IMAP.Port
 	cfg.IMAP.Bind = req.IMAP.Bind
-	cfg.IMAP.STARTTLSPort = req.IMAP.STARTTLSPort
 	cfg.IMAP.IdleTimeout = secsToDur(req.IMAP.IdleTimeoutSecs)
 	cfg.IMAP.MaxConnections = req.IMAP.MaxConnections
 
@@ -867,6 +863,7 @@ func applyConfigDTO(cfg *config.Config, req *serverConfigDTO) {
 	cfg.AV.Timeout = secsToDur(req.AV.TimeoutSecs)
 	cfg.AV.Action = req.AV.Action
 
+	cfg.Security.RequireTLSForAuth = req.Security.RequireTLSForAuth
 	cfg.Security.MaxLoginAttempts = req.Security.MaxLoginAttempts
 	cfg.Security.LockoutDuration = secsToDur(req.Security.LockoutSecs)
 	cfg.Security.DisableLegacyJWT = req.Security.DisableLegacyJWT
@@ -1095,11 +1092,9 @@ func validateConfigDTO(req *serverConfigDTO) (string, bool) {
 			return "an enabled service's port must be between 1 and 65535", false
 		}
 	}
-	// IMAP STARTTLS and the plain HTTP redirect port are optional (0 = disabled).
-	for _, p := range []int{req.IMAP.STARTTLSPort, req.HTTP.HTTPPort} {
-		if p < 0 || p > 65535 {
-			return "optional ports must be between 0 and 65535", false
-		}
+	// The plain HTTP redirect/challenge port is optional (0 = disabled).
+	if req.HTTP.HTTPPort < 0 || req.HTTP.HTTPPort > 65535 {
+		return "optional ports must be between 0 and 65535", false
 	}
 	if req.SMTP.Inbound.MaxMessageSizeMB < 1 || req.SMTP.Inbound.MaxMessageSizeMB > 1024 {
 		return "smtp.inbound.max_message_size_mb must be between 1 and 1024", false

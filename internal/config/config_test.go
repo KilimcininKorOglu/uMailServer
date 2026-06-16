@@ -2031,7 +2031,6 @@ func TestCheckPortConflicts(t *testing.T) {
 	cfg.SMTP.Submission.Port = 587
 	cfg.SMTP.SubmissionTLS.Port = 465
 	cfg.IMAP.Port = 993
-	cfg.IMAP.STARTTLSPort = 143
 	cfg.POP3.Port = 995
 	cfg.HTTP.Port = 8080
 	cfg.HTTP.HTTPPort = 8081
@@ -2052,7 +2051,6 @@ func TestCheckPortConflictsDisabledPorts(t *testing.T) {
 	cfg.SMTP.Submission.Port = 0
 	cfg.SMTP.SubmissionTLS.Port = 0
 	cfg.IMAP.Port = 0
-	cfg.IMAP.STARTTLSPort = 0
 	cfg.POP3.Port = 0
 	cfg.HTTP.Port = 0
 	cfg.HTTP.HTTPPort = 0
