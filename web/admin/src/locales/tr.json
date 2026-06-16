@@ -219,7 +219,25 @@
     "sendScope": "Gönderebileceği yer",
     "receiveScope": "Alabileceği yer",
     "scopeAnyone": "Herkes (kurum içi ve dışı)",
-    "scopeInternal": "Yalnızca kurum içi"
+    "scopeInternal": "Yalnızca kurum içi",
+    "devices": {
+      "manage": "Cihazları yönet",
+      "title": "Mobil cihazlar",
+      "subtitle": "{{email}} için Exchange ActiveSync eşleşmeleri",
+      "count": "{{count}} cihaz",
+      "empty": "Eşleşmiş cihaz yok",
+      "emptyHint": "Hesap EAS özellikli bir posta istemcisiyle oturum açtığında cihazlar burada görünür.",
+      "device": "Cihaz",
+      "os": "İşletim sistemi",
+      "lastSync": "Son eşitleme",
+      "wipe": "Uzaktan sil",
+      "wipeRequested": "Silme istendi",
+      "wipeConfirmTitle": "Bu cihaz uzaktan silinsin mi?",
+      "wipeConfirmDescription": "\"{{name}}\" sunucuyla bir sonraki iletişiminde verileri silinecektir. Bayrak kalıcıdır; çevrimdışı cihaz geri döndüğünde silinir. Bu işlem denetim günlüğüne kaydedilir.",
+      "removeConfirmTitle": "Bu cihaz eşleşmesi kaldırılsın mı?",
+      "removeConfirmDescription": "\"{{name}}\" için eşleşme uzaktan silme olmadan kaldırılır. Cihaz, bir sonraki iletişiminde sıfırdan sağlanmak zorunda kalacaktır. Bu işlem denetim günlüğüne kaydedilir.",
+      "actionFailed": "İşlem tamamlanamadı."
+    }
   },
   "queue": {
     "title": "E-posta Kuyruğu",

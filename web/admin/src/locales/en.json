@@ -219,7 +219,25 @@
     "sendScope": "Can send to",
     "receiveScope": "Can receive from",
     "scopeAnyone": "Anyone (internal & external)",
-    "scopeInternal": "Internal only"
+    "scopeInternal": "Internal only",
+    "devices": {
+      "manage": "Manage devices",
+      "title": "Mobile devices",
+      "subtitle": "Exchange ActiveSync partnerships for {{email}}",
+      "count": "{{count}} device(s)",
+      "empty": "No devices paired",
+      "emptyHint": "Devices appear here as soon as the account signs in with an EAS-capable mail client.",
+      "device": "Device",
+      "os": "OS",
+      "lastSync": "Last sync",
+      "wipe": "Remote wipe",
+      "wipeRequested": "Wipe requested",
+      "wipeConfirmTitle": "Remote-wipe this device?",
+      "wipeConfirmDescription": "The next time \"{{name}}\" contacts the server, its data will be wiped. The flag is durable so an offline device is wiped when it returns. This action is audit-logged.",
+      "removeConfirmTitle": "Remove this device partnership?",
+      "removeConfirmDescription": "Drops the partnership for \"{{name}}\" without a remote wipe. The device will have to provision from scratch on its next contact. This action is audit-logged.",
+      "actionFailed": "The action could not be completed."
+    }
   },
   "queue": {
     "title": "Mail Queue",

@@ -380,6 +380,28 @@ export interface TLSCertificate {
   error?: string;
 }
 
+// EASDevice mirrors the projection internal/api/activesync_devices.go
+// returns via easDeviceToJSON. The PolicyKey is deliberately omitted by the
+// backend (a per-device secret) and must never round-trip through the admin
+// SPA. last_sync and first_sync are RFC3339; an absent value (device has
+// never synced or was zeroed) is the empty string on the wire.
+export interface EASDevice {
+  device_id: string;
+  device_type: string;
+  user_agent: string;
+  protocol_version: string;
+  wipe_requested: boolean;
+  model: string;
+  imei: string;
+  friendly_name: string;
+  os: string;
+  os_language: string;
+  phone_number: string;
+  mobile_operator: string;
+  first_sync: string;
+  last_sync: string;
+}
+
 // ServerConfig mirrors the backend serverConfigDTO (internal/api/config_settings.go):
 // a typed, per-section, secrets-free view of the server configuration. Secrets
 // (JWT/TOTP keys, LDAP bind password, MCP auth tokens, alert SMTP password and

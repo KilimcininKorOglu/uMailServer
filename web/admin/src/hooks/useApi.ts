@@ -25,6 +25,7 @@ import type {
   ClusterStatus,
   TLSCertificate,
   BackupManifest,
+  EASDevice,
 } from "@/types";
 
 interface ApiError {
@@ -1055,4 +1056,68 @@ export function useTenants() {
   );
 
   return { tenants: data, loading, error, fetchTenants, fetchBranding, updateBranding };
+}
+
+// useEASDevices lists and manages the Exchange ActiveSync device partnerships
+// of a single account via the admin-gated /api/v1/accounts/{email}/devices
+// surface (internal/api/activesync_devices.go). The hook takes the email at
+// construction time so callers do not have to thread it through every action;
+// pass a fresh hook per dialog to avoid stale cache across accounts.
+export function useEASDevices(email: string | null) {
+  const [devices, setDevices] = useState<EASDevice[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchDevices = useCallback(async () => {
+    if (!email) {
+      setDevices([]);
+      return [];
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await apiRequest<EASDevice[]>(
+        `/accounts/${encodeURIComponent(email)}/devices`
+      );
+      setDevices(result ?? []);
+      return result ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [email]);
+
+  // wipeDevice flags the device for remote wipe. The backend flips the
+  // wipe_requested bit and emits an audit event; the actual wipe is delivered
+  // on the device's next contact via the provisioning gate.
+  const wipeDevice = useCallback(
+    async (deviceID: string) => {
+      if (!email) throw { message: "no account selected", status: 400 };
+      const updated = await apiRequest<EASDevice>(
+        `/accounts/${encodeURIComponent(email)}/devices/${encodeURIComponent(deviceID)}/wipe`,
+        { method: "POST" }
+      );
+      setDevices((prev) => prev.map((d) => (d.device_id === deviceID ? updated : d)));
+      return updated;
+    },
+    [email]
+  );
+
+  // removeDevice deletes the partnership outright. The backend returns 204;
+  // the row is dropped from the local list optimistically after success.
+  const removeDevice = useCallback(
+    async (deviceID: string) => {
+      if (!email) throw { message: "no account selected", status: 400 };
+      await apiRequest<void>(
+        `/accounts/${encodeURIComponent(email)}/devices/${encodeURIComponent(deviceID)}`,
+        { method: "DELETE" }
+      );
+      setDevices((prev) => prev.filter((d) => d.device_id !== deviceID));
+    },
+    [email]
+  );
+
+  return { devices, loading, error, fetchDevices, wipeDevice, removeDevice };
 }

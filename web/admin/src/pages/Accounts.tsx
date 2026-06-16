@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Key,
   HardDrive,
+  Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/select";
 import { useAccounts } from "@/hooks/useApi";
 import { useI18n } from "@/hooks/useI18n";
+import { EASDevicesDialog } from "@/components/EASDevicesDialog";
 import { cn } from "@/lib/utils";
 import type { Account, MailScopePolicy } from "@/types";
 
@@ -131,6 +133,8 @@ export function Accounts() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDevicesDialogOpen, setIsDevicesDialogOpen] = useState(false);
+  const [devicesAccount, setDevicesAccount] = useState<Account | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [newAccountEmail, setNewAccountEmail] = useState("");
   const [newAccountPassword, setNewAccountPassword] = useState("");
@@ -506,6 +510,10 @@ export function Accounts() {
                 setSelectedAccount(account);
                 setIsDeleteDialogOpen(true);
               }}
+              onManageDevices={() => {
+                setDevicesAccount(account);
+                setIsDevicesDialogOpen(true);
+              }}
               formatBytes={formatBytes}
             />
           ))}
@@ -725,6 +733,18 @@ export function Accounts() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* EAS device partnerships. Reached from the per-card dropdown so a
+          per-account destructive operation (remote wipe / remove) does not
+          have to share state with the bulk account list or the edit dialog. */}
+      <EASDevicesDialog
+        email={devicesAccount?.email ?? null}
+        open={isDevicesDialogOpen}
+        onOpenChange={(open) => {
+          setIsDevicesDialogOpen(open);
+          if (!open) setDevicesAccount(null);
+        }}
+      />
     </div>
   );
 }
@@ -733,10 +753,11 @@ interface AccountCardProps {
   account: Account;
   onEdit: () => void;
   onDelete: () => void;
+  onManageDevices: () => void;
   formatBytes: (bytes: number) => string;
 }
 
-function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProps) {
+function AccountCard({ account, onEdit, onDelete, onManageDevices, formatBytes }: AccountCardProps) {
   const { t } = useI18n();
   // A quota_limit of 0 means unlimited storage; a percentage and progress bar
   // are meaningless in that case, so show the usage without them.
@@ -785,6 +806,13 @@ function AccountCard({ account, onEdit, onDelete, formatBytes }: AccountCardProp
               <DropdownMenuItem onClick={onEdit}>
                 <Edit className="mr-2 h-4 w-4" />
                 {t("common.edit")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={onManageDevices}
+                data-testid="account-manage-devices"
+              >
+                <Smartphone className="mr-2 h-4 w-4" />
+                {t("accounts.devices.manage")}
               </DropdownMenuItem>
               {account.totp_enabled && (
                 <DropdownMenuItem disabled>
