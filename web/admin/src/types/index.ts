@@ -330,6 +330,18 @@ export interface ProtocolFailure {
   timestamp: string;
 }
 
+// DNSCheckResult mirrors the JSON projection returned by
+// GET /api/v1/admin/domains/{domain}/dns-check
+// (internal/api/dns_health.go). status is "pass" | "fail" | "warning".
+export interface DNSCheckResult {
+  record_type: string;
+  record_name: string;
+  expected: string;
+  found: string;
+  status: "pass" | "fail" | "warning";
+  message: string;
+}
+
 export interface Job {
   id: string;
   type: string;

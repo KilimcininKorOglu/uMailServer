@@ -12,6 +12,7 @@ import {
   Shield,
   Mail,
   Pencil,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ import { toast } from "sonner";
 import { useDomains } from "@/hooks/useApi";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
+import { DNSHealthDialog } from "@/components/DNSHealthDialog";
 import type { Domain } from "@/types";
 
 // useApi rejects with a plain { message, status } object rather than an Error,
@@ -86,6 +88,8 @@ export function Domains() {
   const [formError, setFormError] = useState("");
   const [copiedDNS, setCopiedDNS] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isHealthDialogOpen, setIsHealthDialogOpen] = useState(false);
+  const [healthDomain, setHealthDomain] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDomains();
@@ -328,6 +332,10 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
               }}
               onCopyDNS={() => copyDNSToClipboard(domain)}
               copiedDNS={copiedDNS}
+              onRunHealthCheck={() => {
+                setHealthDomain(domain.name);
+                setIsHealthDialogOpen(true);
+              }}
             />
           ))}
         </div>
@@ -467,6 +475,13 @@ _dmarc.${domain.name}.    IN    TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* DNS Health Dialog */}
+      <DNSHealthDialog
+        open={isHealthDialogOpen}
+        onOpenChange={setIsHealthDialogOpen}
+        domain={healthDomain}
+      />
     </div>
   );
 }
@@ -478,9 +493,18 @@ interface DomainCardProps {
   onDelete: () => void;
   onCopyDNS: () => void;
   copiedDNS: boolean;
+  onRunHealthCheck: () => void;
 }
 
-function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }: DomainCardProps) {
+function DomainCard({
+  domain,
+  onToggle,
+  onEdit,
+  onDelete,
+  onCopyDNS,
+  copiedDNS,
+  onRunHealthCheck,
+}: DomainCardProps) {
   const { t } = useI18n();
   const [showDNS, setShowDNS] = useState(false);
 
@@ -521,6 +545,10 @@ function DomainCard({ domain, onToggle, onEdit, onDelete, onCopyDNS, copiedDNS }
               <DropdownMenuItem onClick={() => setShowDNS(true)}>
                 <Mail className="mr-2 h-4 w-4" />
                 {t("domains.viewDnsRecords")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onRunHealthCheck} data-testid="domain-dns-health">
+                <Activity className="mr-2 h-4 w-4" />
+                {t("domains.dnsCheck.menuItem")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onCopyDNS}>
                 {copiedDNS ? (

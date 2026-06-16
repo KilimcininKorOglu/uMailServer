@@ -122,7 +122,19 @@
     "dnsRecordsDescription": "E-posta teslimatını etkinleştirmek için bu kayıtları DNS sağlayıcınıza ekleyin",
     "egressIPGroup": "Çıkış IP grubu",
     "egressIPGroupPlaceholder": "örn. marketing (varsayılan için boş bırakın)",
-    "egressIPGroupHelp": "Bu domainin giden postası, belirtilen Relay IP grubunun adreslerinden gönderilir. Gruplar sunucu yapılandırmasında tanımlanır; boş bırakılırsa varsayılan rota kullanılır."
+    "egressIPGroupHelp": "Bu domainin giden postası, belirtilen Relay IP grubunun adreslerinden gönderilir. Gruplar sunucu yapılandırmasında tanımlanır; boş bırakılırsa varsayılan rota kullanılır.",
+    "dnsCheck": {
+      "menuItem": "DNS sağlık kontrolü çalıştır",
+      "title": "DNS sağlık kontrolü — {{domain}}",
+      "description": "Domain için MX, SPF, DKIM, DMARC ve PTR kayıtlarını canlı DNS'e karşı sorgular. Kontrol en iyi çabayla çalışır ve sunucunun kullandığı genel çözümleyiciye karşı yapılır.",
+      "notRun": "Henüz bir kontrol çalıştırılmadı. Domainin DNS kayıtlarını sorgulamak için \"Kontrol et\" düğmesine tıklayın.",
+      "type": "Tür",
+      "status": "Durum",
+      "message": "Mesaj",
+      "run": "Kontrol et",
+      "running": "Çalışıyor…",
+      "failed": "DNS kontrolü başarısız"
+    }
   },
   "publicFolders": {
     "title": "Genel Klasörler",

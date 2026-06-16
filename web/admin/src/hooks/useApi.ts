@@ -26,6 +26,7 @@ import type {
   TLSCertificate,
   BackupManifest,
   EASDevice,
+  DNSCheckResult,
 } from "@/types";
 
 interface ApiError {
@@ -1120,4 +1121,44 @@ export function useEASDevices(email: string | null) {
   );
 
   return { devices, loading, error, fetchDevices, wipeDevice, removeDevice };
+}
+
+// useDNSHealth probes a single domain's DNS records (MX/SPF/DKIM/DMARC/PTR)
+// via the admin-gated /api/v1/admin/domains/{domain}/dns-check surface
+// (internal/api/dns_health.go). Unlike most other hooks, it does not auto-run
+// on construction: DNS probes are slow and external, so callers trigger
+// checkDNS() explicitly (e.g. from a "Run check" button).
+export function useDNSHealth() {
+  const [data, setData] = useState<DNSCheckResult[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const checkDNS = useCallback(async (domain: string) => {
+    if (!domain) {
+      setData(null);
+      return [];
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await apiRequest<{ domain: string; results: DNSCheckResult[] }>(
+        `/admin/domains/${encodeURIComponent(domain)}/dns-check`
+      );
+      setData(result?.results ?? []);
+      return result?.results ?? [];
+    } catch (err) {
+      setError(err as ApiError);
+      setData(null);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const reset = useCallback(() => {
+    setData(null);
+    setError(null);
+  }, []);
+
+  return { results: data, loading, error, checkDNS, reset };
 }

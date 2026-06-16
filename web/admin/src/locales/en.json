@@ -122,7 +122,19 @@
     "dnsRecordsDescription": "Add these records to your DNS provider to enable email delivery",
     "egressIPGroup": "Egress IP group",
     "egressIPGroupPlaceholder": "e.g. marketing (leave empty for default)",
-    "egressIPGroupHelp": "Outbound mail for this domain sends from the named Relay IP group's addresses. Groups are defined in server config; empty uses the default route."
+    "egressIPGroupHelp": "Outbound mail for this domain sends from the named Relay IP group's addresses. Groups are defined in server config; empty uses the default route.",
+    "dnsCheck": {
+      "menuItem": "Run DNS health check",
+      "title": "DNS health check — {{domain}}",
+      "description": "Probes MX, SPF, DKIM, DMARC and PTR records for the domain against live DNS. The check is best-effort and runs against the public resolver used by this server.",
+      "notRun": "No check has been run yet. Click \"Run check\" to probe the domain's DNS records.",
+      "type": "Type",
+      "status": "Status",
+      "message": "Message",
+      "run": "Run check",
+      "running": "Running…",
+      "failed": "DNS check failed"
+    }
   },
   "publicFolders": {
     "title": "Public Folders",

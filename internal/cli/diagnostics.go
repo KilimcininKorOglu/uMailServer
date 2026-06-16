@@ -3,8 +3,10 @@ package cli
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/smtp"
+	"os"
 	"strings"
 	"time"
 
@@ -15,12 +17,25 @@ import (
 type Diagnostics struct {
 	config    *config.Config
 	tlsConfig *tls.Config // optional override for TLS verification (used by tests)
+	out       io.Writer   // destination for the few human-readable status lines (CLI: os.Stdout; API: io.Discard)
 }
 
-// NewDiagnostics creates new diagnostics
+// NewDiagnostics creates new diagnostics that print human-readable status to
+// stdout (the legacy CLI behavior).
 func NewDiagnostics(cfg *config.Config) *Diagnostics {
+	return NewDiagnosticsWithWriter(cfg, os.Stdout)
+}
+
+// NewDiagnosticsWithWriter creates a Diagnostics whose human-readable status
+// lines are written to the given io.Writer. Pass io.Discard when calling
+// CheckDNS from a non-interactive context (HTTP API, tests).
+func NewDiagnosticsWithWriter(cfg *config.Config, out io.Writer) *Diagnostics {
+	if out == nil {
+		out = os.Stdout
+	}
 	return &Diagnostics{
 		config: cfg,
+		out:    out,
 	}
 }
 
@@ -46,7 +61,14 @@ type TLSCheckResult struct {
 
 // CheckDNS checks DNS records for a domain
 func (d *Diagnostics) CheckDNS(domain string) ([]DNSCheckResult, error) {
-	fmt.Printf("Checking DNS records for: %s\n\n", domain)
+	// Tests construct Diagnostics{} directly; fall back to stdout so the
+	// status line lands somewhere visible like the legacy fmt.Printf did.
+	out := d.out
+	if out == nil {
+		out = os.Stdout
+	}
+	//nolint:errcheck // status line is best-effort; output failure is non-fatal
+	_, _ = fmt.Fprintf(out, "Checking DNS records for: %s\n\n", domain)
 
 	results := []DNSCheckResult{}
 
