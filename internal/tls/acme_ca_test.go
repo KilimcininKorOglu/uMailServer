@@ -8,7 +8,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,10 +45,9 @@ func writeTestCAPEM(t *testing.T) string {
 }
 
 // TestACMECACertFileTrusted asserts that a configured ACME CA file is loaded into
-// the ACME client's own HTTP transport (so a private/test ACME directory endpoint
-// is trusted) without touching the system trust store. This is the wiring that
-// lets the server talk to a local Pebble whose directory cert is not publicly
-// signed.
+// the issuer's TrustedRoots (so a private/test ACME directory endpoint is
+// trusted) without touching the system trust store. This is the wiring that lets
+// the server talk to a local Pebble whose directory cert is not publicly signed.
 func TestACMECACertFileTrusted(t *testing.T) {
 	caPath := writeTestCAPEM(t)
 	m, err := NewManager(Config{
@@ -63,16 +61,11 @@ func TestACMECACertFileTrusted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	if m.certManager == nil || m.certManager.Client == nil {
-		t.Fatal("autocert manager / ACME client not configured")
+	if m.acmeIssuer == nil {
+		t.Fatal("ACME issuer not configured")
 	}
-	httpClient := m.certManager.Client.HTTPClient
-	if httpClient == nil {
-		t.Fatal("ACME client HTTPClient is nil; custom CA was not wired and the system trust store would be used")
-	}
-	tr, ok := httpClient.Transport.(*http.Transport)
-	if !ok || tr.TLSClientConfig == nil || tr.TLSClientConfig.RootCAs == nil {
-		t.Fatal("ACME client transport does not pin the configured CA in RootCAs")
+	if m.acmeIssuer.TrustedRoots == nil {
+		t.Fatal("ACME issuer TrustedRoots is nil; custom CA was not wired and the system trust store would be used")
 	}
 }
 

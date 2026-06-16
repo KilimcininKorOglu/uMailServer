@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -16,9 +17,11 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/caddyserver/certmagic"
 	"github.com/umailserver/umailserver/internal/alert"
 	tlspkg "github.com/umailserver/umailserver/internal/tls"
 )
@@ -71,6 +74,45 @@ func (s *memCacheStore) Stat(key string) (int64, time.Time, error) {
 	return int64(len(data)), time.Time{}, nil
 }
 
+// memLocker is an in-memory tlspkg.Locker. These tests never exercise
+// concurrent issuance, so a process-local mutex per name is enough to satisfy
+// the active-active contract the manager enforces at construction.
+type memLocker struct {
+	mu sync.Mutex
+	// held remembers the goroutine that owns each lock, but every caller in
+	// these tests runs single-goroutine, so the map only needs a set of names.
+	held map[string]struct{}
+}
+
+func newMemLocker() *memLocker { return &memLocker{held: map[string]struct{}{}} }
+
+func (l *memLocker) Lock(_ context.Context, name string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.held[name] = struct{}{}
+	return nil
+}
+func (l *memLocker) Unlock(_ context.Context, name string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.held, name)
+	return nil
+}
+
+// certmagicSiteCertKeyForTest is the certmagic storage key the manager uses to
+// store the leaf certificate for domain, given the default test configuration
+// (production Let's Encrypt CA, no email). The acmeIssuer.IssuerKey() field is
+// unexported on the manager, so the test recomputes the key against the same
+// config the manager was constructed with — if the manager's CA selection ever
+// changes, this seed drifts and these tests fail loudly.
+func certmagicSiteCertKeyForTest(domain string) string {
+	issuerKey := (&certmagic.ACMEIssuer{
+		CA:    certmagic.LetsEncryptProductionCA,
+		Email: "",
+	}).IssuerKey()
+	return certmagic.StorageKeys.SiteCert(issuerKey, domain)
+}
+
 // expiringCertBundle builds a cert+key PEM bundle (key block first, as autocert
 // stores it) for domain, expiring after the given duration.
 func expiringCertBundle(t *testing.T, domain string, validFor time.Duration) []byte {
@@ -116,12 +158,13 @@ func TestCheckAlertsTLSExpiringFires(t *testing.T) {
 		Domains:      []string{"mail.example.com"},
 		CacheBackend: "store",
 		CacheStore:   store,
+		Locker:       newMemLocker(),
 	}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
 	// Seed a certificate expiring in 5 days — inside the 7-day warning window.
-	store.m["mail.example.com"] = expiringCertBundle(t, "mail.example.com", 5*24*time.Hour)
+	store.m[certmagicSiteCertKeyForTest("mail.example.com")] = expiringCertBundle(t, "mail.example.com", 5*24*time.Hour)
 
 	alertCfg := alert.DefaultConfig()
 	alertCfg.Enabled = true
@@ -162,11 +205,12 @@ func TestCheckAlertsTLSHealthyQuiet(t *testing.T) {
 		Domains:      []string{"mail.example.com"},
 		CacheBackend: "store",
 		CacheStore:   store,
+		Locker:       newMemLocker(),
 	}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	store.m["mail.example.com"] = expiringCertBundle(t, "mail.example.com", 60*24*time.Hour)
+	store.m[certmagicSiteCertKeyForTest("mail.example.com")] = expiringCertBundle(t, "mail.example.com", 60*24*time.Hour)
 
 	alertCfg := alert.DefaultConfig()
 	alertCfg.Enabled = true

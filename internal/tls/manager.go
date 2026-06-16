@@ -20,18 +20,18 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/acme"
-	"golang.org/x/crypto/acme/autocert"
+	"github.com/caddyserver/certmagic"
 )
 
 // Manager handles TLS certificate management
 type Manager struct {
-	config      Config
-	logger      *slog.Logger
-	certManager *autocert.Manager
-	certCache   map[string]*tls.Certificate
-	certMu      sync.RWMutex
-	certDir     string
+	config     Config
+	logger     *slog.Logger
+	certMagic  *certmagic.Config
+	acmeIssuer *certmagic.ACMEIssuer
+	certCache  map[string]*tls.Certificate
+	certMu     sync.RWMutex
+	certDir    string
 
 	// domainSource, when set, lists the base domains the server is authoritative
 	// for so the ACME host policy can accept tenant domains discovered at runtime.
@@ -69,14 +69,18 @@ type Config struct {
 	ClientCAFile      string // CA file for client certificate verification
 	ClientAuthMode    tls.ClientAuthType
 
-	// CacheBackend selects where autocert persists certificates: "store" uses the
+	// CacheBackend selects where the issuer persists certificates: "store" uses the
 	// injected CacheStore (shared across active-active nodes); anything else uses
-	// the local filesystem DirCache. CacheStore must be non-nil for "store".
+	// the local filesystem. CacheStore must be non-nil for "store".
 	CacheBackend string
 	CacheStore   CacheStore
+	// Locker is the distributed lock certmagic serializes issuance/renewal across
+	// active-active nodes over (instances sharing the same storage are one cluster).
+	// Required when AutoTLS is enabled with CacheBackend "store"; ignored otherwise.
+	Locker Locker
 	// CacheDir overrides the filesystem certificate-cache directory (default ./certs).
 	CacheDir string
-	// RenewBeforeDays overrides autocert's renewal lead time in days (0 = default 30).
+	// RenewBeforeDays overrides the renewal lead time in days (0 = certmagic default).
 	RenewBeforeDays int
 	// ACMECACertFile is a PEM file of CA certificate(s) the ACME client trusts when
 	// connecting to ACMEEndpoint. Set this for a private or test ACME CA (e.g. a
@@ -107,18 +111,22 @@ func NewManager(config Config, logger *slog.Logger) (*Manager, error) {
 		return nil, fmt.Errorf("failed to create cert directory: %w", err)
 	}
 
-	// Setup autocert if auto TLS is enabled
+	// Setup the ACME issuer if auto TLS is enabled
 	if config.AutoTLS {
-		if err := m.setupAutocert(); err != nil {
-			return nil, fmt.Errorf("failed to setup autocert: %w", err)
+		if err := m.setupCertmagic(); err != nil {
+			return nil, fmt.Errorf("failed to setup ACME issuer: %w", err)
 		}
 	}
 
 	return m, nil
 }
 
-// setupAutocert configures the autocert manager for Let's Encrypt
-func (m *Manager) setupAutocert() error {
+// setupCertmagic builds the certmagic issuer/manager. certmagic coordinates
+// issuance across active-active nodes through a shared Storage + lock rather than
+// a leader: any node may on-demand a certificate at handshake, and a contended
+// issuance serializes on the lock. HTTP-01 is the default challenge; DNS-01
+// (wildcard) is wired in a follow-up.
+func (m *Manager) setupCertmagic() error {
 	challenge := m.config.Challenge
 	if challenge == "" {
 		challenge = "http-01"
@@ -133,27 +141,36 @@ func (m *Manager) setupAutocert() error {
 		return fmt.Errorf("unsupported ACME challenge %q", challenge)
 	}
 
-	// Use staging environment if configured
-	acmeEndpoint := acme.LetsEncryptURL
+	// Storage: shared db-backed store (active-active) or the local filesystem.
+	var storage certmagic.Storage
+	if m.config.CacheBackend == "store" && m.config.CacheStore != nil {
+		if m.config.Locker == nil {
+			return fmt.Errorf("cache_backend \"store\" requires a distributed Locker for active-active issuance")
+		}
+		storage = newCertmagicStorage(m.config.CacheStore, m.config.Locker)
+		m.logger.Info("ACME issuer using shared db-backed certificate storage")
+	} else {
+		storage = &certmagic.FileStorage{Path: m.certDir}
+	}
+
+	// ACME directory URL: Let's Encrypt production (default), staging, or a custom
+	// endpoint (e.g. a local Pebble CA).
+	ca := certmagic.LetsEncryptProductionCA
 	if m.config.UseStaging {
-		acmeEndpoint = "https://acme-staging-v02.api.letsencrypt.org/directory"
+		ca = certmagic.LetsEncryptStagingCA
 	}
 	if m.config.ACMEEndpoint != "" {
-		acmeEndpoint = m.config.ACMEEndpoint
+		ca = m.config.ACMEEndpoint
 	}
 
-	var cache autocert.Cache
-	if m.config.CacheBackend == "store" && m.config.CacheStore != nil {
-		cache = storeCache{store: m.config.CacheStore}
-		m.logger.Info("Autocert using shared db-backed certificate cache")
-	} else {
-		cache = autocert.DirCache(m.certDir)
+	issuerCfg := certmagic.ACMEIssuer{
+		CA:     ca,
+		Email:  m.config.Email,
+		Agreed: true,
 	}
-
-	acmeClient := &acme.Client{DirectoryURL: acmeEndpoint}
 	// Trust a private/test ACME CA (e.g. local Pebble) for the directory endpoint
-	// without weakening verification: load the configured CA into the ACME client's
-	// own HTTP transport, leaving the system trust store untouched everywhere else.
+	// without weakening verification: restrict the ACME client's trust to the
+	// configured root, leaving the system trust store untouched everywhere else.
 	if m.config.ACMECACertFile != "" {
 		caData, err := os.ReadFile(m.config.ACMECACertFile)
 		if err != nil {
@@ -163,30 +180,33 @@ func (m *Manager) setupAutocert() error {
 		if !pool.AppendCertsFromPEM(caData) {
 			return fmt.Errorf("acme ca cert %q contains no usable certificate", m.config.ACMECACertFile)
 		}
-		// #nosec G402 -- MinVersion pinned to TLS 1.2; RootCAs restricts trust to the configured CA.
-		acmeClient.HTTPClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
-			},
-		}
-		m.logger.Info("ACME client trusting custom CA for directory endpoint", "ca_file", m.config.ACMECACertFile)
+		issuerCfg.TrustedRoots = pool
+		m.logger.Info("ACME issuer trusting custom CA for directory endpoint", "ca_file", m.config.ACMECACertFile)
 	}
 
-	m.certManager = &autocert.Manager{
-		Client:     acmeClient,
-		Cache:      cache,
-		Prompt:     autocert.AcceptTOS,
-		Email:      m.config.Email,
-		HostPolicy: m.hostPolicy,
+	magicCfg := certmagic.Config{
+		Storage:  storage,
+		OnDemand: &certmagic.OnDemandConfig{DecisionFunc: m.decideOnDemand},
 	}
 	if m.config.RenewBeforeDays > 0 {
-		m.certManager.RenewBefore = time.Duration(m.config.RenewBeforeDays) * 24 * time.Hour
+		// certmagic renews within a window that is a fraction of the cert's total
+		// validity; convert a lead-time in days (on a 90-day LE cert) to that ratio.
+		magicCfg.RenewalWindowRatio = float64(m.config.RenewBeforeDays) / 90.0
 	}
 
-	m.logger.Info("Autocert configured",
+	cache := certmagic.NewCache(certmagic.CacheOptions{
+		GetConfigForCert: func(certmagic.Certificate) (*certmagic.Config, error) {
+			return m.certMagic, nil
+		},
+	})
+	m.certMagic = certmagic.New(cache, magicCfg)
+	m.acmeIssuer = certmagic.NewACMEIssuer(m.certMagic, issuerCfg)
+	m.certMagic.Issuers = []certmagic.Issuer{m.acmeIssuer}
+
+	m.logger.Info("ACME issuer configured",
 		"email", m.config.Email,
 		"domains", m.config.Domains,
-		"endpoint", acmeEndpoint,
+		"endpoint", ca,
 		"challenge", challenge,
 	)
 
@@ -224,15 +244,15 @@ func (m *Manager) SetDomainSource(lister func() ([]string, error)) {
 	m.domainMu.Unlock()
 }
 
-// hostPolicy is the autocert HostPolicy. It permits ACME issuance only for the
-// configured Domains, the dynamically discovered tenant domains, and their
-// well-known service hostnames. An unrecognized SNI is refused so a probe for an
-// arbitrary name cannot trigger a doomed ACME order and burn the CA rate limit.
-func (m *Manager) hostPolicy(_ context.Context, host string) error {
-	// autocert's HTTP-01 handler passes r.Host, which carries a port when the
-	// challenge is validated on a non-default port (for example a local Pebble
-	// validating on 5002). Strip it so the policy compares hostnames, not
-	// host:port; the SNI path already arrives without a port.
+// decideOnDemand is the certmagic on-demand authorization gate. It permits
+// issuance only for the configured Domains, the dynamically discovered tenant
+// domains, and their well-known service hostnames. An unrecognized SNI is refused
+// so a probe for an arbitrary name cannot trigger a doomed ACME order and burn
+// the CA rate limit. It is the on-demand replacement for the autocert HostPolicy.
+func (m *Manager) decideOnDemand(_ context.Context, host string) error {
+	// The HTTP-01 challenge may carry host:port (e.g. a local Pebble validating
+	// on 5002); the SNI path arrives without one. Strip it so the check compares
+	// hostnames, not host:port.
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
@@ -240,7 +260,7 @@ func (m *Manager) hostPolicy(_ context.Context, host string) error {
 	if m.hostAllowed(host) {
 		return nil
 	}
-	return fmt.Errorf("acme/autocert: host %q not configured for issuance", host)
+	return fmt.Errorf("acme: host %q not configured for issuance", host)
 }
 
 // hostAllowed reports whether host is an authoritative base domain or one of its
@@ -287,14 +307,14 @@ func (m *Manager) allowedDomains() []string {
 
 // GetCertificate returns a TLS certificate for the given hello info
 func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	// First try autocert if enabled
-	if m.certManager != nil {
-		cert, err := m.certManager.GetCertificate(hello)
+	// First try the ACME issuer (certmagic on-demand) if enabled
+	if m.certMagic != nil {
+		cert, err := m.certMagic.GetCertificate(hello)
 		if err == nil && cert != nil {
 			return cert, nil
 		}
 		// Fall through to manual certs on error
-		m.logger.Debug("Autocert failed, trying manual certs", "error", err)
+		m.logger.Debug("ACME issuer failed, trying manual certs", "error", err)
 	}
 
 	// Try manual certificates
@@ -510,16 +530,25 @@ func selfSignedSANs(domains []string) []string {
 	return sans
 }
 
-// RenewCertificates manually triggers certificate renewal
+// RenewCertificates manually triggers certificate renewal by dropping the cached
+// certificate assets (cert, key, meta) so certmagic re-issues on the next
+// handshake. It is a maintenance hook with no production caller today.
 func (m *Manager) RenewCertificates(ctx context.Context) error {
-	if m.certManager == nil {
-		return fmt.Errorf("autocert not configured")
+	if m.certMagic == nil || m.acmeIssuer == nil {
+		return fmt.Errorf("ACME issuer not configured")
 	}
 
-	// Force renewal by deleting cached certs
+	issuerKey := m.acmeIssuer.IssuerKey()
+	storage := m.certMagic.Storage
 	for _, domain := range m.config.Domains {
-		if err := m.certManager.Cache.Delete(ctx, domain); err != nil {
-			m.logger.Warn("Failed to delete cached cert", "domain", domain, "error", err)
+		for _, key := range []string{
+			certmagic.StorageKeys.SiteCert(issuerKey, domain),
+			certmagic.StorageKeys.SitePrivateKey(issuerKey, domain),
+			certmagic.StorageKeys.SiteMeta(issuerKey, domain),
+		} {
+			if err := storage.Delete(ctx, key); err != nil {
+				m.logger.Warn("Failed to delete cached cert asset", "key", key, "error", err)
+			}
 		}
 	}
 
@@ -571,14 +600,16 @@ func (m *Manager) certificateStatus(domain string) CertificateStatus {
 	return status
 }
 
-// loadCertPEM returns the certificate PEM held for domain. With autocert active
-// it reads the ACME cache under the bare-domain key (the same key RenewCertificates
-// uses); the bundle has the private key block first, then the chain. It is a pure
-// cache read — never certManager.GetCertificate, which would trigger ACME issuance
-// during a status check. Without autocert it reads the per-domain manual cert file.
+// loadCertPEM returns the certificate PEM held for domain. With the ACME issuer
+// active it reads the cert asset from certmagic's storage under the issuer's
+// SiteCert key; the bundle has the private key block first, then the chain. It is
+// a pure storage read — never GetCertificate, which would trigger ACME issuance
+// during a status check. Without the issuer it reads the per-domain manual cert
+// file.
 func (m *Manager) loadCertPEM(domain string) ([]byte, error) {
-	if m.certManager != nil {
-		return m.certManager.Cache.Get(context.Background(), domain)
+	if m.certMagic != nil && m.acmeIssuer != nil {
+		key := certmagic.StorageKeys.SiteCert(m.acmeIssuer.IssuerKey(), domain)
+		return m.certMagic.Storage.Load(context.Background(), key)
 	}
 	certPath := filepath.Join(m.certDir, domain+".crt")
 	return os.ReadFile(filepath.Clean(certPath))
@@ -616,16 +647,18 @@ func parseCertificate(data []byte) (*x509.Certificate, error) {
 	}
 }
 
-// HTTPChallengeHandler returns the handler for ACME HTTP challenges
+// HTTPChallengeHandler returns the handler for ACME HTTP-01 challenges, served on
+// /.well-known/acme-challenge/. It is nil (unmounted) when the issuer is off or a
+// non-HTTP challenge is configured.
 func (m *Manager) HTTPChallengeHandler() http.Handler {
-	if m.certManager == nil {
+	if m.acmeIssuer == nil {
 		return nil
 	}
 	challenge := m.config.Challenge
 	if challenge != "" && challenge != "http-01" {
 		return nil
 	}
-	return m.certManager.HTTPHandler(nil)
+	return m.acmeIssuer.HTTPChallengeHandler(nil)
 }
 
 // Close cleans up resources

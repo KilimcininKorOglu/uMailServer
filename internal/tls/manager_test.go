@@ -1,7 +1,6 @@
 package tls
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -20,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/crypto/acme/autocert"
+	"github.com/caddyserver/certmagic"
 )
 
 func TestNewManager(t *testing.T) {
@@ -528,10 +527,10 @@ func TestManagerSetupAutocert(t *testing.T) {
 	manager, _ := NewManager(config, logger)
 	defer manager.Close()
 
-	// setupAutocert is called during NewManager
-	// If autocert is properly set up, the manager should work
-	if manager.IsAutoTLS() && manager.certManager == nil {
-		t.Error("expected certManager to be initialized when AutoTLS is enabled")
+	// setupCertmagic is called during NewManager
+	// If the ACME issuer is properly set up, the manager should work
+	if manager.IsAutoTLS() && manager.certMagic == nil {
+		t.Error("expected certMagic to be initialized when AutoTLS is enabled")
 	}
 }
 
@@ -571,9 +570,9 @@ func TestHTTPChallengeHandlerWithAutocert(t *testing.T) {
 
 	handler := manager.HTTPChallengeHandler()
 
-	// With autocert enabled, handler should be non-nil
-	if handler == nil && manager.certManager != nil {
-		t.Error("expected non-nil handler when autocert is configured")
+	// With the ACME issuer enabled, handler should be non-nil
+	if handler == nil && manager.acmeIssuer != nil {
+		t.Error("expected non-nil handler when the ACME issuer is configured")
 	}
 }
 
@@ -1299,8 +1298,8 @@ func TestNewManagerWithACMEEndpoint(t *testing.T) {
 	}
 	defer manager.Close()
 
-	if manager.certManager == nil {
-		t.Error("expected certManager to be initialized with custom ACME endpoint")
+	if manager.certMagic == nil {
+		t.Error("expected certMagic to be initialized with custom ACME endpoint")
 	}
 }
 
@@ -1365,7 +1364,7 @@ func TestHostPolicyDynamicDomains(t *testing.T) {
 		"tenant.test.", // trailing dot (FQDN form)
 	}
 	for _, host := range allowed {
-		if err := m.hostPolicy(context.Background(), host); err != nil {
+		if err := m.decideOnDemand(context.Background(), host); err != nil {
 			t.Errorf("host %q should be allowed, got: %v", host, err)
 		}
 	}
@@ -1378,15 +1377,15 @@ func TestHostPolicyDynamicDomains(t *testing.T) {
 		"",                      // empty SNI
 	}
 	for _, host := range refused {
-		if err := m.hostPolicy(context.Background(), host); err == nil {
+		if err := m.decideOnDemand(context.Background(), host); err == nil {
 			t.Errorf("host %q should be refused (rate-limit guard), but was allowed", host)
 		}
 	}
 }
 
 // TestHostPolicySourceFailureKeepsStatic verifies that when the domain source
-// errors, the static Domains stay allowed (the policy must not collapse to
-// refusing everything just because the store is briefly unavailable).
+// errors, the static Domains stay allowed (the on-demand gate must not collapse
+// to refusing everything just because the store is briefly unavailable).
 func TestHostPolicySourceFailureKeepsStatic(t *testing.T) {
 	m, err := NewManager(Config{Domains: []string{"mail.example.com"}}, nil)
 	if err != nil {
@@ -1396,10 +1395,10 @@ func TestHostPolicySourceFailureKeepsStatic(t *testing.T) {
 		return nil, errors.New("store unavailable")
 	})
 
-	if err := m.hostPolicy(context.Background(), "mail.example.com"); err != nil {
+	if err := m.decideOnDemand(context.Background(), "mail.example.com"); err != nil {
 		t.Errorf("static domain must remain allowed when source fails, got: %v", err)
 	}
-	if err := m.hostPolicy(context.Background(), "tenant.test"); err == nil {
+	if err := m.decideOnDemand(context.Background(), "tenant.test"); err == nil {
 		t.Error("unknown domain must stay refused when source fails")
 	}
 }
@@ -1435,59 +1434,30 @@ func (f *fakeCacheStore) Stat(key string) (int64, time.Time, error) {
 	return int64(len(data)), time.Time{}, nil
 }
 
-// TestStoreCacheAdapter verifies the autocert.Cache adapter maps an absent key to
-// autocert.ErrCacheMiss (autocert treats any other error as fatal and aborts
-// issuance) and round-trips bytes verbatim.
-func TestStoreCacheAdapter(t *testing.T) {
-	c := storeCache{store: &fakeCacheStore{m: map[string][]byte{}}}
-	ctx := context.Background()
-
-	if _, err := c.Get(ctx, "example.org"); !errors.Is(err, autocert.ErrCacheMiss) {
-		t.Fatalf("Get of absent key = %v, want autocert.ErrCacheMiss", err)
-	}
-
-	want := []byte("cert+key PEM bundle bytes")
-	if err := c.Put(ctx, "example.org", want); err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	got, err := c.Get(ctx, "example.org")
-	if err != nil {
-		t.Fatalf("Get after Put: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("Get = %q, want %q (bytes must round-trip verbatim)", got, want)
-	}
-
-	if err := c.Delete(ctx, "example.org"); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	if _, err := c.Get(ctx, "example.org"); !errors.Is(err, autocert.ErrCacheMiss) {
-		t.Fatalf("Get after Delete = %v, want autocert.ErrCacheMiss", err)
-	}
-}
-
-// TestSetupAutocertCacheSelection verifies CacheBackend "store" routes autocert
-// at the shared CacheStore while the default keeps the local filesystem DirCache.
-func TestSetupAutocertCacheSelection(t *testing.T) {
+// TestSetupCertmagicCacheSelection verifies CacheBackend "store" routes the issuer
+// at the shared CacheStore (behind the certmagic storage adapter) while the
+// default keeps the local filesystem FileStorage.
+func TestSetupCertmagicCacheSelection(t *testing.T) {
 	withStore, err := NewManager(Config{
 		AutoTLS:      true,
 		Domains:      []string{"mail.example.com"},
 		CacheBackend: "store",
 		CacheStore:   &fakeCacheStore{m: map[string][]byte{}},
+		Locker:       &fakeLocker{},
 	}, nil)
 	if err != nil {
 		t.Fatalf("NewManager (store): %v", err)
 	}
-	if _, ok := withStore.certManager.Cache.(storeCache); !ok {
-		t.Fatalf("CacheBackend=store gave %T, want storeCache", withStore.certManager.Cache)
+	if _, ok := withStore.certMagic.Storage.(certmagicStorage); !ok {
+		t.Fatalf("CacheBackend=store gave %T, want certmagicStorage", withStore.certMagic.Storage)
 	}
 
 	defaultMgr, err := NewManager(Config{AutoTLS: true, Domains: []string{"mail.example.com"}}, nil)
 	if err != nil {
 		t.Fatalf("NewManager (default): %v", err)
 	}
-	if _, ok := defaultMgr.certManager.Cache.(autocert.DirCache); !ok {
-		t.Fatalf("default backend gave %T, want autocert.DirCache", defaultMgr.certManager.Cache)
+	if _, ok := defaultMgr.certMagic.Storage.(*certmagic.FileStorage); !ok {
+		t.Fatalf("default backend gave %T, want *certmagic.FileStorage", defaultMgr.certMagic.Storage)
 	}
 }
 
@@ -1615,18 +1585,20 @@ func makeCertKeyBundle(t *testing.T, domain string, notAfter time.Time) []byte {
 	return append(keyPEM, certPEM...) // autocert stores the key ahead of the chain
 }
 
-// TestGetCertificateStatusReadsAutocertCache is the regression test for the bug
-// where the status read a <domain>.crt file that autocert never writes (it keys
-// the bare domain in its cache), so ACME certificates were eternally Valid=false
-// and the expiry alert never fired. The cert is placed ONLY in the autocert
-// cache — never as a file — so this fails on the old file-path code and passes
-// only when the status reads the cache and parses the leaf from the bundle.
-func TestGetCertificateStatusReadsAutocertCache(t *testing.T) {
+// TestGetCertificateStatusReadsCertmagicStorage is the regression test for the bug
+// where the status read a <domain>.crt file the issuer never writes (it keys the
+// cert under the issuer's SiteCert path in storage), so ACME certificates were
+// eternally Valid=false and the expiry alert never fired. The cert is placed ONLY
+// in the issuer storage — never as a file — so this fails on the old file-path
+// code and passes only when the status reads storage and parses the leaf from the
+// bundle.
+func TestGetCertificateStatusReadsCertmagicStorage(t *testing.T) {
 	m, err := NewManager(Config{
 		AutoTLS:      true,
 		Domains:      []string{"mail.example.com"},
 		CacheBackend: "store",
 		CacheStore:   &fakeCacheStore{m: map[string][]byte{}},
+		Locker:       &fakeLocker{},
 	}, nil)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
@@ -1634,8 +1606,9 @@ func TestGetCertificateStatusReadsAutocertCache(t *testing.T) {
 
 	want := time.Now().Add(42 * 24 * time.Hour).Truncate(time.Second)
 	bundle := makeCertKeyBundle(t, "mail.example.com", want)
-	if err := m.certManager.Cache.Put(context.Background(), "mail.example.com", bundle); err != nil {
-		t.Fatalf("seed cache: %v", err)
+	key := certmagic.StorageKeys.SiteCert(m.acmeIssuer.IssuerKey(), "mail.example.com")
+	if err := m.certMagic.Storage.Store(context.Background(), key, bundle); err != nil {
+		t.Fatalf("seed storage: %v", err)
 	}
 
 	var got *CertificateStatus

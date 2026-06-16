@@ -371,6 +371,17 @@ func New(cfg *config.Config) (*Server, error) {
 	// active-active nodes do not each issue their own copy. Always provided; the
 	// manager only uses it when CacheBackend is "store".
 	tlsConfig.CacheStore = tlsCacheStore{store: database}
+	// The distributed locker serializes certmagic issuance/renewal across
+	// active-active nodes sharing that store. The owner identifies THIS node so a
+	// lease it holds is never released by another node (hostname+pid is unique per
+	// process and across hosts). os.Hostname rarely errors; on failure we fall
+	// back to a synthetic owner so issuance is still serialized instead of
+	// silently falling through to an unhandled empty-string owner.
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "unknown"
+	}
+	tlsConfig.Locker = newTLSLocker(database, fmt.Sprintf("%s-%d", hostname, os.Getpid()))
 	// Map verify mode string to tls.ClientAuthType
 	switch cfg.TLS.ClientAuth.VerifyMode {
 	case "verify_if_given":
