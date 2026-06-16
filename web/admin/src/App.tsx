@@ -21,6 +21,7 @@ import { Jobs } from "@/pages/Jobs";
 import { Tenants } from "@/pages/Tenants";
 import { Cluster } from "@/pages/Cluster";
 import { Certificates } from "@/pages/Certificates";
+import Logs from "@/pages/Logs";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { getCookie, setCookie, deleteCookie } from "@/utils/cookies";
 import type { User, Activity } from "@/types";
@@ -212,6 +213,7 @@ function App() {
             <Route path="/policies" element={<Policies />} />
             <Route path="/delegation" element={<Delegation />} />
             <Route path="/diagnostics" element={<Diagnostics />} />
+            <Route path="/logs" element={<Logs />} />
             <Route path="/directory" element={<Directory />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/tenants" element={<Tenants />} />

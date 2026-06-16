@@ -782,3 +782,46 @@ export interface ServerConfig {
   recoverable_items: RecoverableItemsConfig;
   public_folders: PublicFoldersConfig;
 }
+
+// AuditEvent mirrors one row of the JSON returned by
+// internal/api/logs.go's logEventDTO. The fields are exactly what
+// internal/audit writes to the rotating NDJSON log; no masking, no
+// transformation. The admin log viewer surfaces every field for the
+// operator's forensic view.
+export interface AuditEvent {
+  timestamp: string;
+  type: string;
+  user?: string;
+  ip?: string;
+  success: boolean;
+  service: string;
+  tenant?: string;
+  details?: Record<string, string>;
+}
+
+// AuditFilter echoes the active filter applied to the current page.
+// success is a tri-state pointer (null = any) so the UI can
+// distinguish "filter unset" from "filter explicitly false"; the
+// from/to fields are RFC3339 strings (empty = no bound).
+export interface AuditFilter {
+  type?: string;
+  user?: string;
+  ip?: string;
+  service?: string;
+  success?: boolean | null;
+  from?: string;
+  to?: string;
+}
+
+// AuditEventPage mirrors the top-level JSON returned by both
+// GET /api/v1/admin/logs and /api/v1/admin/logs/tail. events is
+// always non-nil (the handler returns an empty array, never null)
+// and is in chronological order (oldest first). next is the opaque
+// cursor (empty when exhausted) and has_more mirrors it for clients
+// that prefer a boolean. filters carries the active filter echo.
+export interface AuditEventPage {
+  events: AuditEvent[];
+  next: string;
+  has_more: boolean;
+  filters: AuditFilter;
+}

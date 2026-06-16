@@ -28,6 +28,7 @@ import type {
   EASDevice,
   DNSCheckResult,
   SyncActivitySummary,
+  AuditEventPage,
 } from "@/types";
 
 interface ApiError {
@@ -1189,4 +1190,103 @@ export function useSyncActivity() {
   }, []);
 
   return { summary: data, loading, error, fetchSyncActivity };
+}
+
+// AuditFilterQuery is the wire-shape the backend expects on
+// /api/v1/admin/logs. null/undefined fields are omitted; success is
+// passed only when explicitly set (so the tri-state is preserved).
+export interface AuditFilterQuery {
+  type?: string;
+  user?: string;
+  ip?: string;
+  service?: string;
+  success?: boolean;
+  from?: string;
+  to?: string;
+}
+
+// buildAuditQueryString renders an AuditFilterQuery as a "k=v&..."
+// string (no leading "?"). Empty/null/undefined fields are dropped so
+// the backend's filter stays clean.
+function buildAuditQueryString(q: AuditFilterQuery, limit: number, cursor?: string): string {
+  const parts: string[] = [`limit=${limit}`];
+  if (q.type) parts.push(`type=${encodeURIComponent(q.type)}`);
+  if (q.user) parts.push(`user=${encodeURIComponent(q.user)}`);
+  if (q.ip) parts.push(`ip=${encodeURIComponent(q.ip)}`);
+  if (q.service) parts.push(`service=${encodeURIComponent(q.service)}`);
+  if (q.success !== undefined) parts.push(`success=${q.success}`);
+  if (q.from) parts.push(`from=${encodeURIComponent(q.from)}`);
+  if (q.to) parts.push(`to=${encodeURIComponent(q.to)}`);
+  if (cursor) parts.push(`cursor=${encodeURIComponent(cursor)}`);
+  return parts.join("&");
+}
+
+// useLogs fetches one page of audit events from
+// GET /api/v1/admin/logs. The page is replaced (not appended) on
+// every fetch; the caller is responsible for walking the cursor with
+// the returned next value via fetchLogs(cursor). reset() clears the
+// page so the operator can apply a new filter and start over without
+// a stale cursor.
+export function useLogs() {
+  const [page, setPage] = useState<AuditEventPage | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchLogs = useCallback(
+    async (filter: AuditFilterQuery, limit: number, cursor?: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const qs = buildAuditQueryString(filter, limit, cursor);
+        const result = await apiRequest<AuditEventPage>(`/admin/logs?${qs}`);
+        setPage(result);
+        return result;
+      } catch (err) {
+        setError(err as ApiError);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  const reset = useCallback(() => {
+    setPage(null);
+    setError(null);
+  }, []);
+
+  return { page, loading, error, fetchLogs, reset };
+}
+
+// useLogsTail fetches the trailing N events from
+// GET /api/v1/admin/logs/tail. The "refresh" button on the Logs page
+// hits this endpoint to catch up after a pause; it returns a
+// chronological (oldest first) window without cursor pagination.
+export function useLogsTail() {
+  const [page, setPage] = useState<AuditEventPage | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const fetchTail = useCallback(async (limit: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await apiRequest<AuditEventPage>(`/admin/logs/tail?limit=${limit}`);
+      setPage(result);
+      return result;
+    } catch (err) {
+      setError(err as ApiError);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const reset = useCallback(() => {
+    setPage(null);
+    setError(null);
+  }, []);
+
+  return { page, loading, error, fetchTail, reset };
 }

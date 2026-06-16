@@ -19,6 +19,7 @@ import {
   LogOut,
   Network,
   ShieldCheck,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/hooks/useI18n";
@@ -50,6 +51,7 @@ const menuItems = [
   { path: "/policies", icon: Shield, labelKey: "nav.policies" },
   { path: "/delegation", icon: UsersRound, labelKey: "nav.delegation" },
   { path: "/diagnostics", icon: ActivitySquare, labelKey: "nav.diagnostics" },
+  { path: "/logs", icon: ScrollText, labelKey: "nav.logs" },
   { path: "/directory", icon: FolderSearch, labelKey: "nav.directory" },
   { path: "/jobs", icon: Briefcase, labelKey: "nav.jobs" },
   { path: "/tenants", icon: Building2, labelKey: "nav.tenants" },
