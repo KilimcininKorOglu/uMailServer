@@ -31,6 +31,21 @@ services:
       - UMAILSERVER_METRICS_ENABLED=true
       - UMAILSERVER_METRICS_BIND=0.0.0.0
       - UMAILSERVER_METRICS_PORT=8081
+      # Local end-to-end TLS via the bundled Pebble ACME test server. The public
+      # ports (8088/8444 and the mail listeners) serve the ACME-issued cert; the
+      # plain HTTP listener moves to 5002 for the ACME HTTP-01 challenge and the
+      # container healthcheck.
+      - UMAILSERVER_TLS_ACME_ENABLED=true
+      - UMAILSERVER_TLS_ACME_DIRECTORYURL=https://pebble:14000/dir
+      - UMAILSERVER_TLS_ACME_CACERTFILE=/etc/umailserver/pebble/pebble.minica.pem
+      # Ephemeral in-container cert cache (deliberately NOT /data): Pebble
+      # regenerates its issuing CA on every restart, so a persisted cert would be
+      # orphaned -- it would chain to a dead CA after the next
+      # `make docker-stop && make docker-run` and fail validation. A fresh
+      # container re-issues against the current CA in ~2s and is always valid.
+      # Persistence stays available in config (correct for prod, stable CA).
+      - UMAILSERVER_TLS_ACME_CACHEDIR=/home/umailserver/certs
+      - UMAILSERVER_HTTP_HTTPPORT=5002
     security_opt:
       - no-new-privileges:true
     cap_add:
@@ -38,14 +53,20 @@ services:
     cap_drop:
       - ALL
     networks:
-      - mailnet
+      mailnet:
+        aliases:
+          # Pebble validates and issues for this name; the cert SAN matches it.
+          - mail.local.test
     depends_on:
       redis:
         condition: service_started
       postgres:
         condition: service_healthy
+      pebble:
+        condition: service_started
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      # The public ports now serve TLS, so probe the plain HTTP challenge listener.
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -134,6 +155,30 @@ services:
       - TZ=:/etc/localtime
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    networks:
+      - mailnet
+
+  # Pebble is Let's Encrypt's miniature ACME test server; it gives the local
+  # stack real certificate issuance so SSL is exercised exactly as in production.
+  # Pinned by digest so its built-in directory-endpoint CA (pebble.minica.pem,
+  # extracted via `make pebble-ca`, trusted by umailserver) cannot drift.
+  # PEBBLE_VA_NOSLEEP removes the artificial validation delay; -dnsserver points
+  # Pebble at Docker's embedded DNS so it resolves mail.local.test back to the
+  # umailserver container for HTTP-01 validation.
+  pebble:
+    image: ghcr.io/letsencrypt/pebble@sha256:b1af638b2006a83dbf01de838f03eef37574929aef0b7dc0fac116403db550ea
+    container_name: umail-pebble
+    restart: unless-stopped
+    command: ["-config", "/test/config/pebble-config.json", "-dnsserver", "127.0.0.11:53"]
+    environment:
+      - PEBBLE_VA_NOSLEEP=1
+    volumes:
+      # Synchronous issuance config (retryAfter 0) so autocert's finalize gets the
+      # certificate URL immediately instead of an async "processing" response.
+      - ./config/pebble/pebble-config.json:/test/config/pebble-config.json:ro
+    ports:
+      - "14000:14000"
+      - "15000:15000"
     networks:
       - mailnet
 

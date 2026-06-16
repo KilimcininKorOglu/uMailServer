@@ -1,5 +1,5 @@
 # uMailServer Makefile
-.PHONY: build test clean lint run docker coverage release install dev setup
+.PHONY: build test clean lint run docker coverage release install dev setup pebble-ca
 
 # Variables
 BINARY_NAME=umailserver
@@ -16,6 +16,9 @@ BUILD_ALL_DARWIN_ARM64=$(BUILD_ALL_PREFIX)-darwin-arm64
 COVERAGE_OUT=$(BIN_DIR)/coverage.out
 COVERAGE_HTML=$(BIN_DIR)/coverage.html
 DOCKER_IMAGE=umailserver
+# Pinned Pebble (local ACME test server) image. Its built-in directory-endpoint
+# CA is extracted via `make pebble-ca` (never committed -- it is a certificate).
+PEBBLE_IMAGE=ghcr.io/letsencrypt/pebble@sha256:b1af638b2006a83dbf01de838f03eef37574929aef0b7dc0fac116403db550ea
 VERSION=$(shell git describe --tags --always 2>/dev/null || echo "dev")
 BUILD_DATE=$(shell date -u +%Y-%m-%d)
 GOLANGCI_LINT=golangci-lint
@@ -139,8 +142,21 @@ docker-fresh:
 	@echo "Building Docker image (no cache)..."
 	docker build --no-cache -t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest .
 
-# Run Docker container
-docker-run:
+# Extract Pebble's static directory-endpoint CA so umailserver's ACME client can
+# trust the local Pebble. Gitignored (never commit a certificate); regenerated
+# from the pinned image so it cannot drift from the running Pebble. Only the
+# public cert is copied, never pebble.minica.key.pem.
+config/pebble/pebble.minica.pem:
+	@echo "Extracting Pebble test CA from the pinned image..."
+	@cid=$$(docker create $(PEBBLE_IMAGE)); \
+		docker cp $$cid:/test/certs/pebble.minica.pem $@; \
+		docker rm $$cid >/dev/null
+
+# Convenience alias to (re)extract the Pebble CA on demand.
+pebble-ca: config/pebble/pebble.minica.pem
+
+# Run Docker container (SSL is the default dev stack; ensure the Pebble CA exists)
+docker-run: config/pebble/pebble.minica.pem
 	@echo "Running Docker container..."
 	docker-compose -f umailserver-dev.yml up -d
 
