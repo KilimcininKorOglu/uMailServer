@@ -199,7 +199,7 @@ install_systemd_service() {
     cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=uMailServer - Email Server
-Documentation=https://github.com/uMailServer/uMailServer
+Documentation=https://github.com/KilimcininKorOglu/uMailServer
 After=network-online.target
 Wants=network-online.target
 
@@ -208,7 +208,7 @@ Type=simple
 User=$USER
 Group=$GROUP
 WorkingDirectory=$DATA_DIR
-ExecStart=$INSTALL_DIR/$BIN_NAME serve --config $CONFIG_DIR/umailserver.yaml
+ExecStart=$INSTALL_DIR/$BIN_NAME serve --config=$CONFIG_DIR/umailserver.yaml
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
