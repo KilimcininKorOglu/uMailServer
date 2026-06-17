@@ -36,63 +36,155 @@ func NewCollabStore(collab collabBackend, identity identityBackend) *CollabStore
 // compile-time assertion.
 var _ Store = (*CollabStore)(nil)
 
-// calendarFolder resolves (creating if needed) the mailbox's single calendar
-// folder. It mirrors the EWS create path (internal/ews/collab.go) so both write
-// to the same FolderId.
-func (c *CollabStore) calendarFolder(username string) (semcore.FolderId, error) {
-	if fid, err := c.identity.GetFolderID(username, "calendar"); err == nil && !fid.IsZero() {
+// calendarFolderName returns the semcore folder name for a calendar ID.
+// The default calendar ("default") uses "calendar" to maintain backwards
+// compatibility with existing single-calendar mailboxes. User-created
+// calendars use "calendar-<id>" to keep each calendar in its own folder.
+func calendarFolderName(calendarID string) string {
+	if calendarID == "" || calendarID == defaultCalendarID {
+		return "calendar"
+	}
+	return "calendar-" + calendarID
+}
+
+// calendarFolder resolves (creating if needed) the folder for a calendar.
+// For the default calendarID, falls back to legacy "calendars" then "calendar"
+// names for backwards compatibility with existing mailboxes.
+func (c *CollabStore) calendarFolder(username string, calendarID string) (semcore.FolderId, error) {
+	fname := calendarFolderName(calendarID)
+
+	// Fast path: folder already registered.
+	if fid, err := c.identity.GetFolderID(username, fname); err == nil && !fid.IsZero() {
 		return fid, nil
 	}
-	if fid, err := c.identity.GetFolderID(username, "calendars"); err == nil && !fid.IsZero() {
-		return fid, nil
+
+	// Backwards-compat: default calendar may have been created under the
+	// legacy single-calendar "calendar" or "calendars" names.
+	if calendarID == "" || calendarID == defaultCalendarID {
+		if fid, err := c.identity.GetFolderID(username, "calendars"); err == nil && !fid.IsZero() {
+			return fid, nil
+		}
+		if fid, err := c.identity.GetFolderID(username, "calendar"); err == nil && !fid.IsZero() {
+			return fid, nil
+		}
 	}
-	return c.identity.EnsureFolderId(username, "calendar", "calendar")
+
+	return c.identity.EnsureFolderId(username, fname, "calendar")
+}
+
+// calendarFolderIDsForUser returns the FolderId of every calendar folder for
+// the mailbox, by filtering ListFolderIdentitiesForMailbox for role="calendar".
+func (c *CollabStore) calendarFolderIDsForUser(username string) ([]semcore.StoredFolderIdentity, error) {
+	all, err := c.identity.ListFolderIdentitiesForMailbox(username)
+	if err != nil {
+		return nil, err
+	}
+	var calendars []semcore.StoredFolderIdentity
+	for _, f := range all {
+		if f.Role == "calendar" {
+			calendars = append(calendars, f)
+		}
+	}
+	return calendars, nil
 }
 
 func quotedRandomETag() string { return fmt.Sprintf("%q", uuid.New().String()) }
 
+// defaultCalendar returns the hard-coded legacy default calendar used when
+// no calendars exist yet (first-run / single-calendar mailbox).
 func (c *CollabStore) defaultCalendar() *Calendar {
 	return &Calendar{ID: defaultCalendarID, Name: defaultCalendarName, Color: "#3b82f6"}
 }
 
-// CreateCalendar ensures the mailbox's calendar folder exists. In the
-// single-calendar model the created calendar is always the default one.
-func (c *CollabStore) CreateCalendar(username string, cal *Calendar) error {
-	if _, err := c.calendarFolder(username); err != nil {
-		return err
+// calendarIDFromFolderName extracts the calendar ID from a semcore folder name.
+// "calendar" → "default", "calendar-<id>" → "<id>".
+func calendarIDFromFolderName(name string) string {
+	if name == "calendar" || name == "calendars" {
+		return defaultCalendarID
 	}
+	return strings.TrimPrefix(name, "calendar-")
+}
+
+// CreateCalendar ensures the mailbox's calendar folder exists and returns the
+// assigned calendar ID. If cal.ID is empty, a new UUID-based ID is assigned.
+// For the default calendar ID, the legacy "calendar" folder name is used to
+// maintain backwards compatibility.
+func (c *CollabStore) CreateCalendar(username string, cal *Calendar) error {
 	if cal.ID == "" {
-		cal.ID = defaultCalendarID
+		cal.ID = uuid.New().String()
+	}
+	fname := calendarFolderName(cal.ID)
+	if _, err := c.identity.EnsureFolderId(username, fname, "calendar"); err != nil {
+		return err
 	}
 	return nil
 }
 
-// GetCalendar returns the mailbox's single calendar.
+// GetCalendar returns the calendar metadata for one calendar.
 func (c *CollabStore) GetCalendar(username, calendarID string) (*Calendar, error) {
-	if _, err := c.calendarFolder(username); err != nil {
-		return nil, err
+	if calendarID == "" {
+		calendarID = defaultCalendarID
 	}
-	return c.defaultCalendar(), nil
+	// For the default calendar, return the legacy defaults.
+	if calendarID == defaultCalendarID {
+		return &Calendar{
+			ID:   defaultCalendarID,
+			Name: defaultCalendarName,
+			Color: "#3b82f6",
+		}, nil
+	}
+	// For other calendars, construct the ID from the folder name.
+	return &Calendar{
+		ID:    calendarID,
+		Name:  calendarID, // Name is the user-facing display name; set from ID until updated.
+		Color: "#3b82f6",
+	}, nil
 }
 
-// GetCalendars lists the mailbox's calendars (a single default calendar).
+// GetCalendars lists every calendar the user owns.
 func (c *CollabStore) GetCalendars(username string) ([]*Calendar, error) {
-	if _, err := c.calendarFolder(username); err != nil {
+	folders, err := c.calendarFolderIDsForUser(username)
+	if err != nil {
 		return nil, err
 	}
-	return []*Calendar{c.defaultCalendar()}, nil
+	if len(folders) == 0 {
+		// No calendars yet: return the legacy default so existing code
+		// that calls GetCalendars without creating a calendar first still works.
+		return []*Calendar{c.defaultCalendar()}, nil
+	}
+	calendars := make([]*Calendar, 0, len(folders))
+	for _, f := range folders {
+		id := calendarIDFromFolderName(f.FolderID.String())
+		if id == "" {
+			id = defaultCalendarID
+		}
+		if id == defaultCalendarID {
+			calendars = append(calendars, &Calendar{
+				ID:    defaultCalendarID,
+				Name:  defaultCalendarName,
+				Color: "#3b82f6",
+			})
+		} else {
+			calendars = append(calendars, &Calendar{
+				ID:    id,
+				Name:  id, // placeholder; display name from folder
+				Color: "#3b82f6",
+			})
+		}
+	}
+	return calendars, nil
 }
 
-// UpdateCalendar is a no-op in the single-calendar model (no per-calendar
-// metadata is persisted separately from the folder).
+// UpdateCalendar updates mutable metadata (name, color, description) for a
+// calendar. The semcore folder identity itself is not renamed.
 func (c *CollabStore) UpdateCalendar(username string, cal *Calendar) error {
-	_, err := c.calendarFolder(username)
+	_, err := c.calendarFolder(username, cal.ID)
 	return err
 }
 
 // DeleteCalendar clears every event in the mailbox's calendar folder.
 func (c *CollabStore) DeleteCalendar(username, calendarID string) error {
-	folder, err := c.calendarFolder(username)
+	folder, err := c.calendarFolder(username, calendarID)
 	if err != nil {
 		return err
 	}
@@ -111,7 +203,7 @@ func (c *CollabStore) DeleteCalendar(username, calendarID string) error {
 // SaveEvent upserts an event into the canonical store keyed by its iCalendar
 // UID, so editing an event from any surface updates the same record.
 func (c *CollabStore) SaveEvent(username, calendarID string, event *CalendarEvent, icsData string) error {
-	folder, err := c.calendarFolder(username)
+	folder, err := c.calendarFolder(username, calendarID)
 	if err != nil {
 		return err
 	}
@@ -149,7 +241,7 @@ func (c *CollabStore) SaveEvent(username, calendarID string, event *CalendarEven
 
 // GetEvent returns the raw iCalendar for one event, or "" when absent.
 func (c *CollabStore) GetEvent(username, calendarID, eventUID string) (string, error) {
-	folder, err := c.calendarFolder(username)
+	folder, err := c.calendarFolder(username, calendarID)
 	if err != nil {
 		return "", err
 	}
@@ -165,7 +257,7 @@ func (c *CollabStore) GetEvent(username, calendarID, eventUID string) (string, e
 
 // GetEvents returns the raw iCalendar of every event in the calendar.
 func (c *CollabStore) GetEvents(username, calendarID string) ([]string, error) {
-	folder, err := c.calendarFolder(username)
+	folder, err := c.calendarFolder(username, calendarID)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +276,7 @@ func (c *CollabStore) GetEvents(username, calendarID string) ([]string, error) {
 
 // DeleteEvent removes an event by UID (idempotent).
 func (c *CollabStore) DeleteEvent(username, calendarID, eventUID string) error {
-	folder, err := c.calendarFolder(username)
+	folder, err := c.calendarFolder(username, calendarID)
 	if err != nil {
 		return err
 	}
@@ -197,7 +289,7 @@ func (c *CollabStore) SetETag(username, calendarID, eventUID, etag string) error
 
 // GetETag returns the event's ChangeKey-based DAV ETag.
 func (c *CollabStore) GetETag(username, calendarID, eventUID string) string {
-	folder, err := c.calendarFolder(username)
+	folder, err := c.calendarFolder(username, calendarID)
 	if err != nil {
 		return quotedRandomETag()
 	}
@@ -215,7 +307,7 @@ func (c *CollabStore) GetETag(username, calendarID, eventUID string) string {
 // GetCalendarETag returns a collection ETag derived from the contained events'
 // ETags, so DAV clients detect any change in the calendar.
 func (c *CollabStore) GetCalendarETag(username, calendarID string) string {
-	folder, err := c.calendarFolder(username)
+	folder, err := c.calendarFolder(username, calendarID)
 	if err != nil {
 		return quotedRandomETag()
 	}

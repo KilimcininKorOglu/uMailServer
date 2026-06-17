@@ -46,6 +46,7 @@ type collabBackend interface {
 type identityBackend interface {
 	EnsureFolderId(mboxKey, folderName, role string) (semcore.FolderId, error)
 	GetFolderID(mboxKey, folderName string) (semcore.FolderId, error)
+	ListFolderIdentitiesForMailbox(mboxKey string) ([]semcore.StoredFolderIdentity, error)
 }
 
 var (
