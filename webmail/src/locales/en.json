@@ -130,6 +130,8 @@
     "removedFromCalendar": "Removed from your calendar",
     "failedToRsvp": "Failed to respond to the invitation",
     "failedToDownload": "Failed to download attachment",
+    "exportEML": "Export as EML",
+    "exportFailed": "Failed to export message",
     "movedTo": "Moved to {{folder}}",
     "failedToMove": "Failed to move message",
     "notFoundDescription": "This email may have been deleted or moved.",
@@ -673,7 +675,9 @@
     "contactAdded": "Contact added",
     "saveFailed": "Failed to save contact",
     "contactDeleted": "Contact deleted",
-    "deleteFailed": "Failed to delete contact"
+    "deleteFailed": "Failed to delete contact",
+    "exportVCard": "Export vCard",
+    "exportFailed": "Failed to export contacts"
   },
   "tasks": {
     "quickAddPlaceholder": "Add a task and press Enter",

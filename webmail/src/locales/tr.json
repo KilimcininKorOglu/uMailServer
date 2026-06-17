@@ -130,6 +130,8 @@
     "removedFromCalendar": "Takviminizden kaldırıldı",
     "failedToRsvp": "Davete yanıt verilemedi",
     "failedToDownload": "Ek indirilemedi",
+    "exportEML": "EML olarak dışa aktar",
+    "exportFailed": "İleti dışa aktarılamadı",
     "movedTo": "{{folder}} klasörüne taşındı",
     "failedToMove": "İleti taşınamadı",
     "notFoundDescription": "Bu e-posta silinmiş veya taşınmış olabilir.",
@@ -673,7 +675,9 @@
     "contactAdded": "Kişi eklendi",
     "saveFailed": "Kişi kaydedilemedi",
     "contactDeleted": "Kişi silindi",
-    "deleteFailed": "Kişi silinemedi"
+    "deleteFailed": "Kişi silinemedi",
+    "exportVCard": "vCard olarak dışa aktar",
+    "exportFailed": "Kişiler dışa aktarılamadı"
   },
   "tasks": {
     "quickAddPlaceholder": "Bir görev ekleyin ve Enter'a basın",

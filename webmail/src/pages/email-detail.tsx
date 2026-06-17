@@ -327,6 +327,27 @@ export function EmailDetailPage() {
     }
   }
 
+  const handleExportEML = async () => {
+    if (!email) return
+    try {
+      const res = await fetch(`/api/v1/mail/export?id=${encodeURIComponent(email.id)}`, {
+        credentials: "include",
+      })
+      if (!res.ok) throw new Error()
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = (email.subject || "message") + ".eml"
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error(t("emailDetail.exportFailed"))
+    }
+  }
+
   const handleMove = async (folder: string, label: string) => {
     if (!email) return
     try {
@@ -409,6 +430,14 @@ export function EmailDetailPage() {
                   <DropdownMenuItem onClick={() => handleMove("trash", t("nav.trash"))}>{t("nav.trash")}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleExportEML}
+                title={t("emailDetail.exportEML")}
+              >
+                <Download className="h-5 w-5" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"

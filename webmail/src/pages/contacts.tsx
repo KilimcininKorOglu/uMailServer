@@ -10,6 +10,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   User,
+  Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -176,6 +177,24 @@ export function ContactsPage() {
     }
   }
 
+  const handleExportVCard = async () => {
+    try {
+      const res = await fetch("/api/v1/contacts/export", { credentials: "include" })
+      if (!res.ok) throw new Error()
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "contacts.vcf"
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error(t("contacts.exportFailed"))
+    }
+  }
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -200,6 +219,10 @@ export function ContactsPage() {
         <Button onClick={handleAdd}>
           <Plus className="h-4 w-4 mr-1" />
           {t("contacts.addContact")}
+        </Button>
+        <Button variant="outline" onClick={handleExportVCard}>
+          <Download className="h-4 w-4 mr-1" />
+          {t("contacts.exportVCard")}
         </Button>
       </div>
 

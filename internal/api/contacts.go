@@ -298,6 +298,50 @@ func (h *ContactsHandler) handleContactDelete(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// handleContactsExport serves all contacts as a multi-vCard .vcf file.
+// GET /api/v1/contacts/export
+func (h *ContactsHandler) handleContactsExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	user := r.Context().Value("user")
+	userEmail, ok := user.(string)
+	if !ok || userEmail == "" {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	if err := h.ensureDefaultAddressbook(userEmail); err != nil {
+		h.sendError(w, http.StatusInternalServerError, "Failed to access contacts")
+		return
+	}
+
+	contacts, err := h.getContactsFromAddressbook(userEmail, "default")
+	if err != nil {
+		h.sendError(w, http.StatusInternalServerError, "Failed to load contacts")
+		return
+	}
+
+	var buf strings.Builder
+	for _, c := range contacts {
+		buf.WriteString(h.buildVCard(struct {
+			Name    string `json:"name"`
+			Email   string `json:"email"`
+			Phone   string `json:"phone,omitempty"`
+			Company string `json:"company,omitempty"`
+		}{Name: c.Name, Email: c.Email, Phone: c.Phone, Company: c.Company}))
+		buf.WriteString("\r\n")
+	}
+
+	w.Header().Set("Content-Type", "text/vcard; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"contacts.vcf\"")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", buf.Len()))
+	if _, err := w.Write([]byte(buf.String())); err != nil {
+		fmt.Printf("ERROR: failed to write contacts export: %v\n", err)
+	}
+}
+
 // sendError sends a JSON error response
 func (h *ContactsHandler) sendError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")

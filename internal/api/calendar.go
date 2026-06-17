@@ -173,6 +173,74 @@ func (h *CalendarHandler) ensureCalendar(user string) (string, error) {
 	return defaultCalendarID, nil
 }
 
+// handleCalendarExport serves all events from all of the user's calendars as a
+// single .ics file.
+// GET /api/v1/calendar/export
+func (h *CalendarHandler) handleCalendarExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	user, ok := r.Context().Value("user").(string)
+	if !ok || user == "" {
+		h.sendError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	store := h.getStorage()
+	if store == nil {
+		h.sendError(w, http.StatusInternalServerError, "calendar store unavailable")
+		return
+	}
+
+	calendars, err := store.GetCalendars(user)
+	if err != nil {
+		h.sendError(w, http.StatusInternalServerError, "failed to load calendars")
+		return
+	}
+
+	var buf strings.Builder
+	buf.WriteString("BEGIN:VCALENDAR\r\n")
+	buf.WriteString("VERSION:2.0\r\n")
+	buf.WriteString("PRODID:-//uMailServer//Webmail//EN\r\n")
+	buf.WriteString("CALSCALE:GREGORIAN\r\n")
+	buf.WriteString("METHOD:PUBLISH\r\n")
+
+	for _, cal := range calendars {
+		raws, err := store.GetEvents(user, cal.ID)
+		if err != nil {
+			continue
+		}
+		for _, raw := range raws {
+			dto, ok := parseICSEvent(raw)
+			if !ok {
+				continue
+			}
+			ics, err := buildICSEvent(dto)
+			if err != nil {
+				continue
+			}
+			// Strip the surrounding VCALENDAR wrapper from each event since we
+			// are embedding events into the outer calendar wrapper.
+			for _, line := range strings.Split(ics, "\r\n") {
+				if line == "BEGIN:VCALENDAR" || line == "VERSION:2.0" ||
+					line == "PRODID:-//uMailServer//Webmail//EN" || line == "END:VCALENDAR" {
+					continue
+				}
+				buf.WriteString(line + "\r\n")
+			}
+		}
+	}
+	buf.WriteString("END:VCALENDAR\r\n")
+
+	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"calendar.ics\"")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", buf.Len()))
+	if _, err := w.Write([]byte(buf.String())); err != nil {
+		fmt.Printf("ERROR: failed to write calendar export: %v\n", err)
+	}
+}
+
 // handleCalendarEvents lists (GET) or creates (POST) events in the user's
 // calendar. GET accepts optional ?start=&end= RFC3339 bounds to filter.
 func (h *CalendarHandler) handleCalendarEvents(w http.ResponseWriter, r *http.Request) {

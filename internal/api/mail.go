@@ -679,6 +679,64 @@ func (h *MailHandler) handleMailGet(w http.ResponseWriter, r *http.Request) {
 	h.sendError(w, http.StatusNotFound, "Email not found")
 }
 
+// handleMailExport serves a message as a raw RFC 822 EML file.
+// GET /api/v1/mail/export?id=<msgid>
+func (h *MailHandler) handleMailExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	user := r.Context().Value("user")
+	userEmail, ok := user.(string)
+	if !ok {
+		h.sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	target, allowed := h.requireMailboxAccess(r, userEmail, storage.ACLRead)
+	if !allowed {
+		h.sendError(w, http.StatusForbidden, "No access to that shared mailbox")
+		return
+	}
+	userEmail = target
+
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		h.sendError(w, http.StatusBadRequest, "Message ID required")
+		return
+	}
+
+	_, _, meta, found := h.findMessage(userEmail, id)
+	if !found || h.msgStore == nil {
+		h.sendError(w, http.StatusNotFound, "Message not found")
+		return
+	}
+
+	raw, err := h.msgStore.ReadMessage(userEmail, meta.MessageID)
+	if err != nil {
+		h.sendError(w, http.StatusNotFound, "Message not found")
+		return
+	}
+
+	// Use subject for filename; sanitize to prevent header injection.
+	subject := meta.Subject
+	if subject == "" {
+		subject = "untitled"
+	}
+	// Remove or replace characters unsafe for filenames.
+	subject = strings.ReplaceAll(subject, "/", "-")
+	subject = strings.ReplaceAll(subject, "\\", "-")
+	subject = strings.ReplaceAll(subject, "\n", " ")
+	subject = strings.TrimSpace(subject)
+
+	w.Header().Set("Content-Type", "message/rfc822")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.eml\"", subject))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(raw)))
+	if _, err := w.Write(raw); err != nil {
+		fmt.Printf("ERROR: failed to write EML export: %v\n", err)
+	}
+}
+
 // allMailboxes is the set of mailboxes searched when resolving a message by id.
 var allMailboxes = []string{"INBOX", "Sent", "Drafts", "Trash", "Junk", "Archive"}
 

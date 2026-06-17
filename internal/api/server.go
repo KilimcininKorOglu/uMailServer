@@ -819,6 +819,7 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/mail/spam", http.HandlerFunc(s.mailHandler.handleMailList).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/message", http.HandlerFunc(s.mailHandler.handleMailGet).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/attachment", http.HandlerFunc(s.mailHandler.handleMailAttachment).ServeHTTP)
+	api.HandleFunc("/api/v1/mail/export", http.HandlerFunc(s.mailHandler.handleMailExport).ServeHTTP)
 	api.HandleFunc("/api/v1/mail/send", http.HandlerFunc(s.mailHandler.handleMailSend).ServeHTTP)
 	api.HandleFunc("/api/v1/scheduled", http.HandlerFunc(s.mailHandler.handleScheduledList).ServeHTTP)
 	api.HandleFunc("/api/v1/scheduled/cancel", http.HandlerFunc(s.mailHandler.handleScheduledCancel).ServeHTTP)
@@ -892,6 +893,7 @@ func (s *Server) initRouter() {
 			}
 			s.contactsHandler.handleContactsList(w, r)
 		})
+		api.HandleFunc("/api/v1/contacts/export", http.HandlerFunc(s.contactsHandler.handleContactsExport).ServeHTTP)
 		api.HandleFunc("/api/v1/contacts/", func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodPut:
@@ -910,6 +912,7 @@ func (s *Server) initRouter() {
 		s.calendarHandler.SetRoomLookup(s.roomLookup)
 	}
 	if s.calendarHandler != nil {
+		api.HandleFunc("/api/v1/calendar/export", s.calendarHandler.handleCalendarExport)
 		api.HandleFunc("/api/v1/calendar/calendars", s.calendarHandler.handleCalendars)
 		api.HandleFunc("/api/v1/calendar/calendars/", s.calendarHandler.handleCalendarDetail)
 		api.HandleFunc("/api/v1/calendar/events", s.calendarHandler.handleCalendarEvents)
