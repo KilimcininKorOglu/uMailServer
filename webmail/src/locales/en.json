@@ -180,6 +180,7 @@
     "emailSent": "Email sent successfully",
     "sendFailed": "Failed to send email. Please try again.",
     "scheduleSend": "Schedule send",
+    "signature": "Signature",
     "scheduleSendAt": "Send at",
     "scheduleClear": "Clear",
     "scheduling": "Schedule",

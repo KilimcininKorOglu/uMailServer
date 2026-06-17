@@ -225,6 +225,13 @@ export interface UserProfile {
   quota_prohibit_send?: number
 }
 
+export interface SignatureEntry {
+  name: string
+  body: string
+  is_html: boolean
+  ord: number
+}
+
 export interface Category {
   name: string
   color: string
@@ -600,6 +607,19 @@ class API {
     await this.put('/signature', { signature })
   }
 
+  // Multi-signature management
+  async getSignatures(): Promise<{ signatures?: SignatureEntry[] }> {
+    return this.get<{ signatures?: SignatureEntry[] }>('/signatures')
+  }
+
+  async saveSignature(entry: SignatureEntry): Promise<{ signature?: SignatureEntry }> {
+    return this.post<{ signature?: SignatureEntry }>('/signatures', entry)
+  }
+
+  async deleteSignature(name: string): Promise<void> {
+    await this.delete('/signatures?name=' + encodeURIComponent(name))
+  }
+
   // Active client sessions
   async getSessions(): Promise<{ sessions?: ClientSession[] }> {
     return this.get<{ sessions?: ClientSession[] }>('/sessions')
@@ -679,9 +699,21 @@ class API {
   }
 
   // searchDirectory resolves names/addresses from the organization directory
-  // (GAL) for recipient autocomplete.
-  async searchDirectory(query: string): Promise<{ entries?: DirectoryEntry[] }> {
-    return this.get<{ entries?: DirectoryEntry[] }>(`/directory?q=${encodeURIComponent(query)}`)
+  // (GAL) for recipient autocomplete. Optional offset/limit for paginated browsing.
+  async searchDirectory(query: string, offset?: number, limit?: number): Promise<{
+    entries?: DirectoryEntry[]
+    total?: number
+    offset?: number
+    limit?: number
+  }> {
+    const params = new URLSearchParams()
+    if (query) params.set("q", query)
+    if (offset !== undefined) params.set("offset", String(offset))
+    if (limit !== undefined) params.set("limit", String(limit))
+    const qs = params.toString()
+    return this.get<{ entries?: DirectoryEntry[]; total?: number; offset?: number; limit?: number }>(
+      `/directory${qs ? "?" + qs : ""}`
+    )
   }
 
   // Custom folder management (built-in folders cannot be renamed/deleted).

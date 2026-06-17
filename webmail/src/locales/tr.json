@@ -180,6 +180,7 @@
     "emailSent": "E-posta başarıyla gönderildi",
     "sendFailed": "E-posta gönderilemedi. Lütfen tekrar deneyin.",
     "scheduleSend": "Zamanlanmış gönder",
+    "signature": "İmza",
     "scheduleSendAt": "Gönderim zamanı",
     "scheduleClear": "Temizle",
     "scheduling": "Zamanla",

@@ -37,7 +37,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType, MailAttachment } from "@/utils/api"
+import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType, MailAttachment, SignatureEntry } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import { useI18n } from "@/hooks/useI18n"
@@ -232,21 +232,28 @@ export function ComposePage() {
     }
   }, [searchParams])
 
-  // Outgoing-mail signature: load once, then append it to the composer body for
-  // new/reply/forward messages. Skipped when editing an existing draft, which
-  // already embeds the signature from when it was saved. The functional update
-  // preserves any reply/forward quote set by the prefill effect above.
-  const [signature, setSignature] = useState("")
+  // Outgoing-mail signatures: load the list once; the picker shows the first
+  // "default" entry. For new/reply/forward messages the selected signature is
+  // appended to the composer body. Skipped when editing an existing draft.
+  const [signatures, setSignatures] = useState<SignatureEntry[]>([])
+  const [selectedSignature, setSelectedSignature] = useState<SignatureEntry | null>(null)
+  const [showSigPicker, setShowSigPicker] = useState(false)
   const signatureAppliedRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
-    api.getSignature()
+    api.getSignatures()
       .then((res) => {
-        if (!cancelled) setSignature(res.signature ?? "")
+        if (cancelled) return
+        const list = res.signatures ?? []
+        setSignatures(list)
+        if (list.length > 0) {
+          const def = list.find((s) => s.name === "default") ?? list[0]
+          setSelectedSignature(def)
+        }
       })
       .catch(() => {
-        // no signature configured
+        // no signatures configured
       })
     return () => {
       cancelled = true
@@ -254,11 +261,12 @@ export function ComposePage() {
   }, [])
 
   useEffect(() => {
-    if (signatureAppliedRef.current || !signature) return
+    if (signatureAppliedRef.current || !selectedSignature) return
     if (searchParams.get("draft")) return
     signatureAppliedRef.current = true
-    setBody((prev) => `${prev}\n\n-- \n${signature}`)
-  }, [signature, searchParams])
+    const sep = selectedSignature.is_html ? "<br><br>-- <br>" : "\n\n-- \n"
+    setBody((prev) => `${prev}${sep}${selectedSignature.body}`)
+  }, [selectedSignature, searchParams])
 
   // Load an existing draft into the composer when ?draft=<id> is present so
   // "Edit draft" reopens its content instead of a blank message.
@@ -684,6 +692,30 @@ export function ComposePage() {
           >
             <Clock className="h-4 w-4" />
           </Button>
+          {signatures.length > 0 && (
+            <DropdownMenu open={showSigPicker} onOpenChange={setShowSigPicker}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" title={t("compose.signature")}>
+                  <span className="text-xs font-serif italic">Sig</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {signatures.map((sig) => (
+                  <DropdownMenuItem
+                    key={sig.name}
+                    onClick={() => {
+                      setSelectedSignature(sig)
+                      setShowSigPicker(false)
+                    }}
+                    className={selectedSignature?.name === sig.name ? "bg-accent" : ""}
+                  >
+                    <span className="mr-2">{sig.is_html ? "HTML" : "TXT"}</span>
+                    {sig.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
             className="gap-2"
             onClick={handleSend}
