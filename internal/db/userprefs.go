@@ -1,6 +1,8 @@
 package db
 
 import (
+	"errors"
+
 	"github.com/umailserver/umailserver/internal/vacation"
 )
 
@@ -56,6 +58,52 @@ func (d *DB) GetSignature(user string) (string, error) {
 // PutSignature stores the user's signature.
 func (d *DB) PutSignature(user, signature string) error {
 	return d.Put(BucketPreferences, user+signatureKeySuffix, signatureValue{Signature: signature})
+}
+
+// ListSignatures returns all of a user's signatures ordered by Ord.
+func (d *DB) ListSignatures(user string) ([]Signature, error) {
+	var entries []Signature
+	if err := d.Get(BucketPreferences, user+signatureKeySuffix, &entries); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return entries, nil
+}
+
+// PutSignatureEntry upserts a single named signature for the user.
+// To replace the full set atomically use a transaction in the caller.
+func (d *DB) PutSignatureEntry(user string, entry Signature) error {
+	var entries []Signature
+	_ = d.Get(BucketPreferences, user+signatureKeySuffix, &entries) //nolint:errcheck
+	found := false
+	for i := range entries {
+		if entries[i].Name == entry.Name {
+			entries[i] = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		entries = append(entries, entry)
+	}
+	return d.Put(BucketPreferences, user+signatureKeySuffix, entries)
+}
+
+// DeleteSignatureEntry removes the named signature for the user.
+func (d *DB) DeleteSignatureEntry(user, name string) error {
+	var entries []Signature
+	if err := d.Get(BucketPreferences, user+signatureKeySuffix, &entries); err != nil {
+		return err
+	}
+	filtered := entries[:0]
+	for _, e := range entries {
+		if e.Name != name {
+			filtered = append(filtered, e)
+		}
+	}
+	return d.Put(BucketPreferences, user+signatureKeySuffix, filtered)
 }
 
 // GetCategories returns the user's categories, empty when unset.

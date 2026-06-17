@@ -62,10 +62,13 @@ func (d *DB) PutUIPrefs(user string, prefs map[string]bool) error {
 }
 
 // GetSignature returns the user's outgoing-mail signature, or "" when unset.
+// Returns the "default" named signature for backward compatibility.
 func (d *DB) GetSignature(user string) (string, error) {
 	ctx := context.Background()
 	var sig string
-	err := d.pool.QueryRow(ctx, `SELECT signature FROM user_signatures WHERE user_email=$1`, user).Scan(&sig)
+	err := d.pool.QueryRow(ctx,
+		`SELECT sig_body FROM user_signatures WHERE user_email=$1 AND sig_name='default'`,
+		user).Scan(&sig)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil
@@ -79,11 +82,67 @@ func (d *DB) GetSignature(user string) (string, error) {
 func (d *DB) PutSignature(user, signature string) error {
 	ctx := context.Background()
 	if _, err := d.pool.Exec(ctx, `
-		INSERT INTO user_signatures (user_email, signature) VALUES ($1,$2)
-		ON CONFLICT (user_email) DO UPDATE SET signature=EXCLUDED.signature`,
+		INSERT INTO user_signatures (user_email, sig_name, sig_body, sig_html, sig_ord)
+		VALUES ($1,'default',$2,false,0)
+		ON CONFLICT (user_email, sig_name)
+		DO UPDATE SET sig_body=EXCLUDED.sig_body`,
 		user, signature,
 	); err != nil {
 		return fmt.Errorf("postgres: put signature %q: %w", user, err)
+	}
+	return nil
+}
+
+// ListSignatures returns all of a user's signatures ordered by Ord.
+func (d *DB) ListSignatures(user string) ([]db.Signature, error) {
+	ctx := context.Background()
+	rows, err := d.pool.Query(ctx,
+		`SELECT sig_name, sig_body, sig_html, sig_ord
+		 FROM user_signatures WHERE user_email=$1 ORDER BY sig_ord, sig_name`,
+		user)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list signatures %q: %w", user, err)
+	}
+	defer rows.Close()
+	var entries []db.Signature
+	for rows.Next() {
+		var e db.Signature
+		if err := rows.Scan(&e.Name, &e.Body, &e.IsHTML, &e.Ord); err != nil {
+			return nil, fmt.Errorf("postgres: scan signature %q: %w", user, err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: list signatures %q: %w", user, err)
+	}
+	return entries, nil
+}
+
+// PutSignatureEntry upserts a single named signature for the user.
+func (d *DB) PutSignatureEntry(user string, entry db.Signature) error {
+	ctx := context.Background()
+	if _, err := d.pool.Exec(ctx, `
+		INSERT INTO user_signatures (user_email, sig_name, sig_body, sig_html, sig_ord)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (user_email, sig_name)
+		DO UPDATE SET sig_body=EXCLUDED.sig_body,
+		             sig_html=EXCLUDED.sig_html,
+		             sig_ord =EXCLUDED.sig_ord`,
+		user, entry.Name, entry.Body, entry.IsHTML, entry.Ord,
+	); err != nil {
+		return fmt.Errorf("postgres: put signature entry %q/%q: %w", user, entry.Name, err)
+	}
+	return nil
+}
+
+// DeleteSignatureEntry removes the named signature for the user.
+func (d *DB) DeleteSignatureEntry(user, name string) error {
+	ctx := context.Background()
+	if _, err := d.pool.Exec(ctx,
+		`DELETE FROM user_signatures WHERE user_email=$1 AND sig_name=$2`,
+		user, name,
+	); err != nil {
+		return fmt.Errorf("postgres: delete signature entry %q/%q: %w", user, name, err)
 	}
 	return nil
 }

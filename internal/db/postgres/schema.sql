@@ -299,11 +299,35 @@ CREATE TABLE IF NOT EXISTS user_ui_prefs (
     PRIMARY KEY (user_email, key)
 );
 
--- Outgoing-mail signature (one per user).
-CREATE TABLE IF NOT EXISTS user_signatures (
-    user_email TEXT PRIMARY KEY,
-    signature  TEXT NOT NULL DEFAULT ''
-);
+-- Outgoing-mail signatures (multi-row).
+-- Old single-row layout (user_email PK, signature TEXT) is migrated column-by-column
+-- so existing data is preserved and the old GetSignature/PutSignature keep working.
+ALTER TABLE user_signatures ADD COLUMN IF NOT EXISTS sig_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE user_signatures ADD COLUMN IF NOT EXISTS sig_body TEXT NOT NULL DEFAULT '';
+ALTER TABLE user_signatures ADD COLUMN IF NOT EXISTS sig_html BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE user_signatures ADD COLUMN IF NOT EXISTS sig_ord INTEGER NOT NULL DEFAULT 0;
+
+-- Migrate legacy single-row data into the new multi-row layout.
+-- The old "signature" column holds plain-text body; sig_name='default', sig_ord=0.
+UPDATE user_signatures
+   SET sig_body  = COALESCE(NULLIF(sig_body, ''), signature),
+       sig_name  = CASE WHEN sig_name = '' THEN 'default' ELSE sig_name END,
+       sig_ord   = CASE WHEN sig_ord = 0 THEN 0 ELSE sig_ord END
+ WHERE sig_body = '' AND signature <> '';
+
+-- Only one 'default' row per user is needed; delete extras.
+DELETE FROM user_signatures a USING user_signatures b
+ WHERE a.user_email = b.user_email
+   AND a.sig_name = 'default'
+   AND a.sig_ord = 0
+   AND a.ctid > b.ctid;
+
+-- Drop the legacy column; the new columns are the canonical store.
+ALTER TABLE user_signatures DROP COLUMN IF EXISTS signature;
+
+-- Composite PK replaces the old single-column PK.
+ALTER TABLE user_signatures DROP CONSTRAINT IF EXISTS user_signatures_pkey;
+ALTER TABLE user_signatures ADD PRIMARY KEY (user_email, sig_name);
 
 -- Webmail message categories (ordered name + color per user).
 CREATE TABLE IF NOT EXISTS user_categories (

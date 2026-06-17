@@ -757,6 +757,9 @@ func (s *Server) initRouter() {
 	// Per-user outgoing-mail signature.
 	api.HandleFunc("/api/v1/signature", s.handleSignature)
 
+	// Multi-signature management (list / create / delete).
+	api.HandleFunc("/api/v1/signatures", s.handleSignatures)
+
 	// Per-user master category list (named colors for message labels).
 	api.HandleFunc("/api/v1/categories", s.handleCategories)
 

@@ -92,6 +92,75 @@ func (s *Server) handleSignature(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSignatures returns or mutates the user's full signature list.
+// GET  /api/v1/signatures          → list all signatures
+// POST /api/v1/signatures          → create or replace a named signature (body: {name, body, is_html, ord})
+// DELETE /api/v1/signatures?name=X → delete a named signature
+func (s *Server) handleSignatures(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value("user").(string)
+	if !ok || user == "" {
+		s.sendError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.db == nil {
+		s.sendError(w, http.StatusInternalServerError, "database not available")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		entries, err := s.db.ListSignatures(user)
+		if err != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to load signatures")
+			return
+		}
+		if entries == nil {
+			entries = []db.Signature{}
+		}
+		s.sendJSON(w, http.StatusOK, map[string]interface{}{"signatures": entries})
+
+	case http.MethodPost:
+		var entry db.Signature
+		if err := decodeJSON(r, &entry); err != nil {
+			s.sendError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		entry.Name = strings.TrimSpace(entry.Name)
+		if entry.Name == "" {
+			s.sendError(w, http.StatusBadRequest, "signature name is required")
+			return
+		}
+		if len(entry.Name) > 100 {
+			s.sendError(w, http.StatusBadRequest, "signature name exceeds 100 characters")
+			return
+		}
+		if len(entry.Body) > maxSignatureLength {
+			s.sendError(w, http.StatusBadRequest, "signature body exceeds maximum length of 10000")
+			return
+		}
+		if err := s.db.PutSignatureEntry(user, entry); err != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to save signature")
+			return
+		}
+		s.sendJSON(w, http.StatusOK, map[string]interface{}{"signature": entry})
+
+	case http.MethodDelete:
+		name := strings.TrimSpace(r.URL.Query().Get("name"))
+		if name == "" {
+			s.sendError(w, http.StatusBadRequest, "signature name is required")
+			return
+		}
+		if err := s.db.DeleteSignatureEntry(user, name); err != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to delete signature")
+			return
+		}
+		s.sendJSON(w, http.StatusOK, map[string]interface{}{"deleted": name})
+
+	default:
+		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // category is one named master category with a display color, the Exchange-style
 // colored classification a user can apply to messages as a label.
 type category struct {

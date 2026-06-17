@@ -8,6 +8,14 @@ import (
 	"github.com/umailserver/umailserver/internal/vacation"
 )
 
+// Signature represents one of a user's outgoing-mail signatures.
+type Signature struct {
+	Name    string `json:"name"`    // unique identifier within the user's set
+	Body    string `json:"body"`    // content text (plain or HTML)
+	IsHTML  bool   `json:"is_html"` // true → Body is HTML; false → plain text
+	Ord     int    `json:"ord"`     // display order (lowest first)
+}
+
 // ErrNotFound is returned (wrapped) by a Store's lookup methods when the
 // requested record does not exist. Callers distinguish "absent" from a real
 // failure with errors.Is(err, db.ErrNotFound) rather than matching an
@@ -160,6 +168,11 @@ type Store interface {
 	GetUserConfig(owner, name string) (*UserConfigBlob, error)
 	PutUserConfig(owner, name string, b *UserConfigBlob) error
 	DeleteUserConfig(owner, name string) error
+
+	// Multi-signature management.
+	ListSignatures(user string) ([]Signature, error)
+	PutSignatureEntry(user string, entry Signature) error
+	DeleteSignatureEntry(user, name string) error
 
 	// Admin RBAC: roles, permissions, and user-role assignments.
 	// Role management.
