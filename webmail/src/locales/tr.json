@@ -688,7 +688,15 @@
     "contactDeleted": "Kişi silindi",
     "deleteFailed": "Kişi silinemedi",
     "exportVCard": "vCard olarak dışa aktar",
-    "exportFailed": "Kişiler dışa aktarılamadı"
+    "exportFailed": "Kişiler dışa aktarılamadı",
+    "distributionList": "Dağıtım listesi",
+    "members": "Üyeler",
+    "membersPlaceholder": "bir@email.com, iki@email.com, ...",
+    "membersHint": "Birden fazla e-postayı virgülle ayırın",
+    "membersCount": "üye",
+    "nameRequired": "İsim gereklidir",
+    "emailRequired": "E-posta gereklidir",
+    "membersRequired": "En az bir üye gereklidir"
   },
   "tasks": {
     "quickAddPlaceholder": "Bir görev ekleyin ve Enter'a basın",

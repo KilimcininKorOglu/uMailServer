@@ -11,6 +11,7 @@ import {
   MoreHorizontal,
   User,
   Download,
+  Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,6 +35,9 @@ import {
 import { toast } from "sonner"
 import api, { Contact as ApiContact } from "@/utils/api"
 import { useI18n } from "@/hooks/useI18n"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 
 // Local contact type for the page (extends API contact with labels)
 interface Contact {
@@ -43,6 +47,8 @@ interface Contact {
   phone?: string
   company?: string
   labels: string[]
+  is_group?: boolean
+  members?: string[]
 }
 
 export function ContactsPage() {
@@ -58,6 +64,8 @@ export function ContactsPage() {
     email: "",
     phone: "",
     company: "",
+    is_group: false,
+    members: "",
   })
 
   // Load contacts from API on mount
@@ -78,6 +86,8 @@ export function ContactsPage() {
           phone: c.phone,
           company: c.company,
           labels: c.labels || [],
+          is_group: c.is_group || false,
+          members: c.members || [],
         }))
         setContacts(loadedContacts)
       }
@@ -96,7 +106,7 @@ export function ContactsPage() {
   )
 
   const handleAdd = () => {
-    setFormData({ name: "", email: "", phone: "", company: "" })
+    setFormData({ name: "", email: "", phone: "", company: "", is_group: false, members: "" })
     setEditingContact(null)
     setShowAddDialog(true)
   }
@@ -104,19 +114,40 @@ export function ContactsPage() {
   const handleEdit = (contact: Contact) => {
     setFormData({
       name: contact.name,
-      email: contact.email,
+      email: contact.email || "",
       phone: contact.phone || "",
       company: contact.company || "",
+      is_group: contact.is_group || false,
+      members: (contact.members || []).join(", "),
     })
     setEditingContact(contact)
     setShowAddDialog(true)
   }
 
   const handleSave = async () => {
-    if (!formData.name || !formData.email) {
-      toast.error(t("contacts.nameEmailRequired"))
+    if (!formData.name) {
+      toast.error(t("contacts.nameRequired"))
       return
     }
+
+    if (formData.is_group) {
+      // Distribution list: members required
+      if (!formData.members.trim()) {
+        toast.error(t("contacts.membersRequired"))
+        return
+      }
+    } else {
+      // Regular contact: email required
+      if (!formData.email.trim()) {
+        toast.error(t("contacts.emailRequired"))
+        return
+      }
+    }
+
+    // Parse members into array
+    const members = formData.is_group
+      ? formData.members.split(",").map((m) => m.trim()).filter(Boolean)
+      : undefined
 
     try {
       if (editingContact) {
@@ -126,11 +157,13 @@ export function ContactsPage() {
           email: formData.email,
           phone: formData.phone,
           company: formData.company,
+          is_group: formData.is_group,
+          members,
         })
         if (result.contact) {
           setContacts(contacts.map((c) =>
             c.id === editingContact.id
-              ? { ...c, ...formData }
+              ? { ...c, ...formData, members: members || [] }
               : c
           ))
           toast.success(t("contacts.contactUpdated"))
@@ -142,6 +175,8 @@ export function ContactsPage() {
           email: formData.email,
           phone: formData.phone,
           company: formData.company,
+          is_group: formData.is_group,
+          members,
         })
         if (result.contact) {
           const newContact: Contact = {
@@ -151,6 +186,8 @@ export function ContactsPage() {
             phone: formData.phone,
             company: formData.company,
             labels: [],
+            is_group: formData.is_group,
+            members: members || [],
           }
           setContacts([...contacts, newContact])
           toast.success(t("contacts.contactAdded"))
@@ -244,7 +281,7 @@ export function ContactsPage() {
               <div className="flex items-center gap-4 p-4 hover:bg-accent/50 transition-colors">
                 <Avatar className="h-10 w-10">
                   <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-semibold">
-                    {getInitials(contact.name)}
+                    {contact.is_group ? <Users className="h-4 w-4" /> : getInitials(contact.name)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
@@ -257,18 +294,27 @@ export function ContactsPage() {
                     ))}
                   </div>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      {contact.email}
-                    </span>
-                    {contact.phone && (
+                    {contact.is_group ? (
                       <span className="flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {contact.phone}
+                        <Users className="h-3 w-3" />
+                        {(contact.members || []).length} {t("contacts.membersCount")}
                       </span>
-                    )}
-                    {contact.company && (
-                      <span className="text-xs">{contact.company}</span>
+                    ) : (
+                      <>
+                        <span className="flex items-center gap-1">
+                          <Mail className="h-3 w-3" />
+                          {contact.email}
+                        </span>
+                        {contact.phone && (
+                          <span className="flex items-center gap-1">
+                            <Phone className="h-3 w-3" />
+                            {contact.phone}
+                          </span>
+                        )}
+                        {contact.company && (
+                          <span className="text-xs">{contact.company}</span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -334,34 +380,69 @@ export function ContactsPage() {
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">{t("common.email")}</label>
-              <Input
-                className="mt-1"
-                type="email"
-                placeholder="john@example.com"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+
+            {/* Distribution list toggle */}
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={formData.is_group}
+                onCheckedChange={(checked) =>
+                  setFormData({ ...formData, is_group: checked })
+                }
               />
+              <Label className="text-sm font-normal cursor-pointer" onClick={() => setFormData({ ...formData, is_group: !formData.is_group })}>
+                {t("contacts.distributionList")}
+              </Label>
             </div>
-            <div>
-              <label className="text-sm font-medium">{t("contacts.phoneOptional")}</label>
-              <Input
-                className="mt-1"
-                placeholder="+1 555 123 4567"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">{t("contacts.companyOptional")}</label>
-              <Input
-                className="mt-1"
-                placeholder={t("contacts.companyPlaceholder")}
-                value={formData.company}
-                onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-              />
-            </div>
+
+            {formData.is_group ? (
+              /* Members field for distribution lists */
+              <div>
+                <label className="text-sm font-medium">{t("contacts.members")}</label>
+                <Textarea
+                  className="mt-1"
+                  placeholder={t("contacts.membersPlaceholder")}
+                  value={formData.members}
+                  onChange={(e) => setFormData({ ...formData, members: e.target.value })}
+                  rows={3}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("contacts.membersHint")}
+                </p>
+              </div>
+            ) : (
+              /* Regular contact fields */
+              <>
+                <div>
+                  <label className="text-sm font-medium">{t("common.email")}</label>
+                  <Input
+                    className="mt-1"
+                    type="email"
+                    placeholder="john@example.com"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">{t("contacts.phoneOptional")}</label>
+                  <Input
+                    className="mt-1"
+                    placeholder="+1 555 123 4567"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">{t("contacts.companyOptional")}</label>
+                  <Input
+                    className="mt-1"
+                    placeholder={t("contacts.companyPlaceholder")}
+                    value={formData.company}
+                    onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowAddDialog(false)}>
                 {t("common.cancel")}

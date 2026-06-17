@@ -440,6 +440,8 @@ export interface Contact {
   company?: string
   labels?: string[]
   display_as?: string
+  is_group?: boolean
+  members?: string[]
 }
 
 // ============================================================================
@@ -994,11 +996,11 @@ class API {
     return this.get<{ contacts?: Contact[]; total?: number }>('/contacts')
   }
 
-  async createContact(contact: { name: string; email: string; phone?: string; company?: string }): Promise<{ contact?: Contact; status?: string }> {
+  async createContact(contact: { name: string; email: string; phone?: string; company?: string; is_group?: boolean; members?: string[] }): Promise<{ contact?: Contact; status?: string }> {
     return this.post<{ contact?: Contact; status?: string }>('/contacts', contact)
   }
 
-  async updateContact(id: string, contact: { name: string; email: string; phone?: string; company?: string }): Promise<{ contact?: Contact; status?: string }> {
+  async updateContact(id: string, contact: { name: string; email: string; phone?: string; company?: string; is_group?: boolean; members?: string[] }): Promise<{ contact?: Contact; status?: string }> {
     return this.put<{ contact?: Contact; status?: string }>(`/contacts/${id}`, contact)
   }
 

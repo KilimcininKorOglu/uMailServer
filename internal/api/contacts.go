@@ -46,6 +46,9 @@ type Contact struct {
 	Company   string   `json:"company,omitempty"`
 	Labels    []string `json:"labels,omitempty"`
 	DisplayAs string   `json:"display_as,omitempty"`
+	// IsGroup marks this contact as a distribution list (vCard KIND:group)
+	IsGroup bool     `json:"is_group,omitempty"`
+	Members []string `json:"members,omitempty"` // member emails for distribution lists
 }
 
 // ContactsResponse is the API response structure for contacts list
@@ -142,10 +145,12 @@ func (h *ContactsHandler) handleContactCreate(w http.ResponseWriter, r *http.Req
 	}
 
 	var req struct {
-		Name    string `json:"name"`
-		Email   string `json:"email"`
-		Phone   string `json:"phone,omitempty"`
-		Company string `json:"company,omitempty"`
+		Name    string   `json:"name"`
+		Email   string   `json:"email"`
+		Phone   string   `json:"phone,omitempty"`
+		Company string   `json:"company,omitempty"`
+		IsGroup bool     `json:"is_group,omitempty"`
+		Members []string `json:"members,omitempty"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -153,7 +158,7 @@ func (h *ContactsHandler) handleContactCreate(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if req.Email == "" {
+	if req.Email == "" && !req.IsGroup {
 		h.sendError(w, http.StatusBadRequest, "Email is required")
 		return
 	}
@@ -187,6 +192,8 @@ func (h *ContactsHandler) handleContactCreate(w http.ResponseWriter, r *http.Req
 		Phone:   req.Phone,
 		Company: req.Company,
 		Labels:  []string{},
+		IsGroup: req.IsGroup,
+		Members: req.Members,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -219,10 +226,12 @@ func (h *ContactsHandler) handleContactUpdate(w http.ResponseWriter, r *http.Req
 	}
 
 	var req struct {
-		Name    string `json:"name"`
-		Email   string `json:"email"`
-		Phone   string `json:"phone,omitempty"`
-		Company string `json:"company,omitempty"`
+		Name    string   `json:"name"`
+		Email   string   `json:"email"`
+		Phone   string   `json:"phone,omitempty"`
+		Company string   `json:"company,omitempty"`
+		IsGroup bool     `json:"is_group,omitempty"`
+		Members []string `json:"members,omitempty"`
 	}
 
 	if err := decodeJSON(r, &req); err != nil {
@@ -252,6 +261,8 @@ func (h *ContactsHandler) handleContactUpdate(w http.ResponseWriter, r *http.Req
 		Phone:   req.Phone,
 		Company: req.Company,
 		Labels:  []string{},
+		IsGroup: req.IsGroup,
+		Members: req.Members,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -326,11 +337,13 @@ func (h *ContactsHandler) handleContactsExport(w http.ResponseWriter, r *http.Re
 	var buf strings.Builder
 	for _, c := range contacts {
 		buf.WriteString(h.buildVCard(struct {
-			Name    string `json:"name"`
-			Email   string `json:"email"`
-			Phone   string `json:"phone,omitempty"`
-			Company string `json:"company,omitempty"`
-		}{Name: c.Name, Email: c.Email, Phone: c.Phone, Company: c.Company}))
+			Name    string   `json:"name"`
+			Email   string   `json:"email"`
+			Phone   string   `json:"phone,omitempty"`
+			Company string   `json:"company,omitempty"`
+			IsGroup bool     `json:"is_group,omitempty"`
+			Members []string `json:"members,omitempty"`
+		}{Name: c.Name, Email: c.Email, Phone: c.Phone, Company: c.Company, IsGroup: c.IsGroup, Members: c.Members}))
 		buf.WriteString("\r\n")
 	}
 
@@ -475,6 +488,17 @@ func (h *ContactsHandler) parseVCard(vcardData string) Contact {
 		if strings.HasPrefix(line, "ORG:") || strings.HasPrefix(line, "ORG;") {
 			contact.Company = extractVCardValue(line)
 		}
+
+		// Parse KIND (RFC 6477) — distribution list marker
+		if strings.HasPrefix(line, "KIND:") || strings.HasPrefix(line, "KIND;") {
+			val := extractVCardValue(line)
+			contact.IsGroup = val == "group"
+		}
+
+		// Parse MEMBER (RFC 6477) — distribution list member UIDs/emails
+		if strings.HasPrefix(line, "MEMBER:") || strings.HasPrefix(line, "MEMBER;") {
+			contact.Members = append(contact.Members, extractVCardValue(line))
+		}
 	}
 
 	// If no name, use email as name
@@ -485,12 +509,14 @@ func (h *ContactsHandler) parseVCard(vcardData string) Contact {
 	return contact
 }
 
-// buildVCard creates vCard data from contact request
+// buildVCard creates vCard data from contact or distribution list request
 func (h *ContactsHandler) buildVCard(req struct {
-	Name    string `json:"name"`
-	Email   string `json:"email"`
-	Phone   string `json:"phone,omitempty"`
-	Company string `json:"company,omitempty"`
+	Name    string   `json:"name"`
+	Email   string   `json:"email"`
+	Phone   string   `json:"phone,omitempty"`
+	Company string   `json:"company,omitempty"`
+	IsGroup bool     `json:"is_group,omitempty"`
+	Members []string `json:"members,omitempty"`
 }) string {
 	uid := uuid.New().String()
 	nameParts := strings.SplitN(req.Name, " ", 2)
@@ -509,12 +535,19 @@ func (h *ContactsHandler) buildVCard(req struct {
 	sb.WriteString(fmt.Sprintf("UID:%s\r\n", uid))
 	sb.WriteString(fmt.Sprintf("FN:%s\r\n", req.Name))
 	sb.WriteString(fmt.Sprintf("N:%s;%s;;;\r\n", lastName, firstName))
-	sb.WriteString(fmt.Sprintf("EMAIL:%s\r\n", req.Email))
-	if req.Phone != "" {
-		sb.WriteString(fmt.Sprintf("TEL:%s\r\n", req.Phone))
-	}
-	if req.Company != "" {
-		sb.WriteString(fmt.Sprintf("ORG:%s\r\n", req.Company))
+	if req.IsGroup {
+		sb.WriteString("KIND:group\r\n")
+		for _, member := range req.Members {
+			sb.WriteString(fmt.Sprintf("MEMBER:%s\r\n", member))
+		}
+	} else {
+		sb.WriteString(fmt.Sprintf("EMAIL:%s\r\n", req.Email))
+		if req.Phone != "" {
+			sb.WriteString(fmt.Sprintf("TEL:%s\r\n", req.Phone))
+		}
+		if req.Company != "" {
+			sb.WriteString(fmt.Sprintf("ORG:%s\r\n", req.Company))
+		}
 	}
 	sb.WriteString("END:VCARD\r\n")
 

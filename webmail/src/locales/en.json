@@ -688,7 +688,15 @@
     "contactDeleted": "Contact deleted",
     "deleteFailed": "Failed to delete contact",
     "exportVCard": "Export vCard",
-    "exportFailed": "Failed to export contacts"
+    "exportFailed": "Failed to export contacts",
+    "distributionList": "Distribution list",
+    "members": "Members",
+    "membersPlaceholder": "one@email.com, two@email.com, ...",
+    "membersHint": "Separate multiple emails with commas",
+    "membersCount": "members",
+    "nameRequired": "Name is required",
+    "emailRequired": "Email is required",
+    "membersRequired": "At least one member is required"
   },
   "tasks": {
     "quickAddPlaceholder": "Add a task and press Enter",
