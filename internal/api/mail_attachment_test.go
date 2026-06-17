@@ -14,7 +14,7 @@ func TestBuildMultipartBody(t *testing.T) {
 
 	body, ctype, err := buildMultipartBody("the message", []Attachment{
 		{Filename: "a.txt", ContentType: "text/plain", Content: encoded},
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestBuildMultipartBody(t *testing.T) {
 // TestBuildMultipartBody_InvalidEncoding rejects attachments that are not valid
 // base64 instead of producing a corrupt message.
 func TestBuildMultipartBody_InvalidEncoding(t *testing.T) {
-	if _, _, err := buildMultipartBody("x", []Attachment{{Filename: "bad", Content: "!!!not-base64!!!"}}); err == nil {
+	if _, _, err := buildMultipartBody("x", []Attachment{{Filename: "bad", Content: "!!!not-base64!!!"}}, false); err == nil {
 		t.Errorf("expected an error for invalid base64 attachment")
 	}
 }

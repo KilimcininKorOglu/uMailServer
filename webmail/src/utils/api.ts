@@ -71,6 +71,9 @@ export interface SendMailRequest {
   // sendAt, when a future absolute RFC3339 instant, defers delivery: the server
   // releases the message at that time instead of sending now.
   sendAt?: string
+  // is_html, when true, indicates the body is an HTML document to be sent
+  // with Content-Type: text/html. When false or absent, body is sent as text/plain.
+  is_html?: boolean
 }
 
 // ScheduledMailItem is one pending/failed "send later" message in the Scheduled view.

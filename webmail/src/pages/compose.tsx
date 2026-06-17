@@ -42,6 +42,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import { useI18n } from "@/hooks/useI18n"
 import { withTz, zonedInputToISO } from "@/utils/date"
+import { RichTextEditor } from "@/components/RichTextEditor"
 
 interface Attachment {
   id: string
@@ -171,7 +172,10 @@ export function ComposePage() {
   const [draftId, setDraftId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
+  const richTextRef = useRef<{ getHTML: () => string; setHTML: (html: string) => void } | null>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // richTextMode follows the user's preference; HTML bodies are sent when true.
+  const [richTextMode, setRichTextMode] = useState(false)
   
   // Contacts loaded from API for recipient selection
   const [contacts, setContacts] = useState<Recipient[]>([])
@@ -265,6 +269,12 @@ export function ComposePage() {
       .then((res) => {
         if (cancelled) return
         setTemplates(res.templates ?? [])
+      })
+      .catch(() => {})
+    api.getPreferences()
+      .then((res) => {
+        if (cancelled || !res.preferences) return
+        setRichTextMode(res.preferences.richTextMode ?? false)
       })
       .catch(() => {})
     return () => {
@@ -589,12 +599,14 @@ export function ComposePage() {
           )
         )
       ).filter((x): x is MailAttachment => x !== null)
+      // When richTextMode is on, grab HTML from the rich text editor; otherwise use plain body.
+      const htmlBody = richTextMode && richTextRef.current ? richTextRef.current.getHTML() : body
       await api.sendMail({
         to: to.map(r => r.email),
         cc: cc.map(r => r.email),
         bcc: bcc.map(r => r.email),
         subject,
-        body,
+        body: htmlBody,
         from: senderEmail, // Pass sender identity to API
         attachments: encoded.length > 0 ? encoded : undefined,
         requestReadReceipt: requestReadReceipt || undefined,
@@ -602,6 +614,7 @@ export function ComposePage() {
         encryptMessage: encryptMessage || undefined,
         importance: importance !== "normal" ? importance : undefined,
         sendAt: sendAtISO,
+        is_html: richTextMode,
       })
 
       if (sendAtISO) {
@@ -1215,13 +1228,23 @@ export function ComposePage() {
 
       {/* Body */}
       <div className="flex-1 overflow-hidden">
-        <Textarea
-          ref={bodyRef}
-          className="h-full resize-none border-0 shadow-none focus-visible:ring-0 p-4"
-          placeholder={t("compose.writeMessage")}
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-        />
+        {richTextMode ? (
+          <RichTextEditor
+            ref={richTextRef}
+            value={body}
+            onChange={setBody}
+            placeholder={t("compose.writeMessage")}
+            className="h-full"
+          />
+        ) : (
+          <Textarea
+            ref={bodyRef}
+            className="h-full resize-none border-0 shadow-none focus-visible:ring-0 p-4"
+            placeholder={t("compose.writeMessage")}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        )}
       </div>
 
       {/* Attachments & Footer */}

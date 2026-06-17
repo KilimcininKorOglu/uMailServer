@@ -78,6 +78,10 @@ type SendMailRequest struct {
 	// Importance sets the message importance: "low", "normal", or "high".
 	// Sent as Importance header and X-Priority header.
 	Importance string `json:"importance,omitempty"`
+	// IsHTML, when true, indicates the Body is an HTML document to be sent
+	// with Content-Type: text/html. When false or absent, Body is sent as
+	// text/plain.
+	IsHTML bool `json:"is_html,omitempty"`
 }
 
 // ScheduledMailItem is one pending/failed scheduled message in the Scheduled
@@ -93,12 +97,17 @@ type ScheduledMailItem struct {
 
 // buildMultipartBody assembles a multipart/mixed body (a text part plus
 // base64-encoded attachments) and returns the body and its Content-Type value.
-func buildMultipartBody(textBody string, attachments []Attachment) (string, string, error) {
+// When isHTML is true the text part uses text/html; otherwise text/plain.
+func buildMultipartBody(textBody string, attachments []Attachment, isHTML bool) (string, string, error) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 
 	textHeader := textproto.MIMEHeader{}
-	textHeader.Set("Content-Type", "text/plain; charset=utf-8")
+	if isHTML {
+		textHeader.Set("Content-Type", "text/html; charset=utf-8")
+	} else {
+		textHeader.Set("Content-Type", "text/plain; charset=utf-8")
+	}
 	tw, err := mw.CreatePart(textHeader)
 	if err != nil {
 		return "", "", err
@@ -953,7 +962,7 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Attachments) > 0 {
-		mpBody, ctype, err := buildMultipartBody(req.Body, req.Attachments)
+		mpBody, ctype, err := buildMultipartBody(req.Body, req.Attachments, req.IsHTML)
 		if err != nil {
 			h.sendError(w, http.StatusBadRequest, err.Error())
 			return
@@ -961,7 +970,11 @@ func (h *MailHandler) handleMailSend(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "Content-Type: %s\r\n\r\n", ctype)
 		sb.WriteString(mpBody)
 	} else {
-		sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+		if req.IsHTML {
+			sb.WriteString("Content-Type: text/html; charset=utf-8\r\n")
+		} else {
+			sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+		}
 		sb.WriteString("\r\n")
 		sb.WriteString(req.Body)
 	}
