@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
 	"testing"
 )
 
@@ -52,6 +56,37 @@ func TestDNSCheckResultStruct(t *testing.T) {
 	}
 	if result.Status != "pass" {
 		t.Errorf("expected status pass, got %s", result.Status)
+	}
+}
+
+func TestEqualDNSNameIgnoresTrailingRootDot(t *testing.T) {
+	if !equalDNSName("mail.example.com.", "mail.example.com") {
+		t.Fatal("expected MX host with trailing root dot to match configured hostname")
+	}
+	if equalDNSName("mail.example.com", "smtp.example.com") {
+		t.Fatal("expected different hostnames not to match")
+	}
+}
+
+func TestIsDKIMPublicKeyTXTAcceptsUmailServerBareKey(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey failed: %v", err)
+	}
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("x509.MarshalPKIXPublicKey failed: %v", err)
+	}
+	bareKey := base64.StdEncoding.EncodeToString(publicKeyBytes)
+
+	if !isDKIMPublicKeyTXT(bareKey) {
+		t.Fatal("expected bare uMailServer DKIM public key TXT to be accepted")
+	}
+	if !isDKIMPublicKeyTXT("v=DKIM1; k=rsa; p=" + bareKey) {
+		t.Fatal("expected RFC-style DKIM TXT to be accepted")
+	}
+	if isDKIMPublicKeyTXT("not-a-dkim-key") {
+		t.Fatal("expected arbitrary TXT value to be rejected")
 	}
 }
 

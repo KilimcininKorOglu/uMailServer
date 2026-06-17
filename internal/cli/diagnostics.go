@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -130,7 +134,7 @@ func (d *Diagnostics) checkMX(domain string) ([]DNSCheckResult, error) {
 		expectedHost = d.config.Server.Hostname
 	}
 
-	if strings.EqualFold(primaryMX.Host, expectedHost) {
+	if equalDNSName(primaryMX.Host, expectedHost) {
 		results = append(results, DNSCheckResult{
 			RecordType: "MX",
 			RecordName: domain,
@@ -151,6 +155,18 @@ func (d *Diagnostics) checkMX(domain string) ([]DNSCheckResult, error) {
 	}
 
 	return results, nil
+}
+
+// equalDNSName compares DNS names after canonicalizing case and the optional
+// trailing root dot returned by net.LookupMX.
+func equalDNSName(a, b string) bool {
+	return strings.EqualFold(normalizeDNSName(a), normalizeDNSName(b))
+}
+
+// normalizeDNSName returns a DNS name without surrounding whitespace or the
+// trailing root dot used in fully qualified DNS answers.
+func normalizeDNSName(name string) string {
+	return strings.TrimSuffix(strings.TrimSpace(name), ".")
 }
 
 // checkSPF checks SPF record
@@ -210,7 +226,7 @@ func (d *Diagnostics) checkDKIM(domain string) DNSCheckResult {
 	}
 
 	for _, txt := range txtRecords {
-		if strings.Contains(txt, "v=DKIM1") {
+		if isDKIMPublicKeyTXT(txt) {
 			return DNSCheckResult{
 				RecordType: "DKIM",
 				RecordName: selector,
@@ -224,8 +240,73 @@ func (d *Diagnostics) checkDKIM(domain string) DNSCheckResult {
 	return DNSCheckResult{
 		RecordType: "DKIM",
 		RecordName: selector,
+		Found:      strings.Join(txtRecords, "; "),
 		Status:     "warning",
 		Message:    "DKIM record not found (optional but recommended)",
+	}
+}
+
+// isDKIMPublicKeyTXT reports whether a TXT value contains a DKIM public key.
+// uMailServer stores and prints DKIM keys as bare base64, while many DNS guides
+// publish the same key as tag-value data with v=DKIM1 and p=<base64>.
+func isDKIMPublicKeyTXT(txt string) bool {
+	txt = strings.TrimSpace(txt)
+	if txt == "" {
+		return false
+	}
+
+	if strings.Contains(txt, "=") {
+		keyType := "rsa"
+		publicKey := ""
+		for _, field := range strings.Split(txt, ";") {
+			key, value, ok := strings.Cut(strings.TrimSpace(field), "=")
+			if !ok {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "k":
+				keyType = strings.ToLower(strings.TrimSpace(value))
+			case "p":
+				publicKey = strings.TrimSpace(value)
+			}
+		}
+		return isBase64PublicKey(publicKey, keyType)
+	}
+
+	return isBase64PublicKey(txt, "rsa")
+}
+
+// isBase64PublicKey accepts the base64-encoded public key forms generated for
+// DKIM DNS records and rejects empty, non-base64, or non-key TXT values.
+func isBase64PublicKey(value, keyType string) bool {
+	value = strings.Join(strings.Fields(value), "")
+	if value == "" {
+		return false
+	}
+	keyBytes, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(keyType)) {
+	case "", "rsa":
+		if pubKey, err := x509.ParsePKIXPublicKey(keyBytes); err == nil {
+			_, ok := pubKey.(*rsa.PublicKey)
+			return ok
+		}
+		_, err := x509.ParsePKCS1PublicKey(keyBytes)
+		return err == nil
+	case "ed25519":
+		if len(keyBytes) == ed25519.PublicKeySize {
+			return true
+		}
+		if pubKey, err := x509.ParsePKIXPublicKey(keyBytes); err == nil {
+			_, ok := pubKey.(ed25519.PublicKey)
+			return ok
+		}
+		return false
+	default:
+		return false
 	}
 }
 
