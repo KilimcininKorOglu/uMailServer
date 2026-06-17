@@ -519,6 +519,8 @@ func (i *Interpreter) evaluateTest(test Test) (bool, error) {
 		return i.evaluateBodyTest(t)
 	case *BooleanTest:
 		return i.evaluateBooleanTest(t)
+	case *EnvelopeTest:
+		return i.evaluateEnvelopeTest(t)
 	case *NotTest:
 		if t.Inner == nil {
 			// `not` with no parseable inner test: treat the inner as false so
@@ -533,6 +535,42 @@ func (i *Interpreter) evaluateTest(test Test) (bool, error) {
 	default:
 		return true, nil
 	}
+}
+
+func (i *Interpreter) evaluateEnvelopeTest(t *EnvelopeTest) (bool, error) {
+	var value string
+	switch strings.ToLower(t.EnvelopePart) {
+	case "from":
+		value = i.ctx.From
+	case "to":
+		if len(i.ctx.To) > 0 {
+			value = i.ctx.To[0]
+		}
+	default:
+		// Unknown envelope part: fail open (match nothing).
+		return false, nil
+	}
+
+	// Empty envelope field: no match for any comparison.
+	if value == "" {
+		return false, nil
+	}
+
+	switch t.MatchType {
+	case ":is", "is", "":
+		for _, key := range t.KeyList {
+			if strings.EqualFold(value, key) {
+				return true, nil
+			}
+		}
+	case ":contains", "contains":
+		for _, key := range t.KeyList {
+			if strings.Contains(strings.ToLower(value), strings.ToLower(key)) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 func (i *Interpreter) evaluateHeaderTest(t *HeaderTest) (bool, error) {
