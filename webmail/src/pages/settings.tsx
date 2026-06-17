@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import api from "@/utils/api"
-import type { VacationAutoReply, ClientSession, Delegation, Category } from "@/utils/api"
+import type { VacationAutoReply, ClientSession, Delegation, Category, SignatureEntry } from "@/utils/api"
 import { detectTimeZone, listTimeZones } from "@/utils/timezone"
 import { enablePushNotifications, disablePushNotifications, pushSupported } from "@/utils/push"
 
@@ -420,23 +420,58 @@ export function SettingsPage() {
     }
   }
 
-  // Outgoing-mail signature (backed by /api/v1/signature).
-  const [signature, setSignature] = useState("")
-  const [signatureSaving, setSignatureSaving] = useState(false)
+  // Outgoing-mail signatures (multi-row, backed by /api/v1/signatures).
+  const [signatures, setSignatures] = useState<SignatureEntry[]>([])
+  const [sigEditName, setSigEditName] = useState("")
+  const [sigEditBody, setSigEditBody] = useState("")
+  const [sigEditHTML, setSigEditHTML] = useState(false)
+  const [sigSaving, setSigSaving] = useState(false)
+  const [sigError, setSigError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    api.getSignature()
+    api.getSignatures()
       .then((res) => {
-        if (!cancelled) setSignature(res.signature ?? "")
+        if (!cancelled) setSignatures(res.signatures ?? [])
       })
-      .catch(() => {
-        // keep empty
-      })
-    return () => {
-      cancelled = true
-    }
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [])
+
+  const handleSignatureSave = async () => {
+    const name = sigEditName.trim()
+    if (!name) { setSigError("Name is required"); return }
+    setSigError(null)
+    setSigSaving(true)
+    try {
+      await api.saveSignature({ name, body: sigEditBody, is_html: sigEditHTML, ord: 0 })
+      const res = await api.getSignatures()
+      setSignatures(res.signatures ?? [])
+      setSigEditName(""); setSigEditBody(""); setSigEditHTML(false)
+      toast.success(t("settings.signature.saved"))
+    } catch {
+      toast.error(t("settings.signature.saveFailed"))
+    } finally {
+      setSigSaving(false)
+    }
+  }
+
+  const handleSignatureDelete = async (name: string) => {
+    try {
+      await api.deleteSignature(name)
+      setSignatures((prev) => prev.filter((s) => s.name !== name))
+      toast.success(t("settings.signature.deleted"))
+    } catch {
+      toast.error(t("settings.signature.deleteFailed"))
+    }
+  }
+
+  const editSignature = (sig: SignatureEntry) => {
+    setSigEditName(sig.name)
+    setSigEditBody(sig.body)
+    setSigEditHTML(sig.is_html)
+    setSigError(null)
+  }
 
   // Categories: named, colored labels the user can apply to messages.
   const [categories, setCategories] = useState<Category[]>([])
@@ -479,18 +514,6 @@ export function SettingsPage() {
   }
 
   const removeCategory = (name: string) => void saveCategories(categories.filter((c) => c.name !== name))
-
-  const handleSignatureSave = async () => {
-    setSignatureSaving(true)
-    try {
-      await api.setSignature(signature)
-      toast.success(t("settings.signature.saved"))
-    } catch {
-      toast.error(t("settings.signature.saveFailed"))
-    } finally {
-      setSignatureSaving(false)
-    }
-  }
 
   // Delegates: people the user grants access to their own mailbox.
   const [delegations, setDelegations] = useState<Delegation[]>([])
@@ -987,17 +1010,67 @@ export function SettingsPage() {
         title={t("settings.signature.title")}
         description={t("settings.signature.description")}
       >
-        <div className="space-y-3">
-          <Textarea
-            id="signature"
-            value={signature}
-            onChange={(e) => setSignature(e.target.value)}
-            placeholder={t("settings.signature.placeholder")}
-            rows={4}
-          />
-          <Button onClick={handleSignatureSave} disabled={signatureSaving}>
-            {t("common.save")}
-          </Button>
+        <div className="space-y-4">
+          {/* Existing signatures list */}
+          {signatures.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">{t("settings.signature.current")}</p>
+              {signatures.map((sig) => (
+                <div key={sig.name} className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs rounded px-1.5 py-0.5 bg-muted font-mono">{sig.is_html ? "HTML" : "TXT"}</span>
+                    <span className="truncate text-sm font-medium">{sig.name}</span>
+                    <span className="text-xs text-muted-foreground truncate hidden sm:inline">
+                      {sig.body.slice(0, 60)}{sig.body.length > 60 ? "…" : ""}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 ml-2">
+                    <Button variant="ghost" size="sm" onClick={() => editSignature(sig)}>{t("common.edit")}</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleSignatureDelete(sig.name)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Add / edit form */}
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">{sigEditName ? t("settings.signature.edit") : t("settings.signature.addNew")}</p>
+            <div className="flex items-center gap-2">
+              <Input
+                value={sigEditName}
+                onChange={(e) => setSigEditName(e.target.value)}
+                placeholder={t("settings.signature.namePlaceholder")}
+                className="max-w-xs"
+              />
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sigEditHTML}
+                  onChange={(e) => setSigEditHTML(e.target.checked)}
+                />
+                {t("settings.signature.isHtml")}
+              </label>
+            </div>
+            {sigError && <p className="text-xs text-destructive">{sigError}</p>}
+            <Textarea
+              value={sigEditBody}
+              onChange={(e) => setSigEditBody(e.target.value)}
+              placeholder={sigEditHTML ? t("settings.signature.placeholderHtml") : t("settings.signature.placeholder")}
+              rows={4}
+            />
+            <div className="flex items-center gap-2">
+              <Button onClick={handleSignatureSave} disabled={sigSaving || !sigEditName.trim()}>
+                {sigSaving ? t("common.saving") : t("common.save")}
+              </Button>
+              {sigEditName && (
+                <Button variant="ghost" size="sm" onClick={() => { setSigEditName(""); setSigEditBody(""); setSigEditHTML(false); setSigError(null) }}>
+                  {t("common.cancel")}
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </SettingSection>
 

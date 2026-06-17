@@ -355,11 +355,19 @@
       "disableFailed": "Failed to disable auto-reply"
     },
     "signature": {
-      "title": "Signature",
-      "description": "Appended to new messages you compose",
+      "title": "Signatures",
+      "description": "Manage multiple signatures for different identities",
       "placeholder": "Best regards,\nYour Name",
+      "placeholderHtml": "<p>Best regards,</p><p>Your Name</p>",
       "saved": "Signature saved",
-      "saveFailed": "Failed to save signature"
+      "saveFailed": "Failed to save signature",
+      "deleted": "Signature deleted",
+      "deleteFailed": "Failed to delete signature",
+      "current": "Current signatures",
+      "addNew": "Add new signature",
+      "edit": "Edit signature",
+      "namePlaceholder": "Signature name (e.g. work, personal)",
+      "isHtml": "HTML format"
     },
     "categories": {
       "title": "Categories",

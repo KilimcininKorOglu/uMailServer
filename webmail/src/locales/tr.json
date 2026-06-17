@@ -355,11 +355,19 @@
       "disableFailed": "Otomatik yanıt devre dışı bırakılamadı"
     },
     "signature": {
-      "title": "İmza",
-      "description": "Yazdığınız yeni mesajlara eklenir",
+      "title": "İmzalar",
+      "description": "Farklı kimlikler için birden fazla imza yönetin",
       "placeholder": "Saygılarımla,\nAdınız",
+      "placeholderHtml": "<p>Saygılarımla,</p><p>Adınız</p>",
       "saved": "İmza kaydedildi",
-      "saveFailed": "İmza kaydedilemedi"
+      "saveFailed": "İmza kaydedilemedi",
+      "deleted": "İmza silindi",
+      "deleteFailed": "İmza silinemedi",
+      "current": "Mevcut imzalar",
+      "addNew": "Yeni imza ekle",
+      "edit": "İmzayı düzenle",
+      "namePlaceholder": "İmza adı (örn. iş, kişisel)",
+      "isHtml": "HTML biçimi"
     },
     "categories": {
       "title": "Kategoriler",
