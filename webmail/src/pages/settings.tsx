@@ -24,6 +24,7 @@ import api from "@/utils/api"
 import type { VacationAutoReply, ClientSession, Delegation, Category, SignatureEntry } from "@/utils/api"
 import { detectTimeZone, listTimeZones } from "@/utils/timezone"
 import { enablePushNotifications, disablePushNotifications, pushSupported } from "@/utils/push"
+import { RichTextEditor } from "@/components/RichTextEditor"
 
 // rfc3339ToDate extracts the YYYY-MM-DD part from an RFC3339 string for <input type="date">.
 function rfc3339ToDate(value?: string): string {
@@ -427,6 +428,7 @@ export function SettingsPage() {
   const [sigEditHTML, setSigEditHTML] = useState(false)
   const [sigSaving, setSigSaving] = useState(false)
   const [sigError, setSigError] = useState<string | null>(null)
+  const sigBodyRef = useRef<{ getHTML: () => string; setHTML: (html: string) => void } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -444,7 +446,11 @@ export function SettingsPage() {
     setSigError(null)
     setSigSaving(true)
     try {
-      await api.saveSignature({ name, body: sigEditBody, is_html: sigEditHTML, ord: 0 })
+      // When in HTML mode, grab the HTML from the rich-text editor
+      const body = sigEditHTML && sigBodyRef.current
+        ? sigBodyRef.current.getHTML()
+        : sigEditBody
+      await api.saveSignature({ name, body, is_html: sigEditHTML, ord: 0 })
       const res = await api.getSignatures()
       setSignatures(res.signatures ?? [])
       setSigEditName(""); setSigEditBody(""); setSigEditHTML(false)
@@ -1054,12 +1060,21 @@ export function SettingsPage() {
               </label>
             </div>
             {sigError && <p className="text-xs text-destructive">{sigError}</p>}
-            <Textarea
-              value={sigEditBody}
-              onChange={(e) => setSigEditBody(e.target.value)}
-              placeholder={sigEditHTML ? t("settings.signature.placeholderHtml") : t("settings.signature.placeholder")}
-              rows={4}
-            />
+            {sigEditHTML ? (
+              <RichTextEditor
+                ref={sigBodyRef}
+                value={sigEditBody}
+                onChange={setSigEditBody}
+                placeholder={t("settings.signature.placeholderHtml")}
+              />
+            ) : (
+              <Textarea
+                value={sigEditBody}
+                onChange={(e) => setSigEditBody(e.target.value)}
+                placeholder={t("settings.signature.placeholder")}
+                rows={4}
+              />
+            )}
             <div className="flex items-center gap-2">
               <Button onClick={handleSignatureSave} disabled={sigSaving || !sigEditName.trim()}>
                 {sigSaving ? t("common.saving") : t("common.save")}
