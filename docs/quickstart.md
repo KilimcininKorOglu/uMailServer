@@ -14,7 +14,7 @@ Get uMailServer up and running in under 5 minutes.
 ### Option 1: Automated Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/umailserver/umailserver/main/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/KilimcininKorOglu/uMailServer/main/install.sh | sudo bash
 ```
 
 This will:
