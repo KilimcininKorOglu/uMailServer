@@ -147,6 +147,60 @@ func (d *DB) DeleteSignatureEntry(user, name string) error {
 	return nil
 }
 
+// ListTemplates returns all of a user's message templates.
+func (d *DB) ListTemplates(user string) ([]db.Template, error) {
+	ctx := context.Background()
+	rows, err := d.pool.Query(ctx,
+		`SELECT tmpl_name, tmpl_subject, tmpl_body, tmpl_html
+		 FROM user_templates WHERE user_email=$1 ORDER BY tmpl_name`,
+		user)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list templates %q: %w", user, err)
+	}
+	defer rows.Close()
+	var entries []db.Template
+	for rows.Next() {
+		var e db.Template
+		if err := rows.Scan(&e.Name, &e.Subject, &e.Body, &e.IsHTML); err != nil {
+			return nil, fmt.Errorf("postgres: scan template %q: %w", user, err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: list templates %q: %w", user, err)
+	}
+	return entries, nil
+}
+
+// PutTemplateEntry upserts a single named template for the user.
+func (d *DB) PutTemplateEntry(user string, entry db.Template) error {
+	ctx := context.Background()
+	if _, err := d.pool.Exec(ctx, `
+		INSERT INTO user_templates (user_email, tmpl_name, tmpl_subject, tmpl_body, tmpl_html)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (user_email, tmpl_name)
+		DO UPDATE SET tmpl_subject=EXCLUDED.tmpl_subject,
+		             tmpl_body =EXCLUDED.tmpl_body,
+		             tmpl_html =EXCLUDED.tmpl_html`,
+		user, entry.Name, entry.Subject, entry.Body, entry.IsHTML,
+	); err != nil {
+		return fmt.Errorf("postgres: put template entry %q/%q: %w", user, entry.Name, err)
+	}
+	return nil
+}
+
+// DeleteTemplateEntry removes the named template for the user.
+func (d *DB) DeleteTemplateEntry(user, name string) error {
+	ctx := context.Background()
+	if _, err := d.pool.Exec(ctx,
+		`DELETE FROM user_templates WHERE user_email=$1 AND tmpl_name=$2`,
+		user, name,
+	); err != nil {
+		return fmt.Errorf("postgres: delete template entry %q/%q: %w", user, name, err)
+	}
+	return nil
+}
+
 // GetCategories returns the user's ordered webmail categories (nil when none).
 func (d *DB) GetCategories(user string) ([]db.Category, error) {
 	ctx := context.Background()

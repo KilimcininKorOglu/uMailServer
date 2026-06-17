@@ -50,7 +50,10 @@ type signaturePref struct {
 	Signature string `json:"signature"`
 }
 
-const maxSignatureLength = 10000
+const (
+	maxSignatureLength = 10000
+	maxTemplateLength  = 50000
+)
 
 // handleSignature stores and returns the authenticated user's email signature,
 // which the webmail composer appends to outgoing messages.
@@ -152,6 +155,75 @@ func (s *Server) handleSignatures(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.db.DeleteSignatureEntry(user, name); err != nil {
 			s.sendError(w, http.StatusInternalServerError, "failed to delete signature")
+			return
+		}
+		s.sendJSON(w, http.StatusOK, map[string]interface{}{"deleted": name})
+
+	default:
+		s.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleTemplates returns or mutates the user's message template list.
+// GET  /api/v1/templates          → list all templates
+// POST /api/v1/templates         → create or replace a named template
+// DELETE /api/v1/templates?name=X → delete a named template
+func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value("user").(string)
+	if !ok || user == "" {
+		s.sendError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.db == nil {
+		s.sendError(w, http.StatusInternalServerError, "database not available")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		entries, err := s.db.ListTemplates(user)
+		if err != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to load templates")
+			return
+		}
+		if entries == nil {
+			entries = []db.Template{}
+		}
+		s.sendJSON(w, http.StatusOK, map[string]interface{}{"templates": entries})
+
+	case http.MethodPost:
+		var entry db.Template
+		if err := decodeJSON(r, &entry); err != nil {
+			s.sendError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		entry.Name = strings.TrimSpace(entry.Name)
+		if entry.Name == "" {
+			s.sendError(w, http.StatusBadRequest, "template name is required")
+			return
+		}
+		if len(entry.Name) > 100 {
+			s.sendError(w, http.StatusBadRequest, "template name exceeds 100 characters")
+			return
+		}
+		if len(entry.Body) > maxTemplateLength {
+			s.sendError(w, http.StatusBadRequest, "template body exceeds maximum length of 50000")
+			return
+		}
+		if err := s.db.PutTemplateEntry(user, entry); err != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to save template")
+			return
+		}
+		s.sendJSON(w, http.StatusOK, map[string]interface{}{"template": entry})
+
+	case http.MethodDelete:
+		name := strings.TrimSpace(r.URL.Query().Get("name"))
+		if name == "" {
+			s.sendError(w, http.StatusBadRequest, "template name is required")
+			return
+		}
+		if err := s.db.DeleteTemplateEntry(user, name); err != nil {
+			s.sendError(w, http.StatusInternalServerError, "failed to delete template")
 			return
 		}
 		s.sendJSON(w, http.StatusOK, map[string]interface{}{"deleted": name})

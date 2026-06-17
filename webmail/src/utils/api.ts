@@ -232,6 +232,13 @@ export interface SignatureEntry {
   ord: number
 }
 
+export interface TemplateEntry {
+  name: string
+  subject: string
+  body: string
+  is_html: boolean
+}
+
 export interface Category {
   name: string
   color: string
@@ -620,6 +627,19 @@ class API {
 
   async deleteSignature(name: string): Promise<void> {
     await this.delete('/signatures?name=' + encodeURIComponent(name))
+  }
+
+  // Message templates / snippets
+  async getTemplates(): Promise<{ templates?: TemplateEntry[] }> {
+    return this.get<{ templates?: TemplateEntry[] }>('/templates')
+  }
+
+  async saveTemplate(entry: TemplateEntry): Promise<{ template?: TemplateEntry }> {
+    return this.post<{ template?: TemplateEntry }>('/templates', entry)
+  }
+
+  async deleteTemplate(name: string): Promise<void> {
+    await this.delete('/templates?name=' + encodeURIComponent(name))
   }
 
   // Active client sessions

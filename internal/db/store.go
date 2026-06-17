@@ -16,6 +16,14 @@ type Signature struct {
 	Ord     int    `json:"ord"`     // display order (lowest first)
 }
 
+// Template is a named message snippet that a user can insert into a compose.
+type Template struct {
+	Name    string `json:"name"`    // unique identifier within the user's set
+	Subject string `json:"subject"` // optional subject line template
+	Body    string `json:"body"`    // content text (plain or HTML)
+	IsHTML  bool   `json:"is_html"` // true → Body is HTML; false → plain text
+}
+
 // ErrNotFound is returned (wrapped) by a Store's lookup methods when the
 // requested record does not exist. Callers distinguish "absent" from a real
 // failure with errors.Is(err, db.ErrNotFound) rather than matching an
@@ -173,6 +181,11 @@ type Store interface {
 	ListSignatures(user string) ([]Signature, error)
 	PutSignatureEntry(user string, entry Signature) error
 	DeleteSignatureEntry(user, name string) error
+
+	// Message templates/snippets.
+	ListTemplates(user string) ([]Template, error)
+	PutTemplateEntry(user string, entry Template) error
+	DeleteTemplateEntry(user, name string) error
 
 	// Admin RBAC: roles, permissions, and user-role assignments.
 	// Role management.

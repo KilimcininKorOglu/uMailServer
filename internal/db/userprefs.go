@@ -26,6 +26,7 @@ type categoriesValue struct {
 const (
 	signatureKeySuffix  = ":signature"
 	categoriesKeySuffix = ":categories"
+	templateKeySuffix   = ":template"
 	// userConfigKeyPrefix matches the EWS handler's bbolt key prefix so existing
 	// UserConfiguration entries round-trip.
 	userConfigKeyPrefix = "ewsuserconfig:"
@@ -104,6 +105,51 @@ func (d *DB) DeleteSignatureEntry(user, name string) error {
 		}
 	}
 	return d.Put(BucketPreferences, user+signatureKeySuffix, filtered)
+}
+
+// ListTemplates returns all of a user's message templates.
+func (d *DB) ListTemplates(user string) ([]Template, error) {
+	var entries []Template
+	if err := d.Get(BucketPreferences, user+templateKeySuffix, &entries); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return entries, nil
+}
+
+// PutTemplateEntry upserts a single named template for the user.
+func (d *DB) PutTemplateEntry(user string, entry Template) error {
+	var entries []Template
+	_ = d.Get(BucketPreferences, user+templateKeySuffix, &entries) //nolint:errcheck
+	found := false
+	for i := range entries {
+		if entries[i].Name == entry.Name {
+			entries[i] = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		entries = append(entries, entry)
+	}
+	return d.Put(BucketPreferences, user+templateKeySuffix, entries)
+}
+
+// DeleteTemplateEntry removes the named template for the user.
+func (d *DB) DeleteTemplateEntry(user, name string) error {
+	var entries []Template
+	if err := d.Get(BucketPreferences, user+templateKeySuffix, &entries); err != nil {
+		return err
+	}
+	filtered := entries[:0]
+	for _, e := range entries {
+		if e.Name != name {
+			filtered = append(filtered, e)
+		}
+	}
+	return d.Put(BucketPreferences, user+templateKeySuffix, filtered)
 }
 
 // GetCategories returns the user's categories, empty when unset.

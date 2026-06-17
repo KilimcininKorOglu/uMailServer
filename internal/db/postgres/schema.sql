@@ -338,6 +338,16 @@ CREATE TABLE IF NOT EXISTS user_categories (
     PRIMARY KEY (user_email, ord)
 );
 
+-- Message templates / snippets (per-user, named).
+CREATE TABLE IF NOT EXISTS user_templates (
+    user_email    TEXT    NOT NULL,
+    tmpl_name     TEXT    NOT NULL,
+    tmpl_subject  TEXT    NOT NULL DEFAULT '',
+    tmpl_body     TEXT    NOT NULL DEFAULT '',
+    tmpl_html     BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (user_email, tmpl_name)
+);
+
 -- Vacation / auto-reply config (the legacy fallback store; the canonical OOF
 -- lives in the semantic core). send_interval is stored as nanoseconds to match
 -- the Go time.Duration round-trip.

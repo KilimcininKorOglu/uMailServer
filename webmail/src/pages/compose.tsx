@@ -37,7 +37,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType, MailAttachment, SignatureEntry } from "@/utils/api"
+import api, { SenderIdentity, DiagnosticEntry, Contact as ContactType, MailAttachment, SignatureEntry, TemplateEntry } from "@/utils/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import { useI18n } from "@/hooks/useI18n"
@@ -240,6 +240,12 @@ export function ComposePage() {
   const [showSigPicker, setShowSigPicker] = useState(false)
   const signatureAppliedRef = useRef(false)
 
+  // Message templates
+  const [templates, setTemplates] = useState<TemplateEntry[]>([])
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateEntry | null>(null)
+  const [showTplPicker, setShowTplPicker] = useState(false)
+  const templateAppliedRef = useRef(false)
+
   useEffect(() => {
     let cancelled = false
     api.getSignatures()
@@ -255,6 +261,12 @@ export function ComposePage() {
       .catch(() => {
         // no signatures configured
       })
+    api.getTemplates()
+      .then((res) => {
+        if (cancelled) return
+        setTemplates(res.templates ?? [])
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -267,6 +279,16 @@ export function ComposePage() {
     const sep = selectedSignature.is_html ? "<br><br>-- <br>" : "\n\n-- \n"
     setBody((prev) => `${prev}${sep}${selectedSignature.body}`)
   }, [selectedSignature, searchParams])
+
+  // Apply selected template: insert subject and body into the compose form.
+  useEffect(() => {
+    if (templateAppliedRef.current || !selectedTemplate) return
+    if (searchParams.get("draft")) return
+    templateAppliedRef.current = true
+    if (selectedTemplate.subject) setSubject(selectedTemplate.subject)
+    const sep = selectedTemplate.is_html ? "<br><br>" : "\n\n"
+    setBody((prev) => prev ? `${prev}${sep}${selectedTemplate.body}` : selectedTemplate.body)
+  }, [selectedTemplate, searchParams])
 
   // Load an existing draft into the composer when ?draft=<id> is present so
   // "Edit draft" reopens its content instead of a blank message.
@@ -711,6 +733,30 @@ export function ComposePage() {
                   >
                     <span className="mr-2">{sig.is_html ? "HTML" : "TXT"}</span>
                     {sig.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {templates.length > 0 && (
+            <DropdownMenu open={showTplPicker} onOpenChange={setShowTplPicker}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" title={t("compose.template")}>
+                  <span className="text-xs font-bold">Tpl</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {templates.map((tpl) => (
+                  <DropdownMenuItem
+                    key={tpl.name}
+                    onClick={() => {
+                      setSelectedTemplate(tpl)
+                      setShowTplPicker(false)
+                    }}
+                    className={selectedTemplate?.name === tpl.name ? "bg-accent" : ""}
+                  >
+                    <span className="mr-2">{tpl.is_html ? "HTML" : "TXT"}</span>
+                    {tpl.name}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>

@@ -760,6 +760,9 @@ func (s *Server) initRouter() {
 	// Multi-signature management (list / create / delete).
 	api.HandleFunc("/api/v1/signatures", s.handleSignatures)
 
+	// Message templates / snippets.
+	api.HandleFunc("/api/v1/templates", s.handleTemplates)
+
 	// Per-user master category list (named colors for message labels).
 	api.HandleFunc("/api/v1/categories", s.handleCategories)
 

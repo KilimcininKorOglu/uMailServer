@@ -183,6 +183,7 @@
     "sendFailed": "Failed to send email. Please try again.",
     "scheduleSend": "Schedule send",
     "signature": "Signature",
+    "template": "Template",
     "scheduleSendAt": "Send at",
     "scheduleClear": "Clear",
     "scheduling": "Schedule",
@@ -370,6 +371,25 @@
       "edit": "Edit signature",
       "namePlaceholder": "Signature name (e.g. work, personal)",
       "isHtml": "HTML format"
+    },
+    "template": {
+      "title": "Templates",
+      "description": "Save and reuse message templates with pre-filled subject and body",
+      "placeholder": "Hello,\n\nI wanted to follow up on...",
+      "placeholderHtml": "<p>Hello,</p><p>I wanted to follow up on...</p>",
+      "saved": "Template saved",
+      "saveFailed": "Failed to save template",
+      "deleted": "Template deleted",
+      "deleteFailed": "Failed to delete template",
+      "current": "Current templates",
+      "addNew": "Add new template",
+      "edit": "Edit template",
+      "namePlaceholder": "Template name (e.g. follow-up, intro)",
+      "subjectPlaceholder": "Subject line (optional)",
+      "bodyPlaceholder": "Template body text...",
+      "bodyPlaceholderHtml": "Template body HTML...",
+      "isHtml": "HTML format",
+      "subject": "Subject"
     },
     "categories": {
       "title": "Categories",

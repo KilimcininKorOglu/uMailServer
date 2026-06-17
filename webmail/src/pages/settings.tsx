@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera, HardDrive, FileKey } from "lucide-react"
+import { Moon, Sun, Bell, Shield, Palette, Keyboard, Mail, Globe, Lock, Plane, Monitor, UserCog, Trash2, Plus, Tag, X, Camera, HardDrive, FileKey, FileText } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { useAuth } from "@/contexts/AuthContext"
 import { useI18n } from "@/hooks/useI18n"
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import api from "@/utils/api"
-import type { VacationAutoReply, ClientSession, Delegation, Category, SignatureEntry } from "@/utils/api"
+import type { VacationAutoReply, ClientSession, Delegation, Category, SignatureEntry, TemplateEntry } from "@/utils/api"
 import { detectTimeZone, listTimeZones } from "@/utils/timezone"
 import { enablePushNotifications, disablePushNotifications, pushSupported } from "@/utils/push"
 import { RichTextEditor } from "@/components/RichTextEditor"
@@ -477,6 +477,63 @@ export function SettingsPage() {
     setSigEditBody(sig.body)
     setSigEditHTML(sig.is_html)
     setSigError(null)
+  }
+
+  // Message templates / snippets (backed by /api/v1/templates).
+  const [templates, setTemplates] = useState<TemplateEntry[]>([])
+  const [tplEditName, setTplEditName] = useState("")
+  const [tplEditSubject, setTplEditSubject] = useState("")
+  const [tplEditBody, setTplEditBody] = useState("")
+  const [tplEditHTML, setTplEditHTML] = useState(false)
+  const [tplSaving, setTplSaving] = useState(false)
+  const [tplError, setTplError] = useState<string | null>(null)
+  const tplBodyRef = useRef<{ getHTML: () => string; setHTML: (html: string) => void } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getTemplates()
+      .then((res) => { if (!cancelled) setTemplates(res.templates ?? []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const handleTemplateSave = async () => {
+    const name = tplEditName.trim()
+    if (!name) { setTplError("Name is required"); return }
+    setTplError(null)
+    setTplSaving(true)
+    try {
+      const body = tplEditHTML && tplBodyRef.current
+        ? tplBodyRef.current.getHTML()
+        : tplEditBody
+      await api.saveTemplate({ name, subject: tplEditSubject, body, is_html: tplEditHTML })
+      const res = await api.getTemplates()
+      setTemplates(res.templates ?? [])
+      setTplEditName(""); setTplEditSubject(""); setTplEditBody(""); setTplEditHTML(false)
+      toast.success(t("settings.template.saved"))
+    } catch {
+      toast.error(t("settings.template.saveFailed"))
+    } finally {
+      setTplSaving(false)
+    }
+  }
+
+  const handleTemplateDelete = async (name: string) => {
+    try {
+      await api.deleteTemplate(name)
+      setTemplates((prev) => prev.filter((t) => t.name !== name))
+      toast.success(t("settings.template.deleted"))
+    } catch {
+      toast.error(t("settings.template.deleteFailed"))
+    }
+  }
+
+  const editTemplate = (tpl: TemplateEntry) => {
+    setTplEditName(tpl.name)
+    setTplEditSubject(tpl.subject)
+    setTplEditBody(tpl.body)
+    setTplEditHTML(tpl.is_html)
+    setTplError(null)
   }
 
   // Categories: named, colored labels the user can apply to messages.
@@ -1081,6 +1138,93 @@ export function SettingsPage() {
               </Button>
               {sigEditName && (
                 <Button variant="ghost" size="sm" onClick={() => { setSigEditName(""); setSigEditBody(""); setSigEditHTML(false); setSigError(null) }}>
+                  {t("common.cancel")}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </SettingSection>
+
+      {/* Templates / snippets */}
+      <SettingSection
+        icon={FileText}
+        title={t("settings.template.title")}
+        description={t("settings.template.description")}
+      >
+        <div className="space-y-4">
+          {/* Existing templates list */}
+          {templates.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">{t("settings.template.current")}</p>
+              {templates.map((tpl) => (
+                <div key={tpl.name} className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs rounded px-1.5 py-0.5 bg-muted font-mono">{tpl.is_html ? "HTML" : "TXT"}</span>
+                    <span className="truncate text-sm font-medium">{tpl.name}</span>
+                    {tpl.subject && (
+                      <span className="text-xs text-muted-foreground truncate hidden sm:inline">
+                        {t("settings.template.subject")}: {tpl.subject}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 ml-2">
+                    <Button variant="ghost" size="sm" onClick={() => editTemplate(tpl)}>{t("common.edit")}</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleTemplateDelete(tpl.name)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Add / edit form */}
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">{tplEditName ? t("settings.template.edit") : t("settings.template.addNew")}</p>
+            <div className="flex items-center gap-2">
+              <Input
+                value={tplEditName}
+                onChange={(e) => setTplEditName(e.target.value)}
+                placeholder={t("settings.template.namePlaceholder")}
+                className="max-w-xs"
+              />
+              <Input
+                value={tplEditSubject}
+                onChange={(e) => setTplEditSubject(e.target.value)}
+                placeholder={t("settings.template.subjectPlaceholder")}
+                className="max-w-xs"
+              />
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={tplEditHTML}
+                  onChange={(e) => setTplEditHTML(e.target.checked)}
+                />
+                {t("settings.signature.isHtml")}
+              </label>
+            </div>
+            {tplError && <p className="text-xs text-destructive">{tplError}</p>}
+            {tplEditHTML ? (
+              <RichTextEditor
+                ref={tplBodyRef}
+                value={tplEditBody}
+                onChange={setTplEditBody}
+                placeholder={t("settings.template.bodyPlaceholderHtml")}
+              />
+            ) : (
+              <Textarea
+                value={tplEditBody}
+                onChange={(e) => setTplEditBody(e.target.value)}
+                placeholder={t("settings.template.bodyPlaceholder")}
+                rows={4}
+              />
+            )}
+            <div className="flex items-center gap-2">
+              <Button onClick={handleTemplateSave} disabled={tplSaving || !tplEditName.trim()}>
+                {tplSaving ? t("common.saving") : t("common.save")}
+              </Button>
+              {tplEditName && (
+                <Button variant="ghost" size="sm" onClick={() => { setTplEditName(""); setTplEditSubject(""); setTplEditBody(""); setTplEditHTML(false); setTplError(null) }}>
                   {t("common.cancel")}
                 </Button>
               )}

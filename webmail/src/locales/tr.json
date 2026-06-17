@@ -183,6 +183,7 @@
     "sendFailed": "E-posta gönderilemedi. Lütfen tekrar deneyin.",
     "scheduleSend": "Zamanlanmış gönder",
     "signature": "İmza",
+    "template": "Şablon",
     "scheduleSendAt": "Gönderim zamanı",
     "scheduleClear": "Temizle",
     "scheduling": "Zamanla",
@@ -370,6 +371,25 @@
       "edit": "İmzayı düzenle",
       "namePlaceholder": "İmza adı (örn. iş, kişisel)",
       "isHtml": "HTML biçimi"
+    },
+    "template": {
+      "title": "Şablonlar",
+      "description": "Hazır konu ve gövde ile mesaj şablonlarını kaydedin ve yeniden kullanın",
+      "placeholder": "Merhaba,\n\nTakibi yapmak istedim...",
+      "placeholderHtml": "<p>Merhaba,</p><p>Takibi yapmak istedim...</p>",
+      "saved": "Şablon kaydedildi",
+      "saveFailed": "Şablon kaydedilemedi",
+      "deleted": "Şablon silindi",
+      "deleteFailed": "Şablon silinemedi",
+      "current": "Mevcut şablonlar",
+      "addNew": "Yeni şablon ekle",
+      "edit": "Şablonu düzenle",
+      "namePlaceholder": "Şablon adı (örn. takip, giriş)",
+      "subjectPlaceholder": "Konu satırı (isteğe bağlı)",
+      "bodyPlaceholder": "Şablon gövde metni...",
+      "bodyPlaceholderHtml": "Şablon gövde HTML...",
+      "isHtml": "HTML biçimi",
+      "subject": "Konu"
     },
     "categories": {
       "title": "Kategoriler",
