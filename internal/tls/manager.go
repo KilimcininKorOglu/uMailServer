@@ -49,7 +49,7 @@ const domainCacheTTL = 5 * time.Minute
 
 // acmeServicePrefixes are the well-known service hostnames accepted for each
 // authoritative base domain (e.g. mail.example.com for example.com).
-var acmeServicePrefixes = []string{"mail.", "autodiscover.", "smtp.", "imap."}
+var acmeServicePrefixes = []string{"mail.", "autodiscover.", "smtp.", "imap.", "admin.", "owa.", "ews.", "pop.", "jmap.", "caldav.", "carddav."}
 
 // Config holds TLS manager configuration
 type Config struct {
