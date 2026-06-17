@@ -351,7 +351,7 @@ func New(cfg *config.Config) (*Server, error) {
 		Enabled:           cfg.TLS.ACME.Enabled || (cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != ""),
 		AutoTLS:           cfg.TLS.ACME.Enabled,
 		Email:             cfg.TLS.ACME.Email,
-		Domains:           []string{cfg.Server.Hostname},
+		Domains:           domainsForTLS(cfg.Server.Hostname),
 		UseStaging:        cfg.TLS.ACME.Provider == "letsencrypt-staging",
 		Challenge:         cfg.TLS.ACME.Challenge,
 		DNSProvider:       cfg.TLS.ACME.DNSProvider,
@@ -839,4 +839,20 @@ func (s *Server) loadSMIMESigningKeys() {
 		loaded++
 	}
 	s.logger.Info("Loaded S/MIME signing keys", "count", loaded, "dir", s.cfg().Signing.KeyDir)
+}
+
+// domainsForTLS returns the list of domains to request TLS certificates for,
+// including the primary hostname and its admin/mail subdomains.
+func domainsForTLS(hostname string) []string {
+	if hostname == "" {
+		return nil
+	}
+	domains := []string{hostname}
+	// Strip leading "mail." prefix if present to get the base domain
+	domain := strings.TrimPrefix(hostname, "mail.")
+	subdomains := []string{"admin", "smtp", "imap", "pop", "owa", "ews"}
+	for _, sub := range subdomains {
+		domains = append(domains, sub+"."+domain)
+	}
+	return domains
 }
