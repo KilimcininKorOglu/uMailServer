@@ -293,7 +293,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=$DATA_DIR $LOG_DIR $RUN_DIR
+ReadWritePaths=$DATA_DIR $LOG_DIR $RUN_DIR $CONFIG_DIR
 
 [Install]
 WantedBy=multi-user.target
