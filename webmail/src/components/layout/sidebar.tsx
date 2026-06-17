@@ -28,6 +28,7 @@ import {
   ChevronUp,
   Bookmark,
   BookmarkPlus,
+  Share2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -55,6 +56,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { useMailbox } from "@/contexts/MailboxContext"
 import { useI18n } from "@/hooks/useI18n"
 import api, { type SearchFolder } from "@/utils/api"
+import { ShareFolderDialog } from "@/components/share-folder-dialog"
 
 interface SidebarProps {
   collapsed: boolean
@@ -276,6 +278,10 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
   const [folderDialogValue, setFolderDialogValue] = useState("")
   const [folderBusy, setFolderBusy] = useState(false)
   const [folderDeleteTarget, setFolderDeleteTarget] = useState<string | null>(null)
+
+  // Folder sharing dialog
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [shareDialogFolder, setShareDialogFolder] = useState<{ name: string; label: string } | null>(null)
 
   // Saved searches (persistent search folders) and their structured criteria dialog.
   const [savedSearches, setSavedSearches] = useState<SearchFolder[]>([])
@@ -697,6 +703,15 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                     {t("sidebar.rename")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
+                    onClick={() => {
+                      setShareDialogFolder({ name, label: name })
+                      setShareDialogOpen(true)
+                    }}
+                  >
+                    <Share2 className="mr-2 h-4 w-4" />
+                    {t("share.dialogTitle")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
                     className="text-destructive"
                     onClick={() => setFolderDeleteTarget(name)}
                   >
@@ -831,6 +846,21 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Folder sharing dialog */}
+      {shareDialogFolder && (
+        <ShareFolderDialog
+          open={shareDialogOpen}
+          onOpenChange={(open) => {
+            setShareDialogOpen(open)
+            if (!open) setShareDialogFolder(null)
+          }}
+          folderName={shareDialogFolder.name}
+          folderLabel={shareDialogFolder.label}
+          owner={user?.email ?? ""}
+          isOwner={true}
+        />
+      )}
 
       {/* Create / edit saved search dialog (structured criteria) */}
       <Dialog open={sfDialogOpen} onOpenChange={setSfDialogOpen}>

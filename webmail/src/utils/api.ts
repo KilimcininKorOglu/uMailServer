@@ -163,6 +163,32 @@ export interface DelegationInput {
   canSendOnBehalf?: boolean
 }
 
+// ACL entry for folder sharing (RFC 4314)
+export interface ACLEntry {
+  Grantee: string
+  Rights: string // human-readable string from server, e.g. "lrs"
+}
+
+// Folder permission levels mapped to RFC 4314 bitmasks (matching backend preset constants)
+export const FOLDER_PERMISSION_LEVELS = [
+  { label: "Reviewer (read)", value: "reviewer", rights: 3 },    // ACLLookup | ACLRead
+  { label: "Author (read+write)", value: "author", rights: 27 }, // ACLLookup|ACLRead|ACLSeen|ACLWrite|ACLDelete
+  { label: "Editor (full)", value: "editor", rights: 239 },       // ACLAll
+] as const
+
+export type FolderPermissionLevel = "reviewer" | "author" | "editor"
+
+export function rightsToLevel(rights: number): FolderPermissionLevel {
+  if (rights >= 239) return "editor"
+  if (rights >= 27) return "author"
+  return "reviewer"
+}
+
+export function levelToRights(level: FolderPermissionLevel): number {
+  const found = FOLDER_PERMISSION_LEVELS.find(l => l.value === level)
+  return found?.rights ?? 3
+}
+
 export interface SMIMECertInfo {
   subject: string
   issuer: string
@@ -873,6 +899,19 @@ class API {
 
   async getSharedAsOwner(): Promise<{ shared_as_owner?: string[] }> {
     return this.get<{ shared_as_owner?: string[] }>('/mailboxes/shared-as-owner')
+  }
+
+  // Folder ACL (RFC 4314) — owner/mailbox are canonical names (INBOX, custom-folder, etc.)
+  async getACL(owner: string, mailbox: string): Promise<{ owner: string; mailbox: string; acl: ACLEntry[] }> {
+    return this.get(`/mailboxes/${encodeURIComponent(owner)}/${encodeURIComponent(mailbox)}/acl`)
+  }
+
+  async setACL(owner: string, mailbox: string, grantee: string, rights: number): Promise<{ success: boolean }> {
+    return this.post(`/mailboxes/${encodeURIComponent(owner)}/${encodeURIComponent(mailbox)}/acl`, { grantee, rights })
+  }
+
+  async deleteACL(owner: string, mailbox: string, grantee: string): Promise<{ success: boolean }> {
+    return this.delete(`/mailboxes/${encodeURIComponent(owner)}/${encodeURIComponent(mailbox)}/acl/${encodeURIComponent(grantee)}`)
   }
 
   // Sender identities for compose

@@ -228,6 +228,25 @@
     "importanceHigh": "Yüksek",
     "toSend": "ile gönder"
   },
+  "share": {
+    "dialogTitle": "Klasörü paylaş",
+    "dialogDescription": "\"{{folder}}\" klasörüne kimlerin erişebileceğini yönetin.",
+    "currentGrants": "Erişimi olanlar",
+    "noGrants": "Bu klasöre başka kimse erişemiyor.",
+    "addGrant": "Erişim ver",
+    "granteePlaceholder": "kullanici@ornek.com",
+    "grantAdded": "Erişim verildi",
+    "grantFailed": "Erişim verilemedi",
+    "removeFailed": "Erişim kaldırılamadı",
+    "fetchFailed": "Paylaşım ayarları yüklenemedi",
+    "grantRemoved": "Erişim kaldırıldı",
+    "close": "Kapat",
+    "level": {
+      "reviewer": "İnceleyici (okuma)",
+      "author": "Yazar (okuma+yazma)",
+      "editor": "Editör (tam)"
+    }
+  },
   "settings": {
     "description": "E-posta tercihlerinizi ve hesap ayarlarınızı yönetin.",
     "settingUpdated": "Ayar güncellendi",

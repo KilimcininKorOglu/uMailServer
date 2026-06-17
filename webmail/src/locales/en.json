@@ -228,6 +228,25 @@
     "importanceHigh": "High",
     "toSend": "to send"
   },
+  "share": {
+    "dialogTitle": "Share folder",
+    "dialogDescription": "Manage who can access \"{{folder}}\".",
+    "currentGrants": "People with access",
+    "noGrants": "No one else has access to this folder.",
+    "addGrant": "Grant access",
+    "granteePlaceholder": "user@example.com",
+    "grantAdded": "Access granted",
+    "grantFailed": "Failed to grant access",
+    "removeFailed": "Failed to remove access",
+    "fetchFailed": "Failed to load sharing settings",
+    "grantRemoved": "Access revoked",
+    "close": "Close",
+    "level": {
+      "reviewer": "Reviewer (read)",
+      "author": "Author (read+write)",
+      "editor": "Editor (full)"
+    }
+  },
   "settings": {
     "description": "Manage your email preferences and account settings.",
     "settingUpdated": "Setting updated",
