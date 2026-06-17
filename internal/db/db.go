@@ -206,9 +206,9 @@ type DomainData struct {
 	CompanyName          string    `json:"company_name,omitempty"`
 	FromTemplateInternal string    `json:"from_template_internal,omitempty"`
 	FromTemplateExternal string    `json:"from_template_external,omitempty"`
-	IsActive             bool      `json:"is_active"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	IsActive           bool      `json:"is_active"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // QueuePriority represents message priority levels

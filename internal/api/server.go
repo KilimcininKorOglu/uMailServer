@@ -308,6 +308,11 @@ type Config struct {
 	PasswordHasher        string // "bcrypt" (default) or "argon2id"
 	DataDir               string // Path to data directory for backups
 	SeparateAdminListener bool
+	// Autoconfig defaults for Mozilla Thunderbird / mail-client auto-discovery.
+	// Used as fallback when a domain does not override the hostname via Settings.
+	AutoconfigHostname    string
+	AutoconfigIncomingPort  int // default IMAP port
+	AutoconfigOutgoingPort int // default SMTP submission port
 }
 
 // AuditLogConfig holds audit logging configuration

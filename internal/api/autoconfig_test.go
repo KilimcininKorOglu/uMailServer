@@ -46,11 +46,17 @@ func TestExtractEmailFromHost(t *testing.T) {
 }
 
 func TestAutoconfigServer(t *testing.T) {
-	// Create a minimal server for testing
-	s := &Server{}
 
-	// Test buildAutoconfig
-	config := s.buildAutoconfig("example.com")
+	// Test buildAutoconfig with a domainConfig
+	dc := domainConfig{
+		IncomingHostname: "mail.example.com",
+		IncomingPort:    993,
+		IncomingSSL:     true,
+		OutgoingHostname: "mail.example.com",
+		OutgoingPort:   465,
+		OutgoingSSL:    true,
+	}
+	config := buildAutoconfigXML(dc)
 	if config == nil {
 		t.Fatal("Expected non-nil config")
 	}
@@ -60,8 +66,8 @@ func TestAutoconfigServer(t *testing.T) {
 	if len(config.Providers) != 1 {
 		t.Fatal("Expected 1 provider")
 	}
-	if config.Providers[0].ID != "example.com" {
-		t.Errorf("Expected provider ID example.com, got %s", config.Providers[0].ID)
+	if config.Providers[0].ID != "mail.example.com" {
+		t.Errorf("Expected provider ID mail.example.com, got %s", config.Providers[0].ID)
 	}
 	if len(config.Providers[0].IncomingServers) != 1 {
 		t.Fatal("Expected 1 incoming server")
@@ -69,30 +75,33 @@ func TestAutoconfigServer(t *testing.T) {
 	if len(config.Providers[0].OutgoingServers) != 1 {
 		t.Fatal("Expected 1 outgoing server")
 	}
-}
-
-func TestGetMailServer(t *testing.T) {
-	result := getMailServer("example.com")
-	expected := "mail.example.com"
-	if result != expected {
-		t.Errorf("getMailServer(%q) = %q, want %q", "example.com", result, expected)
+	inc := config.Providers[0].IncomingServers[0]
+	if inc.SocketType != "SSL" {
+		t.Errorf("Expected incoming SocketType SSL, got %s", inc.SocketType)
+	}
+	if inc.Authentication != "password-encrypted" {
+		t.Errorf("Expected incoming auth password-encrypted, got %s", inc.Authentication)
+	}
+	out := config.Providers[0].OutgoingServers[0]
+	if out.SocketType != "SSL" {
+		t.Errorf("Expected outgoing SocketType SSL, got %s", out.SocketType)
 	}
 }
 
-func TestGetSocketType(t *testing.T) {
-	if getSocketType(true) != "SSL" {
+func TestSocketType(t *testing.T) {
+	if socketType(true) != "SSL" {
 		t.Error("Expected SSL for true")
 	}
-	if getSocketType(false) != "plain" {
-		t.Error("Expected plain for false")
+	if socketType(false) != "STARTTLS" {
+		t.Error("Expected STARTTLS for false")
 	}
 }
 
-func TestGetAuthMethod(t *testing.T) {
-	if getAuthMethod(true) != "password-encrypted" {
+func TestAuthMethod(t *testing.T) {
+	if authMethod(true) != "password-encrypted" {
 		t.Error("Expected password-encrypted for true")
 	}
-	if getAuthMethod(false) != "password-cleartext" {
+	if authMethod(false) != "password-cleartext" {
 		t.Error("Expected password-cleartext for false")
 	}
 }

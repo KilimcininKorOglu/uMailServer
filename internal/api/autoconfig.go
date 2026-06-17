@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"net/http"
 	"strings"
+
+	"github.com/umailserver/umailserver/internal/db"
 )
 
 // AutoconfigProvider represents an email provider in autoconfig
@@ -28,132 +30,142 @@ type AutoconfigServer struct {
 // AutoconfigClientConfig is the root element
 type AutoconfigClientConfig struct {
 	XMLName   xml.Name             `xml:"clientConfig"`
-	Version   string               `xml:"version,attr"`
+	Version   string              `xml:"version,attr"`
 	Providers []AutoconfigProvider `xml:"emailProvider"`
+}
+
+// domainConfig holds the effective autoconfig for a single domain.
+// Values come from DomainData.Settings with server-wide config defaults as fallback.
+type domainConfig struct {
+	IncomingHostname string
+	IncomingPort     int
+	IncomingSSL      bool
+	OutgoingHostname string
+	OutgoingPort    int
+	OutgoingSSL     bool
+}
+
+// defaultsFromConfig returns the server-wide defaults from the API server config.
+func defaultsFromConfig(cfg Config) domainConfig {
+	return domainConfig{
+		IncomingHostname: cfg.AutoconfigHostname,
+		IncomingPort:     cfg.AutoconfigIncomingPort,
+		IncomingSSL:      true,
+		OutgoingHostname: cfg.AutoconfigHostname,
+		OutgoingPort:     cfg.AutoconfigOutgoingPort,
+		OutgoingSSL:      true,
+	}
+}
+
+// effectiveConfig returns the domain-specific config, falling back to server-wide
+// defaults when the domain Settings are not set.
+func effectiveConfig(dom *db.DomainData, cfg Config) domainConfig {
+	dc := defaultsFromConfig(cfg)
+
+	if dom != nil && dom.Settings != nil {
+		if v := dom.Settings["autoconfig.incoming_hostname"]; v != "" {
+			dc.IncomingHostname = v
+		}
+		if v := dom.Settings["autoconfig.outgoing_hostname"]; v != "" {
+			dc.OutgoingHostname = v
+		}
+	}
+
+	return dc
 }
 
 // handleAutoconfig handles Mozilla-style autoconfig requests
 // Path: /.well-known/autoconfig/mail/config-v1.1.xml
 func (s *Server) handleAutoconfig(w http.ResponseWriter, r *http.Request) {
-	// Only allow GET requests
 	if r.Method != http.MethodGet {
 		s.sendAutoconfigError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
-	// Extract domain from request
 	domain := extractDomainFromRequest(r)
 	if domain == "" {
 		s.sendAutoconfigError(w, http.StatusBadRequest, "Domain required")
 		return
 	}
 
-	// Build autoconfig response
-	config := s.buildAutoconfig(domain)
+	var dom *db.DomainData
+	if s.db != nil {
+		dom, _ = s.db.GetDomain(domain) //nolint:errcheck
+		// If the domain is not found, dom stays nil and defaults are served.
+	}
 
-	// Set headers
+	dc := effectiveConfig(dom, s.config)
+	config := buildAutoconfigXML(dc)
+
 	w.Header().Set("Content-Type", "application/xml")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-
-	// Write response
 	if err := xml.NewEncoder(w).Encode(config); err != nil {
-		// Log to stderr as fallback - encoder error is serious
-		// response is already being written with headers sent
+		// Client disconnected — nothing to do.
 	}
 }
 
-// buildAutoconfig builds the autoconfig for a domain
-func (s *Server) buildAutoconfig(domain string) *AutoconfigClientConfig {
-	// Get domain config from database
-	var incomingPort, outgoingPort int
-	var incomingSSL, outgoingSSL bool
-	var incomingType, outgoingType string
-
-	// Default configuration
-	incomingPort = 993
-	outgoingPort = 465
-	incomingSSL = true
-	outgoingSSL = true
-	incomingType = "imap"
-	outgoingType = "smtp"
-
-	config := &AutoconfigClientConfig{
+// buildAutoconfigXML builds the autoconfig response from the effective domain config.
+func buildAutoconfigXML(dc domainConfig) *AutoconfigClientConfig {
+	return &AutoconfigClientConfig{
 		Version: "1.1",
 		Providers: []AutoconfigProvider{
 			{
-				ID:     domain,
-				Domain: []string{domain},
+				ID:     dc.IncomingHostname,
+				Domain: []string{dc.IncomingHostname},
 				IncomingServers: []AutoconfigServer{
 					{
-						Type:           incomingType,
-						Hostname:       getMailServer(domain),
-						Port:           incomingPort,
-						SocketType:     getSocketType(incomingSSL),
+						Type:           "imap",
+						Hostname:       dc.IncomingHostname,
+						Port:           dc.IncomingPort,
+						SocketType:     socketType(dc.IncomingSSL),
 						Username:       "%EMAILADDRESS%",
-						Authentication: getAuthMethod(incomingSSL),
+						Authentication: authMethod(dc.IncomingSSL),
 					},
 				},
 				OutgoingServers: []AutoconfigServer{
 					{
-						Type:           outgoingType,
-						Hostname:       getMailServer(domain),
-						Port:           outgoingPort,
-						SocketType:     getSocketType(outgoingSSL),
+						Type:           "smtp",
+						Hostname:       dc.OutgoingHostname,
+						Port:           dc.OutgoingPort,
+						SocketType:     socketType(dc.OutgoingSSL),
 						Username:       "%EMAILADDRESS%",
-						Authentication: getAuthMethod(outgoingSSL),
+						Authentication: authMethod(dc.OutgoingSSL),
 					},
 				},
 			},
 		},
 	}
-
-	return config
 }
 
-// getMailServer returns the mail server hostname for a domain
-func getMailServer(domain string) string {
-	// Use the domain itself as the mail server if no specific config
-	// In production, this could look up MX records or use a specific mail host
-	return "mail." + domain
-}
-
-// getSocketType returns the socket type string based on SSL setting
-func getSocketType(ssl bool) string {
+// socketType returns "SSL" for SSL/TLS, "STARTTLS" for opportunistic upgrade.
+func socketType(ssl bool) string {
 	if ssl {
 		return "SSL"
 	}
-	return "plain"
+	return "STARTTLS"
 }
 
-// getAuthMethod returns the authentication method based on SSL setting
-func getAuthMethod(ssl bool) string {
+// authMethod returns the appropriate authentication method identifier.
+func authMethod(ssl bool) string {
 	if ssl {
 		return "password-encrypted"
 	}
 	return "password-cleartext"
 }
 
-// extractDomainFromRequest extracts the domain from the autoconfig request
+// extractDomainFromRequest extracts the domain from the autoconfig request.
 func extractDomainFromRequest(r *http.Request) string {
-	// Try to get domain from Host header
 	host := r.Host
-
-	// Remove port if present
 	if idx := strings.Index(host, ":"); idx > 0 {
 		host = host[:idx]
 	}
-
-	// If host contains the domain, use it
 	if strings.Contains(host, ".") {
 		return strings.ToLower(host)
 	}
-
-	// Try to extract from the request URL path (for POST requests)
-	// Path format: /autodiscover/autodiscover.xml or /.well-known/autoconfig/mail/config-v1.1.xml
 	return ""
 }
 
-// sendAutoconfigError sends an XML error response for autoconfig
+// sendAutoconfigError sends an XML error response for autoconfig.
 func (s *Server) sendAutoconfigError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/xml")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")

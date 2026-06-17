@@ -65,6 +65,9 @@ func (s *Server) startAPI() {
 		},
 		DataDir:               s.cfg().Server.DataDir,
 		SeparateAdminListener: s.cfg().Admin.Enabled,
+		AutoconfigHostname:    "mail." + s.cfg().Server.Hostname,
+		AutoconfigIncomingPort: s.cfg().IMAP.Port,
+		AutoconfigOutgoingPort: s.cfg().SMTP.Submission.Port,
 	}
 	s.apiServer = api.NewServer(s.database, s.logger, apiCfg)
 	if s.tlsManager != nil {
