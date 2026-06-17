@@ -132,6 +132,7 @@
     "failedToRsvp": "Davete yanıt verilemedi",
     "failedToDownload": "Ek indirilemedi",
     "exportEML": "EML olarak dışa aktar",
+    "print": "Yazdır",
     "exportFailed": "İleti dışa aktarılamadı",
     "movedTo": "{{folder}} klasörüne taşındı",
     "failedToMove": "İleti taşınamadı",

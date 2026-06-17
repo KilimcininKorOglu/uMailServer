@@ -132,6 +132,7 @@
     "failedToRsvp": "Failed to respond to the invitation",
     "failedToDownload": "Failed to download attachment",
     "exportEML": "Export as EML",
+    "print": "Print",
     "exportFailed": "Failed to export message",
     "movedTo": "Moved to {{folder}}",
     "failedToMove": "Failed to move message",

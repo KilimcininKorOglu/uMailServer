@@ -34,8 +34,92 @@
 }
 
 /* Dark mode */
-.dark {
-  --color-background: hsl(222.2 84% 4.9%);
+/* Print styles: hide chrome, show content only */
+@media print {
+  /* Hide navigation and chrome */
+  aside,
+  nav,
+  header,
+  footer,
+  [data-print="hide"] {
+    display: none !important;
+  }
+
+  /* Reset background for dark-mode users */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* White background for all containers */
+  .bg-background,
+  .bg-card,
+  .bg-popover,
+  .bg-accent,
+  .bg-secondary {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Ensure email body is visible */
+  .prose {
+    color: black !important;
+  }
+
+  /* Don't break inside email content */
+  .prose p,
+  .prose li,
+  .prose div {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Show all content, remove scrolling */
+  main,
+  [data-print="content"] {
+    display: block !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  /* Links should show URL */
+  a[href]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #666;
+  }
+
+  /* Don't print URL for internal links */
+  a[href^="/"],
+  a[href^="#"] {
+    &::after {
+      content: none;
+    }
+  }
+
+  /* Avoid cutting between table rows */
+  tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Print contact cards nicely */
+  .contact-card {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    border: 1px solid #ccc;
+    padding: 8px;
+    margin-bottom: 8px;
+  }
+
+  /* Print calendar events cleanly */
+  .calendar-event {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+
+.dark {  --color-background: hsl(222.2 84% 4.9%);
   --color-foreground: hsl(210 40% 98%);
   --color-card: hsl(222.2 84% 4.9%);
   --color-card-foreground: hsl(210 40% 98%);

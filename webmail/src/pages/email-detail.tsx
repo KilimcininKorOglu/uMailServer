@@ -17,6 +17,7 @@ import {
   HelpCircle,
   Paperclip,
   Download,
+  Printer,
   Undo2,
   RotateCcw,
 } from "lucide-react"
@@ -437,6 +438,14 @@ export function EmailDetailPage() {
                 title={t("emailDetail.exportEML")}
               >
                 <Download className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.print()}
+                title={t("emailDetail.print")}
+              >
+                <Printer className="h-5 w-5" />
               </Button>
               <Button
                 variant="ghost"
