@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -379,6 +380,49 @@ func (d *DB) DeleteUserConfig(owner, name string) error {
 	ctx := context.Background()
 	if _, err := d.pool.Exec(ctx, `DELETE FROM ews_user_config WHERE owner=$1 AND name=$2`, owner, name); err != nil {
 		return fmt.Errorf("postgres: delete user config %s/%s: %w", owner, name, err)
+	}
+	return nil
+}
+
+// ListBlockedSenders returns the user's blocked sender list.
+func (d *DB) ListBlockedSenders(user string) ([]db.BlockedSender, error) {
+	ctx := context.Background()
+	var sendersJSON string
+	err := d.pool.QueryRow(ctx,
+		`SELECT senders FROM user_blocked_senders WHERE user_email=$1`, user,
+	).Scan(&sendersJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("postgres: list blocked senders %s: %w", user, err)
+	}
+	if sendersJSON == "" || sendersJSON == "null" {
+		return nil, nil
+	}
+	var senders []db.BlockedSender
+	if err := json.Unmarshal([]byte(sendersJSON), &senders); err != nil {
+		return nil, fmt.Errorf("postgres: unmarshal blocked senders %s: %w", user, err)
+	}
+	return senders, nil
+}
+
+// PutBlockedSenders stores the user's blocked sender list.
+func (d *DB) PutBlockedSenders(user string, entries []db.BlockedSender) error {
+	if entries == nil {
+		entries = []db.BlockedSender{}
+	}
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("postgres: marshal blocked senders: %w", err)
+	}
+	ctx := context.Background()
+	_, err = d.pool.Exec(ctx,
+		`INSERT INTO user_blocked_senders (user_email, senders) VALUES ($1, $2)
+		 ON CONFLICT (user_email) DO UPDATE SET senders=EXCLUDED.senders`,
+		user, string(data))
+	if err != nil {
+		return fmt.Errorf("postgres: put blocked senders %s: %w", user, err)
 	}
 	return nil
 }

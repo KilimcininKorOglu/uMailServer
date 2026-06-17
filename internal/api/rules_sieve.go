@@ -19,10 +19,10 @@ func sieveUserIDs(mailbox string) []string {
 }
 
 // recompileSieveForMailbox rebuilds a mailbox's active Sieve script from its
-// canonical policy state (inbox rules + OOF) and installs it in the Sieve
-// manager, so changes made through the webmail filter endpoints take effect at
-// delivery. It mirrors the EWS recompile path (internal/ews/rules.go). It is a
-// no-op when the Sieve manager or the canonical store is absent.
+// canonical policy state (inbox rules + OOF + blocked senders) and installs it
+// in the Sieve manager, so changes made through the webmail filter endpoints
+// take effect at delivery. It mirrors the EWS recompile path (internal/ews/rules.go).
+// It is a no-op when the Sieve manager or the canonical store is absent.
 func (s *Server) recompileSieveForMailbox(mbid semcore.MailboxId) error {
 	if s.sieveManager == nil || s.semStore == nil {
 		return nil
@@ -37,6 +37,18 @@ func (s *Server) recompileSieveForMailbox(mbid semcore.MailboxId) error {
 	// (CompileEffectivePolicy) so they apply org-wide and a user editing their
 	// own rules can never drop them.
 	script := semcore.CompileEffectivePolicy(s.semStore.Policy(), mbid, oofPolicy)
+
+	// Prepend blocked-sender rejections if any are configured.
+	if s.db != nil {
+		if blocked, err := s.db.ListBlockedSenders(mbid.String()); err == nil && len(blocked) > 0 {
+			addrs := make([]string, len(blocked))
+			for i, b := range blocked {
+				addrs[i] = b.Address
+			}
+			script = semcore.CompileBlockedSenders(addrs) + "\n" + script
+		}
+	}
+
 	for _, userID := range sieveUserIDs(mbid.String()) {
 		if err := s.sieveManager.StoreScript(userID, sieve.ManagedScriptName, script); err != nil {
 			return err

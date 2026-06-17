@@ -348,6 +348,14 @@ CREATE TABLE IF NOT EXISTS user_templates (
     PRIMARY KEY (user_email, tmpl_name)
 );
 
+-- Blocked senders: email addresses or domains (with leading @) the user has
+-- blocked. Stored as a list so the same entry format works for both bbolt
+-- (JSON array) and postgres (single TEXT column, JSON array).
+CREATE TABLE IF NOT EXISTS user_blocked_senders (
+    user_email TEXT PRIMARY KEY,
+    senders    TEXT NOT NULL DEFAULT '[]'
+);
+
 -- Vacation / auto-reply config (the legacy fallback store; the canonical OOF
 -- lives in the semantic core). send_interval is stored as nanoseconds to match
 -- the Go time.Duration round-trip.

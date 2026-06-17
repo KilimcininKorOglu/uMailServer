@@ -173,6 +173,9 @@ type Store interface {
 	GetVacation(user string) (*vacation.Config, error)
 	PutVacation(user string, c *vacation.Config) error
 	DeleteVacation(user string) error
+	// Blocked senders.
+	ListBlockedSenders(user string) ([]BlockedSender, error)
+	PutBlockedSenders(user string, entries []BlockedSender) error
 	GetUserConfig(owner, name string) (*UserConfigBlob, error)
 	PutUserConfig(owner, name string, b *UserConfigBlob) error
 	DeleteUserConfig(owner, name string) error

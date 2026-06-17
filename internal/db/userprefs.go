@@ -24,13 +24,20 @@ type categoriesValue struct {
 }
 
 const (
-	signatureKeySuffix  = ":signature"
-	categoriesKeySuffix = ":categories"
-	templateKeySuffix   = ":template"
+	signatureKeySuffix       = ":signature"
+	categoriesKeySuffix      = ":categories"
+	templateKeySuffix       = ":template"
+	blockedSendersKeySuffix = ":blocked_senders"
 	// userConfigKeyPrefix matches the EWS handler's bbolt key prefix so existing
 	// UserConfiguration entries round-trip.
 	userConfigKeyPrefix = "ewsuserconfig:"
 )
+
+// BlockedSender represents a blocked sender entry.
+type BlockedSender struct {
+	Address string `json:"address"` // email address or domain (with leading @)
+	Name   string `json:"name"`    // optional display name
+}
 
 // GetUIPrefs returns the user's webmail toggle map, empty when none are set
 // (matching the handler's treat-error-as-empty behavior).
@@ -210,4 +217,24 @@ func (d *DB) DeleteUserConfig(owner, name string) error {
 // the layout the EWS handler used (prefix + owner + ":" + name).
 func userConfigKey(owner, name string) string {
 	return userConfigKeyPrefix + owner + ":" + name
+}
+
+// ListBlockedSenders returns the user's blocked sender list.
+func (d *DB) ListBlockedSenders(user string) ([]BlockedSender, error) {
+	var entries []BlockedSender
+	if err := d.Get(BucketPreferences, user+blockedSendersKeySuffix, &entries); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return entries, nil
+}
+
+// PutBlockedSenders stores the user's blocked sender list.
+func (d *DB) PutBlockedSenders(user string, entries []BlockedSender) error {
+	if entries == nil {
+		entries = []BlockedSender{}
+	}
+	return d.Put(BucketPreferences, user+blockedSendersKeySuffix, entries)
 }

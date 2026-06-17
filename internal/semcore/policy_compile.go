@@ -6,6 +6,42 @@ import (
 	"strings"
 )
 
+// CompileBlockedSenders generates a Sieve script block that rejects mail from
+// the given sender addresses or domains using the envelope test.
+func CompileBlockedSenders(addresses []string) string {
+	if len(addresses) == 0 {
+		return ""
+	}
+	var tests []string
+	for _, addr := range addresses {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		if strings.HasPrefix(addr, "@") {
+			// Domain block: reject if sender domain matches
+			domain := strings.ToLower(strings.TrimPrefix(addr, "@"))
+			tests = append(tests, fmt.Sprintf(
+				`envelope :all :contains "from" "@%s"`, domain))
+		} else {
+			// Exact address block
+			tests = append(tests, fmt.Sprintf(
+				`envelope :all :is "from" "%s"`, strings.ToLower(addr)))
+		}
+	}
+	if len(tests) == 0 {
+		return ""
+	}
+	joinOp := ",\n    "
+	return fmt.Sprintf(`# Blocked senders
+require ["envelope"];
+if anyof (%s) {
+    reject "Message from blocked sender rejected.";
+    stop;
+}
+`, strings.Join(tests, joinOp))
+}
+
 // CompileRulesToSieve compiles a sorted list of rules to a Sieve script string.
 // The rules must be sorted by priority (lower = higher precedence).
 // The returned string is a valid Sieve script that can be executed by the

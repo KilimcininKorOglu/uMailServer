@@ -800,6 +800,10 @@ func (s *Server) initRouter() {
 	api.HandleFunc("/api/v1/filters/import", s.handleFiltersImport)
 	api.HandleFunc("/api/v1/filters/", s.handleFilterPath)
 
+	// Blocked senders
+	api.HandleFunc("/api/v1/blocked-senders", s.handleBlockedSenders)
+	api.HandleFunc("/api/v1/blocked-senders/", s.handleBlockedSenderDelete)
+
 	// Client sessions (account portal)
 	api.HandleFunc("/api/v1/sessions", s.handleSessions)
 	api.HandleFunc("/api/v1/sessions/", s.handleSessionRevoke)
