@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users, Repeat, List, LayoutGrid, ChevronLeft, ChevronRight, Settings2 } from "lucide-react"
+import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users, Repeat, List, LayoutGrid, ChevronLeft, ChevronRight, Settings2, Share2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -32,6 +32,8 @@ import { withTz, getDisplayTimeZone } from "@/utils/date"
 import { detectTimeZone } from "@/utils/timezone"
 import api, { type Calendar, type CalendarEvent, type UserFreeBusy, type Room } from "@/utils/api"
 import { useI18n } from "@/hooks/useI18n"
+import { useAuth } from "@/contexts/AuthContext"
+import { ShareFolderDialog } from "@/components/share-folder-dialog"
 
 type TFunc = (key: string, params?: Record<string, string>) => string
 
@@ -171,6 +173,7 @@ export function CalendarPage() {
   const [fbResults, setFbResults] = useState<UserFreeBusy[] | null>(null)
 
   // Multi-calendar state.
+  const { user } = useAuth()
   const [calendars, setCalendars] = useState<Calendar[]>([])
   const [visibleCalendarIds, setVisibleCalendarIds] = useState<Set<string>>(new Set(["default"]))
   const [calDialogOpen, setCalDialogOpen] = useState(false)
@@ -179,6 +182,8 @@ export function CalendarPage() {
   const [calForm, setCalForm] = useState({ name: "", description: "", color: "#3b82f6" })
   const [calBusy, setCalBusy] = useState(false)
   const [deleteCalTarget, setDeleteCalTarget] = useState<Calendar | null>(null)
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [shareDialogCal, setShareDialogCal] = useState<Calendar | null>(null)
 
   const loadCalendars = useCallback(async () => {
     try {
@@ -491,6 +496,15 @@ export function CalendarPage() {
                     >
                       <Edit className="mr-2 h-4 w-4" />
                       {t("common.edit")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setShareDialogCal(cal)
+                        setShareDialogOpen(true)
+                      }}
+                    >
+                      <Share2 className="mr-2 h-4 w-4" />
+                      {t("share.dialogTitle")}
                     </DropdownMenuItem>
                     {!cal.isDefault && (
                       <DropdownMenuItem
@@ -982,6 +996,21 @@ export function CalendarPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Calendar sharing dialog */}
+      {shareDialogCal && (
+        <ShareFolderDialog
+          open={shareDialogOpen}
+          onOpenChange={(open) => {
+            setShareDialogOpen(open)
+            if (!open) setShareDialogCal(null)
+          }}
+          folderName={shareDialogCal.id}
+          folderLabel={shareDialogCal.name}
+          owner={user?.email ?? ""}
+          isOwner={true}
+        />
+      )}
     </div>
   )
 }
