@@ -613,6 +613,10 @@ func (s *Server) dispatchMethodCall(user string, call MethodCall, createdIDs map
 	// collaboration store shared with EWS, CalDAV, and webmail.
 	case "Calendar/get":
 		return s.handleCalendarGet(user, call)
+	case "Calendar/query":
+		return s.handleCalendarQuery(user, call)
+	case "Calendar/set":
+		return s.handleCalendarSet(user, call, createdIDs)
 	case "CalendarEvent/get":
 		return s.handleCalendarEventGet(user, call)
 	case "CalendarEvent/query":

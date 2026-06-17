@@ -1,6 +1,7 @@
 package jmap
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"strconv"
@@ -39,6 +40,24 @@ func (s *Server) calendarState(user string) string {
 	return strings.Trim(etag, `"`)
 }
 
+// calendarMetadataState returns an opaque state string derived from the list of
+// calendar metadata (ids + names + colors), so Calendar/get|query|set agree on
+// a single state value.
+func (s *Server) calendarMetadataState(user string) string {
+	cals, err := s.calStore.GetCalendars(user)
+	if err != nil || len(cals) == 0 {
+		return "empty"
+	}
+	var b strings.Builder
+	for _, c := range cals {
+		b.WriteString(c.ID)
+		b.WriteString(c.Name)
+		b.WriteString(c.Color)
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return fmt.Sprintf("%x", sum)[:16]
+}
+
 // ---- Calendar/get -----------------------------------------------------------
 
 func (s *Server) handleCalendarGet(user string, call MethodCall) Response {
@@ -50,48 +69,263 @@ func (s *Server) handleCalendarGet(user string, call MethodCall) Response {
 		return jmapError(call.ID, "notSupported", "calendars are not available")
 	}
 
-	cal := map[string]interface{}{
-		"id":              jmapDefaultCalendarID,
-		"name":            jmapDefaultCalendarName,
-		"color":           "#3b82f6",
-		"sortOrder":       float64(0),
-		"isDefault":       true,
-		"isSubscribed":    true,
-		"isVisible":       true,
-		"mayReadFreeBusy": true,
-		"mayReadItems":    true,
-		"mayAddItems":     true,
-		"mayModifyItems":  true,
-		"mayRemoveItems":  true,
-		"mayRename":       false,
-		"mayDelete":       false,
-		"myRights":        map[string]interface{}{},
+	cals, err := s.calStore.GetCalendars(user)
+	if err != nil {
+		return jmapError(call.ID, "serverFail", err.Error())
 	}
 
-	ids, hasIDs := call.Args["ids"].([]interface{})
-	list := []interface{}{}
+	ids, hasIDs := call.Args["ids"].([]any)
+	list := []any{}
 	notFound := []string{}
-	if hasIDs {
+	wantAll := !hasIDs || len(ids) == 0
+
+	// Build lookup map.
+	byID := make(map[string]any, len(cals))
+	for i, c := range cals {
+		isDefault := c.ID == jmapDefaultCalendarID
+		obj := map[string]any{
+			"id":              c.ID,
+			"name":            c.Name,
+			"color":           c.Color,
+			"sortOrder":       float64(i) * 1024,
+			"isDefault":       isDefault,
+			"isSubscribed":    true,
+			"isVisible":       true,
+			"mayReadFreeBusy": true,
+			"mayReadItems":    true,
+			"mayAddItems":     true,
+			"mayModifyItems":  true,
+			"mayRemoveItems":  true,
+			"mayRename":       !isDefault,
+			"mayDelete":       !isDefault,
+			"myRights":        map[string]any{},
+		}
+		if c.Description != "" {
+			obj["description"] = c.Description
+		}
+		byID[c.ID] = obj
+	}
+
+	if wantAll {
+		for _, c := range cals {
+			list = append(list, byID[c.ID])
+		}
+	} else {
 		for _, raw := range ids {
 			id, isStr := raw.(string)
-			switch {
-			case isStr && id == jmapDefaultCalendarID:
-				list = append(list, cal)
-			case isStr:
+			if !isStr {
+				continue
+			}
+			if obj, found := byID[id]; found {
+				list = append(list, obj)
+			} else {
 				notFound = append(notFound, id)
 			}
 		}
-	} else {
-		list = append(list, cal)
 	}
 
 	return Response{
 		Name: "Calendar/get",
-		Args: map[string]interface{}{
+		Args: map[string]any{
 			"accountId": accountID,
-			"state":     s.calendarState(user),
+			"state":     s.calendarMetadataState(user),
 			"list":      list,
 			"notFound":  notFound,
+		},
+		ID: call.ID,
+	}
+}
+
+// ---- Calendar/query ----------------------------------------------------------
+
+func (s *Server) handleCalendarQuery(user string, call MethodCall) Response {
+	accountID := argString(call.Args, "accountId")
+	if valid, resp := validateAccountId(accountID, user, "Calendar/query", call.ID); !valid {
+		return resp
+	}
+	if !s.calendarsEnabled() {
+		return jmapError(call.ID, "notSupported", "calendars are not available")
+	}
+
+	cals, err := s.calStore.GetCalendars(user)
+	if err != nil {
+		return jmapError(call.ID, "serverFail", err.Error())
+	}
+
+	// JMAP Calendar/query filters are defined in JSCalendar; we support
+	// a simple "name" substring filter and generic "accountId" scope.
+	filter := argMap(call.Args, "filter")
+	nameFilter := argString(filter, "name")
+
+	ids := make([]string, 0, len(cals))
+	for _, c := range cals {
+		if nameFilter != "" && !strings.Contains(strings.ToLower(c.Name), strings.ToLower(nameFilter)) {
+			continue
+		}
+		ids = append(ids, c.ID)
+	}
+	sort.Strings(ids)
+
+	// Pagination.
+	offset := 0
+	if pos, ok := call.Args["position"].(float64); ok && pos > 0 {
+		offset = int(pos)
+	}
+	if offset > len(ids) {
+		offset = len(ids)
+	}
+	page := ids[offset:]
+	if limit, ok := call.Args["limit"].(float64); ok && limit > 0 {
+		if int(limit) < len(page) {
+			page = page[:int(limit)]
+		}
+	}
+
+	// Sorting.
+	sortArg := argString(call.Args, "sort")
+	// Multi-value sort is complex; default to name asc.
+	if sortArg == "name" {
+		// Already sorted by id above; re-sort by name.
+		sort.Slice(page, func(i, j int) bool {
+			var nameI, nameJ string
+			for _, c := range cals {
+				if c.ID == page[i] {
+					nameI = c.Name
+				}
+				if c.ID == page[j] {
+					nameJ = c.Name
+				}
+			}
+			return nameI < nameJ
+		})
+	}
+
+	return Response{
+		Name: "Calendar/query",
+		Args: map[string]any{
+			"accountId":           accountID,
+			"queryState":          s.calendarMetadataState(user),
+			"canCalculateChanges": false,
+			"position":            float64(offset),
+			"total":               float64(len(ids)),
+			"ids":                 toIfaceStrings(page),
+		},
+		ID: call.ID,
+	}
+}
+
+// ---- Calendar/set -----------------------------------------------------------
+
+func (s *Server) handleCalendarSet(user string, call MethodCall, createdIDs map[string]string) Response {
+	accountID := argString(call.Args, "accountId")
+	if valid, resp := validateAccountId(accountID, user, "Calendar/set", call.ID); !valid {
+		return resp
+	}
+	if !s.calendarsEnabled() {
+		return jmapError(call.ID, "notSupported", "calendars are not available")
+	}
+
+	oldState := s.calendarMetadataState(user)
+	created := map[string]any{}
+	notCreated := map[string]any{}
+	updated := map[string]any{}
+	notUpdated := map[string]any{}
+	destroyed := []string{}
+	notDestroyed := map[string]any{}
+
+	for creationID, raw := range argMap(call.Args, "create") {
+		props, ok := raw.(map[string]any)
+		if !ok {
+			notCreated[creationID] = map[string]any{"type": "invalidProperties"}
+			continue
+		}
+		name := argString(props, "name")
+		if name == "" {
+			notCreated[creationID] = map[string]any{"type": "invalidProperties", "description": "name is required"}
+			continue
+		}
+		color := argString(props, "color")
+		if color == "" {
+			color = "#3b82f6"
+		}
+		description := argString(props, "description")
+		cal := &caldav.Calendar{
+			Name:        name,
+			Color:       color,
+			Description: description,
+		}
+		if err := s.calStore.CreateCalendar(user, cal); err != nil {
+			notCreated[creationID] = map[string]any{"type": "serverFail", "description": err.Error()}
+			continue
+		}
+		created[creationID] = map[string]any{"id": cal.ID}
+		if createdIDs != nil {
+			createdIDs[creationID] = cal.ID
+		}
+	}
+
+	for id, raw := range argMap(call.Args, "update") {
+		patch, ok := raw.(map[string]any)
+		if !ok {
+			notUpdated[id] = map[string]any{"type": "invalidPatch"}
+			continue
+		}
+		cal, err := s.calStore.GetCalendar(user, id)
+		if err != nil {
+			notUpdated[id] = map[string]any{"type": "notFound"}
+			continue
+		}
+		if id == jmapDefaultCalendarID {
+			// Some fields are immutable on the default calendar.
+			if _, hasName := patch["name"]; hasName {
+				notUpdated[id] = map[string]any{"type": "invalidPatch", "description": "cannot rename the default calendar"}
+				continue
+			}
+		}
+		if v, ok := patch["name"].(string); ok {
+			cal.Name = v
+		}
+		if v, ok := patch["color"].(string); ok {
+			cal.Color = v
+		}
+		if v, ok := patch["description"].(string); ok {
+			cal.Description = v
+		}
+		if err := s.calStore.UpdateCalendar(user, cal); err != nil {
+			notUpdated[id] = map[string]any{"type": "serverFail", "description": err.Error()}
+			continue
+		}
+		updated[id] = nil
+	}
+
+	for _, raw := range argSlice(call.Args, "destroy") {
+		id, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		if id == jmapDefaultCalendarID {
+			notDestroyed[id] = map[string]any{"type": "forbidden", "description": "cannot delete the default calendar"}
+			continue
+		}
+		if err := s.calStore.DeleteCalendar(user, id); err != nil {
+			notDestroyed[id] = map[string]any{"type": "serverFail", "description": err.Error()}
+			continue
+		}
+		destroyed = append(destroyed, id)
+	}
+
+	return Response{
+		Name: "Calendar/set",
+		Args: map[string]any{
+			"accountId":    accountID,
+			"oldState":     oldState,
+			"newState":     s.calendarMetadataState(user),
+			"created":      created,
+			"updated":      updated,
+			"destroyed":    destroyed,
+			"notCreated":   notCreated,
+			"notUpdated":   notUpdated,
+			"notDestroyed": notDestroyed,
 		},
 		ID: call.ID,
 	}
