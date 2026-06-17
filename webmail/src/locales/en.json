@@ -9,6 +9,7 @@
     "scheduled": "Scheduled",
     "trash": "Trash",
     "spam": "Spam",
+    "shared": "Shared with me",
     "contacts": "Contacts",
     "calendar": "Calendar",
     "tasks": "Tasks",
@@ -805,6 +806,12 @@
     "unavailableDescription": "This folder is not available on the server.",
     "emptyTitle": "{{name}} is empty",
     "emptyDescription": "No messages in this folder yet."
+  },
+  "shared": {
+    "title": "Shared with me",
+    "empty": "No folders have been shared with you.",
+    "sharedBy": "Shared by {{owner}}",
+    "sharedFolder": "Shared folder"
   },
   "threads": {
     "noConversations": "No conversations",

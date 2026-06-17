@@ -9,6 +9,7 @@
     "scheduled": "Zamanlanmış",
     "trash": "Çöp Kutusu",
     "spam": "Önemsiz",
+    "shared": "Benimle paylaşılan",
     "contacts": "Kişiler",
     "calendar": "Takvim",
     "tasks": "Görevler",
@@ -805,6 +806,12 @@
     "unavailableDescription": "Bu klasör sunucuda mevcut değil.",
     "emptyTitle": "{{name}} boş",
     "emptyDescription": "Bu klasörde henüz ileti yok."
+  },
+  "shared": {
+    "title": "Benimle paylaşılan",
+    "empty": "Sizinle paylaşılan klasör yok.",
+    "sharedBy": "{{owner}} tarafından paylaşılan",
+    "sharedFolder": "Paylaşılan klasör"
   },
   "threads": {
     "noConversations": "Konuşma yok",

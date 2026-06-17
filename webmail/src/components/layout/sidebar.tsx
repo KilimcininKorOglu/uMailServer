@@ -85,6 +85,7 @@ const mainNavItems: NavItem[] = [
   { icon: FileText, label: "nav.drafts", path: "/drafts", shortcut: "gd" },
   { icon: Clock, label: "nav.scheduled", path: "/scheduled" },
   { icon: Trash2, label: "nav.trash", path: "/trash", shortcut: "gT" },
+  { icon: Users, label: "nav.shared", path: "/shared" },
   { icon: Users, label: "nav.contacts", path: "/contacts" },
   { icon: CalendarDays, label: "nav.calendar", path: "/calendar" },
   { icon: ListTodo, label: "nav.tasks", path: "/tasks" },

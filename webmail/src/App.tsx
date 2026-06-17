@@ -9,6 +9,7 @@ import { ComposePage } from "@/pages/compose"
 import { SentPage } from "@/pages/sent"
 import { DraftsPage } from "@/pages/drafts"
 import { ScheduledPage } from "@/pages/scheduled"
+import { SharedPage } from "@/pages/shared"
 import { TrashPage } from "@/pages/trash"
 import { ContactsPage } from "@/pages/contacts"
 import { CalendarPage } from "@/pages/calendar"
@@ -103,6 +104,7 @@ function AppContent() {
           <Route path="drafts" element={<DraftsPage />} />
           <Route path="scheduled" element={<ScheduledPage />} />
           <Route path="trash" element={<TrashPage />} />
+          <Route path="shared" element={<SharedPage />} />
           <Route path="contacts" element={<ContactsPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="tasks" element={<TasksPage />} />
