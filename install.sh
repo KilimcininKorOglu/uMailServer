@@ -103,6 +103,72 @@ check_go() {
     fi
 }
 
+# Configure firewall ports
+configure_firewall() {
+    if ! command -v firewall-cmd &> /dev/null; then
+        info "firewalld not found, skipping firewall configuration"
+        return
+    fi
+
+    if ! firewall-cmd --state &> /dev/null 2>&1; then
+        info "firewalld is not running, skipping firewall configuration"
+        return
+    fi
+
+    info "Configuring firewalld ports..."
+
+    # Ports required for ACME HTTP-01 challenge
+    local acme_ports=("80/tcp" "443/tcp")
+
+    # Mail protocol ports
+    local mail_ports=(
+        "25/tcp"    # SMTP inbound
+        "465/tcp"   # SMTP submission TLS
+        "587/tcp"   # SMTP submission
+        "143/tcp"   # IMAP
+        "993/tcp"   # IMAPS
+        "995/tcp"   # POP3S
+        "4190/tcp"  # ManageSieve
+    )
+
+    # ACME ports always needed (HTTP-01 challenge)
+    for port in "${acme_ports[@]}"; do
+        if firewall-cmd --query-port="$port" &>/dev/null 2>&1; then
+            info "Port $port already open"
+        else
+            firewall-cmd --permanent --add-port="$port" 2>/dev/null && \
+            info "Added port $port" || \
+            warn "Failed to add port $port"
+        fi
+    done
+
+    # Mail ports only if running as root (privileged ports)
+    if [[ $EUID -eq 0 ]]; then
+        for port in "${mail_ports[@]}"; do
+            if firewall-cmd --query-port="$port" &>/dev/null 2>&1; then
+                info "Port $port already open"
+            else
+                firewall-cmd --permanent --add-port="$port" 2>/dev/null && \
+                info "Added port $port" || \
+                warn "Failed to add port $port"
+            fi
+        done
+    else
+        warn "Not running as root, skipping privileged mail ports (25, 465, 587, 993, 995, 4190)"
+        warn "Run as root or manually: firewall-cmd --permanent --add-port=<port>/tcp"
+    fi
+
+    if firewall-cmd --reload &>/dev/null 2>&1; then
+        info "Firewall rules reloaded"
+    else
+        warn "Failed to reload firewall rules"
+    fi
+
+    # List open ports
+    info "Open ports:"
+    firewall-cmd --list-ports 2>/dev/null | tr ' ' '\n' | while read -r p; do [[ -n "$p" ]] && echo "  - $p"; done
+}
+
 # Create user and group
 create_user() {
     if id "$USER" &>/dev/null; then
@@ -440,6 +506,7 @@ main() {
     if [[ "$NO_SERVICE" == "false" ]]; then
         create_user
         set_ownership
+        configure_firewall
     fi
 
     # Check if binary exists in current directory
