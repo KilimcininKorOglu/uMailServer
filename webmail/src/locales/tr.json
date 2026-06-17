@@ -517,7 +517,22 @@
     "checking": "Kontrol ediliyor…",
     "check": "Kontrol Et",
     "deleteEvent": "Etkinliği Sil",
-    "deleteConfirm": "\"{{name}}\" silinsin mi? Bu geri alınamaz."
+    "deleteConfirm": "\"{{name}}\" silinsin mi? Bu geri alınamaz.",
+    "calendars": "Takvimler",
+    "addCalendar": "Takvim ekle",
+    "newCalendar": "Yeni Takvim",
+    "editCalendar": "Takvimi Düzenle",
+    "calendarName": "Ad",
+    "calendarNamePlaceholder": "Takvimim",
+    "color": "Renk",
+    "calendarNameRequired": "Takvim adı gereklidir",
+    "calendarCreated": "Takvim oluşturuldu",
+    "calendarUpdated": "Takvim güncellendi",
+    "calendarSaveFailed": "Takvim kaydedilemedi",
+    "deleteCalendar": "Takvimi Sil",
+    "deleteCalendarConfirm": "\"{{name}}\" takvimi silinsin mi? Bu takvimdeki etkinlikler de silinecektir.",
+    "calendarDeleted": "Takvim silindi",
+    "calendarDeleteFailed": "Takvim silinemedi"
   },
   "filters": {
     "description": "Gelen postaları otomatik olarak sırala ve işle",

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users, Repeat, List, LayoutGrid, ChevronLeft, ChevronRight } from "lucide-react"
+import { CalendarDays, Plus, MapPin, Clock, Edit, Trash2, MoreHorizontal, Users, Repeat, List, LayoutGrid, ChevronLeft, ChevronRight, Settings2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -30,7 +30,7 @@ import { toast } from "sonner"
 import { AttendeePicker } from "@/components/attendee-picker"
 import { withTz, getDisplayTimeZone } from "@/utils/date"
 import { detectTimeZone } from "@/utils/timezone"
-import api, { type CalendarEvent, type UserFreeBusy, type Room } from "@/utils/api"
+import api, { type Calendar, type CalendarEvent, type UserFreeBusy, type Room } from "@/utils/api"
 import { useI18n } from "@/hooks/useI18n"
 
 type TFunc = (key: string, params?: Record<string, string>) => string
@@ -170,6 +170,29 @@ export function CalendarPage() {
   const [fbLoading, setFbLoading] = useState(false)
   const [fbResults, setFbResults] = useState<UserFreeBusy[] | null>(null)
 
+  // Multi-calendar state.
+  const [calendars, setCalendars] = useState<Calendar[]>([])
+  const [visibleCalendarIds, setVisibleCalendarIds] = useState<Set<string>>(new Set(["default"]))
+  const [calDialogOpen, setCalDialogOpen] = useState(false)
+  const [calDialogMode, setCalDialogMode] = useState<"create" | "edit">("create")
+  const [calDialogCal, setCalDialogCal] = useState<Calendar | null>(null)
+  const [calForm, setCalForm] = useState({ name: "", description: "", color: "#3b82f6" })
+  const [calBusy, setCalBusy] = useState(false)
+  const [deleteCalTarget, setDeleteCalTarget] = useState<Calendar | null>(null)
+
+  const loadCalendars = useCallback(async () => {
+    try {
+      const res = await api.getCalendars()
+      const cals = res.calendars ?? []
+      setCalendars(cals)
+      // Show all calendars by default.
+      setVisibleCalendarIds(new Set(cals.map((c) => c.id)))
+    } catch {
+      // Fallback: single default calendar.
+      setCalendars([])
+    }
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -185,7 +208,8 @@ export function CalendarPage() {
 
   useEffect(() => {
     load()
-  }, [load])
+    loadCalendars()
+  }, [load, loadCalendars])
 
   // Load the organization's bookable rooms for the room picker.
   useEffect(() => {
@@ -289,6 +313,44 @@ export function CalendarPage() {
     }
   }
 
+  const submitCalDialog = async () => {
+    if (!calForm.name.trim()) {
+      toast.error(t("calendar.calendarNameRequired"))
+      return
+    }
+    setCalBusy(true)
+    try {
+      if (calDialogMode === "create") {
+        await api.createCalendar({ name: calForm.name, description: calForm.description || undefined, color: calForm.color || "#3b82f6" })
+        toast.success(t("calendar.calendarCreated"))
+      } else if (calDialogCal) {
+        await api.updateCalendar(calDialogCal.id, { name: calForm.name, description: calForm.description || undefined, color: calForm.color || "#3b82f6" })
+        toast.success(t("calendar.calendarUpdated"))
+      }
+      setCalDialogOpen(false)
+      await loadCalendars()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("calendar.calendarSaveFailed"))
+    } finally {
+      setCalBusy(false)
+    }
+  }
+
+  const confirmDeleteCalendar = async () => {
+    if (!deleteCalTarget || calBusy) return
+    setCalBusy(true)
+    try {
+      await api.deleteCalendar(deleteCalTarget.id)
+      toast.success(t("calendar.calendarDeleted"))
+      setDeleteCalTarget(null)
+      await loadCalendars()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("calendar.calendarDeleteFailed"))
+    } finally {
+      setCalBusy(false)
+    }
+  }
+
   const checkAvailability = async () => {
     const emails = fbEmails
       .split(/[\s,;]+/)
@@ -378,6 +440,88 @@ export function CalendarPage() {
           </Button>
         </div>
       </div>
+
+      {/* Calendar overlay sidebar: list of calendars with visibility toggles */}
+      {calendars.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-muted-foreground">{t("calendar.calendars")}:</span>
+          {calendars.map((cal) => {
+            const visible = visibleCalendarIds.has(cal.id)
+            return (
+              <div
+                key={cal.id}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-sm border transition-colors cursor-pointer ${
+                  visible ? "opacity-100" : "opacity-50"
+                }`}
+                style={{ borderColor: cal.color ?? "#3b82f6", color: cal.color ?? "#3b82f6", backgroundColor: visible ? `${cal.color ?? "#3b82f6"}15` : "transparent" }}
+                onClick={() => {
+                  setVisibleCalendarIds((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(cal.id)) next.delete(cal.id)
+                    else next.add(cal.id)
+                    return next
+                  })
+                }}
+                title={cal.description}
+              >
+                <span
+                  className="h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: cal.color ?? "#3b82f6" }}
+                />
+                <span className="truncate max-w-24">{cal.name}</span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 ml-1 p-0 opacity-50 hover:opacity-100"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Settings2 className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setCalDialogMode("edit")
+                        setCalDialogCal(cal)
+                        setCalForm({ name: cal.name, description: cal.description ?? "", color: cal.color ?? "#3b82f6" })
+                        setCalDialogOpen(true)
+                      }}
+                    >
+                      <Edit className="mr-2 h-4 w-4" />
+                      {t("common.edit")}
+                    </DropdownMenuItem>
+                    {!cal.isDefault && (
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => setDeleteCalTarget(cal)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t("common.delete")}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )
+          })}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              setCalDialogMode("create")
+              setCalDialogCal(null)
+              setCalForm({ name: "", description: "", color: "#3b82f6" })
+              setCalDialogOpen(true)
+            }}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            {t("calendar.addCalendar")}
+          </Button>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-sm text-muted-foreground py-8 text-center">{t("common.loading")}</p>
@@ -754,6 +898,84 @@ export function CalendarPage() {
               {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t("common.delete")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Calendar create/edit dialog */}
+      <Dialog open={calDialogOpen} onOpenChange={setCalDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {calDialogMode === "create" ? t("calendar.newCalendar") : t("calendar.editCalendar")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="cal-name">{t("calendar.calendarName")}</Label>
+              <Input
+                id="cal-name"
+                value={calForm.name}
+                onChange={(e) => setCalForm({ ...calForm, name: e.target.value })}
+                placeholder={t("calendar.calendarNamePlaceholder")}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cal-desc">{t("calendar.description")}</Label>
+              <Input
+                id="cal-desc"
+                value={calForm.description}
+                onChange={(e) => setCalForm({ ...calForm, description: e.target.value })}
+                placeholder={t("common.optional")}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cal-color">{t("calendar.color")}</Label>
+              <div className="flex items-center gap-3">
+                <input
+                  id="cal-color"
+                  type="color"
+                  value={calForm.color}
+                  onChange={(e) => setCalForm({ ...calForm, color: e.target.value })}
+                  className="h-9 w-14 rounded border cursor-pointer p-0.5"
+                />
+                <Input
+                  value={calForm.color}
+                  onChange={(e) => setCalForm({ ...calForm, color: e.target.value })}
+                  placeholder="#3b82f6"
+                  className="font-mono"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCalDialogOpen(false)} disabled={calBusy}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={submitCalDialog} disabled={calBusy}>
+              {calDialogMode === "create" ? t("common.create") : t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Calendar delete confirmation */}
+      <Dialog open={deleteCalTarget !== null} onOpenChange={(open) => { if (!open) setDeleteCalTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("calendar.deleteCalendar")}</DialogTitle>
+            <DialogDescription>
+              {t("calendar.deleteCalendarConfirm", { name: deleteCalTarget?.name ?? "" })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteCalTarget(null)} disabled={calBusy}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteCalendar} disabled={calBusy}>
               <Trash2 className="mr-2 h-4 w-4" />
               {t("common.delete")}
             </Button>

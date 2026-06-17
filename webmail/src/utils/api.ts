@@ -99,6 +99,16 @@ export interface CalendarEvent {
 
 export type CalendarEventInput = Omit<CalendarEvent, "uid"> & { uid?: string }
 
+export interface Calendar {
+  id: string
+  name: string
+  description?: string
+  color?: string
+  isDefault?: boolean
+}
+
+export type CalendarInput = Pick<Calendar, "name" | "description" | "color">
+
 export interface Room {
   email: string
   name: string
@@ -942,6 +952,23 @@ class API {
     await this.delete(`/calendar/events/${encodeURIComponent(uid)}`)
   }
 
+  // Calendar management (multi-calendar)
+  async getCalendars(): Promise<{ calendars?: Calendar[] }> {
+    return this.get<{ calendars?: Calendar[] }>('/calendar/calendars')
+  }
+
+  async createCalendar(cal: CalendarInput): Promise<Calendar> {
+    return this.post<Calendar>('/calendar/calendars', cal)
+  }
+
+  async updateCalendar(id: string, cal: Partial<CalendarInput>): Promise<Calendar> {
+    return this.patch<Calendar>(`/calendar/calendars/${encodeURIComponent(id)}`, cal)
+  }
+
+  async deleteCalendar(id: string): Promise<void> {
+    await this.delete(`/calendar/calendars/${encodeURIComponent(id)}`)
+  }
+
   // getRooms lists the organization's bookable rooms for the room picker.
   async getRooms(): Promise<{ rooms?: Room[] }> {
     return this.get<{ rooms?: Room[] }>('/rooms')
@@ -1020,6 +1047,13 @@ class API {
   put<T = unknown>(endpoint: string, data?: unknown): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'PUT',
+      body: data ? JSON.stringify(data) : undefined
+    })
+  }
+
+  patch<T = unknown>(endpoint: string, data?: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
       body: data ? JSON.stringify(data) : undefined
     })
   }

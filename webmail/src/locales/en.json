@@ -517,7 +517,22 @@
     "checking": "Checking…",
     "check": "Check",
     "deleteEvent": "Delete Event",
-    "deleteConfirm": "Delete \"{{name}}\"? This cannot be undone."
+    "deleteConfirm": "Delete \"{{name}}\"? This cannot be undone.",
+    "calendars": "Calendars",
+    "addCalendar": "Add calendar",
+    "newCalendar": "New Calendar",
+    "editCalendar": "Edit Calendar",
+    "calendarName": "Name",
+    "calendarNamePlaceholder": "My calendar",
+    "color": "Color",
+    "calendarNameRequired": "Calendar name is required",
+    "calendarCreated": "Calendar created",
+    "calendarUpdated": "Calendar updated",
+    "calendarSaveFailed": "Failed to save calendar",
+    "deleteCalendar": "Delete Calendar",
+    "deleteCalendarConfirm": "Delete calendar \"{{name}}\"? Events in this calendar will also be deleted.",
+    "calendarDeleted": "Calendar deleted",
+    "calendarDeleteFailed": "Failed to delete calendar"
   },
   "filters": {
     "description": "Sort and act on incoming mail automatically",
