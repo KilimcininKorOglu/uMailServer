@@ -557,16 +557,21 @@ func (s *Server) buildCalendarResponse(username string, cal *Calendar) Response 
 	href := fmt.Sprintf("/dav/calendars/%s/%s/", username, cal.ID)
 	etag := s.storage.GetCalendarETag(username, cal.ID)
 
+	prop := []Property{
+		{XMLName: xml.Name{Space: "DAV:", Local: "resourcetype"}, Value: "\n        <collection/>\n        <calendar xmlns=\"urn:ietf:params:xml:ns:caldav\"/>\n      "},
+		{XMLName: xml.Name{Space: "DAV:", Local: "displayname"}, Value: cal.Name},
+		{XMLName: xml.Name{Space: "DAV:", Local: "getetag"}, Value: etag},
+		{XMLName: xml.Name{Space: "CALDAV:", Local: "calendar-description"}, Value: cal.Description},
+		{XMLName: xml.Name{Space: "CALDAV:", Local: "supported-calendar-component-set"}, Value: "<comp name=\"VEVENT\"/><comp name=\"VTODO\"/>"},
+	}
+	if cal.Color != "" {
+		prop = append(prop, Property{XMLName: xml.Name{Space: "http://apple.com/ns/icalendar/", Local: "calendar-color"}, Value: cal.Color})
+	}
+
 	return Response{
-		Href: href,
+		Href:    href,
 		Propstat: []Propstat{{
-			Prop: []Property{
-				{XMLName: xml.Name{Space: "DAV:", Local: "resourcetype"}, Value: "\n        <collection/>\n        <calendar xmlns=\"urn:ietf:params:xml:ns:caldav\"/>\n      "},
-				{XMLName: xml.Name{Space: "DAV:", Local: "displayname"}, Value: cal.Name},
-				{XMLName: xml.Name{Space: "DAV:", Local: "getetag"}, Value: etag},
-				{XMLName: xml.Name{Space: "CALDAV:", Local: "calendar-description"}, Value: cal.Description},
-				{XMLName: xml.Name{Space: "CALDAV:", Local: "supported-calendar-component-set"}, Value: "<comp name=\"VEVENT\"/><comp name=\"VTODO\"/>"},
-			},
+			Prop:   prop,
 			Status: "HTTP/1.1 200 OK",
 		}},
 	}
