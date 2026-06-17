@@ -322,33 +322,60 @@ func (s *Server) handleThreadDelete(w http.ResponseWriter, r *http.Request) {
 
 // getThreadsForMailbox retrieves threads for a user's mailbox
 func (s *Server) getThreadsForMailbox(user, mailbox string, limit, offset int) ([]*storage.Thread, error) {
-	// This is a placeholder - in a real implementation, we would query the database
-	// For now, return an empty list
-	return []*storage.Thread{}, nil
+	if s.mailDB == nil {
+		return []*storage.Thread{}, nil
+	}
+	return s.mailDB.GetThreads(user, limit, offset)
 }
 
 // getThreadMessages retrieves messages for a specific thread
 func (s *Server) getThreadMessages(user, mailbox, threadID string) ([]*storage.ThreadMessage, error) {
-	// This is a placeholder - in a real implementation, we would query the database
-	// For now, return an empty list
-	return []*storage.ThreadMessage{}, nil
+	if s.mailDB == nil {
+		return []*storage.ThreadMessage{}, nil
+	}
+	return s.mailDB.GetThreadMessages(user, mailbox, threadID)
 }
 
 // searchThreads searches for threads matching a query
 func (s *Server) searchThreads(user, query string) ([]*storage.Thread, error) {
-	// This is a placeholder - in a real implementation, we would search the database
-	// For now, return an empty list
-	return []*storage.Thread{}, nil
+	if s.mailDB == nil {
+		return []*storage.Thread{}, nil
+	}
+	return s.mailDB.SearchThreads(user, query)
 }
 
 // markThreadAsRead marks all messages in a thread as read
 func (s *Server) markThreadAsRead(user, mailbox, threadID string) error {
-	// This is a placeholder - in a real implementation, we would update the database
+	if s.mailDB == nil {
+		return nil
+	}
+	messages, err := s.mailDB.GetThreadMessages(user, mailbox, threadID)
+	if err != nil {
+		return err
+	}
+	for _, msg := range messages {
+		meta, err := s.mailDB.GetMessageMetadata(user, mailbox, msg.UID)
+		if err != nil {
+			continue
+		}
+		if !storage.HasFlag(meta.Flags, `\Seen`) {
+			meta.Flags = append(meta.Flags, `\Seen`)
+			if err := s.mailDB.UpdateMessageMetadata(user, mailbox, msg.UID, meta); err != nil {
+				s.logger.Warn("failed to mark message as read", "uid", msg.UID, "error", err)
+			}
+		}
+	}
 	return nil
 }
 
 // deleteThread deletes all messages in a thread
 func (s *Server) deleteThread(user, mailbox, threadID string) error {
-	// This is a placeholder - in a real implementation, we would delete from the database
+	if s.mailDB == nil {
+		return nil
+	}
+	// Delete thread record
+	if err := s.mailDB.DeleteThread(user, threadID); err != nil {
+		return err
+	}
 	return nil
 }

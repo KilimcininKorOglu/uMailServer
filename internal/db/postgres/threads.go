@@ -146,3 +146,92 @@ func (d *DB) UpdateThread(user string, thread *storage.Thread) error {
 	}
 	return nil
 }
+
+// GetThreads returns threads for a user with pagination.
+func (d *DB) GetThreads(user string, limit, offset int) ([]*storage.Thread, error) {
+	ctx := context.Background()
+	rows, err := d.pool.Query(ctx, `
+		SELECT thread_id, subject, participants, message_count, unread_count,
+			last_activity, created_at
+		FROM threads WHERE user_email=$1
+		ORDER BY last_activity DESC
+		LIMIT $2 OFFSET $3`,
+		user, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: get threads %s: %w", user, err)
+	}
+	defer rows.Close()
+
+	threads := []*storage.Thread{}
+	for rows.Next() {
+		var th storage.Thread
+		var lastActivity *time.Time
+		if err := rows.Scan(&th.ThreadID, &th.Subject, &th.Participants,
+			&th.MessageCount, &th.UnreadCount, &lastActivity, &th.CreatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan thread: %w", err)
+		}
+		if lastActivity != nil {
+			th.LastActivity = *lastActivity
+		}
+		threads = append(threads, &th)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: get threads %s: %w", user, err)
+	}
+	return threads, nil
+}
+
+// SearchThreads searches threads by subject or participant.
+func (d *DB) SearchThreads(user, query string) ([]*storage.Thread, error) {
+	ctx := context.Background()
+	pattern := "%" + query + "%"
+	rows, err := d.pool.Query(ctx, `
+		SELECT thread_id, subject, participants, message_count, unread_count,
+			last_activity, created_at
+		FROM threads
+		WHERE user_email=$1 AND (subject ILIKE $2 OR $3 = ANY(participants))
+		ORDER BY last_activity DESC
+		LIMIT 50`,
+		user, pattern, query)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: search threads %s/%s: %w", user, query, err)
+	}
+	defer rows.Close()
+
+	threads := []*storage.Thread{}
+	for rows.Next() {
+		var th storage.Thread
+		var lastActivity *time.Time
+		if err := rows.Scan(&th.ThreadID, &th.Subject, &th.Participants,
+			&th.MessageCount, &th.UnreadCount, &lastActivity, &th.CreatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan thread: %w", err)
+		}
+		if lastActivity != nil {
+			th.LastActivity = *lastActivity
+		}
+		threads = append(threads, &th)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: search threads %s/%s: %w", user, query, err)
+	}
+	return threads, nil
+}
+
+// DeleteThread deletes a thread record and its message associations.
+func (d *DB) DeleteThread(user, threadID string) error {
+	ctx := context.Background()
+	_, err := d.pool.Exec(ctx,
+		`DELETE FROM threads WHERE user_email=$1 AND thread_id=$2`,
+		user, threadID)
+	if err != nil {
+		return fmt.Errorf("postgres: delete thread %s/%s: %w", user, threadID, err)
+	}
+	// Also clear thread_id from messages in this thread (set to null)
+	_, err = d.pool.Exec(ctx,
+		`UPDATE messages SET thread_id=NULL WHERE user_email=$1 AND thread_id=$2`,
+		user, threadID)
+	if err != nil {
+		return fmt.Errorf("postgres: clear thread messages %s/%s: %w", user, threadID, err)
+	}
+	return nil
+}

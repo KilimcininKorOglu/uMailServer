@@ -41,6 +41,14 @@ type MailStore interface {
 	GetBackupManifest(id string) (*storage.BackupManifest, error)
 	DeleteBackupManifest(id string) error
 	ListBackupManifests(target string) ([]storage.BackupManifest, error)
+
+	// Conversation threads.
+	GetThread(user, threadID string) (*storage.Thread, error)
+	GetThreads(user string, limit, offset int) ([]*storage.Thread, error)
+	GetThreadMessages(user, mailbox, threadID string) ([]*storage.ThreadMessage, error)
+	UpdateThread(user string, thread *storage.Thread) error
+	DeleteThread(user, threadID string) error
+	SearchThreads(user, query string) ([]*storage.Thread, error)
 }
 
 // The bbolt store satisfies the API's storage surface. The relational
