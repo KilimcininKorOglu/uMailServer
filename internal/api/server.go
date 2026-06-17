@@ -1799,12 +1799,14 @@ func (s *Server) SetMailCrossProtocolFuncs(
 func (s *Server) SetRecoverableCaptureFunc(capture func(owner, srcFolder string, raw []byte) bool) {
 	s.mailRecoverCapture = capture
 	s.initMailHandler()
+	s.applyScheduledFuncs()
 }
 
 // SetRecoverFunc wires the dumpster restore path used by POST /api/v1/mail/recover.
 func (s *Server) SetRecoverFunc(fn func(owner, id string) (string, error)) {
 	s.mailRecover = fn
 	s.initMailHandler()
+	s.applyScheduledFuncs()
 }
 
 // SetScheduledFuncs wires the "send later" hooks webmail uses: schedule a future
