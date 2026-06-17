@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/umailserver/umailserver/internal/db"
@@ -20,7 +21,10 @@ type directoryEntry struct {
 	Phone      string `json:"phone,omitempty"`      // business phone
 }
 
-const maxDirectoryResults = 25
+const (
+	defaultDirectoryLimit = 25
+	maxDirectoryLimit   = 100
+)
 
 // handleDirectorySearch resolves names/addresses from the organization
 // directory (every domain in the caller's tenant), like the Exchange GAL. It
@@ -103,8 +107,38 @@ func (s *Server) handleDirectorySearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Email < entries[j].Email })
-	if len(entries) > maxDirectoryResults {
-		entries = entries[:maxDirectoryResults]
+
+	// Pagination: default offset=0, limit=25, cap limit at maxDirectoryLimit.
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if n, err := strconv.Atoi(o); err == nil && n >= 0 {
+			offset = n
+		}
 	}
-	s.sendJSON(w, http.StatusOK, map[string]interface{}{"entries": entries})
+	limit := defaultDirectoryLimit
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > maxDirectoryLimit {
+		limit = maxDirectoryLimit
+	}
+	total := len(entries)
+	if offset < len(entries) {
+		end := offset + limit
+		if end > len(entries) {
+			end = len(entries)
+		}
+		entries = entries[offset:end]
+	} else {
+		entries = nil
+	}
+
+	s.sendJSON(w, http.StatusOK, map[string]interface{}{
+		"entries": entries,
+		"total":   total,
+		"offset":  offset,
+		"limit":   limit,
+	})
 }
