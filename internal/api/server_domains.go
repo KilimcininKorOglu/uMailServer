@@ -179,6 +179,12 @@ func (s *Server) createDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Flush the TLS domain cache so the new domain can immediately obtain
+	// a certificate without waiting for the cache TTL to expire.
+	if s.flushTLSCache != nil {
+		s.flushTLSCache()
+	}
+
 	s.sendJSON(w, http.StatusCreated, domainToJSON(domain))
 }
 

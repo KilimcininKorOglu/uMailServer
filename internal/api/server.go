@@ -239,6 +239,11 @@ type Server struct {
 	// for the admin panel; injected by the orchestrator (nil = report empty set).
 	certificateStatusFunc func() []TLSCertificateStatus
 
+	// flushTLSCache, when set, is called after a new tenant domain is added
+	// so the TLS domain cache is invalidated and a certificate can be obtained
+	// immediately without waiting for the cache TTL to expire.
+	flushTLSCache func()
+
 	// HTTP server lifecycle guard (protects httpServer field)
 	serverMu sync.Mutex
 
@@ -1174,6 +1179,13 @@ func (s *Server) SetACMEChallengeHandler(handler http.Handler) {
 // listener on plain HTTP. Must be called before Start.
 func (s *Server) SetTLSConfig(cfg *tls.Config) {
 	s.tlsConfig = cfg
+}
+
+// SetFlushTLSCache sets the callback invoked after a new tenant domain is created
+// so the TLS domain cache is invalidated and a certificate can be obtained
+// immediately without waiting for the cache TTL to expire.
+func (s *Server) SetFlushTLSCache(fn func()) {
+	s.flushTLSCache = fn
 }
 
 // serveMaybeTLS serves srv over TLS when tlsCfg is non-nil, otherwise over plain

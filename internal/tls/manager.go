@@ -331,6 +331,15 @@ func (m *Manager) allowedDomains() []string {
 	return domains
 }
 
+// FlushDomainCache forces the dynamic domain cache to refresh on the next
+// TLS handshake, so a newly added tenant domain can immediately obtain a
+// certificate without waiting for the cache TTL to expire.
+func (m *Manager) FlushDomainCache() {
+	m.domainMu.Lock()
+	m.domainCacheAt = time.Time{}
+	m.domainMu.Unlock()
+}
+
 // GetCertificate returns a TLS certificate for the given hello info
 func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	// First try the ACME issuer (certmagic on-demand) if enabled

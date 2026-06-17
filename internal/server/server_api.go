@@ -98,6 +98,9 @@ func (s *Server) startAPI() {
 			}
 			return out
 		})
+		s.apiServer.SetFlushTLSCache(func() {
+			s.tlsManager.FlushDomainCache()
+		})
 	}
 	s.apiServer.SetSearchService(s.searchSvc)
 	s.apiServer.SetTracingProvider(s.tracingProvider)
