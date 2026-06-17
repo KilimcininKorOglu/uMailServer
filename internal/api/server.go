@@ -910,6 +910,8 @@ func (s *Server) initRouter() {
 		s.calendarHandler.SetRoomLookup(s.roomLookup)
 	}
 	if s.calendarHandler != nil {
+		api.HandleFunc("/api/v1/calendar/calendars", s.calendarHandler.handleCalendars)
+		api.HandleFunc("/api/v1/calendar/calendars/", s.calendarHandler.handleCalendarDetail)
 		api.HandleFunc("/api/v1/calendar/events", s.calendarHandler.handleCalendarEvents)
 		api.HandleFunc("/api/v1/calendar/events/", s.calendarHandler.handleCalendarEventDetail)
 		api.HandleFunc("/api/v1/calendar/freebusy", s.calendarHandler.handleFreeBusy)

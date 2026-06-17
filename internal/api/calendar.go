@@ -374,6 +374,158 @@ func (h *CalendarHandler) sendInvites(organizer string, dto CalendarEventDTO) er
 	return h.deliver(organizer, humans, []byte(sb.String()))
 }
 
+// CalendarDTO is the JSON projection of a calendar.
+type CalendarDTO struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Color       string `json:"color,omitempty"` // hex RGB value
+	IsDefault   bool   `json:"isDefault"`
+}
+
+// handleCalendars lists (GET) or creates (POST) calendars.
+func (h *CalendarHandler) handleCalendars(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value("user").(string)
+	if !ok || user == "" {
+		h.sendError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	store := h.getStorage()
+
+	switch r.Method {
+	case http.MethodGet:
+		cals, err := store.GetCalendars(user)
+		if err != nil {
+			h.sendError(w, http.StatusInternalServerError, "failed to list calendars")
+			return
+		}
+		dtos := make([]CalendarDTO, 0, len(cals))
+		for _, c := range cals {
+			dtos = append(dtos, CalendarDTO{
+				ID:          c.ID,
+				Name:        c.Name,
+				Description: c.Description,
+				Color:       c.Color,
+				IsDefault:   c.ID == defaultCalendarID,
+			})
+		}
+		h.sendJSON(w, http.StatusOK, map[string]interface{}{"calendars": dtos})
+	case http.MethodPost:
+		var req struct {
+			Name        string `json:"name"`
+			Description string `json:"description,omitempty"`
+			Color       string `json:"color,omitempty"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			h.sendError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if strings.TrimSpace(req.Name) == "" {
+			h.sendError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		cal := &caldav.Calendar{
+			Name:        req.Name,
+			Description: req.Description,
+			Color:       req.Color,
+			Created:     time.Now(),
+			Modified:    time.Now(),
+		}
+		if err := store.CreateCalendar(user, cal); err != nil {
+			h.sendError(w, http.StatusInternalServerError, "failed to create calendar")
+			return
+		}
+		h.sendJSON(w, http.StatusCreated, CalendarDTO{
+			ID:          cal.ID,
+			Name:        cal.Name,
+			Description: cal.Description,
+			Color:       cal.Color,
+			IsDefault:   false,
+		})
+	default:
+		h.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleCalendarDetail returns (GET), updates (PATCH), or deletes (DELETE) one calendar.
+func (h *CalendarHandler) handleCalendarDetail(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value("user").(string)
+	if !ok || user == "" {
+		h.sendError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id := path.Base(r.URL.Path)
+	if id == "" || id == "calendars" {
+		h.sendError(w, http.StatusBadRequest, "calendar id required")
+		return
+	}
+	store := h.getStorage()
+
+	switch r.Method {
+	case http.MethodGet:
+		cal, err := store.GetCalendar(user, id)
+		if err != nil {
+			h.sendError(w, http.StatusNotFound, "calendar not found")
+			return
+		}
+		h.sendJSON(w, http.StatusOK, CalendarDTO{
+			ID:          cal.ID,
+			Name:        cal.Name,
+			Description: cal.Description,
+			Color:       cal.Color,
+			IsDefault:   cal.ID == defaultCalendarID,
+		})
+	case http.MethodPatch:
+		var req struct {
+			Name        *string `json:"name,omitempty"`
+			Description *string `json:"description,omitempty"`
+			Color       *string `json:"color,omitempty"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			h.sendError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		cal, err := store.GetCalendar(user, id)
+		if err != nil {
+			h.sendError(w, http.StatusNotFound, "calendar not found")
+			return
+		}
+		if req.Name != nil {
+			cal.Name = *req.Name
+		}
+		if req.Description != nil {
+			cal.Description = *req.Description
+		}
+		if req.Color != nil {
+			cal.Color = *req.Color
+		}
+		cal.Modified = time.Now()
+		if err := store.UpdateCalendar(user, cal); err != nil {
+			h.sendError(w, http.StatusInternalServerError, "failed to update calendar")
+			return
+		}
+		h.sendJSON(w, http.StatusOK, CalendarDTO{
+			ID:          cal.ID,
+			Name:        cal.Name,
+			Description: cal.Description,
+			Color:       cal.Color,
+			IsDefault:   cal.ID == defaultCalendarID,
+		})
+	case http.MethodDelete:
+		if id == defaultCalendarID {
+			h.sendError(w, http.StatusBadRequest, "cannot delete the default calendar")
+			return
+		}
+		if err := store.DeleteCalendar(user, id); err != nil {
+			h.sendError(w, http.StatusInternalServerError, "failed to delete calendar")
+			return
+		}
+		h.sendJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	default:
+		h.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // --- minimal iCalendar (RFC 5545) VEVENT parse/generate ---
 
 // icsEscape escapes a text value for iCalendar.
