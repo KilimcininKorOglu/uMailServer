@@ -245,6 +245,7 @@ run_setup() {
     local hostname=""
     local admin_email=""
     local domain=""
+    local admin_password=""
 
     echo ""
     echo "=== uMailServer Setup ==="
@@ -266,6 +267,16 @@ run_setup() {
     while [[ -z "$domain" ]]; do
         read -p "Primary email domain [${hostname#*.}]: " domain
         domain="${domain:-${hostname#*.}}"
+    done
+
+    # Admin password
+    while [[ -z "$admin_password" ]]; do
+        read -sp "Admin password: " admin_password
+        echo ""
+        if [[ ${#admin_password} -lt 8 ]]; then
+            echo "Password must be at least 8 characters."
+            admin_password=""
+        fi
     done
 
     # Generate JWT secret
@@ -395,11 +406,27 @@ EOF
     chmod 600 "$CONFIG_DIR/umailserver.yaml"
     info "Configuration created: $CONFIG_DIR/umailserver.yaml"
 
-    # Initialize database
-    info "Initializing database..."
+    # Run quickstart to create domain, account, and DKIM key
+    info "Creating domain, admin account, and DKIM keys..."
     if [[ -x "$INSTALL_DIR/$BIN_NAME" ]]; then
-        "$INSTALL_DIR/$BIN_NAME" db migrate --config "$CONFIG_DIR/umailserver.yaml" 2>/dev/null || true
+        "$INSTALL_DIR/$BIN_NAME" quickstart "$admin_email" \
+            --password "$admin_password" \
+            --skip-config \
+            --data-dir "$DATA_DIR" \
+            --config "$CONFIG_DIR/umailserver.yaml"
+    else
+        error "Binary not found at $INSTALL_DIR/$BIN_NAME"
+        exit 1
     fi
+
+    echo ""
+    info "Setup complete!"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Start service: systemctl start umailserver"
+    echo "  2. Enable on boot: systemctl enable umailserver"
+    echo "  3. Check status: systemctl status umailserver"
+    echo ""
 }
 
 # Main installation
